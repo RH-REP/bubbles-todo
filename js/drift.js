@@ -433,6 +433,53 @@ export function createField(host, opts = {}) {
       if (!(w > 0) || !(h > 0)) return;
       next.push({ id: o.id, x, y, w, h, cx: x + w / 2, cy: y + h / 2 });
     });
+
+    /* ---- セルが動いたら、中身も一緒に運ぶ（利用者の報告）----
+
+       b.well は「いまバブルが居る場所」から毎 tick 引き直している（下の tick を見よ）。
+       だからカードを1枚足した／並べ替えたときのように**セルのほうが動く**と、
+       バブルは置いていかれ、どのセルにも入っていない状態になって、
+       固定が解けて漂い出す。＝「カードを足すとバブルの動きがおかしい」。
+
+       同じ id のセルが別の場所へ移っていたら、その中に居たバブルを同じだけずらす。
+       これで「カードの中身はカードに付いてくる」が成り立つ。
+       id が消えたセル（きっかけを消した等）は、いままでどおり自然にほどける。 */
+    if (wells.length && next.length && bubbles.size) {
+      const before = new Map();
+      wells.forEach(w => { if (w.id != null) before.set(w.id, w); });
+      const after = new Map();
+      next.forEach(w => { if (w.id != null) after.set(w.id, w); });
+      /* どのセルに居たかは、**古いセルの矩形に当てて**決める。
+         b.well は tick が引き直す値なので、まだ一度も回っていないとき
+         （面を開いた直後・rAF が発火しない環境）は空になっている。
+         それに頼ると、いちばん起きやすい「開いた直後にカードを足す」で効かない。 */
+      const wasIn = (b) => {
+        if (b.well && b.well.id != null) return b.well.id;
+        for (let i = 0; i < wells.length; i++) {
+          const w = wells[i];
+          if (b.cx >= w.x && b.cx <= w.x + w.w && b.cy >= w.y && b.cy <= w.y + w.h) return w.id;
+        }
+        return null;
+      };
+      bubbles.forEach(b => {
+        if (b.held) return;                       /* 指が持っているものは動かさない */
+        const id = wasIn(b);
+        if (id == null) return;
+        const a = before.get(id), c = after.get(id);
+        if (!a || !c) return;
+        const dx = c.cx - a.cx, dy = c.cy - a.cy;
+        if (!dx && !dy) return;
+        b.cx += dx; b.cy += dy;
+        b.well = c;                               /* 古いセルの実体を指したままにしない */
+        if (b.lock) { b.lock.x += dx; b.lock.y += dy; }
+        clearSnap(b);                             /* 寄せている途中なら、行き先が変わったので畳む */
+        /* **その場で描く。**描画は tick 任せだが、tick は次の rAF まで来ない。
+           カードを足した瞬間にバブルだけ取り残されて見えるのを避ける
+           （面が隠れていて rAF が発火しない環境では、来ないままになる） */
+        place(b);
+      });
+    }
+
     wells = next;
     if (!wells.length) {
       /* セルが無くなったら、掛かっていたものを全部ほどく。
