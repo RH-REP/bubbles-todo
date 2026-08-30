@@ -1253,7 +1253,7 @@ await test('海・すきま・きっかけの未分類、どこにあっても s
   /* すきま時間だけに入れたもの（gap:true、枠にも入れてみる） */
   const gap = store.add('耳で聞く');
   store.setGap(gap.id, true);
-  store.setGapSlot(gap.id, 'ears');
+  store.setGapSlot(gap.id, 'ears', true);
   assert.equal(store.get(gap.id).today, false);
   assert.equal(store.start(gap.id, null), true, 'すきま時間のものでも記録できる');
   assert.equal(store.isStarted(gap.id, null), true);
@@ -1431,12 +1431,12 @@ await test('complete() → restore() の旧経路も、uncomplete() も元どお
   store.setFirstStep(t.id, '袖をまくる');
   store.setUrl(t.id, 'https://example.com/x');
   store.setSlot(t.id, 'noon', true);
-  store.setGapSlot(t.id, 'ears');
+  store.setGapSlot(t.id, 'ears', true);
 
   const snap = store.complete(t.id);
   assert.deepEqual(store.all().map(x => x.id), [a.id, t.id, c.id], '並びは動かない');
   assert.deepEqual(store.todays(), [], '今日からは消える');
-  assert.equal(store.inGapSlot('ears'), null, 'すきまの枠からも消える');
+  assert.equal(store.inGapSlot('ears').length, 0, 'すきまの枠からも消える');
   assert.deepEqual(store.gapItems(), []);
 
   /* 画面側の取り消しは store.restore() を呼ぶ。complete() の戻り値でも通る */
@@ -1448,14 +1448,14 @@ await test('complete() → restore() の旧経路も、uncomplete() も元どお
   assert.equal(store.firstStepOf(t.id), '袖をまくる');
   assert.equal(store.urlOf(t.id), 'https://example.com/x');
   assert.equal(store.isGap(t.id), true);
-  assert.equal(store.gapSlotOf(t.id), 'ears');
-  assert.equal(store.inGapSlot('ears').id, t.id);
+  assert.deepEqual(store.gapSlotsOf(t.id), ['ears']);
+  assert.deepEqual(store.inGapSlot('ears').map(x => x.id), [t.id]);
 
   /* uncomplete() でも同じところへ戻る */
   store.complete(t.id);
   assert.equal(store.uncomplete(t.id), true);
   assert.equal(store.isDone(t.id), false);
-  assert.equal(store.inGapSlot('ears').id, t.id);
+  assert.deepEqual(store.inGapSlot('ears').map(x => x.id), [t.id]);
   assert.equal(store.uncomplete(t.id), false, '完了していなければ false');
   assert.equal(store.uncomplete('nosuch'), false);
 
@@ -1463,68 +1463,73 @@ await test('complete() → restore() の旧経路も、uncomplete() も元どお
   store.complete(t.id);
   const again = await open();
   assert.equal(again.isDone(t.id), true);
-  assert.equal(again.gapSlotOf(t.id), 'ears', '枠は覚えたまま');
+  assert.deepEqual(again.gapSlotsOf(t.id), ['ears'], '枠は覚えたまま');
   assert.equal(again.uncomplete(t.id), true);
-  assert.equal(again.inGapSlot('ears').id, t.id, '出せば枠に戻る');
-});
-
-await test('消している間に枠が埋まったら、戻ってきたほうが未分類へ回る', async () => {
-  const store = await open({ raw: null, now: NOW });
-  const t = store.add('先に入れたもの');
-  const u = store.add('あとから入れたもの');
-  store.setGapSlot(t.id, 'screen');
-
-  const snap = store.complete(t.id);
-  assert.equal(store.setGapSlot(u.id, 'screen').pushedOut, null, '空いた枠なので押し出さない');
-
-  assert.equal(store.restore(snap), true);
-  assert.equal(store.get(t.id).id, t.id, '項目そのものは戻る');
-  assert.equal(store.inGapSlot('screen').id, u.id, 'いま置かれているほうを押しのけない');
-  assert.equal(store.gapSlotOf(t.id), null);
-  assert.deepEqual(store.gapUnsorted().map(x => x.id), [t.id], '戻ったほうは未分類へ');
+  assert.deepEqual(again.inGapSlot('ears').map(x => x.id), [t.id], '出せば枠に戻る');
 });
 
 /* ============================================================ */
-/* すきま時間の枠 */
+/* すきま時間の枠（利用者の指示で作り替え。アンカーと同じ持ち方） */
 
-await test('GAP_SLOTS は固定4値。既定は未分類で、枠に入れると gap も立つ', async () => {
+await test('すきまの枠は既定4つ。名前を変えられる・足せる・消せる・並べ替えられる', async () => {
   const store = await open({ raw: null, now: NOW });
-  assert.deepEqual(store.GAP_SLOTS, ['ears', 'ears_off', 'screen', 'screen_off']);
+  assert.deepEqual(store.gapSlots().map(g => g.id), ['ears', 'ears_off', 'screen', 'screen_off']);
+  assert.deepEqual(store.gapSlots().map(g => g.name),
+    ['耳だけ', '耳だけ・保存済み', '画面', '画面・保存済み'], '既定はいままでの文言');
+  assert.equal(store.gapSlot('ears').name, '耳だけ');
+  assert.equal(store.gapSlot('nosuch'), null);
 
-  const t = store.add('落語を聴く');
-  assert.equal(store.get(t.id).gapSlot, null, '既定は未分類');
-  assert.equal(store.gapSlotOf(t.id), null);
-  assert.equal(store.isGap(t.id), false);
-  store.GAP_SLOTS.forEach(s => assert.equal(store.inGapSlot(s), null, s + ' は空'));
+  /* 名前を変える */
+  assert.equal(store.renameGapSlot('ears', '耳が空いている'), true);
+  assert.equal(store.gapSlot('ears').name, '耳が空いている');
+  assert.equal(store.renameGapSlot('ears', '  '), false, '空名にはしない');
+  assert.equal(store.renameGapSlot('nosuch', 'あ'), false);
 
-  /* 枠へ入れると、すきま時間の印も一緒に立つ */
-  assert.deepEqual(store.setGapSlot(t.id, 'ears'), { pushedOut: null });
-  assert.equal(store.isGap(t.id), true, 'gap:false なら true にする');
-  assert.equal(store.gapSlotOf(t.id), 'ears');
-  assert.equal(store.inGapSlot('ears').id, t.id);
-  assert.equal(store.inGapSlot('ears_off'), null, '似た名前の枠に漏れない');
-  assert.deepEqual(store.gapItems().map(x => x.id), [t.id]);
-  assert.deepEqual(store.gapUnsorted(), [], '枠に入ったので未分類ではない');
+  /* 足す */
+  const g = store.addGapSlot('手が空いている');
+  assert.ok(g && g.id);
+  assert.deepEqual(store.gapSlots().map(x => x.name).slice(-1), ['手が空いている']);
+  assert.equal(store.addGapSlot('   '), null, '空名は作らない');
 
-  /* 枠から枠へ。移動であって追加ではない（1件が入れるのは1枠だけ） */
-  assert.deepEqual(store.setGapSlot(t.id, 'screen_off'), { pushedOut: null });
-  assert.equal(store.gapSlotOf(t.id), 'screen_off');
-  assert.equal(store.inGapSlot('ears'), null, '元の枠は空く');
+  /* 並べ替え */
+  assert.equal(store.moveGapSlot('screen', -1), true);
+  assert.deepEqual(store.gapSlots().map(x => x.id), ['ears', 'screen', 'ears_off', 'screen_off', g.id]);
+  assert.equal(store.moveGapSlot('ears', -1), false, '端では動かない');
+  assert.equal(store.moveGapSlot('nosuch', 1), false);
 
-  /* null で未分類へ。すきま時間からは外れない */
-  assert.deepEqual(store.setGapSlot(t.id, null), { pushedOut: null });
-  assert.equal(store.gapSlotOf(t.id), null);
-  assert.equal(store.isGap(t.id), true, '未分類も「すきま時間」の中');
-  assert.deepEqual(store.gapUnsorted().map(x => x.id), [t.id]);
+  /* 上限。既定4＋足した1＝5、あと7個で 12 */
+  for (let i = 0; i < 7; i++) assert.ok(store.addGapSlot('枠' + i), '' + i);
+  assert.equal(store.gapSlots().length, store.MAX_GAP_SLOTS);
+  assert.equal(store.addGapSlot('あふれる'), null, '上限を超えては作らない');
 
-  /* 保存され、開き直しても残る */
-  store.setGapSlot(t.id, 'screen');
+  /* 保存の往復 */
   const again = await open();
-  assert.equal(again.gapSlotOf(t.id), 'screen');
-  assert.equal(again.inGapSlot('screen').id, t.id);
+  assert.equal(again.gapSlot('ears').name, '耳が空いている');
+  assert.deepEqual(again.gapSlots().map(x => x.id).slice(0, 3), ['ears', 'screen', 'ears_off']);
 });
 
-await test('埋まっている枠へ入れると、古いほうが黙って未分類へ移る', async () => {
+await test('枠を消すと、ぶら下がっていたものは未分類へ回る（項目は消えない）', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('落語を聴く');
+  store.setGapSlot(t.id, 'ears', true);
+  store.setGapSlot(t.id, 'screen', true);
+
+  assert.equal(store.removeGapSlot('ears'), true);
+  assert.equal(store.count(), 1, '項目そのものは消えない');
+  assert.deepEqual(store.gapSlotsOf(t.id), ['screen'], '消した枠だけ外れる');
+  assert.equal(store.isGap(t.id), true);
+  assert.equal(store.removeGapSlot('ears'), false, '二度は消せない');
+
+  assert.equal(store.removeGapSlot('screen'), true);
+  assert.deepEqual(store.gapSlotsOf(t.id), []);
+  assert.deepEqual(store.gapUnsorted().map(x => x.id), [t.id], 'どこにも無ければ未分類');
+
+  const again = await open();
+  assert.deepEqual(again.gapSlots().map(g => g.id), ['ears_off', 'screen_off']);
+  assert.deepEqual(again.gapUnsorted().map(x => x.id), [t.id]);
+});
+
+await test('1枠に何個でも、1件が何枠にでも入る（押し出しはもう無い）', async () => {
   const store = await open({ raw: null, now: ms(2026, 8, 20, 9, 0) });
   const a = store.add('先客');
   setNow(ms(2026, 8, 20, 9, 10));
@@ -1533,56 +1538,72 @@ await test('埋まっている枠へ入れると、古いほうが黙って未�
   const c = store.add('さらにあとから');
   setNow(NOW);
 
-  store.setGapSlot(a.id, 'ears');
+  assert.equal(store.setGapSlot(a.id, 'ears', true), true);
+  assert.equal(store.isGap(a.id), true, '枠へ入れると、すきま時間の印も一緒に立つ');
+  assert.equal(store.setGapSlot(b.id, 'ears', true), true);
+  assert.equal(store.setGapSlot(c.id, 'ears', true), true);
 
-  /* 断らない。古いほうを押し出して入る */
-  assert.deepEqual(store.setGapSlot(b.id, 'ears'), { pushedOut: a.id });
-  assert.equal(store.inGapSlot('ears').id, b.id, '新しいほうが枠に入る');
-  assert.equal(store.gapSlotOf(a.id), null, '古いほうは未分類へ');
-  assert.equal(store.isGap(a.id), true, '押し出されてもすきま時間からは外れない');
-  assert.deepEqual(store.gapUnsorted().map(x => x.id), [a.id]);
+  /* **押し出さない。**ぶら下げた順に並ぶ */
+  assert.deepEqual(store.inGapSlot('ears').map(x => x.id), [a.id, b.id, c.id]);
+  assert.deepEqual(store.gapUnsorted(), [], 'どれも未分類ではない');
 
-  /* もう一度押し出す。今度は b が未分類へ落ち、未分類は作成順に並ぶ */
-  assert.deepEqual(store.setGapSlot(c.id, 'ears'), { pushedOut: b.id });
-  assert.deepEqual(store.gapUnsorted().map(x => x.id), [a.id, b.id], '未分類は作成順');
-  assert.equal(store.inGapSlot('ears').id, c.id);
+  /* 1件が複数の枠に入る */
+  assert.equal(store.setGapSlot(a.id, 'screen', true), true);
+  assert.deepEqual(store.gapSlotsOf(a.id), ['ears', 'screen']);
+  assert.deepEqual(store.inGapSlot('ears').map(x => x.id), [a.id, b.id, c.id], '元の枠からは外れない');
+  assert.deepEqual(store.inGapSlot('screen').map(x => x.id), [a.id]);
+  assert.equal(store.inGapSlot('ears_off').length, 0, '似た名前の枠に漏れない');
 
-  /* 既に自分が入っている枠に入れ直しても、自分を押し出さない */
-  assert.deepEqual(store.setGapSlot(c.id, 'ears'), { pushedOut: null });
-  assert.equal(store.inGapSlot('ears').id, c.id);
+  /* 外す。すきま時間からは外れない */
+  assert.equal(store.setGapSlot(a.id, 'ears', false), true);
+  assert.deepEqual(store.gapSlotsOf(a.id), ['screen']);
+  assert.equal(store.isGap(a.id), true);
+  assert.equal(store.setGapSlot(a.id, 'screen', false), true);
+  assert.deepEqual(store.gapUnsorted().map(x => x.id), [a.id], '全部外れたら未分類');
 
-  /* 別の枠は巻き込まない */
-  assert.deepEqual(store.setGapSlot(a.id, 'screen'), { pushedOut: null });
-  assert.equal(store.inGapSlot('ears').id, c.id);
-  assert.equal(store.inGapSlot('screen').id, a.id);
+  /* on を省くとトグル */
+  assert.equal(store.setGapSlot(a.id, 'ears'), true);
+  assert.deepEqual(store.gapSlotsOf(a.id), ['ears']);
+  assert.equal(store.setGapSlot(a.id, 'ears'), true);
+  assert.deepEqual(store.gapSlotsOf(a.id), []);
+
+  /* 枠から枠へ移す（moveToGapSlot）。移動なので元からは外れる */
+  assert.equal(store.moveToGapSlot(b.id, 'ears', 'screen'), true);
+  assert.deepEqual(store.gapSlotsOf(b.id), ['screen']);
+  assert.deepEqual(store.inGapSlot('ears').map(x => x.id), [c.id]);
+  /* 未分類から入れるときは from が null */
+  assert.equal(store.moveToGapSlot(a.id, null, 'screen'), true);
+  assert.deepEqual(store.inGapSlot('screen').map(x => x.id), [b.id, a.id], '末尾に付く');
+
+  /* 保存の往復で並びごと残る */
+  const again = await open();
+  assert.deepEqual(again.inGapSlot('screen').map(x => x.id), [b.id, a.id]);
 });
 
 await test('setGapSlot の門前払いと、変化したときだけの通知', async () => {
   const store = await open({ raw: null, now: NOW });
   const t = store.add('あ');
 
-  /* 無い id / 不正な slot。形は同じまま、何も起きない */
-  assert.deepEqual(store.setGapSlot('nosuch', 'ears'), { pushedOut: null });
-  assert.equal(store.inGapSlot('ears'), null);
-  assert.deepEqual(store.setGapSlot(t.id, 'morning'), { pushedOut: null }, '時間帯タグの値は通さない');
-  assert.deepEqual(store.setGapSlot(t.id, 'EARS'), { pushedOut: null });
-  assert.deepEqual(store.setGapSlot(t.id, 1), { pushedOut: null });
+  assert.equal(store.setGapSlot('nosuch', 'ears', true), false);
+  assert.equal(store.inGapSlot('ears').length, 0);
+  assert.equal(store.setGapSlot(t.id, 'morning', true), false, '時間帯タグの値は通さない');
+  assert.equal(store.setGapSlot(t.id, 'EARS', true), false);
+  assert.equal(store.setGapSlot(t.id, 1, true), false);
   assert.equal(store.isGap(t.id), false, '弾いたときは gap も立てない');
-  assert.equal(store.gapSlotOf(t.id), null);
+  assert.deepEqual(store.gapSlotsOf(t.id), []);
 
-  /* 不正な枠を聞かれても落ちない */
-  assert.equal(store.inGapSlot('morning'), null);
-  assert.equal(store.inGapSlot(null), null, 'null は「未分類の枠」ではない');
-  assert.equal(store.gapSlotOf('nosuch'), null);
+  assert.equal(store.inGapSlot('morning').length, 0);
+  assert.equal(store.inGapSlot(null).length, 0, 'null は「未分類の枠」ではない');
+  assert.deepEqual(store.gapSlotsOf('nosuch'), []);
+  assert.equal(store.moveToGapSlot(t.id, null, 'nosuch'), false);
 
-  /* 変わったときだけ通知する */
   let n = 0;
   const off = store.on(() => n++);
-  store.setGapSlot(t.id, 'ears');
+  store.setGapSlot(t.id, 'ears', true);
   assert.equal(n, 1);
-  store.setGapSlot(t.id, 'ears');
-  assert.equal(n, 1, '同じ枠へ入れ直しても通知しない');
-  store.setGapSlot(t.id, null);
+  store.setGapSlot(t.id, 'ears', true);
+  assert.equal(n, 1, '同じ状態に入れ直しても通知しない');
+  store.setGapSlot(t.id, 'ears', false);
   assert.equal(n, 2);
   off();
 });
@@ -1591,34 +1612,30 @@ await test('setGap(id,false) で枠も空く。rollover は枠に触らない', 
   const store = await open({ raw: { v: 2, todos: [], log: [], lastDay: '2026-08-20' }, now: NOW });
   const t = store.add('podcast を聴く', { today: true });
   store.setSlot(t.id, 'morning', true);
-  store.setGapSlot(t.id, 'ears_off');
-  assert.equal(store.inGapSlot('ears_off').id, t.id);
+  store.setGapSlot(t.id, 'ears_off', true);
+  assert.deepEqual(store.inGapSlot('ears_off').map(x => x.id), [t.id]);
 
   /* すきま時間から外すと枠も空く（today と slots の関係と同じ） */
   assert.equal(store.setGap(t.id, false), true);
-  assert.equal(store.gapSlotOf(t.id), null);
-  assert.equal(store.get(t.id).gapSlot, null);
-  assert.equal(store.inGapSlot('ears_off'), null);
+  assert.deepEqual(store.gapSlotsOf(t.id), []);
+  assert.equal(store.inGapSlot('ears_off').length, 0);
   assert.deepEqual(store.gapUnsorted(), []);
 
   /* 印を付け直しても枠は戻らない（未分類から始まる） */
   assert.equal(store.setGap(t.id, true), true);
-  assert.equal(store.gapSlotOf(t.id), null);
+  assert.deepEqual(store.gapSlotsOf(t.id), []);
 
   /* 日をまたいでも枠は残る。落ちるのは today と slots だけ */
-  store.setGapSlot(t.id, 'screen');
+  store.setGapSlot(t.id, 'screen', true);
   setNow(ms(2026, 8, 21, 10, 0));
-  /* 日付ごとに持つようになり、rollover は「戻す」ことをしなくなった（いつでも 0）。
-     今日の海が空くのは、今日のキーを持つものが無くなるため */
   assert.equal(store.rollover(), 0);
   assert.equal(store.get(t.id).today, false);
   assert.deepEqual(store.slotsOf(t.id), []);
-  assert.equal(store.gapSlotOf(t.id), 'screen', 'すきま時間の枠は日をまたいでも消えない');
-  assert.equal(store.inGapSlot('screen').id, t.id);
+  assert.deepEqual(store.gapSlotsOf(t.id), ['screen'], 'すきま時間の枠は日をまたいでも消えない');
   setNow(NOW);
 });
 
-await test('gapSlot の無い旧データを読んでも壊れず、未分類から始まる', async () => {
+await test('単数 gapSlot の旧データを読むと、その枠1つに入った形へ移る', async () => {
   const store = await open({ raw: {
     v: 2,
     todos: [
@@ -1630,21 +1647,20 @@ await test('gapSlot の無い旧データを読んでも壊れず、未分類か
   }, now: NOW });
 
   assert.equal(store.count(), 2);
-  ['a', 'b'].forEach(id => {
-    assert.equal(store.get(id).gapSlot, null, id);
-    assert.equal(store.gapSlotOf(id), null, id);
-  });
+  assert.deepEqual(store.gapSlots().map(g => g.id), ['ears', 'ears_off', 'screen', 'screen_off'],
+    '枠を持たない保存データは既定の4つで立ち上がる');
+  ['a', 'b'].forEach(id => assert.deepEqual(store.gapSlotsOf(id), [], id));
   assert.equal(store.isGap('a'), true, 'gap の印は従来どおり読める');
   assert.deepEqual(store.gapUnsorted().map(t => t.id), ['a'], 'gap:true は未分類として出る');
-  store.GAP_SLOTS.forEach(s => assert.equal(store.inGapSlot(s), null));
+  store.gapSlots().forEach(g => assert.equal(store.inGapSlot(g.id).length, 0));
 
   /* 旧形式（配列そのもの）からの移行でも同じ */
   const old = await open({ raw: [{ id: 'z', text: 'う', today: false }] });
-  assert.equal(old.gapSlotOf('z'), null);
+  assert.deepEqual(old.gapSlotsOf('z'), []);
   assert.deepEqual(old.gapUnsorted(), []);
 
-  /* 壊れた値・gap:false なのに枠を持つデータは未分類に直す。
-     同じ枠を名乗るものが2件あったら、先頭だけ残す */
+  /* 単数 gapSlot は配列1件へ。壊れた値・gap:false のぶんは未分類に直す。
+     **同じ枠の2件はどちらも残る**（1枠1件はもう無い） */
   const odd = await open({ raw: {
     v: 2,
     todos: [
@@ -1656,14 +1672,14 @@ await test('gapSlot の無い旧データを読んでも壊れず、未分類か
     log: [],
     lastDay: '2026-08-20',
   }, now: NOW });
-  assert.equal(odd.gapSlotOf('p'), null, '知らない枠の値は未分類へ');
-  assert.equal(odd.gapSlotOf('q'), null, 'gap:false なら枠は持たない');
+  assert.deepEqual(odd.gapSlotsOf('p'), [], '知らない枠の値は未分類へ');
+  assert.deepEqual(odd.gapSlotsOf('q'), [], 'gap:false なら枠は持たない');
   assert.equal(odd.isGap('q'), false);
-  assert.equal(odd.inGapSlot('ears'), null);
-  assert.equal(odd.gapSlotOf('r'), 'screen', '同じ枠の2件は先頭だけ残る');
-  assert.equal(odd.gapSlotOf('s'), null);
-  assert.equal(odd.inGapSlot('screen').id, 'r');
-  assert.deepEqual(odd.gapUnsorted().map(t => t.id), ['p', 's'], '溢れたぶんは未分類で見える');
+  assert.equal(odd.inGapSlot('ears').length, 0);
+  assert.deepEqual(odd.gapSlotsOf('r'), ['screen'], '単数の値が配列1件になる');
+  assert.deepEqual(odd.gapSlotsOf('s'), ['screen'], '2件目も押し出されない');
+  assert.deepEqual(odd.inGapSlot('screen').map(t => t.id), ['r', 's']);
+  assert.deepEqual(odd.gapUnsorted().map(t => t.id), ['p'], '枠に入れなかったぶんだけ未分類');
 });
 
 /* ============================================================ */
@@ -2853,14 +2869,14 @@ await test('完了したものは「いま生きているもの」の問い合�
   store.setSlot(t.id, 'noon', true);
   store.setAnchor(t.id, A.id, true);
   store.setPlan(t.id, true);
-  store.setGapSlot(t.id, 'ears');
+  store.setGapSlot(t.id, 'ears', true);
 
   assert.deepEqual(store.todays().map(x => x.id), [t.id, keep.id]);
   assert.deepEqual(store.inSlot('noon').map(x => x.id), [t.id]);
   assert.deepEqual(store.unslotted().map(x => x.id), [keep.id]);
   assert.deepEqual(store.inAnchor(A.id).map(x => x.id), [t.id]);
   assert.deepEqual(store.gapItems().map(x => x.id), [t.id]);
-  assert.equal(store.inGapSlot('ears').id, t.id);
+  assert.deepEqual(store.inGapSlot('ears').map(x => x.id), [t.id]);
 
   store.complete(t.id);
 
@@ -2869,7 +2885,7 @@ await test('完了したものは「いま生きているもの」の問い合�
   assert.deepEqual(store.unslotted().map(x => x.id), [keep.id]);
   assert.deepEqual(store.inAnchor(A.id), [], 'きっかけの枠から消える');
   assert.deepEqual(store.gapItems(), [], 'すきまから消える');
-  assert.equal(store.inGapSlot('ears'), null, 'すきまの枠から消える');
+  assert.equal(store.inGapSlot('ears').length, 0, 'すきまの枠から消える');
   assert.deepEqual(store.gapUnsorted(), []);
   assert.deepEqual(store.floating(), [], '海にも出てこない');
 
@@ -3315,7 +3331,7 @@ await test('消したものは、画面が使う問い合わせから1つずつ�
   const t = store.add('全部に属するもの', { today: true });
   store.setSlot(t.id, 'noon', true);
   store.setAnchor(t.id, A.id, true);
-  store.setGapSlot(t.id, 'ears');
+  store.setGapSlot(t.id, 'ears', true);
   store.setTag(t.id, mine.id, true);
   store.setFirstStep(t.id, 'かばんを開ける');
   store.setUrl(t.id, 'https://example.com/x');
@@ -3338,7 +3354,7 @@ await test('消したものは、画面が使う問い合わせから1つずつ�
   assert.deepEqual(store.inAnchor(A.id).map(x => x.id), [t.id]);
   assert.deepEqual(store.planUnsorted().map(x => x.id), [plan.id]);
   assert.deepEqual(store.gapItems().map(x => x.id), [t.id, gapU.id]);
-  assert.equal(store.inGapSlot('ears').id, t.id);
+  assert.deepEqual(store.inGapSlot('ears').map(x => x.id), [t.id]);
   assert.deepEqual(store.gapUnsorted().map(x => x.id), [gapU.id]);
   assert.deepEqual(store.inTag(mine.id).map(x => x.id), [t.id]);
   assert.deepEqual(store.inTag('today').map(x => x.id), [t.id, unsl.id]);
@@ -3361,7 +3377,7 @@ await test('消したものは、画面が使う問い合わせから1つずつ�
   assert.deepEqual(store.inAnchor(A.id), [], 'inAnchor()');
   assert.deepEqual(store.planUnsorted(), [], 'planUnsorted()');
   assert.deepEqual(store.gapItems(), [], 'gapItems()');
-  assert.equal(store.inGapSlot('ears'), null, 'inGapSlot()');
+  assert.equal(store.inGapSlot('ears').length, 0, 'inGapSlot()');
   assert.deepEqual(store.gapUnsorted(), [], 'gapUnsorted()');
   assert.deepEqual(store.inTag(mine.id), [], 'inTag()（ユーザーのタグ）');
   assert.deepEqual(store.inTag('today'), [], 'inTag()（特別なタグ）');
@@ -3376,7 +3392,7 @@ await test('消したものは、画面が使う問い合わせから1つずつ�
   assert.deepEqual(store.tagsOf(t.id), [], 'tagsOf()');
   assert.deepEqual(store.slotsOf(t.id), [], 'slotsOf()');
   assert.deepEqual(store.anchorsOf(t.id), [], 'anchorsOf()');
-  assert.equal(store.gapSlotOf(t.id), null, 'gapSlotOf()');
+  assert.deepEqual(store.gapSlotsOf(t.id), [], 'gapSlotsOf()');
   assert.equal(store.isGap(t.id), false, 'isGap()');
   assert.equal(store.isPlan(plan.id), false, 'isPlan()');
   assert.equal(store.isDone(dn.id), false, 'isDone()');
@@ -3392,7 +3408,7 @@ await test('消したものは、画面が使う問い合わせから1つずつ�
   assert.equal(store.setAnchor(t.id, A.id, true), false, 'setAnchor()');
   assert.equal(store.setPlan(t.id, true), false, 'setPlan()');
   assert.equal(store.setGap(t.id, true), false, 'setGap()');
-  assert.deepEqual(store.setGapSlot(t.id, 'screen'), { pushedOut: null }, 'setGapSlot()');
+  assert.equal(store.setGapSlot(t.id, 'screen', true), false, 'setGapSlot()');
   assert.equal(store.setTag(t.id, mine.id, true), false, 'setTag()');
   assert.equal(store.setFirstStep(t.id, 'x'), false, 'setFirstStep()');
   assert.deepEqual(store.setUrl(t.id, 'https://example.com/y'), { ok: false, url: '' }, 'setUrl()');
@@ -3410,7 +3426,7 @@ await test('消したものは、画面が使う問い合わせから1つずつ�
   assert.equal(row.today, true, '消した時点の姿がそのまま残っている');
   assert.deepEqual(row.slots, ['noon']);
   assert.deepEqual(row.anchors, [A.id]);
-  assert.equal(row.gapSlot, 'ears');
+  assert.deepEqual(row.gapSlots, ['ears']);
   assert.deepEqual(row.tags, [mine.id]);
   assert.equal(row.firstStep, 'つぎ', 'commitStep が入れた「開始の１手」もそのまま');
   assert.equal(row.steps.length, 1);
@@ -3472,7 +3488,7 @@ await test('restore() で消したものが戻る（トーストの「元に戻�
   store.setSlot(t.id, 'noon', true);
   store.setAnchor(t.id, A.id, true);
   store.setTag(t.id, mine.id, true);
-  store.setGapSlot(t.id, 'screen');
+  store.setGapSlot(t.id, 'screen', true);
   store.setFirstStep(t.id, 'かばんに本を入れる');
 
   const snap = store.remove(t.id);
@@ -3490,23 +3506,24 @@ await test('restore() で消したものが戻る（トーストの「元に戻�
   assert.deepEqual(store.slotsOf(t.id), ['noon']);
   assert.deepEqual(store.anchorsOf(t.id), [A.id]);
   assert.deepEqual(store.tagsOf(t.id), ['today', 'gap', mine.id]);
-  assert.equal(store.gapSlotOf(t.id), 'screen');
-  assert.equal(store.inGapSlot('screen').id, t.id);
+  assert.deepEqual(store.gapSlotsOf(t.id), ['screen']);
+  assert.deepEqual(store.inGapSlot('screen').map(x => x.id), [t.id]);
   assert.equal(store.firstStepOf(t.id), 'かばんに本を入れる');
 
   /* 二度戻しても壊れない */
   assert.equal(store.restore(snap), true);
   assert.equal(store.allIncludingTrashed().length, 3);
 
-  /* 消している間に枠が埋まっていたら、戻ってきたほうが未分類へ回る
-     （uncomplete と同じ理屈。いま置かれているものを押しのけない） */
+  /* 消している間に同じ枠へ別のものが入っていても、戻ってきたほうは枠に残る
+     （1枠1件がもう無いので、押し出しも「未分類へ回る」も起きない） */
   const u = store.add('あとから置いたもの');
   const snap2 = store.remove(t.id);
-  assert.equal(store.setGapSlot(u.id, 'screen').pushedOut, null, '空いた枠なので押し出さない');
+  assert.equal(store.setGapSlot(u.id, 'screen', true), true);
   assert.equal(store.restore(snap2), true);
-  assert.equal(store.inGapSlot('screen').id, u.id);
-  assert.equal(store.gapSlotOf(t.id), null);
-  assert.deepEqual(store.gapUnsorted().map(x => x.id), [t.id], '戻ったほうは未分類へ');
+  assert.deepEqual(store.inGapSlot('screen').map(x => x.id).sort(), [t.id, u.id].sort(),
+    '2件とも同じ枠に居られる');
+  assert.deepEqual(store.gapSlotsOf(t.id), ['screen'], '戻ったほうも枠に残る');
+  assert.deepEqual(store.gapUnsorted(), []);
 
   /* 消している間にタグ・アンカーが消えていたら、その残りかすだけ落ちる */
   const snap3 = store.remove(t.id);
@@ -3646,7 +3663,7 @@ await test('rollover は墓石に触らない', async () => {
   store.setSlot(t.id, 'morning', true);
   store.setAnchor(t.id, A.id, true);
   store.start(t.id, A.id);
-  store.setGapSlot(t.id, 'ears');
+  store.setGapSlot(t.id, 'ears', true);
 
   store.remove(t.id);
 
@@ -3663,7 +3680,7 @@ await test('rollover は墓石に触らない', async () => {
   assert.equal(row.today, false, 'today は days から作り直した結果');
   assert.deepEqual(row.slots, ['morning'], '時間帯タグも落とさない');
   assert.deepEqual(row.started, { [A.id]: NOW }, 'はじめた記録も落とさない');
-  assert.equal(row.gapSlot, 'ears', 'すきまの枠も従来どおり触らない');
+  assert.deepEqual(row.gapSlots, ['ears'], 'すきまの枠も従来どおり触らない');
 
   /* 生きているほうは従来どおり海へ戻る */
   assert.equal(store.get(keep.id).today, false);
@@ -3690,10 +3707,9 @@ await test('clear() / wipe() の意味は変わらない。墓石ごと本当に
   assert.equal(b.id === c.id, false);
 });
 
-await test('墓石はすきま時間の枠を、生きている項目から奪わない', async () => {
-  /* 保存データに、墓石と生きている項目が同じ枠を名乗る形で入っていることがある
-     （枠に入れたまま消して、あとから同じ枠へ別のものを置いた、など）。
-     読み込みで生きているほうが枠を取れないと、画面のどこにも現れない項目ができる */
+await test('墓石は枠に居座らない。生きている項目とは取り合いにならない', async () => {
+  /* 1枠1件をやめたので、取り合いそのものが無くなった。
+     残る決めごとは「墓石は画面のどの問い合わせにも出てこない」だけ */
   const store = await open({ raw: {
     v: 2,
     todos: [
@@ -3706,21 +3722,22 @@ await test('墓石はすきま時間の枠を、生きている項目から奪�
     lastDay: '2026-08-20',
   }, now: NOW });
 
-  assert.equal(store.inGapSlot('ears').id, 'live', '生きているほうが枠を取る');
-  assert.equal(store.allIncludingTrashed().find(x => x.id === 'gone').gapSlot, null,
-    '墓石のほうが未分類へ落ちる');
+  assert.deepEqual(store.inGapSlot('ears').map(x => x.id), ['live'], '墓石は枠に出てこない');
+  assert.deepEqual(store.allIncludingTrashed().find(x => x.id === 'gone').gapSlots, ['ears'],
+    '墓石は枠を覚えたまま（戻せば同じ枠に返る）');
   assert.deepEqual(store.gapUnsorted(), [], '墓石は未分類にも出てこない');
 
-  /* 生きているうちに枠へ置き直しても、墓石は黙って空くだけ（トーストで知らせない） */
+  /* 消して戻す往復でも、2件が同じ枠に並ぶ（取り合いにならない） */
   const s2 = await open({ raw: null, now: NOW });
   const a = s2.add('先に入れたもの');
   const b = s2.add('あとから入れたもの');
-  s2.setGapSlot(a.id, 'screen');
-  s2.remove(a.id);
-  assert.deepEqual(s2.setGapSlot(b.id, 'screen'), { pushedOut: null },
-    '見えていない墓石を「未分類へ移した」とは知らせない');
-  assert.equal(s2.inGapSlot('screen').id, b.id);
-  assert.equal(s2.allIncludingTrashed().find(x => x.id === a.id).gapSlot, null);
+  s2.setGapSlot(a.id, 'screen', true);
+  const snap = s2.remove(a.id);
+  assert.equal(s2.setGapSlot(b.id, 'screen', true), true);
+  assert.deepEqual(s2.inGapSlot('screen').map(x => x.id), [b.id], '墓石は出てこない');
+  assert.equal(s2.restore(snap), true);
+  assert.deepEqual(s2.inGapSlot('screen').map(x => x.id), [a.id, b.id],
+    '戻したほうも同じ枠へ。ぶら下げた順に並ぶ');
 });
 
 /* ============================================================ */

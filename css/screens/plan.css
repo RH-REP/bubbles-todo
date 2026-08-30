@@ -393,6 +393,38 @@
 .pcompose .in::placeholder { color: var(--text-2); }
 .pcompose .in:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
 
+/* ---------- 書くときに付けるタグ（利用者の指示） ----------
+   今日の画面の入力欄と同じ形・同じクラス名。**畳まない**——
+   あちらは画面の下端に貼り付いていて場所が無いが、こちらは枠の中なので、
+   出したままのほうが「いま何が付くか」が常に見える。 */
+.pcompose .tc-tags {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 7px;
+}
+/* 押していないほうを薄くするのではなく、押しているほうを起こす（§0） */
+.pcompose .tc-tag {
+  appearance: none; -webkit-appearance: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 32px; padding: 0 11px 0 9px;
+  cursor: pointer; font: inherit; font-size: 12.5px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--text-2);
+}
+.pcompose .tc-tag[aria-pressed="true"] {
+  border-color: var(--line-strong); background: var(--surface-2);
+  color: var(--text); font-weight: 600;
+}
+.pcompose .tc-tag:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.pcompose .tc-dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--tcd, var(--bub-edge));
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.pcompose .tc-tag[aria-pressed="false"] .tc-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--tcd, var(--line-strong));
+}
+
 /* ---------- ＋ きっかけを足す ---------- */
 /* 面には横の padding が無いので、ここで枠の中身と縦線を揃える */
 .plan-addanchor {

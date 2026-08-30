@@ -22,7 +22,8 @@
      plan:      boolean    きっかけの画面に属する。既定 false。
                            まだどのアンカーにもぶら下げていないもの（未分類）の置き場を
                            表すための軸で、anchors とは独立。gap と同じ形
-     gapSlot:   string|null  すきま時間の枠。通信（あり/なし）×使えるもの（耳だけ/画面）の
+     gapSlots:  string[]     すきま時間の枠の id。何個でも入る（アンカーと同じ）。
+                           前の版は単数の gapSlot だった（1枠1件）。読み込みで移行する
                            固定4値、または null（未分類）。既定 null。
                            1枠に入るのは1件だけ。gap:false のときは常に null
                            （gap と一緒に消える軸。slots と today の関係と同じ）
@@ -86,7 +87,7 @@
    保存形式 v2:
      { v:2, anchors:[anchor], tags:[tag], todos:[todo], log:[{id,text,slot,slotName,at}],
        todayLog:[{id,text,at}], lastDay:'YYYY-MM-DD' }
-   firstStep / url / gap / gapSlot / plan / anchors / steps / draft / tags / done /
+   firstStep / url / gap / gapSlots / gapAt / plan / anchors / steps / draft / tags / done /
    trashed は後から足したフィールドで、無ければ既定値で埋める。
    増えただけで読み方は変わらないので v は上げていない。
    log は着手のログ。古い順。text はその時点のスナップショットなので、
@@ -102,7 +103,19 @@ const SLOTS = ['morning', 'noon', 'night'];
 
 /* すきま時間の枠。軸は 通信（あり／なし）× 使えるもの（耳だけ／画面）の固定4値。
    時間帯タグ（複数可）と違い、1件が入れるのは1枠だけ。1枠に入るのも1件だけ */
-const GAP_SLOTS = ['ears', 'ears_off', 'screen', 'screen_off'];
+/* すきま時間の枠。**ユーザーが決める一覧**（利用者の指示。前は固定4値だった）。
+   既定はいままでの4つで、名前を変えられる・足せる・消せる・並べ替えられる。
+   1枠に入る数の上限も無くした（前は「1枠1件」で、2件目が古いほうを押し出していた）。
+   持ち方はきっかけのアンカーとまったく同じ——画面も同じ形にするため。 */
+const GAP_DEFAULTS = [
+  { id: 'ears',       name: '耳だけ' },
+  { id: 'ears_off',   name: '耳だけ・保存済み' },
+  { id: 'screen',     name: '画面' },
+  { id: 'screen_off', name: '画面・保存済み' },
+];
+
+/* 一覧で見渡せる上限。アンカーと同じ数にそろえてある */
+const MAX_GAP_SLOTS = 12;
 
 /* 特別なタグ。既存のフラグ（today / plan / gap / hold / done）と同じものを指す。
    名前は変えられず、消せない。色と向きだけユーザーが決められる
@@ -267,6 +280,7 @@ const DAY_CUTOFF_HOUR = 5;
 
 let items = [];
 let anchorList = [];  /* アンカー。配列の並びがそのままユーザーの並び順 */
+let gapList = [];     /* すきま時間の枠。同じく並びがユーザーの並び順 */
 let tagList = [];     /* タグ。先頭4件は必ず特別なタグ（TAG_DEFAULTS の順） */
 /* 最初から置いてあるタグ（TAG_STARTERS）のうち、ユーザーが消したもの。
    これを覚えておかないと、消しても読み込みのたびによみがえる */
@@ -582,6 +596,30 @@ function keyOf(anchorId) {
 
 /* --- 読み込み --- */
 
+/* すきま時間の枠の一覧。保存データが無ければ既定の4つ。
+   名前は変えられるので、保存された名前が正。id だけを既定と突き合わせる */
+function normalizeGapSlots(v) {
+  const arr = Array.isArray(v) ? v : null;
+  if (!arr) return GAP_DEFAULTS.map(d => ({ id: d.id, name: d.name }));
+  const out = [];
+  const seen = new Set();
+  arr.forEach(x => {
+    if (!x || typeof x !== 'object') return;
+    const id = typeof x.id === 'string' ? x.id.trim() : '';
+    const name = anchorName(x.name);
+    if (!id || !name || seen.has(id)) return;
+    seen.add(id);
+    out.push({ id, name });
+  });
+  /* 保存データはあるが1つも読めなかった＝壊れている。既定で立て直す
+     （空の一覧にすると、未分類しか無い画面になって置き場所が消える） */
+  return out.length ? out : GAP_DEFAULTS.map(d => ({ id: d.id, name: d.name }));
+}
+
+function findGapSlot(id) {
+  return (typeof id === 'string' && gapList.find(g => g.id === id)) || null;
+}
+
 function normalizeAnchors(arr) {
   const out = [];
   const seen = new Set();
@@ -725,7 +763,7 @@ function normalizeDraft(v) {
   return { did: stepText(o.did), next: stepText(o.next) };
 }
 
-function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
+function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
   /* 長期保留。旧データには無いので false から始まる。
      holdUntil は「この日に海へ戻る」日付キー。null なら自分で外すまでそのまま。
      長期保留でないものが日付だけ持っていても意味が無いので、そこは落とす */
@@ -758,6 +796,22 @@ function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
       if (Number.isFinite(n)) anchorAt[id] = n;
     });
   }
+  /* すきま時間の枠。**配列**（利用者の指示で複数ぶら下げられるようになった）。
+     前の版は単数の gapSlot だったので、そこからも読む——
+     旧データを開いたとき、入っていた枠がそのまま1件の配列になる。
+     消した枠の id は落とす（anchors とまったく同じ扱い） */
+  const rawGap = Array.isArray(t.gapSlots) ? t.gapSlots
+    : (typeof t.gapSlot === 'string' && t.gapSlot ? [t.gapSlot] : []);
+  const gapSlots = gap
+    ? rawGap.filter((x, i, arr) => gapSlotIds.has(x) && arr.indexOf(x) === i)
+    : [];
+  const gapAt = {};
+  if (t.gapAt && typeof t.gapAt === 'object') {
+    gapSlots.forEach(id => {
+      const n = Number(t.gapAt[id]);
+      if (Number.isFinite(n)) gapAt[id] = n;
+    });
+  }
   return {
     id: typeof t.id === 'string' ? t.id : uid(),
     text: t.text,
@@ -781,9 +835,13 @@ function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
     firstStep: typeof t.firstStep === 'string' ? t.firstStep.trim() : '',
     url: safeUrl(t.url) || '',
     gap,
-    /* 旧データには無い。無ければ未分類（null）。
-       gap:false ならすきま時間の枠には入っていないのが正なので、そこも揃える */
-    gapSlot: (gap && GAP_SLOTS.indexOf(t.gapSlot) >= 0) ? t.gapSlot : null,
+    /* 枠は**配列**（利用者の指示で複数ぶら下げられるようになった）。
+       前の版は単数の gapSlot だったので、そこからも読み込む。
+       gap:false なら枠には入っていないのが正なので、そこも揃える。
+       いま存在しない枠の id は落とす（消した枠の残りかす。anchors と同じ扱い） */
+    gapSlots,
+    /* 枠の中の並び順。アンカーの anchorAt と同じ持ち方 */
+    gapAt,
     plan: !!t.plan,
     /* 旧データには無い。無ければ空の配列 / 空の下書き。
        today や gap と違い、どの軸とも連動しない（消える条件を持たない） */
@@ -803,37 +861,24 @@ function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
   };
 }
 
-/* すきま時間の枠は 1枠1件。同じ枠を名乗るものが保存データに複数あったら、
-   先頭だけを残して後ろは未分類へ落とす。
-   そうしないと inGapSlot() に出てこないまま枠に居座り、
-   画面のどこにも現れない項目ができる。
 
-   消した項目（墓石）は後回しにする。先に見てしまうと、画面に見えていない墓石が
-   枠を取って、生きている項目のほうが未分類へ落ちてしまう
-   （setGapSlot が墓石の枠を黙って空けるのと同じ理屈） */
-function dedupeGapSlots(list) {
-  const taken = new Set();
-  const visit = t => {
-    if (!t.gapSlot) return;
-    if (taken.has(t.gapSlot)) t.gapSlot = null;
-    else taken.add(t.gapSlot);
-  };
-  list.forEach(t => { if (!t.trashed) visit(t); });
-  list.forEach(t => { if (t.trashed) visit(t); });
-}
-
-function normalizeTodos(arr, anchors, tags, migrateDay) {
+function normalizeTodos(arr, anchors, tags, gapSlots, migrateDay) {
   const ids = new Set(anchors.map(a => a.id));
   const tagIds = new Set((tags || []).map(t => t.id));
+  const gapIds = new Set((gapSlots || []).map(g => g.id));
   const list = arr.filter(t => t && typeof t.text === 'string')
-    .map(t => normalizeTodo(t, ids, tagIds, migrateDay));
-  dedupeGapSlots(list);
+    .map(t => normalizeTodo(t, ids, tagIds, gapIds, migrateDay));
   /* 通し番号を復元する。保存済みの最大値の次から続ける。
      番号を持っていないもの（この版より前に付けたぶら下げ）は、
-     いまの並び順のまま後ろへ足していく */
+     いまの並び順のまま後ろへ足していく。
+     アンカーとすきまの枠は**同じ番号の列**を使う（順番さえ付けばよいので、
+     2本持つと復元も2本ぶん要る） */
   let max = 0;
   list.forEach(t => Object.keys(t.anchorAt).forEach(k => {
     if (t.anchorAt[k] > max) max = t.anchorAt[k];
+  }));
+  list.forEach(t => Object.keys(t.gapAt).forEach(k => {
+    if (t.gapAt[k] > max) max = t.gapAt[k];
   }));
   seq = max + 1;
   list.forEach(t => t.anchors.forEach(id => {
@@ -888,6 +933,28 @@ function draftBoxOf(t) {
 }
 
 /* ぶら下げた順。番号が無いものは末尾に回す */
+/* 消えた枠の残りかすを落とす。並び順の番号も一緒に落とす */
+function dropDeadGapSlots(t) {
+  if (!t || !Array.isArray(t.gapSlots)) return;
+  t.gapSlots.filter(id => !findGapSlot(id)).forEach(id => {
+    t.gapSlots = t.gapSlots.filter(x => x !== id);
+    delete gapAtOf(t)[id];
+  });
+}
+
+/* ぶら下げた順の入れもの（すきま時間の枠ぶん）。無ければその場で作る */
+function gapAtOf(t) {
+  if (!t) return {};
+  if (!t.gapAt || typeof t.gapAt !== 'object') t.gapAt = {};
+  return t.gapAt;
+}
+
+/* 枠の中でぶら下げた順。番号が無いものは末尾に回す */
+function gapOrderIn(t, slotId) {
+  const n = Number(gapAtOf(t)[slotId]);
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+}
+
 function orderIn(t, anchorId) {
   const n = Number(anchorAtOf(t)[anchorId]);
   return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
@@ -906,7 +973,10 @@ function normalizeTodayLog(arr) {
 }
 
 function blank() {
-  return { anchors: [], tags: normalizeTags(null), todos: [], logs: [], todayLogs: [], lastDay: null };
+  return {
+    anchors: [], gapSlots: normalizeGapSlots(null), tags: normalizeTags(null),
+    todos: [], logs: [], todayLogs: [], lastDay: null,
+  };
 }
 
 function load() {
@@ -917,8 +987,9 @@ function load() {
     /* 旧形式（配列そのもの）。todos として取り込み、ログ無しで移行する */
     if (Array.isArray(parsed)) {
       const tags = normalizeTags(null);
+      const gaps = normalizeGapSlots(null);
       return {
-        anchors: [], tags, todos: normalizeTodos(parsed, [], tags),
+        anchors: [], gapSlots: gaps, tags, todos: normalizeTodos(parsed, [], tags, gaps),
         logs: [], todayLogs: [], lastDay: null,
       };
     }
@@ -935,12 +1006,16 @@ function load() {
        これをしないと、新しく作ったタグだけ新しい色になり、前からあるタグは古い色のまま
        混ざる（＝「パステルに統一」が保存データの上では起きない） */
     if (Number(parsed.palVer) !== PAL_VER) tags = repaintTags(tags);
+    /* すきま時間の枠。無い保存データ（この版より前）は既定の4つで立ち上がる。
+       項目側は単数の gapSlot からその4つへ移る（normalizeTodo） */
+    const gapSlots = normalizeGapSlots(parsed.gapSlots);
     return {
       anchors,
+      gapSlots,
       tags,
       /* 移行用の日付＝保存されていた lastDay。過去なら読み込んだ瞬間に today が外れる */
       todos: Array.isArray(parsed.todos)
-        ? normalizeTodos(parsed.todos, anchors, tags,
+        ? normalizeTodos(parsed.todos, anchors, tags, gapSlots,
             /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDay) ? parsed.lastDay : null)
         : [],
       logs: Array.isArray(parsed.log) ? normalizeLog(parsed.log) : [],
@@ -961,7 +1036,7 @@ let lastSaveError = null;
 function persist() {
   try {
     localStorage.setItem(KEY, JSON.stringify({
-      v: 2, palVer: PAL_VER, anchors: anchorList, tags: tagList, todos: items,
+      v: 2, palVer: PAL_VER, anchors: anchorList, gapSlots: gapList, tags: tagList, todos: items,
       removedStarters,
       log: logs, todayLog: todayLogs, lastDay,
     }));
@@ -992,7 +1067,7 @@ function emit() {
    消えるのは today / slots（時間帯タグ）/ started（はじめた記録）の3つ。
    アンカー（anchors）は消さない。あれは「立てっぱなしの計画」で、
    今日やったかどうかとは関係が無いため。started は毎日まっさらに戻る。
-   すきま時間（gap / gapSlot）も消さない。すきま時間は今日の予定とは別に訪れる。
+   すきま時間（gap / gapSlots）も消さない。すきま時間は今日の予定とは別に訪れる。
    きっかけの画面に置いたもの（plan）も同じ理由で消さない。
    一手の記録（steps）と書きかけ（draft）にも触らない。あれは「前回どこまでやったか」で、
    今日やるかどうかとは別の軸。日をまたいだ翌朝こそ読みたいものなので消さない。
@@ -1039,6 +1114,7 @@ function rollover() {
 {
   const data = load();
   anchorList = data.anchors;
+  gapList = data.gapSlots;
   tagList = data.tags;
   items = data.todos;
   logs = data.logs;
@@ -1119,7 +1195,8 @@ export const store = {
       firstStep: '',
       url: '',
       gap: false,
-      gapSlot: null,
+      gapSlots: [],
+      gapAt: {},
       plan: false,
       steps: [],
       draft: { did: '', next: '' },
@@ -1184,9 +1261,10 @@ export const store = {
     if (!t || !t.trashed) return false;
     t.trashed = false;
     t.trashedAt = null;
-    /* 消していた間に、入っていたすきま時間の枠が別の項目で埋まっていることがある。
-       1枠1件なので、そのときは戻ってきたほうを未分類へ落とす（uncomplete と同じ理屈） */
-    if (t.gapSlot && items.some(x => x !== t && x.gapSlot === t.gapSlot)) t.gapSlot = null;
+    /* 消している／完了している間に枠そのものが消されていることがある。
+       残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
+       「押し出し」はもう無い——枠には何個でもぶら下がるので） */
+    dropDeadGapSlots(t);
     persist(); emit();
     return true;
   },
@@ -1217,9 +1295,10 @@ export const store = {
     if (!t || !t.done) return false;
     t.done = false;
     t.doneAt = null;
-    /* 完了していた間に、入っていたすきま時間の枠が別の項目で埋まっていることがある。
-       1枠1件なので、そのときは戻ってきたほうを未分類へ落とす（restore と同じ理屈） */
-    if (t.gapSlot && items.some(x => x !== t && x.gapSlot === t.gapSlot)) t.gapSlot = null;
+    /* 消している／完了している間に枠そのものが消されていることがある。
+       残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
+       「押し出し」はもう無い——枠には何個でもぶら下がるので） */
+    dropDeadGapSlots(t);
     persist(); emit();
     return true;
   },
@@ -1274,11 +1353,10 @@ export const store = {
     if (Array.isArray(t.tags)) {
       t.tags = t.tags.filter(id => !isSpecialTag(id) && findTag(id));
     }
-    /* 消している間に、入っていたすきま時間の枠が別の項目で埋まっていることがある。
-       1枠1件なので、そのときは戻ってきたほうを未分類へ落とす。
-       いま置かれているものを押しのけないのは、後から置いたほうが新しい意図だから。
-       自分自身は数えない（墓石はもう一覧の中に居るので） */
-    if (t.gapSlot && items.some(x => x !== t && x.gapSlot === t.gapSlot)) t.gapSlot = null;
+    /* 消している／完了している間に枠そのものが消されていることがある。
+       残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
+       「押し出し」はもう無い——枠には何個でもぶら下がるので） */
+    dropDeadGapSlots(t);
     if (Array.isArray(t.anchors)) {
       t.anchors.filter(id => !findAnchor(id)).forEach(id => {
         t.anchors = t.anchors.filter(x => x !== id);
@@ -1743,7 +1821,7 @@ export const store = {
     if (t.gap === want) return false;
     t.gap = want;
     /* すきま時間から外れたら枠も空ける（today と slots の関係と同じ） */
-    if (!t.gap) t.gapSlot = null;
+    if (!t.gap) { t.gapSlots = []; t.gapAt = {}; }
     persist(); emit();
     return true;
   },
@@ -1760,64 +1838,150 @@ export const store = {
       .sort((a, b) => a.createdAt - b.createdAt);
   },
 
-  /* --- すきま時間の枠 ---
-     通信（あり／なし）× 使えるもの（耳だけ／画面）の4つ。1枠に入るのは1件だけ。
-     時間帯タグ（slots）と違って複数持てないので、配列ではなく単数の gapSlot で持つ。
+  /* --- すきま時間の枠（利用者の指示で作り替え） ---
+     **持ち方はきっかけのアンカーとまったく同じ。**画面も同じ形にするため。
+       ・枠はユーザーが決める一覧（既定は4つ。名前を変えられる・足せる・消せる・並べ替え）
+       ・1枠に何個でもぶら下がる（前は1枠1件で、2件目が古いほうを押し出していた）
+       ・1つの項目を複数の枠にぶら下げられる
      日をまたいでも消えない（すきま時間は今日の予定とは別に訪れるので、
      rollover() はここに触らない） */
 
-  GAP_SLOTS,
+  MAX_GAP_SLOTS,
 
-  /* 枠へ入れる。slot は GAP_SLOTS のいずれか、または null（未分類へ）。
-     ・その id がすきま時間に入っていなければ、ここで入れる（gap:true にする）
-     ・入れようとした枠が既に埋まっていたら、古いほうを黙って未分類へ出してから入れる。
-       断らないのは、断りは「置けなかった」という罰の返しになるため。
-       押し出したことは呼ぶ側が pushedOut を見てトーストで知らせる
+  /* ユーザーが決めた並び順。中身はコピー */
+  gapSlots() { return gapList.map(g => ({ id: g.id, name: g.name })); },
 
-     -> { pushedOut: 押し出された項目の id / null }
-        id が無い・slot が不正なときも同じ形（{ pushedOut:null }）を返して何もしない */
-  setGapSlot(id, slot) {
+  gapSlot(id) {
+    const g = findGapSlot(id);
+    return g ? { id: g.id, name: g.name } : null;
+  },
+
+  /* 空名は作らない。上限に達していても作らない -> 作った枠 / null */
+  addGapSlot(name) {
+    const body = anchorName(name);
+    if (!body) return null;
+    if (gapList.length >= MAX_GAP_SLOTS) return null;
+    const g = { id: aid(), name: body };
+    gapList.push(g);
+    persist(); emit();
+    return { id: g.id, name: g.name };
+  },
+
+  renameGapSlot(id, name) {
+    const g = findGapSlot(id);
+    if (!g) return false;
+    const body = anchorName(name);
+    if (!body) return false;
+    if (g.name !== body) { g.name = body; persist(); emit(); }
+    return true;
+  },
+
+  /* 消す。ぶら下がっていた項目からも外す。**項目そのものは消さない**
+     （枠から外れるだけで、すきま時間の未分類へ移る）。removeAnchor と同じ */
+  removeGapSlot(id) {
+    const i = gapList.findIndex(g => g.id === id);
+    if (i < 0) return false;
+    gapList.splice(i, 1);
+    items.forEach(t => {
+      if (Array.isArray(t.gapSlots) && t.gapSlots.indexOf(id) >= 0) {
+        t.gapSlots = t.gapSlots.filter(x => x !== id);
+      }
+      delete gapAtOf(t)[id];
+    });
+    persist(); emit();
+    return true;
+  },
+
+  /* 並べ替え。delta=-1 で1つ上へ、+1 で1つ下へ。端では動かさない -> 動いたか */
+  moveGapSlot(id, delta) {
+    const i = gapList.findIndex(g => g.id === id);
+    if (i < 0) return false;
+    const d = Math.trunc(Number(delta)) || 0;
+    const j = i + d;
+    if (d === 0 || j < 0 || j >= gapList.length) return false;
+    const [g] = gapList.splice(i, 1);
+    gapList.splice(j, 0, g);
+    persist(); emit();
+    return true;
+  },
+
+  /* --- 項目と枠 --- */
+
+  gapSlotsOf(id) {
     const t = store.get(id);
-    const next = (slot === null || slot === undefined) ? null : slot;
-    if (!t) return { pushedOut: null };
-    if (next !== null && GAP_SLOTS.indexOf(next) < 0) return { pushedOut: null };
+    return (t && Array.isArray(t.gapSlots)) ? t.gapSlots.slice() : [];
+  },
 
-    let pushedOut = null;
-    if (next !== null) {
-      /* 完了した項目や消した項目が枠を握ったままのことがある
-         （完了しても消しても、枠は覚えている）。
-         そちらは画面に出ていないので、黙って空けるだけにする——
-         見えないものを「未分類へ移した」と知らせても、ユーザーには何のことか分からない。
-         1枠1件は done / trashed も含めて保つ
-         （そうしないと完了を取り消したときや掘り起こしたときに2件になる） */
-      items.forEach(x => {
-        if (x !== t && (x.done || x.trashed) && x.gapSlot === next) x.gapSlot = null;
-      });
-      const old = items.find(x => x !== t && x.gapSlot === next);
-      if (old) { old.gapSlot = null; pushedOut = old.id; }
+  /* ぶら下げる／外す。on を省くとトグル。
+     ぶら下げると、すきま時間に入っていなければここで入れる（gap:true）。
+     setAnchor と違うのはそこだけ——アンカーには「きっかけの画面に居る」に当たる
+     plan が別にあるが、すきまは gap がその役目を兼ねているため */
+  setGapSlot(id, slotId, on) {
+    const t = store.get(id);
+    if (!t || !findGapSlot(slotId)) return false;
+    if (!Array.isArray(t.gapSlots)) t.gapSlots = [];
+    const has = t.gapSlots.indexOf(slotId) >= 0;
+    const want = (on === undefined) ? !has : !!on;
+    if (has === want && (!want || t.gap)) return false;
+    if (want) {
+      if (!has) {
+        t.gapSlots = t.gapSlots.concat([slotId]);
+        gapAtOf(t)[slotId] = seq++;          /* 末尾にぶら下がる */
+      }
+      t.gap = true;
+    } else {
+      t.gapSlots = t.gapSlots.filter(x => x !== slotId);
+      delete gapAtOf(t)[slotId];
     }
-    const changed = t.gapSlot !== next || t.gap !== true;
-    t.gapSlot = next;
-    t.gap = true;
-    if (changed || pushedOut) { persist(); emit(); }
-    return { pushedOut };
+    persist(); emit();
+    return true;
   },
 
-  /* その項目が入っている枠。未分類なら null */
-  gapSlotOf(id) {
+  /* 枠の中の並べ替え。to の末尾へ移す（アンカーの moveToAnchor と同じ形）。
+     from が null なら、未分類から入れる -> 動いたか */
+  moveToGapSlot(id, from, to) {
     const t = store.get(id);
-    return (t && t.gap && GAP_SLOTS.indexOf(t.gapSlot) >= 0) ? t.gapSlot : null;
+    if (!t || !findGapSlot(to)) return false;
+    if (!Array.isArray(t.gapSlots)) t.gapSlots = [];
+    let changed = false;
+    if (from && t.gapSlots.indexOf(from) >= 0) {
+      t.gapSlots = t.gapSlots.filter(x => x !== from);
+      delete gapAtOf(t)[from];
+      changed = true;
+    }
+    if (t.gapSlots.indexOf(to) < 0) {
+      t.gapSlots = t.gapSlots.concat([to]);
+      changed = true;
+    }
+    gapAtOf(t)[to] = seq++;
+    if (!t.gap) { t.gap = true; changed = true; }
+    if (changed) { persist(); emit(); }
+    return changed;
   },
 
-  /* その枠に入っている項目。1件だけ。空なら null */
-  inGapSlot(slot) {
-    if (GAP_SLOTS.indexOf(slot) < 0) return null;
-    return items.find(t => isLive(t) && t.gap && !t.done && t.gapSlot === slot) || null;
+  /* すべての枠から外す（clearAnchors と同じ。すきま時間の印は残す） */
+  clearGapSlots(id) {
+    const t = store.get(id);
+    if (!t || !Array.isArray(t.gapSlots) || !t.gapSlots.length) return false;
+    t.gapSlots.forEach(sid => { delete gapAtOf(t)[sid]; });
+    t.gapSlots = [];
+    persist(); emit();
+    return true;
+  },
+
+  /* その枠にぶら下がっているもの。ぶら下げた順（＝先頭が古い） */
+  inGapSlot(slotId) {
+    return items
+      .filter(t => isLive(t) && !t.done && t.gap
+        && Array.isArray(t.gapSlots) && t.gapSlots.indexOf(slotId) >= 0)
+      .sort((a, b) => gapOrderIn(a, slotId) - gapOrderIn(b, slotId));
   },
 
   /* すきま時間に入れてあるが、まだどの枠にも入れていないもの。作成順（古い順） */
   gapUnsorted() {
-    return items.filter(t => isLive(t) && t.gap && !t.done && !t.gapSlot)
+    return items
+      .filter(t => isLive(t) && t.gap && !t.done
+        && !(Array.isArray(t.gapSlots) && t.gapSlots.length))
       .sort((a, b) => a.createdAt - b.createdAt);
   },
 
@@ -2095,7 +2259,7 @@ export const store = {
      タグは空にはならない——特別なタグ4つは既定値で立て直す（消せないものなので）。
      プロトタイプの確認用（空の画面を見るため）で、本番のUIには出さない */
   wipe() {
-    items = []; anchorList = []; tagList = normalizeTags(null);
+    items = []; anchorList = []; gapList = normalizeGapSlots(null); tagList = normalizeTags(null);
     logs = []; todayLogs = []; lastDay = dayOf(Date.now());
     persist(); emit();
   },
@@ -2106,7 +2270,7 @@ export const store = {
         id: uid(), text, days: [], today: false, hold: false, holdUntil: null, createdAt: Date.now(),
         fx: 0.15 + Math.random() * 0.7, fy: 0.15 + Math.random() * 0.6,
         slots: [], anchors: [], anchorAt: {}, started: {},
-        firstStep: '', url: '', gap: false, gapSlot: null, plan: false,
+        firstStep: '', url: '', gap: false, gapSlots: [], gapAt: {}, plan: false,
         steps: [], draft: { did: '', next: '' },
         tags: [], done: false, doneAt: null, trashed: false, trashedAt: null,
       });
