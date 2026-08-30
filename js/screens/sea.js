@@ -1562,7 +1562,12 @@ function clearGrid() {
    完了したものは出さない（追補3 §3。complete() は項目を消さなくなったので、
    store.all() をそのまま並べると完了の海の中身がここへ混ざる）。 */
 function renderGrid() {
-  const list = store.all().filter(t => !isDoneItem(t))
+  /* 契約 §7 は「ならべるは全件が並ぶ」だが、長期保留はここにも出さない。
+     この盤の見出しは「古い順 — 放置しているものが先頭」で、
+     長期保留＝**自分で「いまは見ない」と決めたもの**がその先頭に並ぶと、
+     まさに「やっていないことの山」を突き返す絵になる（README の禁止事項）。
+     完了を外しているのと同じ理由の外し方。出したいときは上の海へ行く。 */
+  const list = store.all().filter(t => !isDoneItem(t) && !isHoldItem(t))
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   const want = new Set(list.map(t => t.id));
 
