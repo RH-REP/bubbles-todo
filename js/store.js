@@ -381,6 +381,47 @@ function scheduleHits(sch, at) {
   return false;
 }
 
+/* ---------------- 今日の海を日付ごとに持つ（利用者の指示） ----------------
+
+   前は `t.today` という真偽値ひとつで、`rollover()` が毎朝それを全部falseにしていた
+   （持ち越さないため）。＝ 昨日なにを置いたかは、どこにも残らなかった。
+
+   いまは **`t.days`（'YYYY-MM-DD' の配列）が本体**。
+     ・今日の海  … days に今日のキーが入っているもの
+     ・過去の海  … その日のキーが入っているもの（消えずに残る）
+     ・未来の海  … 先の日付のキーを入れておける
+
+   **持ち越さない、は保たれている。**明日の海が空なのは、
+   明日のキーを持つものがまだ無いからで、勝手に運ばれることはない。
+
+   `t.today` は**残してあるが、days から作り直す控え**。
+   画面（30か所）は今までどおり `t.today` を読めばよい。
+   書き換えてよいのは syncTodayFlags() と setDay() だけ。 */
+
+/* epoch ms を日付キーに。dayOf と同じ（5時までは前日） */
+function dayKey(ms) { return dayOf(ms); }
+function todayKey() { return dayOf(Date.now()); }
+
+/* 'YYYY-MM-DD' の形だけを通し、重複を落として古い順にそろえる */
+function normalizeDays(v) {
+  const seen = new Set();
+  (Array.isArray(v) ? v : []).forEach(x => {
+    if (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x)) seen.add(x);
+  });
+  return [...seen].sort();
+}
+
+/* days から t.today を作り直す。変わったものがあれば true */
+function syncTodayFlags() {
+  const k = todayKey();
+  let changed = false;
+  items.forEach(t => {
+    const on = t.days.indexOf(k) >= 0;
+    if (t.today !== on) { t.today = on; changed = true; }
+  });
+  return changed;
+}
+
 /* 今日を含む直近 n 日ぶんの日付キー。古い順。ちょうど n 件 */
 function recentDays(n) {
   const count = Math.max(0, Math.floor(Number(n)) || 0);
@@ -628,8 +669,14 @@ function normalizeDraft(v) {
   return { did: stepText(o.did), next: stepText(o.next) };
 }
 
-function normalizeTodo(t, anchorIds, tagIds) {
-  const today = !!t.today;
+function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
+  /* days が本体。無い保存データ（この版より前）は today:true のぶんだけ、
+     その時点の日（保存されていた lastDay）へ移す。
+     lastDay が過去なら、読み込んだ瞬間に today は false になる——
+     前の版の rollover() が朝に落としていたのと同じ結果で、勝手には増やさない */
+  let days = normalizeDays(t.days);
+  if (!Array.isArray(t.days) && t.today) days = normalizeDays([migrateDay || todayKey()]);
+  const today = days.indexOf(todayKey()) >= 0;
   const gap = !!t.gap;
   const done = !!t.done;
   /* 旧データには無い。無ければ「消していない」。
@@ -653,6 +700,8 @@ function normalizeTodo(t, anchorIds, tagIds) {
   return {
     id: typeof t.id === 'string' ? t.id : uid(),
     text: t.text,
+    /* days が本体。today はそこから作った控え（画面はこちらを読む） */
+    days,
     today,
     createdAt: Number(t.createdAt) || Date.now(),
     fx: clamp01(t.fx, 0.5),
@@ -710,11 +759,11 @@ function dedupeGapSlots(list) {
   list.forEach(t => { if (t.trashed) visit(t); });
 }
 
-function normalizeTodos(arr, anchors, tags) {
+function normalizeTodos(arr, anchors, tags, migrateDay) {
   const ids = new Set(anchors.map(a => a.id));
   const tagIds = new Set((tags || []).map(t => t.id));
   const list = arr.filter(t => t && typeof t.text === 'string')
-    .map(t => normalizeTodo(t, ids, tagIds));
+    .map(t => normalizeTodo(t, ids, tagIds, migrateDay));
   dedupeGapSlots(list);
   /* 通し番号を復元する。保存済みの最大値の次から続ける。
      番号を持っていないもの（この版より前に付けたぶら下げ）は、
@@ -785,7 +834,11 @@ function orderIn(t, anchorId) {
 function normalizeTodayLog(arr) {
   return arr
     .filter(e => e && typeof e.id === 'string' && Number.isFinite(Number(e.at)))
-    .map(e => ({ id: e.id, text: typeof e.text === 'string' ? e.text : '', at: Number(e.at) }))
+    .map(e => ({
+      id: e.id, text: typeof e.text === 'string' ? e.text : '', at: Number(e.at),
+      /* どの日のぶんか。古い記録には無いので、そのときは省く（読む側が at から出す） */
+      day: /^\d{4}-\d{2}-\d{2}$/.test(e.day) ? e.day : undefined,
+    }))
     .sort((a, b) => a.at - b.at);
 }
 
@@ -822,7 +875,11 @@ function load() {
     return {
       anchors,
       tags,
-      todos: Array.isArray(parsed.todos) ? normalizeTodos(parsed.todos, anchors, tags) : [],
+      /* 移行用の日付＝保存されていた lastDay。過去なら読み込んだ瞬間に today が外れる */
+      todos: Array.isArray(parsed.todos)
+        ? normalizeTodos(parsed.todos, anchors, tags,
+            /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDay) ? parsed.lastDay : null)
+        : [],
       logs: Array.isArray(parsed.log) ? normalizeLog(parsed.log) : [],
       todayLogs: Array.isArray(parsed.todayLog) ? normalizeTodayLog(parsed.todayLog) : [],
       lastDay: /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDay) ? parsed.lastDay : null,
@@ -891,15 +948,12 @@ function rollover() {
   if (!first) {
     items.forEach(t => {
       if (t.trashed) return;                 /* 墓石には触らない */
-      if (t.today) {
-        t.today = false;
-        t.slots = [];
-        /* 完了したものも today は落とす（残しておくと、完了を取り消したときに
-           何日も前の「今日」が復活する）。ただし画面には出ていないので、
-           「海へ戻した件数」には数えない */
-        if (!t.done) n++;
-        changed = true;
-      }
+      /* **days は消さない。**その日の海はその日の記録として残る（利用者の指示）。
+         「持ち越さない」は保たれている——明日の海が空なのは、
+         明日のキーを持つものがまだ無いからで、勝手に運ばれることはない。
+         昨日ぶんが n（海へ戻した件数）に数えられていたが、
+         もう戻さないので数えるものが無い（n は 0 のまま） */
+      if (t.slots.length) { t.slots = []; changed = true; }   /* 時間帯は today の中の軸 */
       /* 今日する枠の外でも、アンカーからは始められる。
          そのぶんの記録もここで落とす */
       if (Object.keys(startedOf(t)).length) {
@@ -908,9 +962,14 @@ function rollover() {
       }
     });
   }
+  /* today は days から作り直す（日が変わったので、昨日ぶんは自然に外れる） */
+  if (syncTodayFlags()) changed = true;
   lastDay = day;
   persist();
   if (changed) emit();
+  /* 戻り値は「海へ戻した件数」だった。日付ごとに持つようになって
+     **戻す動作そのものが無くなった**ので、いつでも 0。
+     呼んでいるのは review.js / plan.js の2か所だけで、どちらも戻り値を見ていない。 */
   return n;
 }
 
@@ -982,6 +1041,8 @@ export const store = {
     const t = {
       id: uid(),
       text: body,
+      /* days が本体。today:true で作るときは今日のキーを1つ入れる */
+      days: o.today ? [todayKey()] : [],
       today: !!o.today,
       createdAt: Date.now(),
       fx: Number.isFinite(o.fx) ? o.fx : 0.2 + Math.random() * 0.6,
@@ -1176,20 +1237,50 @@ export const store = {
     return true;
   },
 
+  /* --- 日付ごとの海（利用者の指示） --- */
+
+  /* 今日の日付キー。画面はこれを起点に前後の日を作る */
+  todayKey,
+  /* epoch ms の日付キー（5時までは前日） */
+  dayKey,
+
+  /* その項目が置かれている日（古い順）。コピーを返す */
+  daysOf(id) {
+    const t = store.get(id);
+    return t ? t.days.slice() : [];
+  },
+
+  /* その日の海。完了したものも**含める**——過去はその日の記録なので、
+     済ませたものを抜くと「置いたのに消えた」ように見える。
+     消したもの（墓石）だけは出さない。 */
+  itemsOnDay(key) {
+    if (typeof key !== 'string') return [];
+    return items.filter(t => isLive(t) && t.days.indexOf(key) >= 0);
+  },
+
+  /* 置く／外す。過去でも未来でも同じ口を使う。
+     -> 変わったか（無い項目・変な日付・すでにその状態なら false） */
+  setDay(id, key, on) {
+    const t = store.get(id);
+    if (!t || typeof key !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+    const has = t.days.indexOf(key) >= 0;
+    if (has === !!on) return false;
+    t.days = on ? normalizeDays(t.days.concat(key)) : t.days.filter(d => d !== key);
+    const wasToday = t.today;
+    t.today = t.days.indexOf(todayKey()) >= 0;
+    /* 今日から外れたときだけ、時間帯タグを落とす（あれは today の中の軸） */
+    if (wasToday && !t.today) t.slots = [];
+    /* ログには「いつ決めたか（at）」と「どの日のぶんか（day）」の両方を残す。
+       未来の日に置いたとき、決めた日で数えると期間の集計がずれるため */
+    if (on) todayLogs.push({ id: t.id, text: t.text, at: Date.now(), day: key });
+    persist(); emit();
+    return true;
+  },
+
   setToday(id, on) {
     const t = store.get(id);
     if (!t || t.today === !!on) return false;
-    t.today = !!on;
-    /* 「今日する」から外れたら、時間帯タグだけを落とす（あれは today の中の軸なので）。
-       着手の記録には、アンカー無しのぶんも含めて触らない。
-       着手はどこに置いてあるものでも記録できる（海でも、すきまでも、きっかけの未分類でも）。
-       今日する枠に入っていることは記録の条件ではないので、外したくらいで
-       「もう始めた」という事実を消してはいけない。
-       消してしまうと、印だけ落ちてログは残り、もう一度押すと同じ日に2件目が積まれる */
-    if (!t.today) { t.slots = []; }
-    else todayLogs.push({ id: t.id, text: t.text, at: Date.now() });
-    persist(); emit();
-    return true;
+    return store.setDay(id, todayKey(), on);
   },
 
   /* --- 時間帯タグ：朝 / 昼 / 夜 ---
@@ -1849,7 +1940,7 @@ export const store = {
   seed(texts) {
     texts.forEach(text => {
       items.push({
-        id: uid(), text, today: false, createdAt: Date.now(),
+        id: uid(), text, days: [], today: false, createdAt: Date.now(),
         fx: 0.15 + Math.random() * 0.7, fy: 0.15 + Math.random() * 0.6,
         slots: [], anchors: [], anchorAt: {}, started: {},
         firstStep: '', url: '', gap: false, gapSlot: null, plan: false,
@@ -2006,7 +2097,9 @@ export const store = {
      todays() は現在の件数なので、期間の比較にはこちらを使う */
   todayedCount(days) {
     const set = new Set(recentDays(days));
-    return todayLogs.reduce((n, e) => n + (set.has(dayOf(e.at)) ? 1 : 0), 0);
+    /* day を持つのは新しい記録だけ。無い古い記録は、決めた時刻から日を出す
+       （前と同じ数え方。未来へ置いた記録が出てくるのは day を持つ版から） */
+    return todayLogs.reduce((n, e) => n + (set.has(e.day || dayOf(e.at)) ? 1 : 0), 0);
   },
 
   /* 直近 days 日に書かれた todo の件数。

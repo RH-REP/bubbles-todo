@@ -112,8 +112,80 @@ function playCompleteSound() {
 /* ---------------- store へ流す ---------------- */
 
 /* field に渡す形（契約 §12）。marks は海の「ならべる」用なので、この画面では付けない */
+/* ---------------- 見ている日（利用者の指示） ----------------
+
+   前はこの画面が「今日」だけを映していた。いまは **日付ごとの海**で、
+   左右になぞる／見出しの日付から選ぶ、の2つで日を移る。
+
+   ・過去 … その日に置いたものを**全部**出す。着手したものを強調もしないし、
+     しなかったものを沈めもしない。件数も出さない（利用者の判断）。
+     並べ替えもしない——順番が違うこと自体が「こちらはやっていない」の印になる
+   ・未来 … あらかじめ置いておける。その日が来たら、そのまま今日の海になる
+   ・**書き換えられるのは今日と未来だけ。**過去は記録なので触らせない
+     （うっかり足すと、その日の記録が後から変わる）
+
+   「持ち越さない」は保たれている。明日の海が空なのは、
+   明日のキーを持つものがまだ無いからで、勝手に運ばれることはない。 */
+
+const DOW = ['日', '月', '火', '水', '木', '金', '土'];
+
+/* いま見ている日。海がタブへのドロップ先を決めるのに読む。
+   ＝ 「今日タブは、いま今日の画面が映している日の水面」。
+   過去を映している間は null を返す（過去は記録なので書き換えさせない）。 */
+export function dropDay() {
+  const k = curDay();
+  return (k < todayKey()) ? null : k;
+}
+
+let viewDay = null;          /* 'YYYY-MM-DD'。null なら今日 */
+let dayBtn = null;
+let dayPop = null;
+
+const todayKey = () => (typeof store.todayKey === 'function' ? store.todayKey() : '');
+const curDay = () => viewDay || todayKey();
+const isToday = () => curDay() === todayKey();
+const isPast = () => curDay() < todayKey();
+
+/* 日付キーを Date に。ローカル時刻の正午に寄せる（夏時間で日が飛ばないように） */
+function dayToDate(key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || '');
+  if (!m) return new Date();
+  return new Date(+m[1], +m[2] - 1, +m[3], 12, 0, 0, 0);
+}
+function dateToDay(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function shiftDay(key, n) {
+  const d = dayToDate(key);
+  d.setDate(d.getDate() + n);
+  return dateToDay(d);
+}
+/* 今日から何日ずれているか（負なら過去） */
+function offsetOf(key) {
+  return Math.round((dayToDate(key) - dayToDate(todayKey())) / 86400000);
+}
+/* 見出しの文字。近い日は言葉で、遠い日は日付で */
+function dayLabel(key) {
+  const n = offsetOf(key);
+  const d = dayToDate(key);
+  const md = (d.getMonth() + 1) + '/' + d.getDate() + '（' + DOW[d.getDay()] + '）';
+  if (n === 0) return '今日 ' + md;
+  if (n === 1) return '明日 ' + md;
+  if (n === 2) return '明後日 ' + md;
+  if (n === -1) return '昨日 ' + md;
+  if (n === -2) return '一昨日 ' + md;
+  return md;
+}
+
 function itemsForField() {
-  return store.todays().map(t => ({
+  /* 今日は従来どおり todays()（完了したものは出さない）。
+     過去と未来は itemsOnDay()——完了したものも**その日の記録として残す**。
+     済ませたぶんを抜くと、あとから見たときに顔ぶれが欠ける */
+  const list = (isToday() || typeof store.itemsOnDay !== 'function')
+    ? store.todays()
+    : store.itemsOnDay(curDay());
+  return list.map(t => ({
     id: t.id,
     text: t.text,
     started: isStarted(t.id),
@@ -124,12 +196,165 @@ function itemsForField() {
   }));
 }
 
+/* 見出しの日付。押すと近い日が選べる。遠い日は左右になぞる */
+/* 空のときのことば。日によって言うことが違う。
+   **どれも未達を名指ししない・件数を出さない・命令形にしない**（§0）。
+   過去について「なにもしなかった」とは言わない——置かなかっただけなので */
+function syncEmptyNote() {
+  if (!emptyNote) return;
+  const l1 = emptyNote.querySelector('.l1');
+  const l2 = emptyNote.querySelector('.l2');
+  if (!l1 || !l2) return;
+  const n = offsetOf(curDay());
+  if (n === 0) {
+    l1.textContent = '今日ぶんの水面。';
+    l2.textContent = '海のバブルをこのタブに落とすと、ここに浮かぶ。';
+  } else if (n < 0) {
+    l1.textContent = dayLabel(curDay()) + 'の水面。';
+    l2.textContent = 'この日には、まだ何も置いていなかった。';
+  } else {
+    l1.textContent = dayLabel(curDay()) + 'の水面。';
+    l2.textContent = '先に置いておくと、その日にここへ浮かぶ。';
+  }
+}
+
+function syncDayBtn() {
+  if (!dayBtn) return;
+  dayBtn.textContent = dayLabel(curDay());
+  dayBtn.classList.toggle('is-past', isPast());
+  dayBtn.classList.toggle('is-future', offsetOf(curDay()) > 0);
+  dayBtn.setAttribute('aria-label', dayLabel(curDay()) + 'の水面。押すと日を選べる');
+}
+
+function goDay(key) {
+  const next = (key === todayKey()) ? null : key;
+  if (viewDay === next) return;
+  viewDay = next;
+  syncDayBtn();
+  render();
+}
+
+function closeDayPop() {
+  if (!dayPop) return;
+  dayPop.back.remove();
+  dayPop.box.remove();
+  window.removeEventListener('keydown', dayPop.onKey, true);
+  dayPop = null;
+}
+
+/* 選べる日。過去は「昨日」まで（それより前はなぞって行く——
+   遠い過去を一覧にすると、それ自体が振り返りの装置になる）。
+   未来は1週間ぶん。**「週末」は次の土曜**を指す */
+function dayChoices() {
+  const t = todayKey();
+  const out = [
+    { key: shiftDay(t, -1), label: '昨日' },
+    { key: t, label: '今日' },
+    { key: shiftDay(t, 1), label: '明日' },
+    { key: shiftDay(t, 2), label: '明後日' },
+  ];
+  for (let i = 3; i <= 7; i++) {
+    const k = shiftDay(t, i);
+    const d = dayToDate(k);
+    out.push({ key: k, label: (d.getMonth() + 1) + '/' + d.getDate() + '（' + DOW[d.getDay()] + '）' });
+  }
+  /* 次の土曜。すでに候補に入っていれば足さない */
+  const sat = (() => { let k = t; for (let i = 1; i <= 7; i++) { k = shiftDay(t, i); if (dayToDate(k).getDay() === 6) return k; } return null; })();
+  const row = out.find(o => o.key === sat);
+  if (row) row.label = '週末 ' + row.label;
+  return out;
+}
+
+function openDayPop() {
+  if (dayPop) { closeDayPop(); return; }
+  const back = el('div', 'today-daypop-back');
+  const box = el('div', 'today-daypop');
+  box.setAttribute('role', 'menu');
+  box.setAttribute('aria-label', '日を選ぶ');
+
+  dayChoices().forEach(c => {
+    const b = el('button', 'today-daych');
+    b.type = 'button';
+    b.setAttribute('role', 'menuitem');
+    const nm = el('span', 'nm');
+    nm.textContent = c.label;
+    const dt = el('span', 'dt');
+    const d = dayToDate(c.key);
+    dt.textContent = (d.getMonth() + 1) + '/' + d.getDate() + '（' + DOW[d.getDay()] + '）';
+    b.appendChild(nm);
+    if (!/\d\/\d/.test(c.label)) b.appendChild(dt);   /* 言葉の候補にだけ日付を添える */
+    if (c.key === curDay()) b.setAttribute('aria-current', 'true');
+    b.addEventListener('click', ev => { ev.preventDefault(); closeDayPop(); goDay(c.key); });
+    box.appendChild(b);
+  });
+
+  const eat = ev => { ev.preventDefault(); ev.stopPropagation(); };
+  back.addEventListener('pointerdown', eat);
+  back.addEventListener('click', eat);
+  back.addEventListener('pointerup', ev => { eat(ev); closeDayPop(); });
+  const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); closeDayPop(); dayBtn.focus(); } };
+  window.addEventListener('keydown', onKey, true);
+
+  document.body.appendChild(back);
+  document.body.appendChild(box);
+  dayPop = { back, box, onKey };
+  const r = dayBtn.getBoundingClientRect();
+  box.style.left = Math.round(r.left) + 'px';
+  box.style.top = Math.round(r.bottom + 6) + 'px';
+  const first = box.querySelector('.today-daych');
+  if (first) first.focus({ preventScroll: true });
+}
+
+/* 左右になぞって隣の日へ。海の面送りと同じ間合い（44px か幅の 22%）。
+   バブル・ボタンの上から始めた指は拾わない */
+let swipe = null;
+function onDayDown(ev) {
+  if (swipe || dayPop) return;
+  if (ev.button != null && ev.button !== 0) return;
+  const t = ev.target;
+  if (!t || !t.closest || t.closest('.bub, button, a, input, textarea, select')) return;
+  swipe = { pid: ev.pointerId, x0: ev.clientX, y0: ev.clientY, dx: 0, axis: null };
+  window.addEventListener('pointermove', onDayMove, true);
+  window.addEventListener('pointerup', onDayUp, true);
+  window.addEventListener('pointercancel', onDayUp, true);
+}
+function onDayMove(ev) {
+  if (!swipe || ev.pointerId !== swipe.pid) return;
+  const dx = ev.clientX - swipe.x0, dy = ev.clientY - swipe.y0;
+  if (!swipe.axis) {
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+    swipe.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+  }
+  swipe.dx = dx;
+  if (swipe.axis === 'x') stage.classList.add('is-daymove');
+}
+function onDayUp(ev) {
+  if (!swipe || (ev && ev.pointerId !== swipe.pid)) return;
+  const s = swipe;
+  swipe = null;
+  window.removeEventListener('pointermove', onDayMove, true);
+  window.removeEventListener('pointerup', onDayUp, true);
+  window.removeEventListener('pointercancel', onDayUp, true);
+  stage.classList.remove('is-daymove');
+  if (s.axis !== 'x') return;
+  const need = Math.max(44, (stage.clientWidth || 320) * 0.22);
+  if (Math.abs(s.dx) < need) return;
+  /* 右へなぞる＝過去へ（紙をめくる向き）。左へなぞる＝先へ */
+  goDay(shiftDay(curDay(), s.dx > 0 ? -1 : 1));
+}
+
 function render() {
   if (!field) return;
   const items = itemsForField();
   field.setItems(items);
-  if (emptyNote) emptyNote.hidden = items.length > 0;
+  if (emptyNote) {
+    emptyNote.hidden = items.length > 0;
+    syncEmptyNote();
+  }
+  syncDayBtn();
   syncRandomBtn();
+  /* 過去は記録なので触らせない（足すと、その日の記録が後から変わる） */
+  if (stage) stage.classList.toggle('is-readonly', isPast());
 
   /* 外で状態が変わったら、開いている詳細を同期し直す（契約 §14） */
   if (detail) {
@@ -651,13 +876,23 @@ export default {
        未達を名指ししない・件数を出さない・命令形にしない（契約 §0）。
        5時に空になることも書かない。ここが何の面で、どうすれば浮かぶかだけ言う。 */
     emptyNote = el('p', 'today-empty');
-    emptyNote.appendChild(el('span', 'l1', '今日ぶんの水面。'));
-    emptyNote.appendChild(el('span', 'l2', '海のバブルをこのタブに落とすと、ここに浮かぶ。'));
+    emptyNote.appendChild(el('span', 'l1', ''));
+    emptyNote.appendChild(el('span', 'l2', ''));
+    syncEmptyNote();
     stage.appendChild(emptyNote);
 
     /* --- ランダムスタート（追補5 §4）---
        海と同じ形・同じ印・同じ言い方。海では「ならべる」の下に置いているが、
        この画面には他のボタンが無いので右上に置く（親指の届く角は同じ側）。 */
+    /* 見出しの日付。押すと近い日が選べる（利用者の判断）。
+       遠い日は左右になぞって行く */
+    dayBtn = el('button', 'today-day');
+    dayBtn.type = 'button';
+    dayBtn.addEventListener('click', ev => { ev.preventDefault(); openDayPop(); });
+    stage.appendChild(dayBtn);
+    syncDayBtn();
+    stage.addEventListener('pointerdown', onDayDown);
+
     randomBtn = el('button', 'today-random');
     randomBtn.type = 'button';
     randomBtn.appendChild(diceIcon());
@@ -689,6 +924,11 @@ export default {
 
   onShow() {
     shown = true;
+    /* 見ている日が過ぎていたら、今日に戻す。
+       「明日」を映したまま2日放っておくと、開き直したときに過去を映していて、
+       しかもタブの落とし先がそこになる——という置き去りを防ぐ。
+       自分で過去へなぞって見に行くぶんは、この後いつでもできる */
+    if (viewDay && viewDay < todayKey()) viewDay = null;
     /* ここで初めてペインが display:flex になる。寸法が取れるのはこの時点から */
     if (field) { field.relayout(); field.start(); }
     render();

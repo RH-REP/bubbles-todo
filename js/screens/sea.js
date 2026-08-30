@@ -24,6 +24,9 @@ import { el, toast, clamp } from '../ui.js';
 import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor } from '../bubble.js';
 import { createField } from '../drift.js';
 import { playComplete } from '../sound.js';
+/* 「今日」タブの落とし先は、今日の画面がいま映している日（利用者の指示）。
+   today.js は sea.js を読まないので、循環にはならない。 */
+import { dropDay } from './today.js';
 
 const GRID_D = 96;     /* 整列中のバブルの直径。枠の中と同じ一定サイズ（契約 §4） */
 const SAVE_MS = 400;   /* 詳細の自動保存。打っている途中で毎回は書かない */
@@ -551,16 +554,33 @@ function removeWithUndo(id, node) {
 /* ---------------- タブへのドロップ（契約 §2） ----------------
    所属は「追加」であって「移動」ではない。today / gap / anchors は独立して足される。 */
 
+/* トーストに出す日の言い方。今日なら「今日」、先なら「9/1（火）」 */
+function dayWord(key) {
+  if (typeof store.todayKey !== 'function' || key === store.todayKey()) return '今日';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!m) return '今日';
+  const d = new Date(+m[1], +m[2] - 1, +m[3], 12, 0, 0, 0);
+  return (d.getMonth() + 1) + '/' + d.getDate()
+    + '（' + ['日', '月', '火', '水', '木', '金', '土'][d.getDay()] + '）';
+}
+
 function dropToTab(id, tabId) {
   const t = store.get(id);
   if (!t) return;
 
   if (tabId === 'today') {
     if (!has('setToday')) return;
-    if (t.today) { toast('「' + trim(t.text) + '」はもう今日にある'); return; }
-    store.setToday(id, true);
-    toast('「' + trim(t.text) + '」を今日へ', {
-      label: '取り消す', on: () => store.setToday(id, false),
+    /* 落とし先は「今日の画面がいま映している日」。過去を映しているときは null
+       ——過去はその日の記録なので、あとから足させない */
+    const key = (typeof dropDay === 'function' && has('setDay')) ? dropDay() : store.todayKey();
+    if (!key) { toast('過ぎた日には足せない'); return; }
+    if (store.daysOf(id).indexOf(key) >= 0) {
+      toast('「' + trim(t.text) + '」はもう ' + dayWord(key) + 'にある');
+      return;
+    }
+    store.setDay(id, key, true);
+    toast('「' + trim(t.text) + '」を' + dayWord(key) + 'へ', {
+      label: '取り消す', on: () => store.setDay(id, key, false),
     });
     return;
   }

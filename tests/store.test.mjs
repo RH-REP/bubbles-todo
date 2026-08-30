@@ -227,7 +227,7 @@ await test('rollover() は戻した件数を返し、通知する', async () => 
   store.on(() => { notified++; });
 
   setNow(ms(2026, 8, 21, 10, 0));             /* 翌日になった */
-  assert.equal(store.rollover(), 2);          /* 今日する枠にいた2件を海へ */
+  assert.equal(store.rollover(), 0);          /* 今日する枠にいた2件を海へ */
   assert.equal(notified, 1);
   assert.equal(store.todays().length, 0);
   assert.equal(store.count(), 3);             /* todo 自体は消さない */
@@ -881,7 +881,9 @@ await test('rollover や setToday で これらのフィールドは消えない
   /* 日をまたいでも残る（すきま時間の印は今日限りのものではない） */
   store.setToday(t.id, true);
   setNow(ms(2026, 8, 21, 10, 0));
-  assert.equal(store.rollover(), 1);
+  /* 日付ごとに持つようになり、rollover は「戻す」ことをしなくなった（いつでも 0）。
+     今日の海が空くのは、今日のキーを持つものが無くなるため */
+  assert.equal(store.rollover(), 0);
   assert.equal(store.get(t.id).today, false);
   assert.equal(store.firstStepOf(t.id), '封筒を出す');
   assert.equal(store.urlOf(t.id), 'https://example.com/x');
@@ -1149,7 +1151,9 @@ await test('rollover は毎日リセット。setToday はアンカーの記録�
   assert.equal(store.isStarted(t.id, A.id), true);
 
   setNow(ms(2026, 8, 21, 10, 0));
-  assert.equal(store.rollover(), 1);
+  /* 日付ごとに持つようになり、rollover は「戻す」ことをしなくなった（いつでも 0）。
+     今日の海が空くのは、今日のキーを持つものが無くなるため */
+  assert.equal(store.rollover(), 0);
   assert.equal(store.get(t.id).today, false);
   assert.deepEqual(store.slotsOf(t.id), [], '時間帯タグは日をまたいで消える');
   assert.equal(store.isStarted(t.id, A.id), false, 'はじめた記録は毎日リセット');
@@ -1604,7 +1608,9 @@ await test('setGap(id,false) で枠も空く。rollover は枠に触らない', 
   /* 日をまたいでも枠は残る。落ちるのは today と slots だけ */
   store.setGapSlot(t.id, 'screen');
   setNow(ms(2026, 8, 21, 10, 0));
-  assert.equal(store.rollover(), 1);
+  /* 日付ごとに持つようになり、rollover は「戻す」ことをしなくなった（いつでも 0）。
+     今日の海が空くのは、今日のキーを持つものが無くなるため */
+  assert.equal(store.rollover(), 0);
   assert.equal(store.get(t.id).today, false);
   assert.deepEqual(store.slotsOf(t.id), []);
   assert.equal(store.gapSlotOf(t.id), 'screen', 'すきま時間の枠は日をまたいでも消えない');
@@ -1759,7 +1765,7 @@ await test('plan は保存の往復・restore・rollover で保たれる', async
   /* 日をまたいでも残る。落ちるのは today と slots だけ */
   again.setSlot(t.id, 'morning', true);
   setNow(ms(2026, 8, 21, 10, 0));
-  assert.equal(again.rollover(), 1);
+  assert.equal(again.rollover(), 0);
   assert.equal(again.get(t.id).today, false);
   assert.deepEqual(again.slotsOf(t.id), []);
   assert.equal(again.isPlan(t.id), true, 'きっかけの画面の印は日をまたいでも消えない');
@@ -1995,7 +2001,9 @@ await test('rollover / setToday は steps と draft に触らない', async () =
   /* 日をまたいでも残る。落ちるのは today と slots と着手の印だけ */
   store.setToday(t.id, true);
   setNow(ms(2026, 8, 21, 10, 0));
-  assert.equal(store.rollover(), 1);
+  /* 日付ごとに持つようになり、rollover は「戻す」ことをしなくなった（いつでも 0）。
+     今日の海が空くのは、今日のキーを持つものが無くなるため */
+  assert.equal(store.rollover(), 0);
   assert.equal(store.get(t.id).today, false);
   assert.deepEqual(store.slotsOf(t.id), []);
   assert.deepEqual(store.stepsOf(t.id),
@@ -2557,6 +2565,97 @@ await test('きっかけの日にち：受け取らない値・境目・保存',
   assert.deepEqual(again.anchorSchedule(b.id), { days: [], weeks: [] });
 });
 
+/* 今日の海を日付ごとに持つ（利用者の指示）。
+
+   前は t.today という真偽値ひとつで、rollover が毎朝それを全部落としていた。
+   いまは t.days（'YYYY-MM-DD' の配列）が本体で、today はそこから作る控え。
+   **「持ち越さない」は保たれている**——明日の海が空なのは、
+   明日のキーを持つものがまだ無いからで、勝手に運ばれることはない。 */
+await test('日付ごとの海：置く・外す・日をまたぐ', async () => {
+  const store = await open({ raw: null, now: NOW });          /* 2026-08-20 10:00 */
+  const t = store.add('積んである本を開く');
+
+  assert.equal(store.todayKey(), '2026-08-20');
+  assert.deepEqual(store.daysOf(t.id), [], '作った直後はどの日にも置かれていない');
+
+  store.setToday(t.id, true);
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-20']);
+  assert.equal(store.get(t.id).today, true, 'today は days から作った控え');
+  assert.deepEqual(store.todays().map(x => x.id), [t.id]);
+  assert.deepEqual(store.itemsOnDay('2026-08-20').map(x => x.id), [t.id]);
+
+  /* 未来の日に置ける。今日の海は変わらない */
+  assert.equal(store.setDay(t.id, '2026-08-22', true), true);
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-20', '2026-08-22'], '古い順にそろう');
+  assert.deepEqual(store.itemsOnDay('2026-08-22').map(x => x.id), [t.id]);
+  assert.deepEqual(store.itemsOnDay('2026-08-21'), [], '間の日は空');
+
+  /* 日をまたぐ。**昨日ぶんは消えない**。今日の海は空 */
+  setNow(ms(2026, 8, 21, 10, 0));
+  store.rollover();
+  assert.deepEqual(store.todays(), [], '今日の海は空（持ち越さない）');
+  assert.equal(store.get(t.id).today, false);
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-20', '2026-08-22'], '置いた日は残る');
+  assert.deepEqual(store.itemsOnDay('2026-08-20').map(x => x.id), [t.id], '昨日を遡れる');
+
+  /* 未来の日になったら、自然に今日の海へ出てくる */
+  setNow(ms(2026, 8, 22, 10, 0));
+  store.rollover();
+  assert.deepEqual(store.todays().map(x => x.id), [t.id], '置いておいた日が来た');
+  assert.equal(store.get(t.id).today, true);
+
+  /* 外す */
+  assert.equal(store.setDay(t.id, '2026-08-22', false), true);
+  assert.deepEqual(store.todays(), []);
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-20'], '外すのはその日だけ');
+  setNow(NOW);
+});
+
+await test('日付ごとの海：受け取らない値・完了・墓石・保存', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('置くもの', { today: true });
+  const d = store.add('終わったもの', { today: true });
+
+  /* 変な日付は受け取らない。同じ状態を入れ直しても書かない */
+  assert.equal(store.setDay(t.id, '2026-8-1', true), false, '桁が違う');
+  assert.equal(store.setDay(t.id, 'きのう', true), false);
+  assert.equal(store.setDay('nosuch', '2026-08-21', true), false);
+  assert.equal(store.setDay(t.id, '2026-08-20', true), false, 'すでにその状態');
+
+  /* 完了したものは今日の海からは外れるが、**その日の記録には残る**
+     （過去はその日にあったものの記録なので、済ませたぶんを抜くと欠ける） */
+  store.complete(d.id);
+  assert.deepEqual(store.todays().map(x => x.id), [t.id], '今日の海からは外れる');
+  assert.deepEqual(store.itemsOnDay('2026-08-20').map(x => x.id).sort(),
+    [t.id, d.id].sort(), 'その日の記録には残る');
+
+  /* 消したもの（墓石）は、どの日からも見えない */
+  store.remove(t.id);
+  assert.deepEqual(store.itemsOnDay('2026-08-20').map(x => x.id), [d.id]);
+
+  /* 保存の往復で残る */
+  const again = await open();
+  assert.deepEqual(again.daysOf(d.id), ['2026-08-20']);
+  assert.deepEqual(again.itemsOnDay('2026-08-20').map(x => x.id), [d.id]);
+});
+
+await test('日付ごとの海：today しか持たない旧データを読む', async () => {
+  /* 保存されていた lastDay の日に置いてあったものとして移す */
+  const store = await open({ raw: {
+    v: 2, lastDay: '2026-08-19',
+    todos: [
+      { id: 'a', text: '昨日の今日', today: true, createdAt: ms(2026, 8, 19, 9, 0) },
+      { id: 'b', text: '海にいたもの', today: false, createdAt: ms(2026, 8, 19, 9, 0) },
+    ],
+    log: [], todayLog: [],
+  }, now: NOW });                                    /* いまは 2026-08-20 */
+
+  assert.deepEqual(store.daysOf('a'), ['2026-08-19'], 'lastDay の日へ移る');
+  assert.deepEqual(store.daysOf('b'), []);
+  assert.deepEqual(store.todays(), [], '昨日ぶんは今日の海に出てこない');
+  assert.deepEqual(store.itemsOnDay('2026-08-19').map(x => x.id), ['a'], '昨日として遡れる');
+});
+
 await test('setTagDir は1向き1タグ。既に居たタグは null へ押し出される', async () => {
   const store = await open({ raw: null, now: NOW });
   const mine = store.addTag('読みもの', '#4a8');
@@ -2851,7 +2950,7 @@ await test('rollover は tags / done に触らない', async () => {
   store.complete(d.id);
 
   setNow(ms(2026, 8, 21, 10, 0));
-  assert.equal(store.rollover(), 1, '海へ戻すのは完了していない1件だけ');
+  assert.equal(store.rollover(), 0, 'もう戻さない（日付ごとに残る）');
   assert.equal(store.get(t.id).today, false);
   assert.deepEqual(store.slotsOf(t.id), []);
   assert.deepEqual(store.tagsOf(t.id), [mine.id], 'ユーザーのタグは日をまたいでも残る');
@@ -3406,12 +3505,16 @@ await test('rollover は墓石に触らない', async () => {
   store.remove(t.id);
 
   setNow(ms(2026, 8, 21, 10, 0));
-  assert.equal(store.rollover(), 1, '海へ戻す件数に墓石は数えない');
+  assert.equal(store.rollover(), 0, 'もう戻さない（墓石にも触らない）');
   setNow(NOW);
 
   const row = store.allIncludingTrashed().find(x => x.id === t.id);
   assert.equal(row.trashed, true, '掘り起こされない');
-  assert.equal(row.today, true, 'today も落とさない');
+  /* 記録そのもの（days）に触らない、が契約。
+     today は days から作る控えなので、日が変われば false になるのが正しい
+     （置いたのは 8/20 で、いまは 8/21）。戻したときも 8/20 の海に残る */
+  assert.deepEqual(row.days, ['2026-08-20'], '置いた日は落とさない');
+  assert.equal(row.today, false, 'today は days から作り直した結果');
   assert.deepEqual(row.slots, ['morning'], '時間帯タグも落とさない');
   assert.deepEqual(row.started, { [A.id]: NOW }, 'はじめた記録も落とさない');
   assert.equal(row.gapSlot, 'ears', 'すきまの枠も従来どおり触らない');
