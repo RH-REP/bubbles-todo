@@ -864,7 +864,11 @@ let tabDropped = false;
 
 function onWinPointer(ev) {
   lastPt = { x: ev.clientX, y: ev.clientY };
-  if (drag) markOver(lastPt);
+  if (!drag) return;
+  const c = liveDragCenter();
+  if (c) dragCenterPt = c;          /* 離したあとの判定のために覚えておく */
+  markOver(lastPt);
+  updateDragEdge(lastPt);
 }
 
 function beginDrag(id, from) {
@@ -872,6 +876,7 @@ function beginDrag(id, from) {
   tabDropped = false;
   /* 前のドラッグの座標を持ち越さない。1度も動かなかったら判定しない */
   lastPt = { x: -1, y: -1 };
+  dragCenterPt = null;
   window.addEventListener('pointermove', onWinPointer, true);
   window.addEventListener('pointerup', onWinPointer, true);
   closeAnchorMenu();
@@ -884,6 +889,7 @@ function endDrag() {
   window.removeEventListener('pointermove', onWinPointer, true);
   window.removeEventListener('pointerup', onWinPointer, true);
   surfaceEl.classList.remove('is-dragging');
+  stopDragEdge();
   clearOver();
   if (!d) return;
   const pt = lastPt;
@@ -902,7 +908,7 @@ function endDrag() {
     if (t.where === UNSORTED) { toUnsorted(d.id, d.from); return; }
     if (d.from === UNSORTED) { A.setMember(d.id, t.where, true); return; }
     A.moveItem(d.id, d.from, t.where);
-  });
+  }).then(() => { dragCenterPt = null; });
 }
 
 /* 枠の外（枠と枠のすきま、スクロールの余白、「きっかけを足す」のあたり）で離した。
@@ -955,12 +961,48 @@ function dropTargets() {
   return Object.keys(anchorRef).map(where => ({ where, box: anchorRef[where].box }));
 }
 
-function hitTest(x, y) {
+function hitAt(x, y) {
   if (!(x >= 0) || !(y >= 0)) return null;
   return dropTargets().find(t => {
     const r = t.box.getBoundingClientRect();
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   }) || null;
+}
+
+/* いま掴んでいるバブルの中心（画面座標）。ドラッグ中のノードはドラッグ層に居る。
+
+   **測った値は覚えておく。**離したあとの判定はマイクロタスク1つぶん遅れて走り、
+   そのときにはノードがドラッグ層から戻っているので、その場では測れない
+   （測ると「戻った先」の位置が出てしまい、落とした場所とは別物になる）。 */
+let dragCenterPt = null;
+
+function liveDragCenter() {
+  if (!drag) return null;
+  const n = document.querySelector('.drag-layer .bub[data-id="' + cssEscape(drag.id) + '"]');
+  if (!n) return null;
+  const r = n.getBoundingClientRect();
+  if (!r.width) return null;
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+/* 落とし先。**指先で見て、外れたらバブルの中心で見直す**（利用者の指摘）。
+
+   契約 §14 の「ドロップ判定は指先の座標で」は**タブバー**のための決まりで、
+   理由は「バブルの外形はタブ6本ぶんを覆う」から。カードは 288×245 あって
+   バブル（96）よりずっと大きいので、その心配がここには無い。
+
+   指先だけで見ていると、こうなる：カードは 375 幅の画面に 288 幅で置かれていて、
+   左右に 44px ずつ余白がある。バブルの端のほうを掴むと指先は中心から 34px ずれるので、
+   **バブルはカードの上に乗って見えているのに、指先は余白の外**という状態が作れる。
+   そこで離すと、見た目に反して未分類へ落ちる。それが「挙動が不自然」の正体だった。
+
+   指先を先に見るのは変えない（狙って置いたときはそちらが正しい）。
+   外れたときだけ、バブルが乗っているカードを見る。 */
+function hitTest(x, y) {
+  const byFinger = hitAt(x, y);
+  if (byFinger) return byFinger;
+  const c = dragCenterPt;
+  return c ? hitAt(c.x, c.y) : null;
 }
 
 /* ドロップ判定は指先の座標で（契約 §14）。バブルの外形はタブ6本ぶんを覆うため */
@@ -1479,6 +1521,42 @@ function updateEdgeScroll() {
     reorder.target = targetIndexAt(reorder.y);
     paintDropLine();
     followFinger();
+  }, 16);
+}
+
+/* --- バブルを掴んでいる間の、端での送り（利用者の指摘）---
+
+   カードの並べ替えには前から入っていたが、**バブルのドラッグには入っていなかった**。
+   カードは1枚 245px あって画面には3枚ぶんしか入らないので、
+   いま見えていないカードへは**そもそも運べなかった**——
+   途中で離すしかなく、離せば未分類へ落ちる。
+   運べないのに運ぼうとする、が「挙動が不自然」のもう半分。
+
+   送っている間もバブルは指の下に留まる（ドラッグ層は画面座標なので、
+   面がスクロールしてもバブルは動かない）。動くのは下の景色のほう。 */
+let dragEdgeTimer = 0, dragEdgeDir = 0;
+
+function stopDragEdge() {
+  if (dragEdgeTimer) clearInterval(dragEdgeTimer);
+  dragEdgeTimer = 0; dragEdgeDir = 0;
+}
+
+function updateDragEdge(pt) {
+  if (!drag || !scrollEl || !(pt.y >= 0)) { stopDragEdge(); return; }
+  const r = scrollEl.getBoundingClientRect();
+  let dir = 0;
+  if (pt.y < r.top + EDGE_ZONE) dir = -1;
+  else if (pt.y > r.bottom - EDGE_ZONE) dir = 1;
+  if (!dir) { stopDragEdge(); return; }
+  if (dragEdgeTimer && dragEdgeDir === dir) return;
+  stopDragEdge();
+  dragEdgeDir = dir;
+  dragEdgeTimer = setInterval(() => {
+    if (!drag) { stopDragEdge(); return; }
+    const was = scrollEl.scrollTop;
+    scrollEl.scrollTop = was + dragEdgeDir * EDGE_STEP;
+    if (scrollEl.scrollTop === was) { stopDragEdge(); return; }     /* 端まで来た */
+    markOver(lastPt);        /* 景色が動いたぶん、光る枠も選び直す */
   }, 16);
 }
 

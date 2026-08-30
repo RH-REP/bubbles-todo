@@ -155,16 +155,22 @@ function syncZoomBtn() {
   /* 整列中は面が丸ごと隠れるので、引く対象が無い */
   zoomBtn.hidden = gathering;
 }
-/* 中央（ぜんぶ）の海の絞り込み（利用者の指示でタグごとに増やした）。
-     null       … 絞らない
-     UNSORTED   … まだ 今日・きっかけ・すきま のどれにも入れていないものだけ（前からある道）
-     タグの id  … そのタグが付いているものだけ
+/* 中央（ぜんぶ）の海の絞り込み（利用者の指示。タグごと → **複数選べる**）。
+
+   選べるのは：
+     UNSORTED_ONLY … まだ 今日・きっかけ・すきま のどれにも入れていないもの
+     タグの id     … そのタグが付いているもの
+
+   **重ねると「かつ」**（絞るという言葉のとおり、押すたびに狭くなる）。
+   「または」にしない——選ぶほど増えるのは、絞るの逆になるため。
+   空っぽ＝絞らない（＝ぜんぶ）。「ぜんぶ」は一覧の先頭に置いた選択の取り消しで、
+   トグルではない。
 
    **タグごとの絞り込みが要る理由**：向きは左右の2つしか無く、上下は固有枠なので、
    ユーザーのタグは3つ目から「海が無い」状態になる。絞り込みがその見に行く道になる。
    長期保留も、ふだんはどの海にも出ないが、ここから呼べば出る。 */
 const UNSORTED_ONLY = '\u0000unsorted';
-let narrowTag = null;
+const narrowSet = new Set();
 let shown = false;
 let unsubscribe = null;
 let ro = null;
@@ -275,7 +281,7 @@ function isDoneItem(t) {
 /* 絞り込みが効いているか。
    タグ API が無い版では中央がもともと store.floating()（＝未分類だけ）なので、
    絞っても何も変わらない。そういう版では切り替え自体を出さない。 */
-function narrowOn() { return narrowTag !== null && hasTags(); }
+function narrowOn() { return narrowSet.size > 0 && hasTags(); }
 
 /* まだ 今日／きっかけ／すきま のどれにも入れていないもの。
    ユーザーが作ったタグは数に入れない（追補4 §2）。
@@ -292,14 +298,22 @@ function centerItems() {
   if (!hasTags()) return store.floating();
   /* 長期保留はふだん出さない。**ただし長期保留そのもので絞ったときだけ出す**
      ——「いまは見ない」と決めたものを、自分から見に行く道は残す */
-  const wantHold = narrowTag === 'hold';
+  const wantHold = narrowSet.has('hold');
   const list = store.all().filter(t => !isDoneItem(t) && (wantHold || !isHoldItem(t)));
-  if (narrowTag === null) return list;
-  if (narrowTag === UNSORTED_ONLY) return list.filter(isUnsorted);
-  return list.filter(t => tagsOfSafe(t.id).indexOf(narrowTag) >= 0);
+  if (!narrowSet.size) return list;
+  /* 選んだものは全部かかる（「かつ」）。押すたびに狭くなる */
+  return list.filter(t => {
+    const tags = tagsOfSafe(t.id);
+    for (const k of narrowSet) {
+      if (k === UNSORTED_ONLY) { if (!isUnsorted(t)) return false; }
+      else if (tags.indexOf(k) < 0) return false;
+    }
+    return true;
+  });
 }
 
-/* 絞り込みに出す一覧。**完了は出さない**（下の海とふりかえりに専用の道がある） */
+/* 絞り込みに出す一覧。**完了は出さない**（下の海とふりかえりに専用の道がある）。
+   先頭の「ぜんぶ」は選択の取り消しで、重ねる対象ではない（id が null） */
 function narrowChoices() {
   const out = [{ id: null, name: CENTER_NAME }, { id: UNSORTED_ONLY, name: NARROW_NAME }];
   if (!has('tags')) return out;
@@ -312,12 +326,16 @@ function narrowChoices() {
   return out;
 }
 
-/* いま絞っているものの名前。絞っていなければ null */
+/* いま絞っているものの名前。絞っていなければ null。
+   2つ以上あるときは「◯◯ と 2つ」——全部並べると札からはみ出すため */
 function narrowName() {
-  if (narrowTag === null) return null;
-  if (narrowTag === UNSORTED_ONLY) return NARROW_NAME;
-  const c = narrowChoices().find(x => x.id === narrowTag);
-  return c ? c.name : null;
+  if (!narrowSet.size) return null;
+  const all = narrowChoices();
+  const names = [...narrowSet]
+    .map(k => (all.find(x => x.id === k) || {}).name)
+    .filter(n => typeof n === 'string' && n);
+  if (!names.length) return null;
+  return names.length === 1 ? names[0] : names[0] + ' と ' + (names.length - 1) + 'つ';
 }
 
 function faceItems(face) {
@@ -1422,12 +1440,27 @@ function setGathering(on) {
    ならべている間はボタンごと引っ込め（面が丸ごと隠れるので絞る対象が無い）、
    もどしたときに元の絞り込みへ戻る。同時に2つのモードを重ねない。 */
 
+/* id が null なら全部やめる。それ以外は入れ／外しの切り替え */
 function setNarrow(tagId) {
-  const next = (tagId === undefined) ? null : tagId;
-  if (narrowTag === next) return;
-  narrowTag = next;
+  if (tagId === null || tagId === undefined) {
+    if (!narrowSet.size) return;
+    narrowSet.clear();
+  } else if (narrowSet.has(tagId)) {
+    narrowSet.delete(tagId);
+  } else {
+    narrowSet.add(tagId);
+  }
   syncFaces();          /* 中央の顔ぶれが変わる */
   renderChrome();
+}
+
+/* 消えたタグを選んだままにしない（設定でタグを消したときなど） */
+function pruneNarrow() {
+  if (!narrowSet.size) return false;
+  const ok = new Set(narrowChoices().map(c => c.id));
+  let changed = false;
+  [...narrowSet].forEach(k => { if (!ok.has(k)) { narrowSet.delete(k); changed = true; } });
+  return changed;
 }
 
 /* --- 絞り込みの選び札（利用者の指示でタグごとに増やした） ---
@@ -1450,11 +1483,16 @@ function openNarrowPop() {
   const pop = el('div', 'sea-narrow-pop');
   pop.setAttribute('role', 'menu');
   pop.setAttribute('aria-label', 'しぼりこみ');
+  const rows = [];
   narrowChoices().forEach(c => {
     const b = el('button', 'sea-narrow-row');
     b.type = 'button';
-    b.setAttribute('role', 'menuitemradio');
-    b.setAttribute('aria-checked', c.id === narrowTag ? 'true' : 'false');
+    /* 「ぜんぶ」は選択の取り消しなので、印を持たない普通の項目。
+       残りは重ねられるので、入り切りのある項目（menuitemcheckbox） */
+    const isClear = c.id === null;
+    b.setAttribute('role', isClear ? 'menuitem' : 'menuitemcheckbox');
+    if (!isClear) b.setAttribute('aria-checked', narrowSet.has(c.id) ? 'true' : 'false');
+    else b.classList.add('is-clear');
     const dot = el('span', 'dot');
     dot.setAttribute('aria-hidden', 'true');
     if (c.color) dot.style.setProperty('--tcd', c.color);
@@ -1465,9 +1503,16 @@ function openNarrowPop() {
     b.appendChild(nm);
     b.addEventListener('click', ev => {
       ev.preventDefault();
-      closeNarrowPop(true);
       setNarrow(c.id);
+      /* **重ねられるので、選んでも閉じない。**続けて足せるようにしておく。
+         「ぜんぶ」だけは、押した時点で選ぶものが無くなるので閉じる */
+      if (c.id === null) { closeNarrowPop(true); return; }
+      rows.forEach(r => {
+        if (r.id === null) return;
+        r.btn.setAttribute('aria-checked', narrowSet.has(r.id) ? 'true' : 'false');
+      });
     });
+    rows.push({ id: c.id, btn: b });
     pop.appendChild(b);
   });
   pop.addEventListener('keydown', ev => {
@@ -1487,6 +1532,7 @@ function openNarrowPop() {
 
 function syncNarrowBtn() {
   if (!narrowBtn) return;
+  if (pruneNarrow()) syncFaces();          /* 消えたタグを選んだままにしない */
   /* 中央（ぜんぶ）の海にだけ置く。タグの海には出さない（絞る意味が無い） */
   const show = curFace === 'center' && hasTags() && !gathering;
   narrowBtn.hidden = !show;
@@ -1829,9 +1875,11 @@ export default {
       '矢印の看板か、背景をなぞって、となりの海。');
     faces.center.el.appendChild(hint);
 
-    /* 絞った結果が0件のときの言葉。未達を名指ししない（追補4 §2） */
+    /* 絞った結果が0件のときの言葉。未達を名指ししない（追補4 §2）。
+       戻し方は「もどす」から「しぼりこみの一覧の先頭」へ変わったので、そう書く
+       ——画面に無いボタンの名前を書かない */
     centerEmpty = el('p', 'sea-face-empty',
-      'ここには何も無い。<br>「もどす」で、ぜんぶの海。');
+      'ここには何も無い。<br>しぼりこみで「ぜんぶ」を選ぶと、ぜんぶの海。');
     centerEmpty.hidden = true;
     faces.center.el.appendChild(centerEmpty);
 
