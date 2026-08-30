@@ -257,3 +257,69 @@
 
 /* 過ぎた日は記録なので、落とし先の合図を出さない */
 .today-stage.is-readonly .today-random { display: none; }
+
+/* ---------- その日の海に直に書く（利用者の指示） ----------
+   面（.today-stage）の兄弟として下に置く。面は flex:1 なので自然に縮む
+   ——海のように重ねると床の高さを CSS 変数で渡す配管が要る。
+   面のグラデーションは最後が --bg で終わるので、地の色を合わせれば継ぎ目は見えない。 */
+.today-composer {
+  flex: none;
+  display: grid; gap: 8px;
+  padding: 10px 12px 12px;
+  background: var(--bg);
+}
+.today-composer[hidden] { display: none; }
+
+.today-composer .tc-row { display: flex; gap: 8px; align-items: center; }
+.today-composer input {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px;   /* 16px 未満だと iOS が拡大する */
+  padding: 11px 15px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text);
+}
+.today-composer input::placeholder { color: var(--text-2); }
+.today-composer input:focus { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.today-composer button[type="submit"] {
+  flex: none; appearance: none; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  min-width: 44px; min-height: 44px; padding: 0 19px; border-radius: 999px; border: 0;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: var(--accent-text);
+  transition: transform .08s, opacity .12s;
+}
+.today-composer button[type="submit"]:active { transform: scale(.94); }
+.today-composer button[type="submit"]:disabled { opacity: .38; cursor: default; }
+.today-composer button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* 札はふだん畳む。入力欄に触ると開く（.is-open は JS が付ける）。
+   高さを 0 にして畳むので、開くときに面がにじり上がらない */
+.today-composer .tc-tags {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-height: 0; overflow: hidden; opacity: 0;
+  transition: max-height .16s ease, opacity .12s ease;
+}
+.today-composer.is-open .tc-tags { max-height: 120px; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .today-composer .tc-tags { transition: none; }
+}
+
+/* 押していないほうを薄くするのではなく、押しているほうを起こす（§0） */
+.today-composer .tc-tag {
+  appearance: none; -webkit-appearance: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 32px; padding: 0 11px 0 9px;
+  cursor: pointer; font: inherit; font-size: 12.5px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--text-2);
+}
+.today-composer .tc-tag[aria-pressed="true"] {
+  border-color: var(--line-strong); background: var(--surface-2);
+  color: var(--text); font-weight: 600;
+}
+.today-composer .tc-dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--tcd, var(--bub-edge));
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.today-composer .tc-tag[aria-pressed="false"] .tc-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--tcd, var(--line-strong));
+}

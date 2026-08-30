@@ -217,6 +217,89 @@ function itemsForField() {
   }));
 }
 
+/* ---------------- その日の海に直に書く（利用者の指示） ----------------
+
+   前はこの画面に入力欄が無く、**海に書いてからタブへ運ぶ**しか道が無かった。
+   「今日ぶんを今から書く」ときに、いったん海を経由するのは遠回り。
+
+   ・書いたものは **いま映している日**に入る（今日でも、明日でも）
+   ・**タグもその場で付けられる。**入力欄に触ると札が開く（ふだんは畳んでおく——
+     常に出しておくと、書く前から選択肢が並んで水面が狭くなる）
+   ・**過ぎた日には出さない。**過去はその日の記録なので、あとから足させない
+
+   札に出さないタグが2つある：
+     今日 … いま映している日に入るので、重ねて持つ意味が無い
+     完了 … これから書くものに付ける意味が無い */
+
+let composer = null, cInput = null, cSend = null, cTags = null;
+/* 選んだタグは送ったあとも残す。同じタグのものを続けて書くのが楽になる。
+   隠し持たない——札は出たままなので、何が付くかは目で見える */
+const picked = new Set();
+
+function composerTags() {
+  if (typeof store.tags !== 'function') return [];
+  try { return store.tags().filter(t => t && t.id !== 'today' && t.id !== 'done'); }
+  catch (e) { return []; }
+}
+
+function renderComposerTags() {
+  if (!cTags) return;
+  const list = composerTags();
+  cTags.replaceChildren();
+  list.forEach(t => {
+    const b = el('button', 'tc-tag');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', picked.has(t.id) ? 'true' : 'false');
+    const dot = el('span', 'tc-dot');
+    dot.setAttribute('aria-hidden', 'true');
+    if (t.color) dot.style.setProperty('--tcd', t.color);
+    const nm = el('span', 'tc-nm');
+    nm.textContent = t.name;                          /* ユーザーの文字 */
+    b.appendChild(dot);
+    b.appendChild(nm);
+    b.addEventListener('click', ev => {
+      ev.preventDefault();
+      if (picked.has(t.id)) picked.delete(t.id); else picked.add(t.id);
+      b.setAttribute('aria-pressed', picked.has(t.id) ? 'true' : 'false');
+      /* 札を触ると入力欄から焦点が外れる。開いたままにしておく */
+      if (composer) composer.classList.add('is-open');
+    });
+    cTags.appendChild(b);
+  });
+  /* 消えたタグを選んだままにしない */
+  [...picked].forEach(id => { if (!list.some(t => t.id === id)) picked.delete(id); });
+}
+
+function syncComposer() {
+  if (!composer) return;
+  composer.hidden = isPast();          /* 過ぎた日には出さない */
+  if (composer.hidden) return;
+  const v = cInput ? cInput.value.trim() : '';
+  if (cSend) cSend.disabled = !v;
+  if (cInput) {
+    cInput.placeholder = isToday() ? '今日ぶんを書く' : dayLabel(curDay()) + 'ぶんを書く';
+    cInput.setAttribute('aria-label', cInput.placeholder);
+  }
+}
+
+function addFromComposer() {
+  if (!cInput) return;
+  const body = cInput.value.trim();
+  if (!body) return;
+  const t = store.add(body);
+  if (!t) return;
+  /* まず日に置く（日が本体）。そのあとタグを付ける */
+  if (typeof store.setDay === 'function') store.setDay(t.id, curDay(), true);
+  else store.setToday(t.id, true);
+  if (typeof store.setTag === 'function') {
+    picked.forEach(id => { try { store.setTag(t.id, id, true); } catch (e) { /* 無いタグ */ } });
+  }
+  cInput.value = '';
+  syncComposer();
+  cInput.focus({ preventScroll: true });
+  render();
+}
+
 /* 見出しの日付。押すと近い日が選べる。遠い日は左右になぞる */
 /* 空のときのことば。日によって言うことが違う。
    **どれも未達を名指ししない・件数を出さない・命令形にしない**（§0）。
@@ -388,6 +471,8 @@ function render() {
     syncEmptyNote();
   }
   syncDayBtn();
+  syncComposer();
+  renderComposerTags();          /* 設定でタグが増減していることがある */
   syncRandomBtn();
   /* 過去は記録なので触らせない（足すと、その日の記録が後から変わる） */
   if (stage) stage.classList.toggle('is-readonly', isPast());
@@ -941,6 +1026,43 @@ export default {
     /* drift は opts の直下から handlers を読む。将来 opts.handlers を見る作りに
        変わっても落ちないよう、まとめたものも一緒に渡しておく（余分なキーは無視される） */
     field = createField(stage, Object.assign({ size: 'text', handlers }, handlers));
+
+    /* --- その日の海に直に書く（利用者の指示）---
+       面（.today-stage）の**兄弟**として下に置く。面は flex:1 なので自然に縮み、
+       drift が測る clientHeight もそのまま正しくなる
+       ——海のように重ねると、床の高さを CSS 変数で渡す配管が要る。 */
+    composer = el('form', 'today-composer');
+    cTags = el('div', 'tc-tags');
+    composer.appendChild(cTags);
+
+    const row = el('div', 'tc-row');
+    cInput = el('input');
+    cInput.type = 'text';
+    cInput.autocomplete = 'off';
+    cSend = el('button', null, '送信');
+    cSend.type = 'submit';
+    cSend.disabled = true;
+    row.appendChild(cInput);
+    row.appendChild(cSend);
+    composer.appendChild(row);
+
+    cInput.addEventListener('input', syncComposer);
+    /* 入力欄に触っている間だけ札を開く。ふだん畳んでおくのは、
+       書く前から選択肢が並ぶと水面が狭くなるため */
+    cInput.addEventListener('focus', () => composer.classList.add('is-open'));
+    composer.addEventListener('focusout', () => {
+      /* 札を押したときは焦点が札へ移るだけ。畳まない */
+      setTimeout(() => {
+        if (!composer) return;
+        if (composer.contains(document.activeElement)) return;
+        if (cInput && cInput.value.trim()) return;    /* 打ちかけは開いたまま */
+        composer.classList.remove('is-open');
+      }, 0);
+    });
+    composer.addEventListener('submit', ev => { ev.preventDefault(); addFromComposer(); });
+    pane.appendChild(composer);
+    renderComposerTags();
+    syncComposer();
 
     unsubscribe = store.on(render);
 
