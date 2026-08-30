@@ -308,9 +308,34 @@
    最悪は補間色ではなく純色のほう（青竹）だった。
    ＝ 羽をつけても下限は動かない（明 7.00 / 暗 5.04）。
 
-   ■ 向き
-   conic の 0度は真上。2色なら右半分／左半分、3色なら真上から時計回りに3等分。
-   バブルは呼吸で伸び縮みするだけで回らないので、境目の向きは個体ごとに変わらない。 */
+   ■ 向きと割合は、時間で動く（利用者の指示）
+
+   止まった扇は、どうしても図に見える。シャボン玉の色は流れている。
+   そこで2つを動かす。**どちらも色そのものは変えない**——動くのは境目だけ。
+
+   ・位相（向き）… 膜ごと回す。等速では時計になるので、
+     不揃いな中継点を置いて速さを揺らす（21%地点で41度、38%で152度…）。
+     さらに1周の長さと開始位置を**個体ごとに乱数で散らす**（--ts1 / --ts2）。
+     ＝ 同じ画面のバブルが揃って回らない
+   ・割合 …… 扇の境目そのものを動かす。2色なら 152〜206度（＝42%〜57%）を
+     不揃いに行き来する。3色も同じ考えで2つの境目を別々に動かす
+
+   ■ どちらが重いか
+   位相は `transform: rotate` なので**合成だけ**（塗り直しは起きない）。
+   マスクは円で回転に対して対称なので、回しても形は崩れない。
+   割合のほうは境目の角度が変わる＝**conic を毎コマ塗り直す**。
+   塗る面積はマスクの掛かった円1枚（最大 200px）だが、
+   非力な端末では効くかもしれない。切るときは下の tint-prop-* を外す。
+
+   ■ 色は増えない
+   動くのは境目の位置だけで、現れる色は tf1 / tf2 / tf3 と m12 / m23 / m31 のまま。
+   コントラストの実測（明 7.00 / 暗 5.04、境目は 7.50 / 6.44）はそのまま効く。 */
+
+/* 境目の角度。@property で型を付けないと補間されない（＝パッと飛ぶ）。
+   Chrome 85 / Safari 16.4 以降。color-mix（Chrome 111）のほうが厳しいので、
+   これを足しても対応範囲は変わらない。 */
+@property --tint-a { syntax: '<angle>'; inherits: false; initial-value: 180deg; }
+@property --tint-b { syntax: '<angle>'; inherits: false; initial-value: 240deg; }
 .bub.is-tinted {
   --tint-edge: 18deg;          /* 境目の片側の幅。渡す幅はこの2倍 */
   --tint-seam: 30%;            /* 境目を地の色へ寄せる量。0% だと灰色に沈む */
@@ -321,27 +346,83 @@
   --m31: color-mix(in oklab, color-mix(in oklab, var(--tf3), var(--tf1)), var(--bg) var(--tint-seam));
 }
 .bub.is-tinted.is-multi-2 .tint {
+  --tint-a: 180deg;                     /* 動かさないときの境目（reduce のとき） */
   background-image: conic-gradient(
     var(--m12) 0deg,
     var(--tf1) var(--tint-edge),
-    var(--tf1) calc(180deg - var(--tint-edge)),
-    var(--m12) 180deg,
-    var(--tf2) calc(180deg + var(--tint-edge)),
+    var(--tf1) calc(var(--tint-a) - var(--tint-edge)),
+    var(--m12) var(--tint-a),
+    var(--tf2) calc(var(--tint-a) + var(--tint-edge)),
     var(--tf2) calc(360deg - var(--tint-edge)),
     var(--m12) 360deg);
+  animation:
+    tint-turn calc(58s + 46s * var(--ts1, .5)) ease-in-out infinite,
+    tint-prop-2 calc(31s + 22s * var(--ts2, .5)) ease-in-out infinite;
+  /* 開始位置も散らす。もう一方の種を使って、2つの動きを相関させない */
+  animation-delay:
+    calc(-137s * var(--ts2, .5)),
+    calc(-89s * var(--ts1, .5));
 }
 .bub.is-tinted.is-multi-3 .tint {
+  --tint-a: 120deg;
+  --tint-b: 240deg;
   background-image: conic-gradient(
     var(--m31) 0deg,
     var(--tf1) var(--tint-edge),
-    var(--tf1) calc(120deg - var(--tint-edge)),
-    var(--m12) 120deg,
-    var(--tf2) calc(120deg + var(--tint-edge)),
-    var(--tf2) calc(240deg - var(--tint-edge)),
-    var(--m23) 240deg,
-    var(--tf3) calc(240deg + var(--tint-edge)),
+    var(--tf1) calc(var(--tint-a) - var(--tint-edge)),
+    var(--m12) var(--tint-a),
+    var(--tf2) calc(var(--tint-a) + var(--tint-edge)),
+    var(--tf2) calc(var(--tint-b) - var(--tint-edge)),
+    var(--m23) var(--tint-b),
+    var(--tf3) calc(var(--tint-b) + var(--tint-edge)),
     var(--tf3) calc(360deg - var(--tint-edge)),
     var(--m31) 360deg);
+  animation:
+    tint-turn calc(58s + 46s * var(--ts1, .5)) ease-in-out infinite,
+    tint-prop-3 calc(37s + 26s * var(--ts2, .5)) ease-in-out infinite;
+  animation-delay:
+    calc(-137s * var(--ts2, .5)),
+    calc(-113s * var(--ts1, .5));
+}
+
+/* 位相。中継点を不揃いに置いて速さを揺らす（等速だと時計に見える）。
+   1周ちょうどで戻るので、継ぎ目は出ない。 */
+@keyframes tint-turn {
+  0%   { transform: rotate(0deg); }
+  17%  { transform: rotate(41deg); }
+  38%  { transform: rotate(152deg); }
+  55%  { transform: rotate(189deg); }
+  79%  { transform: rotate(301deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 割合。2色は 152〜206度（42%〜57%）を行き来する。
+   端は羽の幅（18度×2＝36度）を割らないところで止める——割ると停止点が潰れる。 */
+@keyframes tint-prop-2 {
+  0%   { --tint-a: 180deg; }
+  21%  { --tint-a: 152deg; }
+  46%  { --tint-a: 206deg; }
+  63%  { --tint-a: 168deg; }
+  88%  { --tint-a: 199deg; }
+  100% { --tint-a: 180deg; }
+}
+/* 3色は2つの境目を別々に。どの時点でも a + 36度 < b を保つ
+   （a は 95〜145、b は 215〜265 なので最短でも 70度 空く） */
+@keyframes tint-prop-3 {
+  0%   { --tint-a: 120deg; --tint-b: 240deg; }
+  19%  { --tint-a:  99deg; --tint-b: 258deg; }
+  43%  { --tint-a: 141deg; --tint-b: 221deg; }
+  61%  { --tint-a: 112deg; --tint-b: 263deg; }
+  84%  { --tint-a: 133deg; --tint-b: 229deg; }
+  100% { --tint-a: 120deg; --tint-b: 240deg; }
+}
+
+/* 「演出を減らす」ときは、どちらも止める。
+   止めると上の宣言（180 / 120・240）がそのまま残るので、
+   **等分の扇で静止**する（色も向きも見える。何も失わない） */
+@media (prefers-reduced-motion: reduce) {
+  .bub.is-tinted.is-multi-2 .tint,
+  .bub.is-tinted.is-multi-3 .tint { animation: none; }
 }
 /* 動きが無くなったので、reduce のための分岐も要らない
    （前はここで巡回を止めていた）。 */

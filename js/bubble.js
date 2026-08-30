@@ -232,6 +232,12 @@ export function makeBubble(item, opts = {}) {
      下に敷くと、膜より上に残る白い照りで暗テーマの文字が沈む。 */
   const tint = el('span', 'tint');
   tint.setAttribute('aria-hidden', 'true');
+  /* 膜の動き（境目の向きと割合）を個体ごとに散らす種。
+     0〜1 の無次元の数で、1周の長さと開始位置は CSS 側が calc で作る。
+     **作るときに1回だけ**振る（updateBubble では振り直さない——
+     同期のたびに変わると、色を付け替えただけで動きが飛ぶ）。 */
+  tint.style.setProperty('--ts1', Math.random().toFixed(3));
+  tint.style.setProperty('--ts2', Math.random().toFixed(3));
   const tx = el('span', 'tx');
 
   skin.appendChild(tint);
