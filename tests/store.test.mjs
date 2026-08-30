@@ -3140,6 +3140,134 @@ await test('タグと完了は保存の往復・restore で保たれる', async 
      消す … どこにも見えない。UI から戻す道は無い。
             戻せるのは localStorage を直接いじるか store.untrash() を叩いたときだけ */
 
+await test('長期保留は「もどってくる日」を持てる。決めなくてもよい', async () => {
+  const store = await open({ raw: null, now: NOW });   /* 2026-08-20 10:00 */
+  const a = store.add('傘を修理に出す');
+
+  assert.equal(store.isHold(a.id), false);
+  assert.equal(store.holdUntil(a.id), null);
+
+  /* 日を決めずに長期保留にできる。自分で外すまで上の海に居る */
+  assert.equal(store.setHold(a.id, true), true);
+  assert.equal(store.isHold(a.id), true);
+  assert.equal(store.holdUntil(a.id), null, '決めなければ日は無い');
+
+  /* あとから日を足せる */
+  assert.equal(store.setHoldUntil(a.id, '2026-09-15'), true);
+  assert.equal(store.holdUntil(a.id), '2026-09-15');
+  assert.equal(store.setHoldUntil(a.id, '2026-09-15'), false, '同じ日なら書かない');
+
+  /* 形の違うものは「決めない」になる（例外は投げない） */
+  assert.equal(store.setHoldUntil(a.id, 'あした'), true);
+  assert.equal(store.holdUntil(a.id), null);
+  assert.equal(store.setHoldUntil(a.id, '2026-9-15'), false, '0詰めでない形も弾く（既に null）');
+
+  /* 長期保留でないものには日が付かない */
+  const b = store.add('牛乳を買う');
+  assert.equal(store.setHoldUntil(b.id, '2026-09-15'), false);
+  assert.equal(store.holdUntil(b.id), null);
+
+  /* setHold に日を一緒に渡せる。外すと日も必ず落ちる */
+  assert.equal(store.setHold(b.id, true, '2026-10-01'), true);
+  assert.equal(store.holdUntil(b.id), '2026-10-01');
+  assert.equal(store.setHold(b.id, false), true);
+  assert.equal(store.isHold(b.id), false);
+  assert.equal(store.holdUntil(b.id), null, '外したら日も残さない');
+  assert.equal(store.setHold(b.id, true), true);
+  assert.equal(store.holdUntil(b.id), null, '外したときに落ちているので、漏れて戻らない');
+
+  /* 省略すると、いまの日をそのまま持ち越す */
+  store.setHoldUntil(b.id, '2026-11-11');
+  assert.equal(store.setHold(b.id, true), false, '同じ状態なら書かない');
+  assert.equal(store.holdUntil(b.id), '2026-11-11');
+
+  /* 保存の往復でも残る */
+  const again = await open();
+  assert.equal(again.holdUntil(b.id), '2026-11-11');
+  assert.equal(again.isHold(b.id), true);
+});
+
+await test('もどってくる日が来たら、静かに海へ戻る（sweepHolds）', async () => {
+  const store = await open({ raw: null, now: NOW });   /* 2026-08-20 */
+  const soon  = store.add('傘を修理に出す');
+  const later = store.add('確定申告の書類');
+  const never = store.add('読みかけの本');
+
+  store.setHold(soon.id,  true, '2026-08-25');
+  store.setHold(later.id, true, '2026-09-30');
+  store.setHold(never.id, true);                       /* 日を決めない */
+
+  /* まだどれも来ていない */
+  assert.deepEqual(store.sweepHolds(), []);
+  assert.equal(store.holds().length, 3);
+
+  /* 当日に戻る（「8/25 に戻る」なら 8/25 の朝から） */
+  const d25 = await open({ now: ms(2026, 8, 25, 9, 0) });
+  const back = d25.sweepHolds();
+  assert.deepEqual(back.map(t => t.text), ['傘を修理に出す']);
+  assert.equal(d25.isHold(soon.id), false);
+  assert.equal(d25.holdUntil(soon.id), null, '戻ったら日も落ちる');
+  assert.equal(d25.holds().length, 2, '日を決めていないものは残る');
+  assert.deepEqual(d25.sweepHolds(), [], '二度目は何も戻さない');
+
+  /* 5時の境目。8/25 の 4:00 は「8/24 のぶん」なので、まだ戻らない */
+  const early = await open({ raw: null, now: NOW });
+  const x = early.add('朝の一件');
+  early.setHold(x.id, true, '2026-08-25');
+  const at4 = await open({ now: ms(2026, 8, 25, 4, 0) });
+  assert.deepEqual(at4.sweepHolds(), [], '5時までは前日のあつかい');
+  const at6 = await open({ now: ms(2026, 8, 25, 6, 0) });
+  assert.deepEqual(at6.sweepHolds().map(t => t.text), ['朝の一件']);
+
+  /* 開いていなかった間に過ぎた日も、開いた時点で拾う（何日過ぎたかは数えない） */
+  const late = await open({ raw: null, now: NOW });
+  const y = late.add('ずっと前の一件');
+  late.setHold(y.id, true, '2026-08-21');
+  const much = await open({ now: ms(2027, 3, 1, 12, 0) });
+  assert.deepEqual(much.sweepHolds().map(t => t.text), ['ずっと前の一件']);
+  assert.equal(much.isHold(y.id), false);
+
+  /* 墓石には触らない */
+  const gone = await open({ raw: null, now: NOW });
+  const z = gone.add('消したもの');
+  gone.setHold(z.id, true, '2026-08-21');
+  gone.remove(z.id);
+  const after = await open({ now: ms(2026, 9, 1, 12, 0) });
+  assert.deepEqual(after.sweepHolds(), [], '消したものは戻さない');
+});
+
+await test('上の海は、もどってくる日が近い順。決めていないものは後ろ', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const c = store.add('三番目');
+  const a = store.add('一番目');
+  const n = store.add('日なし');
+  const b = store.add('二番目');
+  store.setHold(c.id, true, '2026-12-01');
+  store.setHold(a.id, true, '2026-09-01');
+  store.setHold(n.id, true);
+  store.setHold(b.id, true, '2026-10-01');
+  assert.deepEqual(store.holds().map(t => t.text), ['一番目', '二番目', '三番目', '日なし']);
+});
+
+await test('dayAfter / monthAfter は日付キーを作る。月末はつぶれる', async () => {
+  const store = await open({ raw: null, now: ms(2026, 8, 20, 10, 0) });
+  assert.equal(store.todayKey(), '2026-08-20');
+  assert.equal(store.dayAfter(7), '2026-08-27');
+  assert.equal(store.dayAfter(0), '2026-08-20');
+  assert.equal(store.monthAfter(1), '2026-09-20');
+  assert.equal(store.monthAfter(3), '2026-11-20');
+  /* 年をまたぐ */
+  const dec = await open({ now: ms(2026, 12, 20, 10, 0) });
+  assert.equal(dec.monthAfter(3), '2027-03-20');
+  /* 1/31 の1か月後は 3/3 ではなく 2/28（その月の日数へ丸める） */
+  const jan = await open({ now: ms(2027, 1, 31, 10, 0) });
+  assert.equal(jan.todayKey(), '2027-01-31');
+  assert.equal(jan.monthAfter(1), '2027-02-28');
+  /* うるう年は 2/29 まで伸びる */
+  const jan28 = await open({ now: ms(2028, 1, 31, 10, 0) });
+  assert.equal(jan28.monthAfter(1), '2028-02-29');
+});
+
 await test('remove() は項目を消さず、消した印を立てるだけ', async () => {
   const store = await open({ raw: null, now: NOW });
   const t = store.add('消すもの');

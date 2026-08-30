@@ -41,7 +41,33 @@ function paneOf(screen) {
   return pane;
 }
 
+/* --- 戻ってくる日の来た長期保留を、海へ戻す（利用者の指示） ---
+
+   走らせる場所は3つ。**どれも「見る直前」**で、時計では起こさない。
+     ・起動したとき（最初の描画より前）
+     ・画面を切り替えたとき
+     ・アプリが表に戻ったとき（開いたまま朝を跨いだ場合）
+   タイマーで起こさないのは、見ていない画面のバブルが独りでに増えても
+   誰も得をしないうえ、裏に回っていると setTimeout は間引かれて当てにならないため。
+
+   知らせ方の決めごと：
+     ・**責めない。**「期限切れ」「◯日放置」は出さない（README の禁止事項）
+     ・戻ってきた事実だけを言う。取り消しボタンは付けない
+       （自分で決めた日が来ただけなので、取り消す対象の操作が無い） */
+function sweepHolds() {
+  if (typeof store.sweepHolds !== 'function') return;
+  let back;
+  try { back = store.sweepHolds(); } catch (err) { return; }
+  if (!Array.isArray(back) || !back.length) return;
+  const first = String((back[0] && back[0].text) || '').trim();
+  const head = first.length > 18 ? first.slice(0, 18) + '…' : first;
+  toast(back.length === 1
+    ? '「' + head + '」が海にもどった'
+    : '「' + head + '」ほか' + (back.length - 1) + '件が海にもどった');
+}
+
 function show(id) {
+  sweepHolds();
   if (current && current.id === id) return;
 
   if (current && typeof current.onHide === 'function') current.onHide();
@@ -207,6 +233,14 @@ setCenterHandler({
   tags:         () => (has('tags') ? store.tags() : []),
   tagsOf:       (id) => (has('tagsOf') ? store.tagsOf(id) : []),
   setTag:       (id, tagId, on) => (has('setTag') ? store.setTag(id, tagId, on) : false),
+
+  /* 長期保留の「戻ってくる日」（利用者の指示）。
+     盤は日付キーの文字列しか触らない。5時の境目も月末のつぶし方も store 側にある */
+  holdUntil:    (id) => (has('holdUntil') ? store.holdUntil(id) : null),
+  setHoldUntil: (id, key) => (has('setHoldUntil') ? store.setHoldUntil(id, key) : false),
+  todayKey:     () => (has('todayKey') ? store.todayKey() : null),
+  dayAfter:     (n) => (has('dayAfter') ? store.dayAfter(n) : null),
+  monthAfter:   (n) => (has('monthAfter') ? store.monthAfter(n) : null),
 });
 
 /* 保存できなかったときに、それを画面へ出す（B-4）。
@@ -243,6 +277,11 @@ window.addEventListener('bubbles:goto', (ev) => {
 });
 
 show(SCREENS[0].id);
+
+/* 開いたまま朝を跨いだとき用。裏から表に戻った一度だけ見る */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') sweepHolds();
+});
 
 /* 「タブへ落とした」の処理は各画面が持つ（取り消し付きのトーストを出したいため）。
    ここに共通版を置くと、画面ごとの取り消しと二重になって

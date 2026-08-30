@@ -580,6 +580,7 @@ function closeAsk(restoreFocus) {
    戻り値 = { root, place(cx,cy,d), flush(), focusFirst(), isTyping(), handleEscape() } */
 function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let saveTags = null;          /* タグの付け外しは閉じるときにまとめて書く */
+  let saveHoldUntil = null;     /* 長期保留の「戻ってくる日」も同じく閉じるとき */
   const root = el('div', 'bub-center');
   root.setAttribute('role', 'group');
   root.setAttribute('aria-label', (ariaLabel.split('（')[0] || '') + ' の操作');
@@ -662,10 +663,102 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         const on = !want.has(t.id);
         if (on) want.add(t.id); else want.delete(t.id);
         chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+        if (t.id === 'hold' && syncHoldRow) syncHoldRow(true);
       });
       tags.appendChild(chip);
     });
     fields.appendChild(tags);
+
+    /* ---- 長期保留の「戻ってくる日」（利用者の指示）----
+
+       長期保留は「いつかやるが、いまは見ない」。
+       **いつかを決めておけば、その日に自分で思い出さなくても海へ戻ってくる。**
+       決めなくてもよい（そのときは自分で外すまで上の海に居る）。
+
+       置き場所をタグのすぐ下にしたのは、**札を押した直後に目に入る**から。
+       別のダイアログにすると、押した流れが切れる。
+       長期保留を選んでいないあいだは丸ごと隠す——関係の無い欄が常に見えていると、
+       いま何を決めているのかが読めなくなる。
+
+       言い方は「戻ってくる日」。「期限」「締切」とは書かない。
+       **過ぎても責めるものが無い**——過ぎた日は、開いた時点で静かに戻すだけ。 */
+    const holdTag = list.find(t => t.id === 'hold');
+    const canHoldDay = holdTag && typeof (a || {}).setHoldUntil === 'function';
+    let syncHoldRow = null;
+
+    if (canHoldDay) {
+      const until0 = ask(a, 'holdUntil', id) || null;
+      let until = until0;
+
+      const box = el('div', 'bc-hold');
+      const lb = el('label', 'bc-hold-lb', 'もどってくる日');
+      const picks = el('div', 'bc-hold-picks');
+      const dayIn = el('input', 'bc-hold-day');
+      dayIn.type = 'date';
+      const today = ask(a, 'todayKey') || '';
+      if (today) dayIn.min = today;                /* 過ぎた日は選ばせない */
+      dayIn.setAttribute('aria-label', 'もどってくる日をえらぶ');
+      lb.htmlFor = dayIn.id = 'bc-hold-day-' + String(id);
+
+      /* 早い順。いちばん近いものを左に置く（押す回数が多いほうを親指側へ） */
+      const PRESETS = [
+        { tx: '1週間', get: () => ask(a, 'dayAfter', 7) },
+        { tx: '1か月', get: () => ask(a, 'monthAfter', 1) },
+        { tx: '3か月', get: () => ask(a, 'monthAfter', 3) },
+        { tx: '決めない', get: () => null },
+      ];
+      const btns = PRESETS.map(p => {
+        const b = el('button', 'bc-hold-pick');
+        b.type = 'button';
+        b.textContent = p.tx;
+        b.addEventListener('click', ev => {
+          ev.preventDefault();
+          until = p.get() || null;
+          dayIn.value = until || '';
+          syncPicks();
+        });
+        picks.appendChild(b);
+        return { b, p };
+      });
+
+      dayIn.addEventListener('change', () => {
+        until = dayIn.value || null;
+        syncPicks();
+      });
+
+      /* いま選ばれている札を起こす。**付いていないほうを薄くするのではなく、
+         付いているほうを起こす**（§0）。「決めない」は日が無いときに起きる */
+      function syncPicks() {
+        btns.forEach(({ b, p }) => {
+          const v = p.get() || null;
+          b.setAttribute('aria-pressed', v === until ? 'true' : 'false');
+        });
+      }
+
+      box.appendChild(lb);
+      box.appendChild(dayIn);
+      box.appendChild(picks);
+      dayIn.value = until || '';
+      syncPicks();
+      fields.appendChild(box);
+
+      /* 長期保留の札の状態に合わせて出し入れする。
+         **出し入れすると盤の高さが 115px 変わる**ので、置き直しまでやる。
+         やらないと、下タブぎりぎりに出ていた盤が札を押した拍子に潜り込む
+         （リンク欄が伸び縮みするときに relayout() を呼ぶのと同じ理由）。 */
+      syncHoldRow = (fit) => {
+        const was = box.hidden;
+        box.hidden = !want.has('hold');
+        if (fit && was !== box.hidden) relayout();
+      };
+      syncHoldRow(false);   /* 組み立て中。まだ place() が走っていないので測れない */
+
+      saveHoldUntil = () => {
+        if (!want.has('hold')) return;             /* 長期保留でなければ日も持たない */
+        if (until === until0) return;
+        ask(a, 'setHoldUntil', id, until);
+      };
+    }
 
     saveTags = () => {
       list.forEach(t => {
@@ -1010,7 +1103,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     root, place,
     /* タグは最後に書く。書いた瞬間に画面が組み直されるので、
        先に書くと 次の一手・リンクの保存先が消えることがある */
-    flush() { saveStep(); saveUrl(); if (saveTags) saveTags(); },
+    /* 順番に意味がある。長期保留の札を先に書いてから日を足す
+       （外れているものに日は付かない＝ store が弾く） */
+    flush() { saveStep(); saveUrl(); if (saveTags) saveTags(); if (saveHoldUntil) saveHoldUntil(); },
     focusFirst() { start.focus({ preventScroll: true }); },
     isTyping() {
       const el2 = document.activeElement;

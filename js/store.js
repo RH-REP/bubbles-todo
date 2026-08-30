@@ -425,6 +425,35 @@ function scheduleHits(sch, at) {
 function dayKey(ms) { return dayOf(ms); }
 function todayKey() { return dayOf(Date.now()); }
 
+/* 'YYYY-MM-DD' の形だけを通す。それ以外は null（無い扱い） */
+function dayKeyOrNull(v) {
+  return (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : null;
+}
+
+/* 日付キーに n 日足した日付キー。**正午に寄せてから動かす**ので、
+   夏時間の切り替え日でも日が飛ばない（recentDays と同じやり方）。
+   形が違えば null。 */
+function addDays(key, n) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+  d.setDate(d.getDate() + (Math.floor(Number(n)) || 0));
+  return ymd(d);
+}
+
+/* 日付キーに n か月足す。**月末は月の長さでつぶす**（1/31 の1か月後は 2/28）。
+   setMonth は溢れたぶんを翌月へ回すので（1/31 + 1か月 = 3/3）、
+   いったん1日へ落として月を動かし、その月の日数へ丸め直す。 */
+function addMonths(key, n) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return null;
+  const dd = Number(m[3]);
+  const d = new Date(Number(m[1]), Number(m[2]) - 1 + (Math.floor(Number(n)) || 0), 1, 12, 0, 0, 0);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0, 12, 0, 0, 0).getDate();
+  d.setDate(Math.min(dd, last));
+  return ymd(d);
+}
+
 /* 'YYYY-MM-DD' の形だけを通し、重複を落として古い順にそろえる */
 function normalizeDays(v) {
   const seen = new Set();
@@ -696,8 +725,11 @@ function normalizeDraft(v) {
 }
 
 function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
-  /* 長期保留。旧データには無いので false から始まる */
+  /* 長期保留。旧データには無いので false から始まる。
+     holdUntil は「この日に海へ戻る」日付キー。null なら自分で外すまでそのまま。
+     長期保留でないものが日付だけ持っていても意味が無いので、そこは落とす */
   const hold = !!t.hold;
+  const holdUntil = hold ? dayKeyOrNull(t.holdUntil) : null;
   /* days が本体。無い保存データ（この版より前）は today:true のぶんだけ、
      その時点の日（保存されていた lastDay）へ移す。
      lastDay が過去なら、読み込んだ瞬間に today は false になる——
@@ -732,6 +764,7 @@ function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
     days,
     today,
     hold,
+    holdUntil,
     createdAt: Number(t.createdAt) || Date.now(),
     fx: clamp01(t.fx, 0.5),
     fy: clamp01(t.fy, 0.5),
@@ -1074,6 +1107,7 @@ export const store = {
       days: o.today ? [todayKey()] : [],
       today: !!o.today,
       hold: false,
+      holdUntil: null,
       createdAt: Date.now(),
       fx: Number.isFinite(o.fx) ? o.fx : 0.2 + Math.random() * 0.6,
       fy: Number.isFinite(o.fy) ? o.fy : 0.2 + Math.random() * 0.5,
@@ -1311,10 +1345,21 @@ export const store = {
      いつかやるが、いまは目に入れたくないもの。上の海に集まる。
      **どの海からも既定では出さない**（外すのは画面側の仕事。ここは印を持つだけ）。
      完了とは別物——完了は「終わった」、長期保留は「まだ終わっていないが、いまは見ない」。 */
-  setHold(id, on) {
+  /* until を渡すと、戻ってくる日も一緒に決める。
+       'YYYY-MM-DD' … その日に海へ戻る
+       null         … 日を決めない（自分で外すまでそのまま）
+       省略         … いまの日をそのまま持ち越す
+     外すとき（on=false）は日も必ず落とす。外れているのに日だけ残ると、
+     次に長期保留にしたときへ古い日が漏れる。 */
+  setHold(id, on, until) {
     const t = store.get(id);
-    if (!t || t.hold === !!on) return false;
-    t.hold = !!on;
+    if (!t) return false;
+    const next = !!on;
+    const key = !next ? null
+      : (until === undefined ? (t.holdUntil || null) : dayKeyOrNull(until));
+    if (t.hold === next && (t.holdUntil || null) === key) return false;
+    t.hold = next;
+    t.holdUntil = key;
     persist(); emit();
     return true;
   },
@@ -1324,8 +1369,66 @@ export const store = {
     return !!(t && t.hold);
   },
 
-  /* 上の海の中身。完了したものは出さない（あちらはふりかえりから見る） */
-  holds() { return items.filter(t => isLive(t) && t.hold && !t.done); },
+  /* 戻ってくる日。決めていなければ null。長期保留でなければ常に null */
+  holdUntil(id) {
+    const t = store.get(id);
+    return (t && t.hold && t.holdUntil) || null;
+  },
+
+  /* 戻ってくる日だけを付け替える。長期保留でないものには付かない
+     （付くと、外れているのに日だけ在る状態が作れてしまう） */
+  setHoldUntil(id, key) {
+    const t = store.get(id);
+    if (!t || !t.hold) return false;
+    const k = dayKeyOrNull(key);
+    if ((t.holdUntil || null) === k) return false;
+    t.holdUntil = k;
+    persist(); emit();
+    return true;
+  },
+
+  /* 今日から n 日後の日付キー。画面が「1週間」「1か月」を日付に直すのに使う。
+     日付の作り方を画面ごとに書かないための1か所（5時の境目もここに入っている） */
+  dayAfter(n) { return addDays(todayKey(), n); },
+
+  /* 今日から n か月後。月末はつぶれる（1/31 の1か月後は 2/28） */
+  monthAfter(n) { return addMonths(todayKey(), n); },
+
+  /* --- 戻ってくる日を過ぎたものを、海へ戻す ---
+
+     **静かに戻す。**「期限切れ」も「◯日放置」も出さない（README の禁止事項）。
+     戻ってきたという事実だけを、呼び手がひとこと言えるように配列で返す。
+
+     日の境目は 5時（DAY_CUTOFF_HOUR）で、todayKey() と同じ。
+     「9月15日に戻る」なら、9月15日の5時を回った時点で戻る。
+     過ぎた日（アプリを開いていなかった間に来た日）も同じ判定で拾える。
+
+     -> 戻した項目の配列（古い順ではなく、items の並び順）。1件も無ければ [] */
+  sweepHolds() {
+    const k = todayKey();
+    const out = [];
+    items.forEach(t => {
+      if (t.trashed || !t.hold || !t.holdUntil) return;
+      if (t.holdUntil > k) return;                  /* まだ先。文字列比較で足りる形 */
+      t.hold = false;
+      t.holdUntil = null;
+      out.push(t);
+    });
+    if (out.length) { persist(); emit(); }
+    return out;
+  },
+
+  /* 上の海の中身。完了したものは出さない（あちらはふりかえりから見る）。
+     戻ってくる日が近い順、日を決めていないものは後ろ */
+  holds() {
+    return items.filter(t => isLive(t) && t.hold && !t.done).sort((a, b) => {
+      const x = a.holdUntil || '', y = b.holdUntil || '';
+      if (x === y) return 0;
+      if (!x) return 1;
+      if (!y) return -1;
+      return x < y ? -1 : 1;
+    });
+  },
 
   setToday(id, on) {
     const t = store.get(id);
@@ -1998,7 +2101,7 @@ export const store = {
   seed(texts) {
     texts.forEach(text => {
       items.push({
-        id: uid(), text, days: [], today: false, hold: false, createdAt: Date.now(),
+        id: uid(), text, days: [], today: false, hold: false, holdUntil: null, createdAt: Date.now(),
         fx: 0.15 + Math.random() * 0.7, fy: 0.15 + Math.random() * 0.6,
         slots: [], anchors: [], anchorAt: {}, started: {},
         firstStep: '', url: '', gap: false, gapSlot: null, plan: false,
