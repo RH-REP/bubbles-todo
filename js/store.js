@@ -311,6 +311,76 @@ function dayOf(ms) {
   return ymd(new Date(ms - DAY_CUTOFF_HOUR * 3600 * 1000));
 }
 
+/* ---------------- きっかけの日にち（利用者の指示） ----------------
+
+   きっかけ（アンカー）に「いつの日のものか」を持たせる。
+     days  … 曜日 0=日 1=月 … 6=土
+     weeks … 1〜4 と 5（＝最終）
+
+   ■ 数え方は「その月の n 回目のその曜日」（利用者の判断）
+   「2週目の火曜」＝ その月の2回目の火曜日。ゴミ収集日や定例会と同じ言い方。
+   だから **weeks は days が決まって初めて意味を持つ**。
+   曜日を選んでいないのに「2週目」だけ選ぶことはできない
+   （normalizeSchedule が days 空のとき weeks を落とす）。
+
+   「最終」は 4回目とは別物で、その曜日が5回ある月だけ違う日を指す。
+     2026年9月（火曜が5回）: 1→9/1 2→9/8 3→9/15 4→9/22 最終→9/29
+
+   ■ 空＝毎日
+   days が空なら、いつでもその日。既定はこれ（今までのきっかけは全部これになる）。
+
+   ■ 日の境目は 5時（DAY_CUTOFF_HOUR）
+   ここだけ別の境目にすると、深夜1時に「昨日の曜日」と「今日の曜日」が食い違う。
+   dayOf() と同じ引き算を通してから曜日を読む。
+
+   ■ **過ぎた日のことは何も持たない**
+   「予定の日だったのに着手しなかった」を表す状態を、どこにも作っていない。
+   作れば必ずどこかに出したくなり、それは未処理の山になる（§0）。 */
+
+const WEEK_LAST = 5;                       /* weeks の 5 は「最終」の意味 */
+const WEEK_VALUES = [1, 2, 3, 4, WEEK_LAST];
+const DAY_VALUES = [0, 1, 2, 3, 4, 5, 6];
+
+/* 保存されうる値だけを通し、重複を落として昇順にそろえる。
+   days が空なら weeks も空にする（上の「数え方」を見よ）。 */
+function normalizeSchedule(v) {
+  const src = (v && typeof v === 'object') ? v : {};
+  const pick = (arr, allowed) => {
+    const seen = new Set();
+    (Array.isArray(arr) ? arr : []).forEach(x => {
+      const n = Number(x);
+      if (allowed.indexOf(n) >= 0) seen.add(n);
+    });
+    return [...seen].sort((a, b) => a - b);
+  };
+  const days = pick(src.days, DAY_VALUES);
+  const weeks = days.length ? pick(src.weeks, WEEK_VALUES) : [];
+  return { days, weeks };
+}
+
+/* その epoch ms の「日」で、このきっかけの日か。
+   at を省くといま。days が空なら常に true（毎日）。 */
+function scheduleHits(sch, at) {
+  const s = normalizeSchedule(sch);
+  if (!s.days.length) return true;                       /* 毎日 */
+  const ms = Number.isFinite(Number(at)) ? Number(at) : Date.now();
+  /* 5時までは前日として読む（dayOf と同じ引き算） */
+  const d = new Date(ms - DAY_CUTOFF_HOUR * 3600 * 1000);
+  if (s.days.indexOf(d.getDay()) < 0) return false;
+  if (!s.weeks.length) return true;                      /* 毎週その曜日 */
+
+  const date = d.getDate();
+  /* その月で何回目のその曜日か。1日〜7日なら1回目、8〜14なら2回目… */
+  const nth = Math.floor((date - 1) / 7) + 1;
+  if (s.weeks.indexOf(nth) >= 0) return true;
+  /* 「最終」= 7日後が翌月に入る＝その曜日はこれが月内で最後 */
+  if (s.weeks.indexOf(WEEK_LAST) >= 0) {
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    if (date + 7 > end) return true;
+  }
+  return false;
+}
+
 /* 今日を含む直近 n 日ぶんの日付キー。古い順。ちょうど n 件 */
 function recentDays(n) {
   const count = Math.max(0, Math.floor(Number(n)) || 0);
@@ -329,7 +399,13 @@ function recentDays(n) {
 /* --- アンカーの小道具 --- */
 
 /* 外に渡すのは毎回作り直したコピー。中の配列を触られても壊れないように */
-function anchorCopy(a) { return { id: a.id, name: a.name, hue: a.hue }; }
+function anchorCopy(a) {
+  return {
+    id: a.id, name: a.name, hue: a.hue,
+    /* 呼び手が並べ替えても内部が壊れないよう、配列は複製して渡す */
+    days: a.days.slice(), weeks: a.weeks.slice(),
+  };
+}
 
 function findAnchor(id) {
   return (typeof id === 'string' && anchorList.find(a => a.id === id)) || null;
@@ -420,7 +496,12 @@ function normalizeAnchors(arr) {
     const name = anchorName(a.name);
     if (!id || !name || seen.has(id)) return;
     seen.add(id);
-    out.push({ id, name, hue: HUES.indexOf(a.hue) >= 0 ? a.hue : null });
+    /* 日にちを持たない保存データ（この版より前）は、days/weeks 空＝毎日で立ち上がる */
+    const sch = normalizeSchedule(a);
+    out.push({
+      id, name, hue: HUES.indexOf(a.hue) >= 0 ? a.hue : null,
+      days: sch.days, weeks: sch.weeks,
+    });
   });
   return out;
 }
@@ -1184,10 +1265,51 @@ export const store = {
     const body = anchorName(name);
     if (!body) return null;
     if (anchorList.length >= MAX_ANCHORS) return null;
-    const a = { id: aid(), name: body, hue: freeHue() };
+    /* 作った直後は日にち無し＝毎日。決めるのは画面から */
+    const a = { id: aid(), name: body, hue: freeHue(), days: [], weeks: [] };
     anchorList.push(a);
     persist(); emit();
     return anchorCopy(a);
+  },
+
+  /* --- きっかけの日にち --- */
+
+  /* 週の値のうち 5 は「最終」。画面はこれを見て札を組む */
+  WEEK_LAST,
+  /* 選べる値。画面が自前で 0..6 / 1..5 を書かなくて済むように出す */
+  weekValues() { return WEEK_VALUES.slice(); },
+  dayValues() { return DAY_VALUES.slice(); },
+
+  /* { days, weeks } を返す。持っていなければどちらも空（＝毎日） */
+  anchorSchedule(id) {
+    const a = findAnchor(id);
+    return a ? { days: a.days.slice(), weeks: a.weeks.slice() } : { days: [], weeks: [] };
+  },
+
+  /* 決め直す。受け取れない値は落とし、days が空なら weeks も空にする。
+     -> 受け付けたか（無いアンカーなら false） */
+  setAnchorSchedule(id, v) {
+    const a = findAnchor(id);
+    if (!a) return false;
+    const s = normalizeSchedule(v);
+    const same = a.days.join() === s.days.join() && a.weeks.join() === s.weeks.join();
+    if (same) return true;                 /* 同じ内容なら書かない */
+    a.days = s.days; a.weeks = s.weeks;
+    persist(); emit();
+    return true;
+  },
+
+  /* 今日（at を渡せばその日）が、このきっかけの日か。
+     日にちを持たないきっかけは常に true。無いアンカーも true——
+     画面が「知らない id は隠す」ことにならないように、通す側へ倒す */
+  anchorDue(id, at) {
+    const a = findAnchor(id);
+    return a ? scheduleHits(a, at) : true;
+  },
+
+  /* 今日の日のきっかけだけ。並びは anchors() と同じ */
+  dueAnchors(at) {
+    return anchorList.filter(a => scheduleHits(a, at)).map(anchorCopy);
   },
 
   /* 改名。空名は受け付けない。

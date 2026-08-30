@@ -387,9 +387,10 @@ await test('壊れた保存データでも例外を投げずに空で立ち上�
     ],
     todos: [], log: [], lastDay: '2026-08-20',
   } });
+  /* days / weeks は「きっかけの日にち」。持たない旧データは空＝毎日で立ち上がる */
   assert.deepEqual(anch.anchors(), [
-    { id: 'A', name: '歯を磨いたら', hue: 0 },
-    { id: 'C', name: 'hue が変', hue: null },
+    { id: 'A', name: '歯を磨いたら', hue: 0, days: [], weeks: [] },
+    { id: 'C', name: 'hue が変', hue: null, days: [], weeks: [] },
   ]);
   /* 壊れたログ行だけを落とす。
      いま存在しないアンカーの id は「壊れている」ではない（消したアンカーの記録）ので残す */
@@ -974,7 +975,8 @@ await test('addAnchor / renameAnchor / moveAnchor / removeAnchor', async () => {
   const c = store.addAnchor('コーヒーを淹れたら');
   assert.deepEqual(store.anchors().map(x => x.name),
     ['歯を磨いたら', '風呂から出たら', 'コーヒーを淹れたら'], '作った順に並ぶ');
-  assert.deepEqual(store.anchor(a.id), { id: a.id, name: '歯を磨いたら', hue: 0 });
+  assert.deepEqual(store.anchor(a.id),
+    { id: a.id, name: '歯を磨いたら', hue: 0, days: [], weeks: [] });
   assert.equal(store.anchor('nosuch'), null);
 
   /* 改名。空名は受け付けない */
@@ -2467,6 +2469,92 @@ await test('保存に失敗したら、落ちずに、失敗したことを外�
   store.add('解除したあと');
   assert.equal(seen.length, 2, '解除したら届かない');
   localStorage.setItem = real;
+});
+
+/* きっかけの日にち（利用者の指示）。
+
+   数え方は「その月の n 回目のその曜日」。「2週目の火曜」＝ その月の2回目の火曜日。
+   2026年9月は火曜が5回ある（1/8/15/22/29）ので、**4回目と最終が別の日**になる。
+   ここが取り違えのいちばん起きやすいところなので、その月で確かめる。 */
+await test('きっかけの日にち：第n曜日の数え方と「最終」', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const a = store.addAnchor('歯を磨いたら');
+
+  /* 既定は毎日（days も weeks も空） */
+  assert.deepEqual(store.anchorSchedule(a.id), { days: [], weeks: [] });
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 1, 10, 0)), true, '日にち無しは常にその日');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 4, 10, 0)), true);
+
+  /* 毎週火曜（週を選ばない） */
+  assert.equal(store.setAnchorSchedule(a.id, { days: [2] }), true);
+  assert.deepEqual(store.anchorSchedule(a.id), { days: [2], weeks: [] });
+  [1, 8, 15, 22, 29].forEach(d =>
+    assert.equal(store.anchorDue(a.id, ms(2026, 9, d, 10, 0)), true, '9/' + d + ' は火曜'));
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 2, 10, 0)), false, '水曜は外れる');
+
+  /* 第2火曜だけ */
+  store.setAnchorSchedule(a.id, { days: [2], weeks: [2] });
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 8, 10, 0)), true, '2回目の火曜');
+  [1, 15, 22, 29].forEach(d =>
+    assert.equal(store.anchorDue(a.id, ms(2026, 9, d, 10, 0)), false, '9/' + d + ' は違う'));
+
+  /* 4回目と「最終」は別物。9月は火曜が5回あるので、ここで割れる */
+  store.setAnchorSchedule(a.id, { days: [2], weeks: [4] });
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 22, 10, 0)), true, '4回目は 9/22');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 29, 10, 0)), false, '9/29 は4回目ではない');
+
+  store.setAnchorSchedule(a.id, { days: [2], weeks: [store.WEEK_LAST] });
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 29, 10, 0)), true, '最終は 9/29');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 22, 10, 0)), false, '9/22 は最終ではない');
+
+  /* 火曜が4回しかない月なら、4回目と最終は同じ日を指す。
+     2026年8月の火曜は 4/11/18/25 の4回 */
+  assert.equal(new Date(2026, 7, 25).getDay(), 2, '前提：8/25 は火曜');
+  store.setAnchorSchedule(a.id, { days: [2], weeks: [4] });
+  assert.equal(store.anchorDue(a.id, ms(2026, 8, 25, 10, 0)), true);
+  store.setAnchorSchedule(a.id, { days: [2], weeks: [store.WEEK_LAST] });
+  assert.equal(store.anchorDue(a.id, ms(2026, 8, 25, 10, 0)), true, '4回しかなければ同じ日');
+
+  /* 複数選べる。第1・第3の木曜 */
+  store.setAnchorSchedule(a.id, { days: [4], weeks: [1, 3] });
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 3, 10, 0)), true, '1回目の木曜 9/3');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 17, 10, 0)), true, '3回目の木曜 9/17');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 10, 10, 0)), false, '2回目は外れる');
+});
+
+await test('きっかけの日にち：受け取らない値・境目・保存', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const a = store.addAnchor('風呂から出たら');
+
+  /* 範囲外・重複・順不同は正規化される */
+  store.setAnchorSchedule(a.id, { days: [7, -1, 3, 3, 1], weeks: [0, 9, 2, 2] });
+  assert.deepEqual(store.anchorSchedule(a.id), { days: [1, 3], weeks: [2] });
+
+  /* 曜日を選ばなければ、週は意味を持たないので落ちる */
+  store.setAnchorSchedule(a.id, { days: [], weeks: [2, 3] });
+  assert.deepEqual(store.anchorSchedule(a.id), { days: [], weeks: [] }, '週だけは残さない');
+
+  /* 無いアンカーは false。ただし anchorDue は通す側へ倒す */
+  assert.equal(store.setAnchorSchedule('nosuch', { days: [1] }), false);
+  assert.equal(store.anchorDue('nosuch'), true, '知らない id は隠さない');
+
+  /* 日の境目は 5時。月曜の午前1時は「日曜のぶん」 */
+  store.setAnchorSchedule(a.id, { days: [0] });                 /* 日曜 */
+  assert.equal(new Date(2026, 8, 6).getDay(), 0, '前提：9/6 は日曜');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 7, 1, 0)), true, '月曜1時は日曜のぶん');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 7, 6, 0)), false, '月曜6時はもう月曜');
+
+  /* dueAnchors は並びを保ったまま、その日のものだけ返す */
+  const b = store.addAnchor('コーヒーを淹れたら');            /* 日にち無し＝毎日 */
+  const at = ms(2026, 9, 7, 10, 0);                            /* 月曜 */
+  assert.deepEqual(store.dueAnchors(at).map(x => x.id), [b.id], '日曜のぶんは出ない');
+  assert.deepEqual(store.anchors().map(x => x.id), [a.id, b.id], 'anchors() は全部返す');
+
+  /* 保存の往復で残る */
+  store.setAnchorSchedule(a.id, { days: [2, 5], weeks: [1, store.WEEK_LAST] });
+  const again = await open();
+  assert.deepEqual(again.anchorSchedule(a.id), { days: [2, 5], weeks: [1, 5] });
+  assert.deepEqual(again.anchorSchedule(b.id), { days: [], weeks: [] });
 });
 
 await test('setTagDir は1向き1タグ。既に居たタグは null へ押し出される', async () => {

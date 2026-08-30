@@ -143,6 +143,7 @@ function isStarted(id, anchorId) {
                 セルもバブルもこの面の座標系に乗る（スクロールしても両者がずれない） */
 let pane, scrollEl, surfaceEl, cellsEl, tabbarEl;
 let addBox, addBtn, addInput, hintEl;
+let noneEl;      /* 今日の日のきっかけが1つも無いときの1行 */
 let composerBox = null;
 let anchorRef = {};            /* where -> { box, grid, count } … 未分類も含む落とし先 */
 let unsubscribe = null;
@@ -971,6 +972,7 @@ function openAnchorMenu(a, index, total, btn, host) {
 
   const rows = [
     { label: '名前を変える', on: () => { renaming = a.id; wantFocus = 'aname:' + a.id; render(); }, off: false },
+    { label: '日にちを決める', on: () => openSchedule(a), off: typeof store.setAnchorSchedule !== 'function' },
     { label: '上へ',        on: () => { wantFocus = 'amenu:' + a.id; store.moveAnchor(a.id, -1); render(); }, off: index <= 0 },
     { label: '下へ',        on: () => { wantFocus = 'amenu:' + a.id; store.moveAnchor(a.id, +1); render(); }, off: index >= total - 1 },
     { label: '消す',        on: () => removeAnchor(a, index), off: false, danger: true },
@@ -1059,6 +1061,210 @@ let edgeTimer = 0, edgeDir = 0;
 function boxOf(id) {
   const r = anchorRef[id];
   return r && r.box ? r.box.getBoundingClientRect() : null;
+}
+
+/* ---------------- きっかけの日にち（利用者の指示） ----------------
+
+   きっかけ本体（カード）に「いつの日のものか」を持たせる。
+   数え方は「その月の n 回目のその曜日」＝ 第2火曜。最終は4回目とは別物
+   （その曜日が5回ある月だけ違う日を指す）。判定は store が持つ。
+
+   ■ 予定の日でないきっかけは隠す（利用者の判断）
+   きっかけの画面が「今日の段取り」になる。ぜんぶ見るための切り替えを置く。
+   **未分類はいつでも出す**——あそこは受け皿なので、隠すと落とし先が消える。
+
+   ■ 過ぎた日のことは何も出さない
+   「予定の日だったのに着手しなかった」は、どこにも出さない。数えない。
+   遡って印も付けない。出せば未処理の山になる（§0）。 */
+
+const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+const WEEK_NAMES = { 1: '第1', 2: '第2', 3: '第3', 4: '第4', 5: '最終' };
+
+/* 予定外のきっかけを隠しているか。画面を開き直すと隠す側に戻る（既定＝今日の段取り） */
+let showAllAnchors = false;
+let allBtn = null;
+
+/* いま画面に出すきっかけ。store 側の API が無い版では全部出す */
+function visibleAnchors() {
+  if (showAllAnchors || typeof store.dueAnchors !== 'function') return store.anchors();
+  try { return store.dueAnchors(); } catch (e) { return store.anchors(); }
+}
+
+/* カードに出す札の文字。毎日なら空（札を出さない——
+   「毎日」と書いた札が全部のカードに並ぶと、それ自体が濃さになる） */
+function scheduleLabel(a) {
+  const days = Array.isArray(a.days) ? a.days : [];
+  const weeks = Array.isArray(a.weeks) ? a.weeks : [];
+  if (!days.length) return '';
+  const d = days.map(x => DAY_NAMES[x]).join('・');
+  /* 曜日が1つなら詰めて「第2火曜」。2つ以上のときだけ空ける——
+     「第2月・水曜」は "第2月" とも読めてしまうため */
+  const sp = days.length > 1 ? ' ' : '';
+  if (!weeks.length) return '毎週' + sp + d + '曜';
+  return weeks.map(x => WEEK_NAMES[x] || '').join('・') + sp + d + '曜';
+}
+
+/* 日にちを決める盤。面の外（document.body）に置くので、
+   store が動いて画面が組み直されても、この盤は消えない。
+
+   押した内容はその場で書く（閉じるまで溜めない）。盤は覆いで塞がれていて
+   後ろのカードは触れないので、途中の状態が中途半端に見える心配が無いため。 */
+let schedPop = null;
+
+function closeSchedule(restoreFocus) {
+  if (!schedPop) return;
+  const p = schedPop;
+  schedPop = null;
+  window.removeEventListener('keydown', p.onKey, true);
+  p.back.remove();
+  p.box.remove();
+  if (restoreFocus && p.was && p.was.isConnected && typeof p.was.focus === 'function') {
+    p.was.focus({ preventScroll: true });
+  }
+}
+
+function openSchedule(a) {
+  if (typeof store.setAnchorSchedule !== 'function') return;
+  closeSchedule();
+  const was = document.activeElement;
+
+  const back = el('div', 'psch-back');
+  const box = el('div', 'psch');
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+
+  const ttl = el('p', 'psch-title');
+  ttl.textContent = '「' + a.name + '」の日にち';   /* ユーザーの文字。innerHTML には入れない */
+  box.setAttribute('aria-label', ttl.textContent);
+  box.appendChild(ttl);
+
+  /* いまの内容を1行で言う。押すたびにここが変わる＝結果が先に見える */
+  const now = el('p', 'psch-now');
+  box.appendChild(now);
+
+  const cur = () => store.anchorSchedule(a.id);
+  const weekBtns = [];
+  const paint = () => {
+    const c = cur();
+    now.textContent = scheduleLabel({ days: c.days, weeks: c.weeks }) || '毎日';
+    /* 曜日を選んでいないと、週は意味を持たない（第n週＝n回目のその曜日のため） */
+    weekBtns.forEach(b => { b.disabled = !c.days.length; });
+    render();                                     /* 後ろのカードの札も合わせる */
+  };
+
+  const group = (label, note) => {
+    const g = el('div', 'psch-g');
+    const lb = el('span', 'psch-lb');
+    lb.textContent = label;
+    g.appendChild(lb);
+    if (note) { const nt = el('span', 'psch-note'); nt.textContent = note; g.appendChild(nt); }
+    const row = el('div', 'psch-row');
+    g.appendChild(row);
+    box.appendChild(g);
+    return row;
+  };
+
+  /* --- 曜日 --- */
+  const dayRow = group('曜日', '選ばなければ毎日');
+  (typeof store.dayValues === 'function' ? store.dayValues() : [0, 1, 2, 3, 4, 5, 6]).forEach(d => {
+    const b = el('button', 'psch-chip');
+    b.type = 'button';
+    b.textContent = DAY_NAMES[d];
+    const sync = () => b.setAttribute('aria-pressed', cur().days.indexOf(d) >= 0 ? 'true' : 'false');
+    sync();
+    b.addEventListener('click', ev => {
+      ev.preventDefault();
+      const c = cur();
+      const on = c.days.indexOf(d) < 0;
+      const days = on ? c.days.concat(d) : c.days.filter(x => x !== d);
+      store.setAnchorSchedule(a.id, { days, weeks: c.weeks });
+      sync();
+      /* 曜日を全部外すと週も落ちるので、週の押し具合も引き直す */
+      weekBtns.forEach(w => w.sync());
+      paint();
+    });
+    dayRow.appendChild(b);
+  });
+
+  /* --- 週 --- */
+  const weekRow = group('週', '第2火曜 ＝ その月の2回目の火曜日');
+  (typeof store.weekValues === 'function' ? store.weekValues() : [1, 2, 3, 4, 5]).forEach(w => {
+    const b = el('button', 'psch-chip');
+    b.type = 'button';
+    b.textContent = WEEK_NAMES[w] || String(w);
+    b.sync = () => b.setAttribute('aria-pressed', cur().weeks.indexOf(w) >= 0 ? 'true' : 'false');
+    b.sync();
+    b.addEventListener('click', ev => {
+      ev.preventDefault();
+      const c = cur();
+      const on = c.weeks.indexOf(w) < 0;
+      const weeks = on ? c.weeks.concat(w) : c.weeks.filter(x => x !== w);
+      store.setAnchorSchedule(a.id, { days: c.days, weeks });
+      b.sync();
+      paint();
+    });
+    weekBtns.push(b);
+    weekRow.appendChild(b);
+  });
+
+  const done = el('button', 'psch-done');
+  done.type = 'button';
+  done.textContent = '閉じる';
+  done.addEventListener('click', ev => { ev.preventDefault(); finish(); });
+  box.appendChild(done);
+
+  /* 閉じたときに、そのきっかけが今日の分でなくなっていたら黙って消さずに伝える。
+     何も言わずに消えると「無くなった」に見える */
+  function finish() {
+    closeSchedule(true);
+    if (showAllAnchors) return;
+    if (typeof store.anchorDue !== 'function' || store.anchorDue(a.id)) return;
+    const lb = scheduleLabel(store.anchor(a.id) || a) || '毎日';
+    toast('「' + a.name + '」は ' + lb + '。今日は出ない', {
+      label: 'ぜんぶ見る',
+      on: () => setShowAll(true),
+    });
+  }
+
+  const eat = ev => { ev.preventDefault(); ev.stopPropagation(); };
+  back.addEventListener('pointerdown', eat);
+  back.addEventListener('click', eat);
+  back.addEventListener('pointerup', ev => { eat(ev); finish(); });
+
+  const onKey = ev => {
+    if (ev.key !== 'Escape') return;
+    ev.preventDefault(); ev.stopPropagation();
+    finish();
+  };
+  window.addEventListener('keydown', onKey, true);
+
+  document.body.appendChild(back);
+  document.body.appendChild(box);
+  schedPop = { back, box, onKey, was };
+  paint();
+  const first = box.querySelector('.psch-chip');
+  if (first) first.focus({ preventScroll: true });
+}
+
+/* 「ぜんぶ見る」の切り替え。戻し方が画面に見えていること（海の「しぼる」と同じ言い方） */
+function setShowAll(on) {
+  const next = !!on;
+  if (showAllAnchors === next) return;
+  showAllAnchors = next;
+  syncAllBtn();
+  render();
+}
+
+function syncAllBtn() {
+  if (!allBtn) return;
+  /* 日にちを決めたきっかけが1つも無ければ、切り替える意味が無いので出さない */
+  let any = false;
+  try { any = store.anchors().some(a => (a.days || []).length); } catch (e) { any = false; }
+  allBtn.hidden = !any;
+  allBtn.textContent = showAllAnchors ? '今日のぶんだけ' : 'ぜんぶ見る';
+  allBtn.setAttribute('aria-pressed', showAllAnchors ? 'true' : 'false');
+  allBtn.setAttribute('aria-label', showAllAnchors
+    ? '今日の日のきっかけだけを出す' : '日にちに関わらず、ぜんぶのきっかけを出す');
 }
 
 function makeGrip(a, index, total) {
@@ -1399,6 +1605,14 @@ function makeAnchorFrame(a, index, total) {
     hd.appendChild(el('span', 'nm', escapeHtml(a.name)));
   }
 
+  /* 日にちの札。名前のすぐ後ろ。毎日なら出さない */
+  const sl = scheduleLabel(a);
+  if (sl) {
+    const chip = el('span', 'asched');
+    chip.textContent = sl;                       /* 組み立てた文字。innerHTML には入れない */
+    hd.appendChild(chip);
+  }
+
   const items = store.inAnchor(a.id);
   const n = el('span', 'n');
   const started = items.filter(t => isStarted(t.id, a.id)).length;
@@ -1560,7 +1774,7 @@ function render() {
     fieldItems = [];
     detachAll();
 
-    const list = store.anchors();
+    const list = visibleAnchors();
     if (renaming && !store.anchor(renaming)) renaming = null;
     if (composerAnchor && !store.anchor(composerAnchor)) composerAnchor = null;
 
@@ -1571,7 +1785,17 @@ function render() {
     cellsEl.replaceChildren();
     list.forEach((a, i) => cellsEl.appendChild(makeAnchorFrame(a, i, list.length)));
 
-    hintEl.hidden = list.length > 0;
+    /* ヒントは「きっかけがまだ1つも無い」ときだけ。
+       絞り込みで0件になっただけのときに出すと、作ったものが消えたように読める */
+    const total = store.anchors().length;
+    hintEl.hidden = total > 0;
+    /* 今日の日のものが無いだけ、のときはそう言う。責めない書き方にする
+       （「予定がありません」ではなく「今日の日のきっかけは無い」） */
+    if (noneEl) {
+      noneEl.hidden = !(total > 0 && list.length === 0 && !showAllAnchors);
+      if (!noneEl.hidden) cellsEl.appendChild(noneEl);
+    }
+    syncAllBtn();
     cellsEl.appendChild(addBox);
     syncAddBox();
 
@@ -1620,6 +1844,16 @@ export default {
     cellsEl = el('div', 'plan-cells');
     surfaceEl.appendChild(cellsEl);
     scrollEl.appendChild(surfaceEl);
+    /* 「ぜんぶ見る」。日にちを決めたきっかけが1つも無ければ出さない
+       （切り替える意味が無いものを画面に置かない）。
+       戻し方が見えていること＝押すと文字が「今日のぶんだけ」に変わる
+       （海の「しぼる」⇄「もどす」と同じ言い方） */
+    allBtn = el('button', 'plan-all');
+    allBtn.type = 'button';
+    allBtn.hidden = true;
+    allBtn.addEventListener('click', ev => { ev.preventDefault(); setShowAll(!showAllAnchors); });
+    wrap.appendChild(allBtn);
+
     wrap.appendChild(scrollEl);
 
     /* きっかけが1つも無いときだけ出す案内。
@@ -1631,6 +1865,11 @@ export default {
       + 'そのあとに繋ぐと、思い出さなくても始まる。'
       + '<br>まずは1つ、書いてみる。');
     hintEl.hidden = true;
+
+    /* 今日の日のきっかけが無いときの1行。未達を名指ししない書き方（§0） */
+    noneEl = el('p', 'plan-none',
+      '今日の日のきっかけは無い。<br>「ぜんぶ見る」で、日にちに関わらず出せる。');
+    noneEl.hidden = true;
 
     /* ＋ きっかけを足す */
     addBox = el('div', 'plan-addanchor');

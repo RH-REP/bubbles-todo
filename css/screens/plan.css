@@ -125,8 +125,13 @@
    横の余白はセルではなくここが持つ（セルに padding を入れると格子が崩れる） */
 .anchor .hd {
   position: relative;   /* ⋮ のメニューの基準 */
-  flex: none; display: flex; align-items: center; gap: 8px; min-height: 44px;
-  padding: 0 11px;
+  /* 日にちの札（.asched）が入ると1行に収まらないことがある。
+     そのときは札だけを2行目へ落とす（名前を潰さない）。
+     取っ手・名前・件数・⋮ は flex-wrap の既定どおり1行目に並び、
+     札には flex-basis:100% を与えて改行させる（下の .asched を見よ）。 */
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  min-height: 44px;
+  padding: 6px 11px;
 }
 .anchor .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
 /* 色を持たないアンカーは、丸も無彩色のまま輪郭だけにする */
@@ -426,3 +431,99 @@
      行き先は落とし先の線だけで伝える */
   .anchor.is-lifted { transform: none !important; box-shadow: none; }
 }
+
+/* ---------- きっかけの日にち（利用者の指示） ---------- */
+
+/* カードに出す札。名前のすぐ後ろ。毎日のときは JS が出さない
+   （「毎日」の札が全部のカードに並ぶと、それ自体が濃さになる）。
+   文字色は --text-2（--group に対し 4.5:1 を割らない）。 */
+.plan .asched {
+  /* 名前と同じ行に置くと、長い札のときに名前が「風呂から出…」まで潰れる。
+     flex-basis を 100% にして **名前の下の行を丸ごと使う**。order で最後尾へ。
+     丸い札はやめて、ただの小さな1行にした——カードごとに札が並ぶと、
+     それ自体が濃さになる。ここは「いつの日か」を静かに言うだけでよい。
+     左の余白 18px は、取っ手の丸（10px）＋ gap（8px）ぶん。名前と頭が揃う */
+  order: 9;
+  flex: 0 0 100%;
+  margin: -3px 0 0 18px;
+  color: var(--text-2);          /* --group に対し 明5.44 / 暗6.31 */
+  font-size: 11.5px; line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 「ぜんぶ見る」。一覧の上、スクロールの外に置く（送っても付いてくる） */
+.plan-all {
+  align-self: flex-end;
+  margin: 8px 12px 0;
+  appearance: none; -webkit-appearance: none;
+  cursor: pointer; font: inherit;
+  min-height: 36px; padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text); font-size: 12.5px; font-weight: 600;
+}
+.plan-all[aria-pressed="true"] { border-color: var(--bub-edge); background: var(--surface-2); }
+.plan-all:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* 今日の日のきっかけが無いときの1行。未達を名指ししない */
+.plan-none {
+  margin: 22px 16px; text-align: center;
+  color: var(--text-2); font-size: 13.5px; line-height: 1.9;
+}
+
+/* ---------- 日にちを決める盤 ---------- */
+.psch-back {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(0,0,0,.34);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+.psch {
+  position: fixed; z-index: 91; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 18px 18px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 12px 34px rgba(0,0,0,.24);
+}
+.psch-title {
+  margin: 0 0 4px; font-size: 15.5px; font-weight: 600; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+/* いまの内容。押すたびにここが変わる＝結果が先に見える */
+.psch-now { margin: 0 0 14px; font-size: 13px; color: var(--text-2); }
+
+.psch-g { margin: 0 0 14px; }
+.psch-lb { font-size: 12.5px; font-weight: 600; }
+.psch-note { margin-left: 8px; font-size: 11.5px; color: var(--text-2); }
+.psch-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+
+/* 押していないほうを薄くするのではなく、押しているほうを起こす（§0） */
+.psch-chip {
+  appearance: none; -webkit-appearance: none;
+  cursor: pointer; font: inherit; font-size: 13px;
+  min-width: 40px; min-height: 36px; padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg); color: var(--text-2);
+}
+.psch-chip[aria-pressed="true"] {
+  border-color: var(--line-strong); background: var(--surface-2); color: var(--text);
+  font-weight: 600;
+}
+/* 曜日を選ぶまで週は決められない（第n週＝n回目のその曜日のため） */
+.psch-chip:disabled { cursor: default; opacity: .45; }
+.psch-chip:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+.psch-done {
+  appearance: none; -webkit-appearance: none;
+  cursor: pointer; font: inherit; font-size: 14px;
+  width: 100%; min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2); color: var(--text);
+}
+.psch-done:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
