@@ -191,3 +191,25 @@ body.is-dragging .tabbar button.is-over {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* 「今日」タブが今日以外の日を映しているとき（利用者の指示）。
+   文字が「今日」から「8/31」に変わる＝**落とし先が今日でないことが、
+   タブ自身に書いてある**。輪郭ではなく文字で言うのは、
+   タブの札はもともと文字で名乗る場所だから（記号を足すと意味が増える）。 */
+#tabbar button .is-otherday {
+  font-variant-numeric: tabular-nums;
+  /* **色では言わない。**--accent-a（#1d7d9c）は下タブの地に対し
+     明 4.27 / 暗 3.87 で 4.5:1 を割る。ここは意味を持つ文字なので使えない。
+     そもそも **文字そのものが「今日」から「8/31」に変わる**ので、
+     色を足さなくても違いは伝わる（1.4.1 の観点でも、色だけの手がかりにしない）。
+     --text は下タブの地（--surface）に対し 明 14.5 / 暗 14.3。 */
+  color: var(--text);
+  font-weight: 700;
+}
+/* 下に細い線を1本。色ではなく形で「いつもと違う」と言う。
+   線の色は輪郭の色なので 4.5:1 の対象ではない（文字は上の --text） */
+#tabbar button .is-otherday::after {
+  content: ''; display: block;
+  margin: 2px auto 0; width: 18px; height: 2px; border-radius: 1px;
+  background: var(--bub-edge);
+}

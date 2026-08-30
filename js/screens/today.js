@@ -132,6 +132,27 @@ const DOW = ['日', '月', '火', '水', '木', '金', '土'];
 /* いま見ている日。海がタブへのドロップ先を決めるのに読む。
    ＝ 「今日タブは、いま今日の画面が映している日の水面」。
    過去を映している間は null を返す（過去は記録なので書き換えさせない）。 */
+/* 下タブの「今日」から日を選ぶ。長押しで呼ばれる（利用者の指示） */
+export function openDayPicker(anchor) { openDayPop(anchor); }
+
+/* タブに出す札。今日を映しているときは null（＝「今日」のまま） */
+export function dayBadge() {
+  const k = curDay();
+  if (k === todayKey()) return null;
+  const d = dayToDate(k);
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+/* 映している日が変わったことを外へ知らせる。下タブの札がこれを見る。
+   画面どうしを直接つながないため、window のイベントで渡す（app.js と同じやり方） */
+function announceDay() {
+  try {
+    window.dispatchEvent(new CustomEvent('bubbles:dayview', {
+      detail: { day: curDay(), badge: dayBadge() },
+    }));
+  } catch (_) { /* 古い環境。札が出ないだけ */ }
+}
+
 export function dropDay() {
   const k = curDay();
   return (k < todayKey()) ? null : k;
@@ -231,6 +252,7 @@ function goDay(key) {
   if (viewDay === next) return;
   viewDay = next;
   syncDayBtn();
+  announceDay();
   render();
 }
 
@@ -265,7 +287,8 @@ function dayChoices() {
   return out;
 }
 
-function openDayPop() {
+/* anchor を省くと見出しのボタンの下。下タブから呼ぶときは、その的の上に出す */
+function openDayPop(anchor) {
   if (dayPop) { closeDayPop(); return; }
   const back = el('div', 'today-daypop-back');
   const box = el('div', 'today-daypop');
@@ -292,15 +315,28 @@ function openDayPop() {
   back.addEventListener('pointerdown', eat);
   back.addEventListener('click', eat);
   back.addEventListener('pointerup', ev => { eat(ev); closeDayPop(); });
-  const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); closeDayPop(); dayBtn.focus(); } };
+  const onKey = ev => {
+    if (ev.key !== 'Escape') return;
+    ev.preventDefault();
+    const back2 = dayPop && dayPop.was;
+    closeDayPop();
+    if (back2 && back2.isConnected) back2.focus({ preventScroll: true });
+  };
   window.addEventListener('keydown', onKey, true);
 
   document.body.appendChild(back);
   document.body.appendChild(box);
-  dayPop = { back, box, onKey };
-  const r = dayBtn.getBoundingClientRect();
-  box.style.left = Math.round(r.left) + 'px';
-  box.style.top = Math.round(r.bottom + 6) + 'px';
+  dayPop = { back, box, onKey, was: anchor || dayBtn };
+  /* 的の下に出す。入り切らないなら上へ返す（下タブから呼ぶとこちらになる）。
+     画面の端からもはみ出させない */
+  const a = anchor || dayBtn;
+  const r = a.getBoundingClientRect();
+  const M = 8;
+  const w = box.offsetWidth, h = box.offsetHeight;
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - M) top = r.top - 6 - h;
+  box.style.left = Math.round(Math.max(M, Math.min(r.left, window.innerWidth - w - M))) + 'px';
+  box.style.top = Math.round(Math.max(M, top)) + 'px';
   const first = box.querySelector('.today-daych');
   if (first) first.focus({ preventScroll: true });
 }
@@ -888,7 +924,7 @@ export default {
        遠い日は左右になぞって行く */
     dayBtn = el('button', 'today-day');
     dayBtn.type = 'button';
-    dayBtn.addEventListener('click', ev => { ev.preventDefault(); openDayPop(); });
+    dayBtn.addEventListener('click', ev => { ev.preventDefault(); openDayPop(dayBtn); });
     stage.appendChild(dayBtn);
     syncDayBtn();
     stage.addEventListener('pointerdown', onDayDown);
@@ -928,7 +964,7 @@ export default {
        「明日」を映したまま2日放っておくと、開き直したときに過去を映していて、
        しかもタブの落とし先がそこになる——という置き去りを防ぐ。
        自分で過去へなぞって見に行くぶんは、この後いつでもできる */
-    if (viewDay && viewDay < todayKey()) viewDay = null;
+    if (viewDay && viewDay < todayKey()) { viewDay = null; announceDay(); }
     /* ここで初めてペインが display:flex になる。寸法が取れるのはこの時点から */
     if (field) { field.relayout(); field.start(); }
     render();

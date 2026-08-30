@@ -14,7 +14,7 @@ import { toast } from './ui.js';
 import { setCaptureHandler, setWorklogHandler } from './focus.js';
 import { setCenterHandler } from './bubble.js';
 import sea from './screens/sea.js';
-import today from './screens/today.js';
+import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
@@ -65,6 +65,13 @@ function show(id) {
   if (typeof next.onShow === 'function') next.onShow();
 }
 
+/* ---- 「今日」タブの長押しと、日付の札（利用者の指示） ----
+
+   映している日が今日でないとき、タブの文字を「今日」から「8/31」に変える。
+   ＝ **落とし先が今日でないことが、タブ自身に書いてある。**
+   前は今日の画面の見出しにしか出ておらず、海に居るあいだは分からなかった。 */
+let todayTabLabel = null;
+
 SCREENS.forEach(s => {
   paneOf(s);
   const btn = document.createElement('button');
@@ -83,8 +90,62 @@ SCREENS.forEach(s => {
   btn.appendChild(ic);
   btn.appendChild(lb);
   btn.addEventListener('click', () => show(s.id));
+  /* 「今日」だけ、長押しで日を選べる（利用者の指示）。
+     いま映している日がタブの落とし先でもあるので、
+     **移る前に、ここから直に決められる**のがいちばん短い道になる */
+  if (s.id === 'today') {
+    todayTabLabel = lb;
+    attachDayHold(btn);
+  }
   tabbar.appendChild(btn);
 });
+
+window.addEventListener('bubbles:dayview', ev => {
+  if (!todayTabLabel) return;
+  const b = (ev && ev.detail && ev.detail.badge) || null;
+  todayTabLabel.textContent = b || '今日';
+  todayTabLabel.classList.toggle('is-otherday', !!b);
+});
+
+/* 長押し。指が 8px 以上動いたら取り消す（なぞりと取り合わない）。
+   開いたあとの click は捨てる——長押しで画面まで移ってしまうと、
+   「選ぼうとしただけ」なのに面が変わる */
+function attachDayHold(btn) {
+  const HOLD = 450;
+  let timer = 0, x0 = 0, y0 = 0, fired = false;
+  const clear = () => { if (timer) { clearTimeout(timer); timer = 0; } };
+  btn.addEventListener('pointerdown', ev => {
+    if (ev.button != null && ev.button !== 0) return;
+    fired = false; x0 = ev.clientX; y0 = ev.clientY;
+    clear();
+    timer = setTimeout(() => {
+      timer = 0; fired = true;
+      try { openDayPicker(btn); } catch (_) { /* 開けないだけ */ }
+    }, HOLD);
+  });
+  btn.addEventListener('pointermove', ev => {
+    if (!timer) return;
+    if (Math.abs(ev.clientX - x0) > 8 || Math.abs(ev.clientY - y0) > 8) clear();
+  });
+  btn.addEventListener('pointerup', clear);
+  btn.addEventListener('pointercancel', clear);
+  btn.addEventListener('contextmenu', ev => ev.preventDefault());   /* 長押しの選択メニューを出さない */
+  btn.addEventListener('click', ev => {
+    if (!fired) return;
+    fired = false;
+    ev.preventDefault();
+    ev.stopPropagation();
+  }, true);
+}
+
+/* 立ち上げ時に、いま映している日を札へ反映する（開き直したときの取りこぼしを塞ぐ） */
+try {
+  const b0 = dayBadge();
+  if (todayTabLabel && b0) {
+    todayTabLabel.textContent = b0;
+    todayTabLabel.classList.add('is-otherday');
+  }
+} catch (_) { /* 出ないだけ */ }
 
 /* 集中画面で割り込んできた考えの預け先。海（未分類）に入れる。
    focus.js が store を触らずに済むよう、ここで1回だけ差す。 */
