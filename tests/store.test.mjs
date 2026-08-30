@@ -388,9 +388,11 @@ await test('壊れた保存データでも例外を投げずに空で立ち上�
     todos: [], log: [], lastDay: '2026-08-20',
   } });
   /* days / weeks は「きっかけの日にち」。持たない旧データは空＝毎日で立ち上がる */
+  /* hue が変な値は落とすが、空いている色があれば読み込みのときに配り直す
+     （3色→5色に増やしたぶんを、古い保存データへ渡すための道。すきまの枠と同じ規則） */
   assert.deepEqual(anch.anchors(), [
     { id: 'A', name: '歯を磨いたら', hue: 0, days: [], weeks: [] },
-    { id: 'C', name: 'hue が変', hue: null, days: [], weeks: [] },
+    { id: 'C', name: 'hue が変', hue: 1, days: [], weeks: [] },
   ]);
   /* 壊れたログ行だけを落とす。
      いま存在しないアンカーの id は「壊れている」ではない（消したアンカーの記録）ので残す */
@@ -1018,22 +1020,25 @@ await test('addAnchor / renameAnchor / moveAnchor / removeAnchor', async () => {
   assert.deepEqual(again.anchors().map(x => x.id), order);
 });
 
-await test('hue は 0,1,2 の順に配られ、4件目以降は null。空きは再利用される', async () => {
+await test('hue は 0〜4 の順に配られ、6件目以降は null。空きは再利用される', async () => {
   const store = await open({ raw: null, now: NOW });
 
   const a = store.addAnchor('あ');
   const b = store.addAnchor('い');
   const c = store.addAnchor('う');
   const d = store.addAnchor('え');
-  assert.deepEqual([a.hue, b.hue, c.hue], [0, 1, 2]);
-  assert.equal(d.hue, null, '4件目以降は色を持たない');
-  assert.equal(store.addAnchor('お').hue, null);
+  const e0 = store.addAnchor('お');
+  const f = store.addAnchor('か');
+  assert.deepEqual([a.hue, b.hue, c.hue, d.hue, e0.hue], [0, 1, 2, 3, 4],
+    '色は5つ（利用者の指示で 3→5。すきまの既定だけで4つあるため）');
+  assert.equal(f.hue, null, '6件目以降は色を持たない');
+  assert.equal(store.addAnchor('き').hue, null);
 
   /* まんなかの1件を消すと、その hue が空く */
   assert.equal(store.removeAnchor(b.id), true);
-  const e = store.addAnchor('か');
+  const e = store.addAnchor('く');
   assert.equal(e.hue, 1, '空いた hue を再利用する');
-  assert.deepEqual(store.anchors().map(x => x.hue), [0, 2, null, null, 1]);
+  assert.deepEqual(store.anchors().map(x => x.hue), [0, 2, 3, 4, null, null, 1]);
 
   /* 並べ替えても hue は動かない（色は並び順では決まらない） */
   store.moveAnchor(e.id, -1);
@@ -1506,6 +1511,46 @@ await test('すきまの枠は既定4つ。名前を変えられる・足せる�
   const again = await open();
   assert.equal(again.gapSlot('ears').name, '耳が空いている');
   assert.deepEqual(again.gapSlots().map(x => x.id).slice(0, 3), ['ears', 'screen', 'ears_off']);
+});
+
+await test('すきまの枠にも色が付く。個体に付くので並べ替えても動かない', async () => {
+  const store = await open({ raw: null, now: NOW });
+  /* 既定の4つは 0〜3。5色あるので4つとも色を持つ（利用者の指示） */
+  assert.deepEqual(store.gapSlots().map(g => g.hue), [0, 1, 2, 3]);
+
+  const g = store.addGapSlot('手が空いている');
+  assert.equal(g.hue, 4, '5つ目まで色が付く');
+  assert.equal(store.addGapSlot('6つ目').hue, null, '6つ目以降は無彩色');
+
+  /* 並べ替えても色は動かない */
+  store.moveGapSlot('screen', -1);
+  assert.equal(store.gapSlot('screen').hue, 2);
+  assert.equal(store.gapSlot('ears').hue, 0);
+
+  /* 消すと空く。再利用される */
+  assert.equal(store.removeGapSlot('ears_off'), true);
+  assert.equal(store.addGapSlot('あとから').hue, 1, '空いた色を再利用する');
+
+  /* 保存の往復でも残る */
+  const again = await open();
+  assert.equal(again.gapSlot('screen').hue, 2);
+  assert.equal(again.gapSlot(g.id).hue, 4);
+});
+
+await test('hue を持たない旧データのすきまの枠は、並び順から色を配り直す', async () => {
+  const store = await open({ raw: {
+    v: 2,
+    gapSlots: [
+      { id: 'ears', name: '耳だけ' },
+      { id: 'x', name: 'あ' },
+      { id: 'y', name: 'い' },
+      { id: 'z', name: 'う' },
+      { id: 'w', name: 'え' },
+      { id: 'v', name: 'お' },
+    ],
+    todos: [], log: [], lastDay: '2026-08-20',
+  }, now: NOW });
+  assert.deepEqual(store.gapSlots().map(g => g.hue), [0, 1, 2, 3, 4, null]);
 });
 
 await test('枠を消すと、ぶら下がっていたものは未分類へ回る（項目は消えない）', async () => {

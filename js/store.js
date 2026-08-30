@@ -108,10 +108,10 @@ const SLOTS = ['morning', 'noon', 'night'];
    1枠に入る数の上限も無くした（前は「1枠1件」で、2件目が古いほうを押し出していた）。
    持ち方はきっかけのアンカーとまったく同じ——画面も同じ形にするため。 */
 const GAP_DEFAULTS = [
-  { id: 'ears',       name: '耳だけ' },
-  { id: 'ears_off',   name: '耳だけ・保存済み' },
-  { id: 'screen',     name: '画面' },
-  { id: 'screen_off', name: '画面・保存済み' },
+  { id: 'ears',       name: '耳だけ',           hue: 0 },
+  { id: 'ears_off',   name: '耳だけ・保存済み', hue: 1 },
+  { id: 'screen',     name: '画面',             hue: 2 },
+  { id: 'screen_off', name: '画面・保存済み',   hue: 3 },
 ];
 
 /* 一覧で見渡せる上限。アンカーと同じ数にそろえてある */
@@ -265,8 +265,11 @@ const TAG_STARTERS = [
    12 は「一覧で見渡せる」上限として決めた数で、意味のある区切りではない */
 const MAX_ANCHORS = 12;
 
-/* 色。先に作った3件にだけ 0,1,2 を配る。空きがあれば再利用する */
-const HUES = [0, 1, 2];
+/* 色。カードを見分けるための印で、色そのものに意味は無い。
+   **5色**（利用者の指示で3→5へ。すきまの既定だけで4つあり、3色では足りなかった）。
+   空きがあれば再利用する。6色目を足すと色覚特性下の最小色差が落ちるので、ここで止める
+   （数値は css/base.css の --slot-amber のコメントに書いてある）。 */
+const HUES = [0, 1, 2, 3, 4];
 
 /* 集計で「アンカー無しで始めたぶん」に付ける名前 */
 const NO_ANCHOR_NAME = 'アンカー無し';
@@ -597,10 +600,13 @@ function keyOf(anchorId) {
 /* --- 読み込み --- */
 
 /* すきま時間の枠の一覧。保存データが無ければ既定の4つ。
-   名前は変えられるので、保存された名前が正。id だけを既定と突き合わせる */
+   名前は変えられるので、保存された名前が正。id だけを既定と突き合わせる。
+   色（hue）はアンカーと同じ持ち方——**個体に付く**ので、並べ替えても動かない。
+   この版より前の保存データは hue を持たないので、並び順から配り直す */
 function normalizeGapSlots(v) {
+  const fresh = () => GAP_DEFAULTS.map(d => ({ id: d.id, name: d.name, hue: d.hue }));
   const arr = Array.isArray(v) ? v : null;
-  if (!arr) return GAP_DEFAULTS.map(d => ({ id: d.id, name: d.name }));
+  if (!arr) return fresh();
   const out = [];
   const seen = new Set();
   arr.forEach(x => {
@@ -609,11 +615,21 @@ function normalizeGapSlots(v) {
     const name = anchorName(x.name);
     if (!id || !name || seen.has(id)) return;
     seen.add(id);
-    out.push({ id, name });
+    /* hue を持たない旧データは、いまの並び順で先頭から配る（無ければ無彩色） */
+    const hue = HUES.indexOf(x.hue) >= 0 ? x.hue
+      : (out.length < HUES.length ? HUES[out.length] : null);
+    out.push({ id, name, hue });
   });
   /* 保存データはあるが1つも読めなかった＝壊れている。既定で立て直す
      （空の一覧にすると、未分類しか無い画面になって置き場所が消える） */
-  return out.length ? out : GAP_DEFAULTS.map(d => ({ id: d.id, name: d.name }));
+  return out.length ? out : fresh();
+}
+
+/* すきまの枠で、まだ使われていない色。無ければ null（＝無彩色） */
+function freeGapHue() {
+  const used = new Set(gapList.map(g => g.hue));
+  for (let i = 0; i < HUES.length; i++) if (!used.has(HUES[i])) return HUES[i];
+  return null;
 }
 
 function findGapSlot(id) {
@@ -635,6 +651,18 @@ function normalizeAnchors(arr) {
       id, name, hue: HUES.indexOf(a.hue) >= 0 ? a.hue : null,
       days: sch.days, weeks: sch.weeks,
     });
+  });
+  /* 色が空いていて、まだ持っていないものがあれば配る。
+     色は3つしか無かったので、4つ目以降は null で保存されている——
+     5つに増えた（利用者の指示）ぶんを、開いたときにそこへ渡す。
+     すきまの枠と同じ規則。並び順で先頭から埋める */
+  const used = new Set(out.map(a => a.hue).filter(h => h !== null));
+  out.forEach(a => {
+    if (a.hue !== null) return;
+    const free = HUES.find(h => !used.has(h));
+    if (free === undefined) return;
+    a.hue = free;
+    used.add(free);
   });
   return out;
 }
@@ -1849,11 +1877,11 @@ export const store = {
   MAX_GAP_SLOTS,
 
   /* ユーザーが決めた並び順。中身はコピー */
-  gapSlots() { return gapList.map(g => ({ id: g.id, name: g.name })); },
+  gapSlots() { return gapList.map(g => ({ id: g.id, name: g.name, hue: g.hue })); },
 
   gapSlot(id) {
     const g = findGapSlot(id);
-    return g ? { id: g.id, name: g.name } : null;
+    return g ? { id: g.id, name: g.name, hue: g.hue } : null;
   },
 
   /* 空名は作らない。上限に達していても作らない -> 作った枠 / null */
@@ -1861,10 +1889,10 @@ export const store = {
     const body = anchorName(name);
     if (!body) return null;
     if (gapList.length >= MAX_GAP_SLOTS) return null;
-    const g = { id: aid(), name: body };
+    const g = { id: aid(), name: body, hue: freeGapHue() };
     gapList.push(g);
     persist(); emit();
-    return { id: g.id, name: g.name };
+    return { id: g.id, name: g.name, hue: g.hue };
   },
 
   renameGapSlot(id, name) {

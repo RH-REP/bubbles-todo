@@ -104,11 +104,16 @@ const reduceMotion = (typeof matchMedia === 'function')
 /* 未分類の枠を指す where の値。アンカーの id とは衝突しない形にしておく */
 const UNSORTED = '\u0000unsorted';   /* 生の NUL を直接書くと、ファイルが grep 等にバイナリ扱いされる。値は同じままエスケープで書く */
 
-/* 色はアンカー個体に付く（順位ではない）ので、並べ替えても変わらない。
-   hue は 0|1|2|null。null は色を持たない＝無彩色で扱う。新しい色は足さない。
-   先頭3つだけ色が付き、4つ目以降が無彩色になるのは store が hue を配るときの決まりで、
-   この画面は配られた hue をそのまま読むだけ（並べ替えても色が動かないのはそのため）。 */
-const HUES = ['var(--slot-morning)', 'var(--slot-noon)', 'var(--slot-night)'];
+/* 色はカード個体に付く（順位ではない）ので、並べ替えても変わらない。
+   hue は 0〜4|null。null は色を持たない＝無彩色で扱う。
+   **先頭5つだけ色が付き、6つ目以降が無彩色**になるのは store が hue を配るときの決まりで、
+   この画面は配られた hue をそのまま読むだけ（並べ替えても色が動かないのはそのため）。
+   3色から5色へ増やしたのは利用者の指示（すきまの既定だけで4つあり、足りなかった）。
+   6色目を足すと色覚特性下の最小色差が落ちる——数値は css/base.css に書いてある。 */
+const HUES = [
+  'var(--slot-morning)', 'var(--slot-noon)', 'var(--slot-night)',
+  'var(--slot-amber)', 'var(--slot-rose)',
+];
 const NO_HUE = 'var(--text-2)';
 function colorOf(a) {
   if (!a || a.hue == null) return NO_HUE;
@@ -1005,8 +1010,11 @@ function openAnchorMenu(a, index, total, btn, host) {
        上へ／下へ の disabled はこれと違って「いまは端に居る」という一時的な状態なので、
        そちらは出したまま */
     { label: '日にちを決める', on: () => openSchedule(a), off: false, hide: !CFG.schedule },
-    { label: '上へ',        on: () => { wantFocus = 'amenu:' + a.id; A.move(a.id, -1); render(); }, off: index <= 0 },
-    { label: '下へ',        on: () => { wantFocus = 'amenu:' + a.id; A.move(a.id, +1); render(); }, off: index >= total - 1 },
+    /* 今日だけの枠は並べ替えの対象外。行ごと出さない（押せない的は置かない） */
+    { label: '上へ',        on: () => { wantFocus = 'amenu:' + a.id; A.move(a.id, -1); render(); },
+      off: index <= 0, hide: isSpecialToday(a) },
+    { label: '下へ',        on: () => { wantFocus = 'amenu:' + a.id; A.move(a.id, +1); render(); },
+      off: index >= total - 1, hide: isSpecialToday(a) },
     { label: '消す',        on: () => removeAnchor(a, index), off: false, danger: true },
   ];
 
@@ -1082,6 +1090,9 @@ function removeAnchor(a, index) {
    その数がそのまま行き先の番号になる（＝ store.moveAnchor に渡す先の位置）。 */
 
 let reorder = null;      /* { id, from, ids, startY, startScroll, y, moved, target } */
+/* 並べ替えられるカードの id を、**表示の並び**で。今日だけの枠と、
+   絞り込みで隠れているカードは入らない。beginReorder / targetIndexAt がこれを見る */
+let reorderable = [];
 let dropLine = null;
 
 /* きっかけは最大12個まで作れる（store.MAX_ANCHORS）ので、画面に入りきらない。
@@ -1117,6 +1128,24 @@ let showAllAnchors = false;
 let allBtn = null;
 
 /* いま画面に出すきっかけ。store 側の API が無い版では全部出す */
+/* --- 今日だけの枠（利用者の指示）---
+
+   > 限定イベントはきっかけの上部に、今日の特別枠としてでるように
+
+   日にちを決めたきっかけのうち、**今日がその日のもの**を上へ分けて出す。
+   毎日のもの（日にちを決めていない）は特別ではないので、下の並びのまま。
+
+   ここに来たものは**並べ替えの対象から外す**。場所を決めているのは
+   ユーザーではなく「今日」なので、掴んで動かせると嘘になる
+   （取っ手も、⋮ の 上へ／下へ も出さない）。 */
+function isSpecialToday(a) {
+  if (!CFG.schedule || !a) return false;
+  const days = Array.isArray(a.days) ? a.days : [];
+  if (!days.length) return false;                 /* 毎日は特別ではない */
+  if (typeof store.anchorDue !== 'function') return true;
+  try { return !!store.anchorDue(a.id); } catch (e) { return true; }
+}
+
 function visibleAnchors() {
   if (showAllAnchors || !CFG.schedule || typeof store.dueAnchors !== 'function') return A.list();
   try { return store.dueAnchors(); } catch (e) { return A.list(); }
@@ -1349,9 +1378,35 @@ function bubblesOfAnchor(anchorId) {
   return out;
 }
 
+/* 表示の並びでの行き先を、store の並びでのずらし量に直す。
+
+   表示と store の並びは一致しない：今日だけの枠は上へ抜き出され、
+   予定の日でないきっかけは表示に出ていない。
+   だから「表示上で自分の直前に来るカード」を手がかりに、store 側の位置を出す。
+   （前は表示の番号をそのまま delta にしていたので、隠れているカードがあると
+     1つ多く／少なく動いていた。今日だけの枠を上へ出すとそれが常態になるので、ここで直した） */
+function storeDeltaFor(id, target) {
+  const order = A.list().map(x => x.id);
+  const from = order.indexOf(id);
+  if (from < 0) return 0;
+  const others = reorderable.filter(x => x !== id);
+  let to;
+  if (target <= 0) {
+    /* 表示のいちばん上へ。表示に出ている先頭のカードの位置に入る */
+    const first = others.length ? order.indexOf(others[0]) : from;
+    to = Math.min(from, first < 0 ? from : first);
+  } else {
+    const before = others[Math.min(target, others.length) - 1];
+    const b = order.indexOf(before);
+    if (b < 0) return 0;
+    to = b >= from ? b : b + 1;
+  }
+  return to - from;
+}
+
 function beginReorder(a, ev) {
   endReorder();
-  const ids = A.list().map(x => x.id);
+  const ids = reorderable.slice();
   const from = ids.indexOf(a.id);
   if (from < 0 || ids.length < 2) return;
   closeAnchorMenu();
@@ -1464,7 +1519,7 @@ function onReorderUp() {
   const st = reorder;
   endReorder();
   if (!st || !st.moved) return;
-  const delta = st.target - st.from;
+  const delta = storeDeltaFor(st.id, st.target);
   if (!delta) { render(); return; }     /* 位置が変わらないなら、見た目だけ戻す */
   wantFocus = 'grip:' + st.id;
   /* store が動けば emit → render が走る。走らなかったときのために念のため戻す */
@@ -1655,8 +1710,9 @@ function makeUnsortedFrame() {
   return box;
 }
 
-function makeAnchorFrame(a, index, total) {
+function makeAnchorFrame(a, index, total, special) {
   const box = el('section', 'anchor');
+  if (special) box.classList.add('is-special');
   box.dataset.anchor = a.id;
   box.dataset.where = a.id;
   box.style.setProperty('--c', colorOf(a));
@@ -1685,7 +1741,10 @@ function makeAnchorFrame(a, index, total) {
     });
     hd.appendChild(inp);
   } else {
-    hd.appendChild(makeGrip(a, index, total));
+    /* 今日だけの枠には取っ手を出さない（場所を決めているのは「今日」なので）。
+       **色の印だけは残す。**取っ手の中に同居しているので、丸だけを出す
+       ——色はカードを見分けるための印で、並べ替えとは別のこと */
+    hd.appendChild(special ? el('span', 'dot') : makeGrip(a, index, total));
     hd.appendChild(el('span', 'nm', escapeHtml(a.name)));
   }
 
@@ -1916,7 +1975,17 @@ function render() {
        「まだ在る」と思っているので、次の setItems でも作り直されず、
        バブルが1つも出なくなる（実際に踏んだ）。だから入れ物を分けてある */
     cellsEl.replaceChildren();
-    list.forEach((a, i) => cellsEl.appendChild(makeAnchorFrame(a, i, list.length)));
+    /* 今日だけの枠を上へ。残りはユーザーの並びのまま下に続く（利用者の指示） */
+    const special = list.filter(isSpecialToday);
+    const rest = list.filter(a => !isSpecialToday(a));
+    reorderable = rest.map(a => a.id);
+    if (special.length) {
+      const hd = el('p', 'plan-special-hd');
+      hd.textContent = '今日だけ';
+      cellsEl.appendChild(hd);
+      special.forEach((a, i) => cellsEl.appendChild(makeAnchorFrame(a, i, special.length, true)));
+    }
+    rest.forEach((a, i) => cellsEl.appendChild(makeAnchorFrame(a, i, rest.length, false)));
 
     /* ヒントは「きっかけがまだ1つも無い」ときだけ。
        絞り込みで0件になっただけのときに出すと、作ったものが消えたように読める */
