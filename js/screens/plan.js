@@ -1302,6 +1302,21 @@ function makeGrip(a, index, total) {
   return g;
 }
 
+/* そのきっかけにぶら下がっているバブルのノード。
+   entries は key（todo id ＋ どの枠か）で引くので、anchorId で絞る。 */
+function bubblesOfAnchor(anchorId) {
+  const out = [];
+  if (!field || typeof field.nodeOf !== 'function') return out;
+  entries.forEach((e, key) => {
+    if (!e || e.anchorId !== anchorId) return;
+    let node = null;
+    try { node = field.nodeOf(key) || field.nodeOf(e.todo && e.todo.id); }
+    catch (err) { node = null; }
+    if (node) out.push(node);
+  });
+  return out;
+}
+
 function beginReorder(a, ev) {
   endReorder();
   const ids = store.anchors().map(x => x.id);
@@ -1310,6 +1325,10 @@ function beginReorder(a, ev) {
   closeAnchorMenu();
   reorder = {
     id: a.id, from, ids,
+    /* 掴んだカードにぶら下がっているバブルのノード。
+       カードだけを動かすと、中のバブルが元の位置に取り残される（利用者の指摘）。
+       ここで控えておいて、followFinger で一緒に動かす */
+    bubs: bubblesOfAnchor(a.id),
     startY: ev.clientY, y: ev.clientY,
     /* 送っている間もカードが指の下に留まるよう、掴んだときのスクロール位置を覚える */
     startScroll: scrollEl ? scrollEl.scrollTop : 0,
@@ -1345,7 +1364,13 @@ function followFinger() {
   const r = anchorRef[reorder.id];
   if (!r || !r.box) return;
   const scrolled = (scrollEl ? scrollEl.scrollTop : 0) - reorder.startScroll;
-  r.box.style.transform = 'translateY(' + ((reorder.y - reorder.startY) + scrolled) + 'px)';
+  const dy = (reorder.y - reorder.startY) + scrolled;
+  r.box.style.transform = 'translateY(' + dy + 'px)';
+  /* バブルも一緒に動かす。**transform は使えない**——drift が毎コマ
+     自分の位置を transform に書き込むので、上書き合戦になる。
+     CSS の translate プロパティは transform とは別枠で、掛け合わされる
+     （translate → rotate → scale → transform の順）。ここだけを借りる。 */
+  reorder.bubs.forEach(n => { n.style.translate = '0px ' + dy + 'px'; });
 }
 
 /* 上端／下端まで運んだら、一覧を送る */
@@ -1432,6 +1457,9 @@ function endReorder() {
   if (reorder) {
     const r = anchorRef[reorder.id];
     if (r && r.box) { r.box.classList.remove('is-lifted'); r.box.style.transform = ''; }
+    /* 借りていた translate を返す。返さないと、次に drift が置いた位置から
+       ずっとずれたままになる（transform とは別枠なので、drift 側では消えない） */
+    (reorder.bubs || []).forEach(n => { if (n && n.style) n.style.translate = ''; });
   }
   if (surfaceEl) surfaceEl.classList.remove('is-reordering');
   if (dropLine && dropLine.parentNode) dropLine.remove();
