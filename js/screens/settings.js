@@ -8,12 +8,22 @@ import { el, toast, escapeHtml } from '../ui.js';
 import { store } from '../store.js';
 import { isOn, setOn } from '../sound.js';
 
-/* 向きは3つ。中央は「ぜんぶ」なので割り当てない */
+/* ユーザーが選べる向きは3つ。中央は「ぜんぶ」なので割り当てない。
+   下は固有枠（完了）なのでここに出さない——出しても store.setTagDir が受け付けない */
 const DIRS = [
   { id: 'left',  label: '左' },
   { id: 'up',    label: '上' },
   { id: 'right', label: '右' },
 ];
+
+/* 固有枠に入っているタグの、向きの見出し。選び欄の代わりにこれを出す */
+const FIXED_LABEL = { up: '上', down: '下', left: '左', right: '右' };
+
+/* そのタグの向きが固定されているか。store がまだ答えられない版では null */
+function fixedDirOf(id) {
+  if (typeof store.tagDirFixed !== 'function') return null;
+  try { return store.tagDirFixed(id) || null; } catch (err) { return null; }
+}
 
 /* 新しいタグに割り当てる色は **store が持っている**（store.tagPalette）。
    以前はここにも別のパレットが直書きしてあって、store の配り先と二重管理だった。
@@ -196,28 +206,38 @@ function renderTags(list) {
       row.appendChild(nm);
     }
 
-    /* 置く向き。1向き1タグなので、選ぶと先客は外れる */
-    const sel = document.createElement('select');
-    sel.className = 'tagdir';
-    sel.setAttribute('aria-label', tag.name + ' を置く向き');
-    const none = document.createElement('option');
-    none.value = '';
-    none.textContent = '置かない';
-    sel.appendChild(none);
-    DIRS.forEach(d => {
-      const o = document.createElement('option');
-      o.value = d.id;
-      o.textContent = d.label;
-      sel.appendChild(o);
-    });
-    sel.value = tag.dir || '';
-    sel.addEventListener('change', () => {
-      const taken = sel.value ? store.tagDir(sel.value) : null;
-      store.setTagDir(tag.id, sel.value || null);
-      if (taken && taken.id !== tag.id) toast('「' + taken.name + '」は置かないことにした');
-      renderTags(list);                            /* 押し出された行も描き直す */
-    });
-    row.appendChild(sel);
+    /* 固有枠のタグは向きを選ばせない。**選べない欄を灰色で出すのではなく、
+       欄そのものを出さない**——押せない的を置くと、押せる的と見分けがつかない。
+       代わりに「どこに在るか」だけを字で置く（消えると場所が分からなくなる）。 */
+    const fixed = fixedDirOf(tag.id);
+    if (fixed) {
+      const fx = el('span', 'tagdir is-fixed', FIXED_LABEL[fixed] || fixed);
+      fx.setAttribute('aria-label', tag.name + ' は ' + (FIXED_LABEL[fixed] || fixed) + ' の海（動かせない）');
+      row.appendChild(fx);
+    } else {
+      /* 置く向き。1向き1タグなので、選ぶと先客は外れる */
+      const sel = document.createElement('select');
+      sel.className = 'tagdir';
+      sel.setAttribute('aria-label', tag.name + ' を置く向き');
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = '置かない';
+      sel.appendChild(none);
+      DIRS.forEach(d => {
+        const o = document.createElement('option');
+        o.value = d.id;
+        o.textContent = d.label;
+        sel.appendChild(o);
+      });
+      sel.value = tag.dir || '';
+      sel.addEventListener('change', () => {
+        const taken = sel.value ? store.tagDir(sel.value) : null;
+        store.setTagDir(tag.id, sel.value || null);
+        if (taken && taken.id !== tag.id) toast('「' + taken.name + '」は置かないことにした');
+        renderTags(list);                            /* 押し出された行も描き直す */
+      });
+      row.appendChild(sel);
+    }
 
     /* 消す。特別なタグは消せないのでボタンごと出さない */
     if (!tag.special) {

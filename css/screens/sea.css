@@ -104,15 +104,25 @@
 
 .sea-face { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .sea-face[data-face="up"]    { top: -100%; }
+.sea-face[data-face="down"]  { top: 100%; }
 .sea-face[data-face="left"]  { left: -100%; }
 .sea-face[data-face="right"] { left: 100%; }
 
 /* タグの海には、そのタグの色をうっすら敷く。名札だけだと、滑っている最中に
    「別の海へ来た」ことが絵として分からない。--face-c は sea.js が入れる */
 .sea-face[data-face="up"],
+.sea-face[data-face="down"],
 .sea-face[data-face="left"],
 .sea-face[data-face="right"] {
   background: radial-gradient(120% 74% at 50% 0%,
+    color-mix(in srgb, var(--face-c, transparent) 16%, transparent), transparent 72%);
+}
+
+/* 下の海（完了）だけは、色を**下から**敷く。上から敷くと、
+   面を跨いだ瞬間に濃い側が画面の上端に来て、中央の海と入れ替わったことが
+   絵で分からない（どの面も「上が濃い」になるため）。 */
+.sea-face[data-face="down"] {
+  background: radial-gradient(120% 74% at 50% 100%,
     color-mix(in srgb, var(--face-c, transparent) 16%, transparent), transparent 72%);
 }
 

@@ -58,6 +58,12 @@
   background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px;
   min-height: 44px; padding: 0 8px;
 }
+/* 向きが固定されているタグ（下＝完了）。選び欄ではなく、字だけ置く。
+   押せない的にしないため、枠も背景も出さない（select と見た目で分ける） */
+.stub span.tagdir.is-fixed {
+  border-color: transparent; background: transparent; color: var(--text-2);
+  display: inline-flex; align-items: center; justify-content: center; min-width: 44px;
+}
 .stub .tagdel {
   flex: none; appearance: none; font: inherit; font-size: 13px; cursor: pointer;
   color: var(--text-2); background: transparent; border: 0;

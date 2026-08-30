@@ -76,7 +76,8 @@
    やらなかったものは翌日に持ち越さない（rollover 参照）。
    集計は件数だけを返す。分母つきの指標（達成率など）は作らない。
 
-   tag = { id:string, name:string, color:string, special:boolean, dir:'up'|'left'|'right'|null }
+   tag = { id:string, name:string, color:string, special:boolean, dir:'up'|'left'|'right'|'down'|null }
+         dir の 'down' は固有枠（完了）。ユーザーが選べるのは up/left/right だけ
    タグ＝バブルの海の面。中央（ぜんぶ）以外の3つの向きに、ユーザーが好きなタグを割り当てる。
    向きは3つしかないが、タグは何個でも作れる（1向き1タグ）。
    today / plan / gap / done の4つは特別なタグで、名前を変えられず、消せない。
@@ -103,12 +104,25 @@ const SLOTS = ['morning', 'noon', 'night'];
    時間帯タグ（複数可）と違い、1件が入れるのは1枠だけ。1枠に入るのも1件だけ */
 const GAP_SLOTS = ['ears', 'ears_off', 'screen', 'screen_off'];
 
-/* 特別なタグ。既存のフラグ（today / plan / gap / done）と同じものを指す。
-   名前は変えられず、消せない。色と向きだけユーザーが決められる */
-const TAG_SPECIAL = ['today', 'plan', 'gap', 'done'];
+/* 特別なタグ。既存のフラグ（today / plan / gap / hold / done）と同じものを指す。
+   名前は変えられず、消せない。色と向きだけユーザーが決められる
+   （完了だけは向きも固有枠に固定。下の FIXED_DIRS） */
+const TAG_SPECIAL = ['today', 'plan', 'gap', 'hold', 'done'];
 
-/* 海の向き。中央（ぜんぶ）以外の3つ。1向きに置けるタグは1つだけ */
+/* 海の向き。**ユーザーが選べるのはこの3つ**。1向きに置けるタグは1つだけ。
+   下は固有枠なのでここに入れない（次の FIXED_DIRS） */
 const TAG_DIRS = ['up', 'left', 'right'];
+
+/* 固有枠（利用者の指示）。**下＝完了**。
+   ここはタグの取り合いに出さない：完了はこの枠から動かせず、ほかのタグも入れない。
+   前の版では完了を「向きを持たないタグ」にして、ふりかえりからの導線だけで見せていた。
+   それだと海の側に完了の居場所が無く、「終わったものを見に行く」入口が
+   ふりかえりの1本だけになる。固有枠にすると、上（長期保留）と下（完了）が
+   構造として常にそこにあり、左右だけがユーザーの取り合いになる。 */
+const FIXED_DIRS = { done: 'down' };
+
+/* 面の向き全部（固有枠を含む）。tagDir() の引数を見るのに使う */
+const ALL_DIRS = ['up', 'left', 'right', 'down'];
 
 /* ---------- タグの色（パステルで統一） ----------
 
@@ -181,7 +195,15 @@ const TAG_DEFAULTS = [
   { id: 'today', name: '今日',     color: '#fdc09e', dir: null },   /* 洗柿 OKLCH .855 .084  50 */
   { id: 'plan',  name: 'きっかけ', color: '#ffe8a4', dir: null },   /* 卵色 同     .935 .090  92 */
   { id: 'gap',   name: 'すきま',   color: '#a6e1fe', dir: null },   /* 空   同     .880 .072 230 */
-  { id: 'done',  name: '完了',     color: '#cec8ff', dir: 'up' },   /* 藤   同     .855 .076 290 */
+  /* 上の海（利用者の指示）。前はここが「完了」だった。
+     長期保留＝いつかやるが、いまは目に入れたくないもの。
+     **どの海からも既定では出さない**（画面側が外す）。出したいときは絞り込みで呼ぶ */
+  { id: 'hold',  name: '長期保留', color: '#cec8ff', dir: 'up' },   /* 藤   同     .855 .076 290 */
+  /* 下の海（利用者の指示）。**固有枠**なので dir は動かせない（上の FIXED_DIRS）。
+     ふりかえりからの導線も残る（review.js は tag('done').dir を見て出す）。
+     色は藤を長期保留へ渡したので、11色目を計算で選び直した
+     （他10色に対する最小色差を最大にする色。これで色差の下限は動かない） */
+  { id: 'done',  name: '完了',     color: '#dfdeb5', dir: 'down' },  /* 抹茶 同     .890 .054 106 */
 ];
 
 /* ユーザーのタグの色。**色の出どころはここ1か所だけ**。
@@ -213,10 +235,11 @@ const TAG_PALETTE = [
    TAG_DEFAULTS / TAG_PALETTE が配った色」なので、配り直しで
    ユーザーの選択を踏み潰すことはない。
    色を選べるようにしたら、この配り直しはやめること。 */
-const PAL_VER = 4;
+const PAL_VER = 5;
 
 /* 最初から置いてあるユーザーのタグ。特別ではないので、名前も色も変えられるし消せる。
-   海の既定は 中央=すべて / 左=仕事 / 右=プライベート / 上=完了（利用者の指示）。
+   海の既定は 中央=すべて / 左=仕事 / 右=プライベート / 上=長期保留 / 下=完了（利用者の指示）。
+   上下は構造として置いてあるもので、左右だけがユーザーの取り合い。
    特別な3つ（今日・きっかけ・すきま）は、既定では海に置かない（専用のタブがあるため）。
    色はパレットの先頭2つ。ここでも別の色文字列を書かない（二重管理にしない）。 */
 const TAG_STARTERS = [
@@ -506,6 +529,7 @@ function hasTag(t, tagId) {
   if (tagId === 'plan') return !!t.plan;
   if (tagId === 'gap') return !!t.gap;
   if (tagId === 'done') return !!t.done;
+  if (tagId === 'hold') return !!t.hold;
   return Array.isArray(t.tags) && t.tags.indexOf(tagId) >= 0;
 }
 
@@ -568,7 +592,9 @@ function normalizeTags(v) {
       color: (s && tagColor(s.color)) || d.color,
       /* 保存データにその行があるなら、向きは保存された値（外してあれば null）。
          行ごと無い＝旧データなので、既定の向きで立ち上げる */
-      dir: s ? (TAG_DIRS.indexOf(s.dir) >= 0 ? s.dir : null) : d.dir,
+      /* 固有枠のタグは、保存データに何が入っていてもその枠に戻す */
+      dir: FIXED_DIRS[d.id]
+        || (s ? (TAG_DIRS.indexOf(s.dir) >= 0 ? s.dir : null) : d.dir),
       special: true,
     };
   });
@@ -670,6 +696,8 @@ function normalizeDraft(v) {
 }
 
 function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
+  /* 長期保留。旧データには無いので false から始まる */
+  const hold = !!t.hold;
   /* days が本体。無い保存データ（この版より前）は today:true のぶんだけ、
      その時点の日（保存されていた lastDay）へ移す。
      lastDay が過去なら、読み込んだ瞬間に today は false になる——
@@ -703,6 +731,7 @@ function normalizeTodo(t, anchorIds, tagIds, migrateDay) {
     /* days が本体。today はそこから作った控え（画面はこちらを読む） */
     days,
     today,
+    hold,
     createdAt: Number(t.createdAt) || Date.now(),
     fx: clamp01(t.fx, 0.5),
     fy: clamp01(t.fy, 0.5),
@@ -1044,6 +1073,7 @@ export const store = {
       /* days が本体。today:true で作るときは今日のキーを1つ入れる */
       days: o.today ? [todayKey()] : [],
       today: !!o.today,
+      hold: false,
       createdAt: Date.now(),
       fx: Number.isFinite(o.fx) ? o.fx : 0.2 + Math.random() * 0.6,
       fy: Number.isFinite(o.fy) ? o.fy : 0.2 + Math.random() * 0.5,
@@ -1276,6 +1306,26 @@ export const store = {
     persist(); emit();
     return true;
   },
+
+  /* --- 長期保留（利用者の指示） ---
+     いつかやるが、いまは目に入れたくないもの。上の海に集まる。
+     **どの海からも既定では出さない**（外すのは画面側の仕事。ここは印を持つだけ）。
+     完了とは別物——完了は「終わった」、長期保留は「まだ終わっていないが、いまは見ない」。 */
+  setHold(id, on) {
+    const t = store.get(id);
+    if (!t || t.hold === !!on) return false;
+    t.hold = !!on;
+    persist(); emit();
+    return true;
+  },
+
+  isHold(id) {
+    const t = store.get(id);
+    return !!(t && t.hold);
+  },
+
+  /* 上の海の中身。完了したものは出さない（あちらはふりかえりから見る） */
+  holds() { return items.filter(t => isLive(t) && t.hold && !t.done); },
 
   setToday(id, on) {
     const t = store.get(id);
@@ -1685,7 +1735,7 @@ export const store = {
      返すのはコピー。呼び手が並べ替えても内部は壊れない */
   tagPalette() { return TAG_PALETTE.slice(); },
 
-  /* 並びは 特別なタグ4つ（today / plan / gap / done）→ 作った順のユーザーのタグ。
+  /* 並びは 特別なタグ5つ（today / plan / gap / hold / done）→ 作った順のユーザーのタグ。
      中身はコピー */
   tags() { return tagList.map(tagCopy); },
 
@@ -1756,11 +1806,18 @@ export const store = {
   /* 向きの割り当て。dir は 'up' / 'left' / 'right' / null（どの向きにも置かない）。
      1向き1タグ。既に別のタグがその向きに居たら、そちらを null に落としてから入れる
      -> 受け付けたか（タグが無い・向きが不正なら false） */
+  /* 固有枠に入っているタグなら、その向き。ふつうのタグなら null。
+     画面はこれを見て「向き」の選び欄を出すかどうかを決める */
+  tagDirFixed(id) { return FIXED_DIRS[id] || null; },
+
   setTagDir(id, dir) {
     const tag = findTag(id);
     if (!tag) return false;
     const next = (dir === null || dir === undefined) ? null : dir;
     if (next !== null && TAG_DIRS.indexOf(next) < 0) return false;
+    /* 固有枠は動かせない。その枠のタグを外すことも、別のタグを入れることもできない
+       （next が 'down' なら上の TAG_DIRS 判定で既に落ちている） */
+    if (FIXED_DIRS[id]) return false;
     let changed = false;
     if (next !== null) {
       tagList.forEach(x => {
@@ -1774,7 +1831,7 @@ export const store = {
 
   /* その向きに置かれているタグ。空なら null */
   tagDir(dir) {
-    if (TAG_DIRS.indexOf(dir) < 0) return null;
+    if (ALL_DIRS.indexOf(dir) < 0) return null;
     const tag = tagList.find(t => t.dir === dir);
     return tag ? tagCopy(tag) : null;
   },
@@ -1805,6 +1862,7 @@ export const store = {
       if (t.done) return false;
       return !!store.complete(id);
     }
+    if (tag.id === 'hold') return store.setHold(id, want);
     const box = tagBoxOf(t);
     const has = box.indexOf(tag.id) >= 0;
     if (has === want) return false;
@@ -1940,7 +1998,7 @@ export const store = {
   seed(texts) {
     texts.forEach(text => {
       items.push({
-        id: uid(), text, days: [], today: false, createdAt: Date.now(),
+        id: uid(), text, days: [], today: false, hold: false, createdAt: Date.now(),
         fx: 0.15 + Math.random() * 0.7, fy: 0.15 + Math.random() * 0.6,
         slots: [], anchors: [], anchorAt: {}, started: {},
         firstStep: '', url: '', gap: false, gapSlot: null, plan: false,

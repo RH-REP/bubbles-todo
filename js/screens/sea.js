@@ -1,14 +1,16 @@
-/* 画面1「海」— 4つの面（追補3 §1）
+/* 画面1「海」— 5つの面（追補3 §1、下は利用者の指示で追加）
 
      　　　　  ┌────────┐
-     　　　　  │ 上の海  │
+     　　　　  │ 長期保留 │
      ┌───────┼────────┼───────┐
      │ 左の海 │ 中央の海 │ 右の海 │
      └───────┼────────┼───────┘
+     　　　　  │  完了   │
      　　　　  └────────┘
 
-   ・中央 = すべての海（完了したものだけ出さない）
-   ・上・左・右 = タグの海。どのタグをどの向きに置くかは store.tagDir(dir) が決める
+   ・中央 = すべての海（完了と長期保留は出さない）
+   ・上・下 = **固有枠**。上=長期保留 / 下=完了。ユーザーは動かせない
+   ・左・右 = タグの海。どのタグをどの向きに置くかは store.tagDir(dir) が決める
    ・背景をドラッグ／スワイプ = 隣の面へ移る（隣どうしは直接つながらない。必ず中央を通る）
    ・バブルをドラッグして端へ = そのタグが付く。面は移らない
      この2つは混ぜない。指を置いた場所（バブルの上か、背景か）で分かれる
@@ -41,16 +43,32 @@ const SHUF_MAX = 10;    /* 盤に出す玉の数の上限。これ以上は重�
 const SHUF_D = 46;      /* 玉の直径 px。CSS の .sea-shuffle .rnd-b と同じ値。片方だけ変えないこと */
 
 /* --- 面 --- */
-const FACES = ['center', 'up', 'left', 'right'];
-const DIRS = ['up', 'left', 'right'];               /* タグを置ける向き */
+const FACES = ['center', 'up', 'left', 'right', 'down'];
+const DIRS = ['up', 'left', 'right', 'down'];       /* タグの海がある向き */
 const EDGE_DIRS = ['up', 'left', 'right', 'down'];  /* 端の手がかりを出す場所 */
-/* その面から見て「中央がどちらにあるか」。中央へ戻る手がかりはこの端に出す */
-const BACK_OF = { up: 'down', left: 'right', right: 'left' };
 
-/* 看板の矢印。向きは「その海がある方角」を指す（down は中央へ戻る下向き） */
+/* **バブルを落とすとタグが付く端**。下（完了）は入れない。
+
+   理由は2つある。ひとつは場所——下の帯はタブバーのすぐ上（bottom:64px の 21px）で、
+   「今日」タブへバブルを運ぶ指がその上を通る。離す位置が数十 px ずれただけで
+   完了になるのは、取り消せるとしても筋が悪い。
+   もうひとつは決め方——完了は「訊かれて答えるもの」ではなく
+   「自分から押したいときに押すもの」として置いてある（README）。
+   だから完了にするのは盤の [タスク完了] だけにして、端は見に行く口にとどめる。
+
+   edgeHitAt() はもともと up/left/right しか見ていないので、
+   ここは「その方針を名前にした」定数。両方を同じ並びから引く。 */
+const DROP_DIRS = ['up', 'left', 'right'];
+
+/* 看板の矢印。向きは「その海がある方角」を指す */
 const SIGN_ARROW = { up: '↑', down: '↓', left: '←', right: '→' };
+/* その面から見て「中央がどちらにあるか」。中央へ戻る手がかりはこの端に出す */
+const BACK_OF = { up: 'down', left: 'right', right: 'left', down: 'up' };
 /* タグに色が入っていないときの控え。無彩色は「タグ無し」の意味なので使わない（追補3 §1） */
-const FALLBACK_COLOR = { up: 'var(--slot-morning)', left: 'var(--today-edge)', right: 'var(--slot-noon)' };
+const FALLBACK_COLOR = {
+  up: 'var(--slot-morning)', left: 'var(--today-edge)',
+  right: 'var(--slot-noon)', down: 'var(--slot-night)',
+};
 const CENTER_NAME = 'ぜんぶ';
 /* 絞っている間の面の名前。名前が変わることが「いま絞っている」の合図（追補4 §2） */
 const NARROW_NAME = 'まだどこにも';
@@ -230,6 +248,15 @@ function colorsOf(t) {
   return out;
 }
 
+/* 長期保留。**どの海からも既定では出さない**（利用者の指示）。
+   出るのは上の海だけ。完了と同じ扱い方だが、意味は別もの——
+   完了は「終わった」、長期保留は「まだ終わっていないが、いまは見ない」。 */
+function isHoldItem(t) {
+  if (!t) return false;
+  if (has('isHold')) { try { return !!store.isHold(t.id); } catch (err) { /* 落ちない */ } }
+  return !!t.hold;
+}
+
 function isDoneItem(t) {
   if (!t) return false;
   if (has('isDone')) { try { return !!store.isDone(t.id); } catch (err) { /* 落ちない */ } }
@@ -254,7 +281,7 @@ function isUnsorted(t) {
    絞っている間は、まだどこにも入れていないものだけ（追補4 §2）。 */
 function centerItems() {
   if (!hasTags()) return store.floating();
-  const list = store.all().filter(t => !isDoneItem(t));
+  const list = store.all().filter(t => !isDoneItem(t) && !isHoldItem(t));
   return narrowing ? list.filter(isUnsorted) : list;
 }
 
@@ -266,7 +293,11 @@ function faceItems(face) {
     if (has('doneItems')) { try { return store.doneItems() || []; } catch (err) { return []; } }
     return store.all().filter(isDoneItem);
   }
-  try { return store.inTag(tag.id) || []; } catch (err) { return []; }
+  let list;
+  try { list = store.inTag(tag.id) || []; } catch (err) { return []; }
+  /* 長期保留の海だけが、長期保留を出す。ほかのタグの海からは外す */
+  if (tag.id === 'hold') return list;
+  return list.filter(t => !isHoldItem(t));
 }
 
 function isStarted(t) {
@@ -703,7 +734,10 @@ function edgeHitAt(x, y, force) {
   if (inMidY && x - r.left <= band) near.push({ dir: 'left', d: x - r.left });
   if (inMidY && r.right - x <= band) near.push({ dir: 'right', d: r.right - x });
   near.sort((a, b) => a.d - b.d);
-  for (let i = 0; i < near.length; i++) if (dirTag(near[i].dir)) return near[i].dir;
+  for (let i = 0; i < near.length; i++) {
+    const d = near[i].dir;
+    if (DROP_DIRS.indexOf(d) >= 0 && dirTag(d)) return d;
+  }
   return null;
 }
 
@@ -798,6 +832,7 @@ function neighbor(face, way) {
 function faceBase(face) {
   const w = stage.clientWidth || 0, h = stage.clientHeight || 0;
   if (face === 'up') return { x: 0, y: h };
+  if (face === 'down') return { x: 0, y: -h };
   if (face === 'left') return { x: w, y: 0 };
   if (face === 'right') return { x: -w, y: 0 };
   return { x: 0, y: 0 };
@@ -809,7 +844,7 @@ function setWorldPx(x, y) {
 
 /* 落ち着いた位置は割合で置く。幅が変わっても付いてくる（px だと測り直しが要る） */
 function setWorldFace(face) {
-  const p = { center: '0,0', up: '0,100%', left: '100%,0', right: '-100%,0' }[face] || '0,0';
+  const p = { center: '0,0', up: '0,100%', down: '0,-100%', left: '100%,0', right: '-100%,0' }[face] || '0,0';
   world.style.transform = 'translate(' + p + ')';
 }
 
@@ -1092,8 +1127,12 @@ function renderEdges() {
     let show = false, label = '', aria = '', color = '', target = null;
 
     if (dragging) {
-      /* 掴んでいる間は「タグを付ける端」だけ。戻り口は出さない（役目が混ざる） */
-      if (tag) { show = true; label = nameOf(tag) + ' が付く'; aria = label; color = colorOf(tag, dir); }
+      /* 掴んでいる間は「タグを付ける端」だけ。戻り口は出さない（役目が混ざる）。
+         落とせない端（下＝完了）には出さない——出すと
+         「光っているのに付かない」になる（edgeHitAt も down を返さない） */
+      if (tag && DROP_DIRS.indexOf(dir) >= 0) {
+        show = true; label = nameOf(tag) + ' が付く'; aria = label; color = colorOf(tag, dir);
+      }
     }
     /* **ふだんは出さない。**行き先の案内は矢印看板（.sea-sign）が持つ。
        あちらは面の中の、バブルより後ろにある＝真下のバブルを掴めなくしない（A-8）。
@@ -1589,7 +1628,12 @@ function renderChrome() {
     const t = dirTag(d);
     const show = !!t && faceItems(d).length === 0;
     f.empty.hidden = !show;
-    if (show) f.empty.textContent = 'ここには『' + nameOf(t) + '』が付いたものが浮かぶ。バブルを端へ運ぶと付く。';
+    if (!show) return;
+    /* 書いてあることが本当に起きること。端へ落とせない海に
+       「端へ運ぶと付く」とは書かない（下＝完了。DROP_DIRS を見よ） */
+    if (t.id === 'done') f.empty.textContent = 'ここには、[タスク完了] を押したものが集まる。';
+    else if (t.id === 'hold') f.empty.textContent = 'ここには『' + nameOf(t) + '』にしたものが浮かぶ。バブルを上の端へ運ぶと入る。';
+    else f.empty.textContent = 'ここには『' + nameOf(t) + '』が付いたものが浮かぶ。バブルを端へ運ぶと付く。';
   });
 
   syncHint();

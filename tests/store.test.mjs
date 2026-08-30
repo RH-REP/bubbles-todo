@@ -2153,20 +2153,26 @@ await test('一手の記録は log（はじめた記録）を1件も増やさな
 /* ============================================================ */
 /* タグ（海の面）と完了の海 — 追補3 §7 */
 
-await test('特別なタグ4つが既定で立っていて、名前・向き・色を持つ', async () => {
+await test('特別なタグ5つが既定で立っていて、名前・向き・色を持つ', async () => {
   const store = await open({ raw: null, now: NOW });
 
-  assert.deepEqual(store.TAG_SPECIAL, ['today', 'plan', 'gap', 'done']);
+  assert.deepEqual(store.TAG_SPECIAL, ['today', 'plan', 'gap', 'hold', 'done']);
   const tags = store.tags();
-  assert.deepEqual(tags.map(t => t.id), ['today', 'plan', 'gap', 'done', 'work', 'private'], '特別なタグが先頭に並ぶ');
+  assert.deepEqual(tags.map(t => t.id), ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private'], '特別なタグが先頭に並ぶ');
   assert.deepEqual(tags.map(t => t.special),
-    [true, true, true, true, false, false], '特別なのは先頭4つだけ');
-  assert.deepEqual(tags.map(t => t.name), ['今日', 'きっかけ', 'すきま', '完了', '仕事', 'プライベート']);
-  /* 既定の向き（利用者の指示）: 中央=すべて / 左=仕事 / 右=プライベート / 上=完了。
+    [true, true, true, true, true, false, false], '特別なのは先頭5つだけ');
+  assert.deepEqual(tags.map(t => t.name), ['今日', 'きっかけ', 'すきま', '長期保留', '完了', '仕事', 'プライベート']);
+  /* 既定の向き（利用者の指示）:
+     中央=すべて / 上=長期保留 / 下=完了（固有枠）/ 左=仕事 / 右=プライベート。
      今日・きっかけ・すきま は専用のタブがあるので、既定では海に置かない */
-  assert.deepEqual(tags.map(t => t.dir), [null, null, null, 'up', 'left', 'right']);
+  assert.deepEqual(tags.map(t => t.dir),
+    [null, null, null, 'up', 'down', 'left', 'right']);
   assert.equal(store.tagDir('left').id, 'work');
-  assert.equal(store.tagDir('up').id, 'done');
+  /* 旧データでは「上」が完了だった。完了は下の固有枠へ移り、
+     長期保留が「上」に入る（利用者の指示。移行はここで起きる） */
+  assert.equal(store.tag('done').dir, 'down', '完了は下の固有枠');
+  assert.equal(store.tagDir('down').id, 'done');
+  assert.equal(store.tagDir('up').id, 'hold', '上は長期保留になる');
   assert.equal(store.tagDir('right').id, 'private');
   assert.equal(store.tagDir('nosuch'), null);
   assert.equal(store.tagDir(null), null);
@@ -2181,7 +2187,7 @@ await test('特別なタグ4つが既定で立っていて、名前・向き・�
   /* 戻り値はコピー。並べ替えても中の順は動かない */
   tags.reverse();
   tags[0].name = '書き換え';
-  assert.deepEqual(store.tags().map(t => t.id), ['today', 'plan', 'gap', 'done', 'work', 'private']);
+  assert.deepEqual(store.tags().map(t => t.id), ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private']);
   assert.equal(store.tags()[0].name, '今日');
   assert.equal(store.tag('today').name, '今日');
   assert.equal(store.tag('nosuch'), null);
@@ -2194,8 +2200,8 @@ await test('特別なタグは名前を変えられないし、消せない。�
     assert.equal(store.renameTag(id, 'あたらしい名前'), false, id + ' は改名できない');
     assert.equal(store.removeTag(id), false, id + ' は消せない');
   });
-  assert.deepEqual(store.tags().map(t => t.name), ['今日', 'きっかけ', 'すきま', '完了', '仕事', 'プライベート']);
-  assert.equal(store.tags().length, 6, '特別な4つと、最初から置いてある2つ');
+  assert.deepEqual(store.tags().map(t => t.name), ['今日', 'きっかけ', 'すきま', '長期保留', '完了', '仕事', 'プライベート']);
+  assert.equal(store.tags().length, 7, '特別な5つと、最初から置いてある2つ');
 
   /* 色と向きはユーザーのもの */
   assert.equal(store.setTagColor('today', '#3f7ac0'), true);
@@ -2209,7 +2215,7 @@ await test('特別なタグは名前を変えられないし、消せない。�
   /* 保存され、開き直しても残る */
   const again = await open();
   assert.equal(again.tag('today').color, '#3f7ac0');
-  assert.deepEqual(again.tags().map(t => t.name), ['今日', 'きっかけ', 'すきま', '完了', '仕事', 'プライベート']);
+  assert.deepEqual(again.tags().map(t => t.name), ['今日', 'きっかけ', 'すきま', '長期保留', '完了', '仕事', 'プライベート']);
 });
 
 await test('addTag / renameTag / removeTag。色は #rgb も通る', async () => {
@@ -2218,7 +2224,7 @@ await test('addTag / renameTag / removeTag。色は #rgb も通る', async () =>
   assert.equal(store.addTag(''), null, '空名は作らない');
   assert.equal(store.addTag('   '), null);
   assert.equal(store.addTag(null), null);
-  assert.equal(store.tags().length, 6);
+  assert.equal(store.tags().length, 7);
 
   const a = store.addTag('  読みもの  ', '#4a8');
   assert.equal(a.name, '読みもの', '前後の空白は落ちる');
@@ -2232,7 +2238,7 @@ await test('addTag / renameTag / removeTag。色は #rgb も通る', async () =>
   assert.notEqual(c.color, '#777777', '無彩色は受け付けず、配られた色になる');
 
   assert.deepEqual(store.tags().map(t => t.id),
-    ['today', 'plan', 'gap', 'done', 'work', 'private', a.id, b.id, c.id],
+    ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private', a.id, b.id, c.id],
     'ユーザーのタグは作った順で後ろに付く（最初から置いてある2つの後ろ）');
 
   /* 改名 */
@@ -2246,12 +2252,12 @@ await test('addTag / renameTag / removeTag。色は #rgb も通る', async () =>
   assert.equal(store.removeTag(b.id), true);
   assert.equal(store.tag(b.id), null);
   assert.equal(store.removeTag(b.id), false, '二度は消せない');
-  assert.deepEqual(store.tags().map(t => t.id), ['today', 'plan', 'gap', 'done', 'work', 'private', a.id, c.id]);
+  assert.deepEqual(store.tags().map(t => t.id), ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private', a.id, c.id]);
 
   /* 保存され、開き直しても残る */
   const again = await open();
   assert.deepEqual(again.tags().map(t => t.name),
-    ['今日', 'きっかけ', 'すきま', '完了', '仕事', 'プライベート', '読むもの', 'からだ']);
+    ['今日', 'きっかけ', 'すきま', '長期保留', '完了', '仕事', 'プライベート', '読むもの', 'からだ']);
 });
 
 /* パレットは store の1か所にしか無い（設定画面も store.tagPalette() を読む）。
@@ -2291,7 +2297,7 @@ await test('tagPalette は無彩色を含まず、重複せず、配り先と設
     t.name + ' の色もパレットの中: ' + t.color));
 });
 
-/* 10色（特別な4つ＋パレット6つ）が満たすべき性質を縛る。
+/* 11色（特別な5つ＋パレット6つ）が満たすべき性質を縛る。
    色そのものではなく、色を振り直しても守られていなければならない性質だけを見る。
 
    前の版は「1つの OKLCH 格子（L と C を全色そろえる）」を縛っていた。それはやめた。
@@ -2304,7 +2310,7 @@ await test('tagPalette は無彩色を含まず、重複せず、配り先と設
    ・C が無彩色（0.02 未満＝「タグ無し」の意味）にも、パステルを外れる濃さにも行かない
    ・どの2色も OKLab で離れている。**色覚特性のもとでも離れている**
      （バブルの色でしかタグを表さないので、見分けが付かなくなると情報が消える） */
-await test('タグの10色はパステルの帯に収まり、色覚特性のもとでも見分けが付く', async () => {
+await test('タグの11色はパステルの帯に収まり、色覚特性のもとでも見分けが付く', async () => {
   const store = await open({ raw: null, now: NOW });
 
   /* sRGB -> OKLab。外部依存を足さないためここに置く */
@@ -2345,8 +2351,8 @@ await test('タグの10色はパステルの帯に収まり、色覚特性のも
   /* 特別な4つの既定色は、まっさらな store の tags() から読む */
   const colors = store.tags().filter(t => t.special).map(t => t.color)
     .concat(store.tagPalette());
-  assert.equal(colors.length, 10, '特別な4つ＋パレット6つ');
-  assert.equal(new Set(colors).size, 10, '同じ色が2つ入っていない');
+  assert.equal(colors.length, 11, '特別な5つ＋パレット6つ');
+  assert.equal(new Set(colors).size, 11, '同じ色が2つ入っていない');
 
   const labs = colors.map(oklab);
   const Ls = labs.map(v => v[0]);
@@ -2421,7 +2427,7 @@ await test('パレットの世代が古い保存データは、開いたとき�
   assert.equal(store.tag('today').color, '#fdc09e', '特別なタグは既定の色に戻る');
   assert.equal(store.tag('plan').color, '#ffe8a4');
   assert.equal(store.tag('gap').color, '#a6e1fe');
-  assert.equal(store.tag('done').color, '#cec8ff');
+  assert.equal(store.tag('hold').color, '#cec8ff');
 
   /* ユーザーのタグは「作られた順に頭から」。元の規則と同じなので、
      並びが変わらないかぎり各タグは同じ位置の新しい色に落ちる */
@@ -2433,7 +2439,7 @@ await test('パレットの世代が古い保存データは、開いたとき�
   assert.equal(store.tag('read').name, '読みもの');
   assert.equal(store.tagDir('left').id, 'work');
   assert.equal(store.tagDir('right').id, 'private');
-  assert.equal(store.tagDir('up').id, 'done');
+  assert.equal(store.tagDir('up').id, 'hold', '上は長期保留');
 
   /* 世代は保存に書かれ、次に開いたときはもう配り直さない（＝一度きり） */
   assert.ok(Number(saved().palVer) > 0, '世代が保存される');
@@ -2668,7 +2674,7 @@ await test('setTagDir は1向き1タグ。既に居たタグは null へ押し�
   assert.equal(store.tag(mine.id).dir, 'left');
 
   /* 押し出されるのは同じ向きだけ。ほかの向きは巻き込まない */
-  assert.equal(store.tag('done').dir, 'up');
+  assert.equal(store.tag('hold').dir, 'up', '上は長期保留（利用者の指示）');
   assert.equal(store.tag('private').dir, 'right');
 
   /* null でどの向きにも置かない状態に戻せる */
@@ -2676,25 +2682,39 @@ await test('setTagDir は1向き1タグ。既に居たタグは null へ押し�
   assert.equal(store.tagDir('left'), null, '空いたままで、押し出されたタグは戻らない');
   assert.equal(store.tag(mine.id).dir, null);
 
-  /* 完了の海は既定で「上」。別の向きへも移せる */
-  assert.equal(store.tag('done').dir, 'up');
-  assert.equal(store.setTagDir('done', 'left'), true);
+  /* 長期保留の海は既定で「上」。別の向きへも移せる */
+  assert.equal(store.tag('hold').dir, 'up');
+  assert.equal(store.setTagDir('hold', 'left'), true);
   assert.equal(store.tagDir('up'), null, '移したら元の向きは空く');
-  assert.equal(store.tagDir('left').id, 'done');
+  assert.equal(store.tagDir('left').id, 'hold');
+
+  /* **完了は下の固有枠**（利用者の指示）。動かせないし、外せない */
+  assert.equal(store.tagDirFixed('done'), 'down');
+  assert.equal(store.tagDirFixed(mine.id), null, 'ふつうのタグは固定されない');
+  assert.equal(store.tag('done').dir, 'down');
+  assert.equal(store.tagDir('down').id, 'done');
+  assert.equal(store.setTagDir('done', 'right'), false, '完了は動かせない');
+  assert.equal(store.setTagDir('done', null), false, '外すこともできない');
+  assert.equal(store.tag('done').dir, 'down', 'どちらも弾かれて変わらない');
+  assert.equal(store.tagDir('right').id, 'private', '押し出しも起きない');
+
+  /* 下は取り合いに出ない。ほかのタグは入れない */
+  assert.equal(store.setTagDir(mine.id, 'down'), false, '固有枠は選べない');
+  assert.equal(store.tagDir('down').id, 'done', '横取りされない');
 
   /* 不正な向き・無いタグ */
-  assert.equal(store.setTagDir(mine.id, 'down'), false);
   assert.equal(store.setTagDir(mine.id, 'LEFT'), false);
   assert.equal(store.setTagDir('nosuch', 'left'), false);
-  assert.equal(store.tagDir('left').id, 'done', '弾かれたので変わらない');
+  assert.equal(store.tagDir('left').id, 'hold', '弾かれたので変わらない');
 
   /* 保存され、開き直しても向きはそのまま（外した null も残る） */
   const again = await open();
-  assert.equal(again.tagDir('left').id, 'done');
+  assert.equal(again.tagDir('left').id, 'hold');
   assert.equal(again.tag('work').dir, null, '押し出された状態が保たれる');
-  assert.equal(again.tag('done').dir, 'left', '「上」から「左」へ移した状態も保たれる');
+  assert.equal(again.tag('hold').dir, 'left', '「上」から「左」へ移した状態も保たれる');
   assert.equal(again.tagDir('up'), null, '空いた「上」も空いたまま');
   assert.equal(again.tag(mine.id).dir, null);
+  assert.equal(again.tag('done').dir, 'down', '完了は開き直しても下の固有枠');
 });
 
 await test('特別なタグの setTag は既存のフラグに委ねる（二重の状態を持たない）', async () => {
@@ -2959,7 +2979,7 @@ await test('rollover は tags / done に触らない', async () => {
   assert.equal(store.get(d.id).today, false,
     '完了したものの today も落ちる（取り消したときに古い「今日」を復活させないため）');
   assert.deepEqual(store.tags().map(x => x.id),
-    ['today', 'plan', 'gap', 'done', 'work', 'private', mine.id], 'タグの一覧も変わらない');
+    ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private', mine.id], 'タグの一覧も変わらない');
   setNow(NOW);
 });
 
@@ -3017,9 +3037,10 @@ await test('tags / done の無い旧データを読んでも壊れず、既定�
   assert.deepEqual(store.tagsOf('a'), [], 'タグは付いていない');
   assert.deepEqual(store.tagsOf('b'), ['today'], 'フラグから合成される');
   assert.deepEqual(store.doneItems(), []);
-  assert.deepEqual(store.tags().map(t => t.id), ['today', 'plan', 'gap', 'done', 'work', 'private'],
+  assert.deepEqual(store.tags().map(t => t.id), ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private'],
     '特別なタグは既定値で立ち上がる');
-  assert.deepEqual(store.tags().map(t => t.dir), [null, null, null, 'up', 'left', 'right'], '既定の向き');
+  assert.deepEqual(store.tags().map(t => t.dir),
+    [null, null, null, 'up', 'down', 'left', 'right'], '既定の向き（上は長期保留・下は完了の固有枠）');
   assert.deepEqual(store.todays().map(t => t.id), ['b'], '既存の問い合わせも従来どおり');
   assert.deepEqual(store.floating().map(t => t.id), ['a']);
 
@@ -3027,7 +3048,7 @@ await test('tags / done の無い旧データを読んでも壊れず、既定�
   const old = await open({ raw: [{ id: 'z', text: 'う', today: false }] });
   assert.deepEqual(old.tagsOf('z'), []);
   assert.equal(old.isDone('z'), false);
-  assert.deepEqual(old.tags().map(t => t.id), ['today', 'plan', 'gap', 'done', 'work', 'private']);
+  assert.deepEqual(old.tags().map(t => t.id), ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private']);
 
   /* 壊れたタグの行・項目側の壊れた値は落とす */
   const odd = await open({ raw: {
@@ -3050,7 +3071,7 @@ await test('tags / done の無い旧データを読んでも壊れず、既定�
     lastDay: '2026-08-20',
   }, now: NOW });
 
-  assert.deepEqual(odd.tags().map(t => t.id), ['today', 'plan', 'gap', 'done', 'work', 'private', 'u1', 'u3'],
+  assert.deepEqual(odd.tags().map(t => t.id), ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private', 'u1', 'u3'],
     '壊れた行だけ落ちる');
   assert.equal(odd.tag('today').name, '今日', '特別なタグの名前は保存データで上書きされない');
   assert.equal(odd.tag('today').color, '#fdc09e', '無彩色は既定の色に戻す');
@@ -3080,7 +3101,7 @@ await test('タグと完了は保存の往復・restore で保たれる', async 
 
   /* 保存データの形 */
   const s = saved();
-  assert.deepEqual(s.tags.map(x => x.id), ['today', 'plan', 'gap', 'done', 'work', 'private', mine.id]);
+  assert.deepEqual(s.tags.map(x => x.id), ['today', 'plan', 'gap', 'hold', 'done', 'work', 'private', mine.id]);
   assert.equal(s.todos[0].done, true);
   assert.equal(s.todos[0].doneAt, NOW);
   assert.deepEqual(s.todos[0].tags, [mine.id]);
@@ -3089,7 +3110,7 @@ await test('タグと完了は保存の往復・restore で保たれる', async 
   assert.equal(again.isDone(t.id), true);
   assert.deepEqual(again.tagsOf(t.id), ['done', mine.id]);
   assert.equal(again.tagDir('up').id, mine.id);
-  assert.equal(again.tag('done').dir, null, '押し出された向きも保たれる');
+  assert.equal(again.tag('done').dir, 'down', '完了は固有枠のまま');
 
   /* 完了したまま消して戻しても、完了のまま戻る（勝手に取り消さない） */
   const snap = again.remove(t.id);
