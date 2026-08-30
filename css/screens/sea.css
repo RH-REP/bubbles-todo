@@ -612,8 +612,11 @@
    重ねると看板が隠れる。さいころの下端が 110px なので 118px。 */
 .sea-sign[data-dir="up"]    { top: 118px; left: 50%; transform: translateX(-50%); }
 .sea-sign[data-dir="down"]  { bottom: 14px; left: 50%; transform: translateX(-50%); }
-.sea-sign[data-dir="left"]  { left: 10px;  top: 50%; transform: translateY(-50%); }
-.sea-sign[data-dir="right"] { right: 10px; top: 50%; transform: translateY(-50%); }
+/* 左右は上下の真ん中ではなく、やや上に置く。理由は2つ：
+     ・真ん中だと、空のときの案内文（.sea-hint。上下中央に置く）と重なる
+     ・重力でバブルは下に溜まるので、上のほうが隠れにくい */
+.sea-sign[data-dir="left"]  { left: 10px;  top: 34%; transform: translateY(-50%); }
+.sea-sign[data-dir="right"] { right: 10px; top: 34%; transform: translateY(-50%); }
 
 /* ---------- 引いて見る（ズームアウト。A-1） ----------
    「ならべる」の下、右上に置く。押すたびに 1.00 → 0.80 → 0.60 → 1.00。
