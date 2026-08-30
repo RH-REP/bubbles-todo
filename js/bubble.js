@@ -38,6 +38,11 @@ const SAVE_MS = 400;
 
 const CENTER_GAP = 12;   /* バブルと盤のすきま px */
 const CENTER_M = 8;      /* 画面の縁との余白 px */
+/* 中央へ寄せたバブルを置く高さ（利用者の指示）。
+   **真ん中ではなく上部。**盤の行が増えて（作業メモ・長期保留の日）、
+   真ん中に置くと盤が下タブに突き当たり、押し上げられてバブルに重なっていた。
+   上に空けるのは [まずは開始] のぶん（ボタン 44 ＋ すきま 12）。 */
+const CENTER_TOP_BAND = 44 + CENTER_GAP;
 
 /* タブへ落とせるのはこの4つだけ。ふりかえり・設定は不可 */
 export const DROPPABLE = ['sea', 'today', 'plan', 'gap'];
@@ -1173,7 +1178,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        これより低い画面では下タブへもぐる（もぐると触れない）。
        あふれるぶんは盤の中だけでスクロールさせる——履歴と同じ扱い。 */
     if (vh) {
-      const cap = Math.max(160, barTop - CENTER_M * 2) + 'px';
+      /* **バブルの下に残っている高さ**で頭打ちにする。
+         画面いっぱいを許すと、下の縦の寄せが盤を押し上げて
+         バブルの上に重なる（利用者の指摘はこれ）。
+         下に入りきらないぶんは、盤の中だけでスクロールさせる。 */
+      const lowerTop = cy + d / 2 + CENTER_GAP;
+      const cap = Math.max(160, barTop - CENTER_M - lowerTop) + 'px';
       if (hist) hist.style.maxHeight = cap;
       if (fields) fields.style.maxHeight = cap;
     }
@@ -1349,7 +1359,10 @@ export function attachGestures(node, handlers = {}) {
 
     const hr = (host && host.getBoundingClientRect) ? host.getBoundingClientRect() : from;
     const cx = hr.left + hr.width / 2;
-    const cy = hr.top + hr.height / 2;
+    /* 上部へ。[まずは開始] のぶんだけ空けた、いちばん上に置ける位置。
+       面がとても低いときだけ真ん中に留める（上に寄せると下がもっと狭くなるため） */
+    const cyTop = hr.top + CENTER_M + CENTER_TOP_BAND + from.height / 2;
+    const cy = Math.min(hr.top + hr.height / 2, cyTop);
 
     /* ---- 覆い（取り消しの口） ----
        いちばん先に置く＝この層の最初の子。あとから足す中央のバブル・当たり判定・盤は
