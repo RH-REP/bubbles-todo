@@ -199,13 +199,38 @@ function dayLabel(key) {
   return md;
 }
 
-function itemsForField() {
-  /* 今日は従来どおり todays()（完了したものは出さない）。
-     過去と未来は itemsOnDay()——完了したものも**その日の記録として残す**。
-     済ませたぶんを抜くと、あとから見たときに顔ぶれが欠ける */
-  const list = (isToday() || typeof store.itemsOnDay !== 'function')
+/* 長期保留。**どの海からも既定では出さない**（利用者の指示）。
+   この画面も「すべての海」を today で絞ったものなので、同じ規則が効く。
+   出したいときは海の絞り込みか、上の海へ行く。 */
+function isHoldItem(t) {
+  if (!t) return false;
+  if (typeof store.isHold === 'function') {
+    try { return !!store.isHold(t.id); } catch (e) { /* 落ちない */ }
+  }
+  return !!t.hold;
+}
+
+/* --- この画面の中身（利用者の指摘）---
+
+   > 今日の海は、実質すべての海のフィルター版である
+
+   そのとおりなので、**中身の決め方を海と同じ規則にそろえた**。
+   前はここと ランダム（pickList）で別々に集めていて、規則がずれていた：
+     ・ここは「いま映している日」、ランダムは常に store.todays()（＝今日）
+       ——明日を映していても、さいころは今日から引いていた
+     ・長期保留がどちらにも出ていた（海では中央からもタグの海からも外している）
+
+   今日は完了したものを出さない。過去と未来は**その日の記録として残す**
+   （済ませたぶんを抜くと、あとから見たときに顔ぶれが欠ける）。 */
+function dayItems(key) {
+  const base = (key === todayKey() || typeof store.itemsOnDay !== 'function')
     ? store.todays()
-    : store.itemsOnDay(curDay());
+    : store.itemsOnDay(key);
+  return (base || []).filter(t => !isHoldItem(t));
+}
+
+function itemsForField() {
+  const list = dayItems(curDay());
   return list.map(t => ({
     id: t.id,
     text: t.text,
@@ -487,8 +512,10 @@ function render() {
 /* ---------------- ランダムスタート（追補5 §4） ----------------
    選べないときに、選ばずに始めるためのもの。おすすめではない。
    だから重み付けはしない（古い順・放置順にすると「催促」になる／契約 §0）。
-   この画面は面が1つしか無いので、候補は「いま浮かんでいるもの」＝ store.todays()。
-   完了したものは store 側で既に外れている。
+   候補は**いま画面に浮かんでいるもの**（dayItems）から、完了したものを除いたぶん。
+   海の pickFace() と同じ規則：見えている面から選び、終わったものは選ばない
+   （終わったものを「はじめる」のは筋が通らない）。
+   過去の日を映しているときは、その日に置いたもののうち、まだ終わっていないものが候補。
 
    見せ方は海と同じ：玉が輪になって churn し、光が次々に移り、最後の1つが大きくなる。
    玉は候補そのものではなく「候補が混ざっている」ことの絵にしている
@@ -500,8 +527,16 @@ function reduceMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 
+function isDoneItem(t) {
+  if (!t) return false;
+  if (typeof store.isDone === 'function') {
+    try { return !!store.isDone(t.id); } catch (e) { /* 落ちない */ }
+  }
+  return !!t.done;
+}
+
 function pickList() {
-  try { return store.todays() || []; } catch (e) { return []; }
+  try { return dayItems(curDay()).filter(t => !isDoneItem(t)); } catch (e) { return []; }
 }
 
 /* 光が渡り歩く順。うしろから組み立てるので、最後は必ず勝ち玉、
@@ -521,7 +556,7 @@ function hopOrder(n, winner) {
 function buildShuffle(n, winner) {
   const wrap = el('div', 'today-shuffle');
   wrap.setAttribute('role', 'status');
-  wrap.appendChild(el('span', 'sr', '今日から1つ選んでいます'));
+  wrap.appendChild(el('span', 'sr', (isToday() ? '今日' : dayLabel(curDay())) + 'から1つ選んでいます'));
 
   const ring = el('div', 'rnd-ring');
   ring.setAttribute('aria-hidden', 'true');
@@ -608,8 +643,12 @@ function syncRandomBtn() {
   if (!randomBtn) return;
   const n = pickList().length;
   randomBtn.disabled = n === 0 || !!shuffle;
-  randomBtn.title = n ? '今日から1つ選んで、5分だけ集中' : 'ここにはまだ何も無い';
-  randomBtn.setAttribute('aria-label', '今日から1つ選んで、5分だけ集中');
+  /* 映している日の名前で言う。「今日」と決め打つと、明日を映しているときに
+     さいころだけ別の日の話をしているように読める（実際、前は本当にそうだった） */
+  const word = isToday() ? '今日' : dayLabel(curDay());
+  const say = word + 'から1つ選んで、5分だけ集中';
+  randomBtn.title = n ? say : 'ここには選べるものが無い';
+  randomBtn.setAttribute('aria-label', say);
 }
 
 /* さいころの印。「無作為に1つ」を絵で言う。
