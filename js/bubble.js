@@ -372,13 +372,30 @@ function harvestActions(run) {
   return box.got;
 }
 
-/* 「消す」は取り返しがつきにくいので、ほかの2つと同じ列に並べない。
-   細い線で分けて、下に1つだけ置き、色も弱くする。
+/* 盤の下半分の並び（利用者の指示で組み替えた）。
+
+       [ はじめた ][ OK ]      ← OK は「次の一手」を書き留めるだけ。盤は閉じない
+       [ タスク完了 ]
+       ──────────
+       [ 消す ]
+
+   ■ なぜ組み替えたか
+   前は [はじめた][完了] が横並びで、そのすぐ上に「次の一手」の入力欄があった。
+   **入力欄の直下の「完了」が、一手を書き終えた合図（OK）に読めていた**
+   ——利用者の指摘。押すと項目そのものが完了になるので、取り違えると重い。
+
+   そこで直したのは2つ：
+     ・その位置は **OK**（次の一手を書き留める）にした。押しても盤は閉じない
+     ・完了は **「タスク完了」** と名乗り直し、**消すのすぐ上**へ移した。
+       ＝ 取り返しの重いものが下にまとまり、入力欄からは離れる
+
+   「消す」は取り返しがつきにくいので、いちばん下に1つだけ、色も弱く。
    押したあとは askDelete が一度だけ聞く（run に key を渡しているのはそのため）。 */
-function actionRow(actions, run) {
+function actionRow(actions, run, onOk) {
   const a = actions || {};
   const has = k => typeof a[k] === 'function';
-  if (!has('onStarted') && !has('onComplete') && !has('onDelete')) return null;
+  const canOk = typeof onOk === 'function';
+  if (!has('onStarted') && !has('onComplete') && !has('onDelete') && !canOk) return null;
 
   const box = el('div', 'bc-acts');
   const mk = (cls, label, key) => {
@@ -391,11 +408,34 @@ function actionRow(actions, run) {
 
   const top = el('div', 'bc-act-row');
   if (has('onStarted')) top.appendChild(mk('bc-act-started', 'はじめた', 'onStarted'));
-  /* 完了したものの上では「完了」ではなく「海にもどす」。openMenu と同じ入れ替え */
-  if (has('onComplete')) {
-    top.appendChild(mk('bc-act-done', a.isDone === true ? '海にもどす' : '完了', 'onComplete'));
+  if (canOk) {
+    /* OK は他のボタンと性質が違う。**盤を閉じない**（書き留めるだけ）。
+       押したことが分かるよう、少しのあいだ文字を変える——
+       閉じないぶん、何も起きなかったように見えてしまうため */
+    const ok = el('button', 'bc-act bc-act-ok');
+    ok.type = 'button';
+    ok.textContent = 'OK';
+    let back = 0;
+    ok.addEventListener('click', ev => {
+      ev.preventDefault();
+      onOk();
+      clearTimeout(back);
+      ok.textContent = '書き留めた';
+      ok.classList.add('is-done');
+      back = setTimeout(() => {
+        ok.textContent = 'OK';
+        ok.classList.remove('is-done');
+      }, 1200);
+    });
+    top.appendChild(ok);
   }
   if (top.childNodes.length) box.appendChild(top);
+
+  /* 完了したものの上では「タスク完了」ではなく「海にもどす」。openMenu と同じ入れ替え */
+  if (has('onComplete')) {
+    box.appendChild(mk('bc-act-done',
+      a.isDone === true ? '海にもどす' : 'タスク完了', 'onComplete'));
+  }
   if (has('onDelete')) box.appendChild(mk('bc-act-del', '消す', 'onDelete'));
   return box;
 }
@@ -558,7 +598,13 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
   /* 盤の箱は、入力欄が無くても（預け先が差されていなくても）作る。
      はじめた / 完了 / 消す はいつでも要るため。 */
-  const acts = actionRow(actions, runAction);
+  /* OK は「次の一手」を書き留めるだけ。saveStep は下で宣言されるが、
+     関数宣言は巻き上がるうえ、呼ばれるのは押されたときなので参照できる。
+     ついでに入力欄の焦点を外す（端末のキーボードが引っ込む） */
+  const acts = actionRow(actions, runAction, () => {
+    saveStep();
+    if (stepIn) stepIn.blur();
+  });
   if (a || acts) fields = el('div', 'bc-fields');
 
   /* ---- タグの名前 ----

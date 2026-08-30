@@ -1077,3 +1077,18 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
 }
 .bub-center .bc-tag-btn:hover { border-color: var(--line-strong); }
 .bub-center .bc-tag-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* ---------- 盤の [OK]（利用者の指示） ----------
+   「次の一手」を書き留めるだけのボタン。**盤は閉じない**。
+   前はこの位置に「完了」があり、入力欄の直下だったせいで
+   「書き終えた合図」に読めていた（利用者の指摘）。役目を入れ替えてある。
+
+   縁だけ一段はっきりさせる。塗りつぶすと、この盤でいちばん強いボタンになり、
+   「まずは開始」より前に出てしまう。 */
+.bub-center .bc-act-ok { border-color: var(--line-strong); }
+/* 押したあと、少しのあいだ文字が変わる。閉じないので、
+   何も起きなかったように見せないための合図 */
+.bub-center .bc-act-ok.is-done {
+  background: var(--surface-2);
+  border-color: var(--bub-edge);
+}
