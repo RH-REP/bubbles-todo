@@ -1,0 +1,647 @@
+/* 画面1「海」— 全高のステージ / ならべる（トグル） / 入力
+
+   バブルそのものの見た目（.bub / .skin / 行き先の点 / 長押しメニュー）は
+   js/bubble.js 側の CSS が持つ。ここは「海という場所」だけを書く。
+   このファイルで .bub に触るのは、整列グリッドの中での置き方（絶対配置をやめる）だけ。 */
+
+/* ---------- ペインの骨格 ----------
+   ステージは画面の全高。入力と詳細はその上に重ねる。
+   重ねた帯そのものは指を透かして、実際の入力欄とボタンだけが受け取る
+   （帯の下に漂っているバブルを掴めなくしないため）。 */
+/* 位置の基準は base.css の .pane（position:absolute; inset:0）。
+   ここで position を書き直すと同じ詳細度で上書きしてしまい、
+   中身が全部 absolute なぶんペインの高さが 0 に潰れる。書かないこと。 */
+
+/* ---------- 海（ステージ） ---------- */
+/* 海の底は「思いついたことを書く」の上端。
+   入力欄の裏までステージを伸ばすと、落ちたバブルが入力欄の下に隠れて読めない。
+   高さは入力欄の実寸なので、sea.js が --sea-floor に書き込む（フォント次第で変わるため）。 */
+.sea-stage {
+  position: absolute; top: 0; left: 0; right: 0;
+  bottom: var(--sea-floor, 76px);
+  /* clip はスクロール容器を作らない。hidden だと、中のバブルに focus が当たった拍子に
+     ステージ自身がスクロールして、以後ずっと中身がずれる（実際に起きた）。
+     clip を知らないブラウザのために hidden を先に書いて上書きさせる。 */
+  overflow: hidden;
+  overflow: clip;
+  background: linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
+}
+
+/* ドラッグ中にページが動かないようにするのはバブル側で受け持つ。
+   ステージに touch-action:none を置くと、子孫の整列グリッドまで
+   スクロールできなくなる（touch-action は先祖ぶんが積で効く）。 */
+.sea-pane .bub { touch-action: none; }
+
+/* ゆっくり流れる光のかたまり。要素を大きめに作って transform だけ動かす */
+.sea-stage::before {
+  content: ''; position: absolute; inset: -45%;
+  background:
+    radial-gradient(closest-side at 30% 28%, var(--drift-a), transparent 72%),
+    radial-gradient(closest-side at 72% 62%, var(--drift-b), transparent 70%);
+  animation: sea-drift 30s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes sea-drift {
+  from { transform: translate(-3.5%, -2.5%) scale(1); }
+  to   { transform: translate(3.5%, 4%) scale(1.06); }
+}
+
+/* のぼっていく光の粒。パターンの縦周期＝移動量にして継ぎ目なくループさせる */
+.sea-stage::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: -320px;
+  background-image:
+    radial-gradient(circle, var(--spark) 0 1.4px, transparent 2.6px),
+    radial-gradient(circle, var(--spark-2) 0 1px, transparent 2px);
+  background-size: 230px 320px, 150px 320px;
+  background-position: 42px 30px, 96px 180px;
+  opacity: .45;
+  animation: spark-rise 26s linear infinite;
+  pointer-events: none;
+}
+@keyframes spark-rise { to { transform: translateY(-320px); } }
+
+/* ---------- 4つの面（追補3 §1） ----------
+
+   　　　  ┌──────┐
+   　　　  │ up   │
+   ┌──────┼──────┼──────┐
+   │ left │center│ right│
+   └──────┼──────┼──────┘
+   　　　  └──────┘
+
+   面は「世界」の中に十字に並べて置き、世界ごと transform でずらして切り替える。
+   ステージは overflow:clip なので、いま見ている面以外ははみ出して見えない。
+
+   .sea-world を position:static のままにすると、中身が全部 absolute なぶん
+   高さが 0 に潰れて、drift の relayout が clamp(fy*0, r, -r) を計算し、
+   バブルが全部いちばん上に固まる（実際に起きた）。必ず inset:0 で場所を持たせる。 */
+.sea-world {
+  position: absolute; inset: 0;
+  /* 背景から始めた指は面の移動。ブラウザ側のスクロール／引っぱりに取られないようにする。
+     整列グリッドは .sea-stage 直下の別の子なので、こちらの指定は届かない（縦になぞれる） */
+  touch-action: none;
+  transition: transform .32s cubic-bezier(.22,.61,.36,1);
+  will-change: transform;
+}
+/* 指で追っている間は、なめらかさより追従。離したときだけ滑らせる */
+.sea-stage.is-swiping .sea-world { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  /* 動かさずに切り替える（指への追従も JS 側で止めている） */
+  .sea-world { transition: none !important; }
+
+  /* 面の背景で動き続けている3つも止める（B-5）。
+     どれも「見ていなくても動き続ける」ものなので、reduce ではいちばん障る種類。
+       ・sea-drift  … 流れる光のかたまり（30秒で行き来）
+       ・spark-rise … のぼる光の粒（26秒でループ）
+       ・sea-hint-bob … 空のときのヒント文の上下（6秒で行き来）
+     止めるだけで、絵そのものは残す（背景の光も粒もヒント文も、静止した状態で見える）。
+     spark-rise は translateY で継ぎ目を作っているが、animation を切ると
+     初期位置＝継ぎ目の無い状態で止まるので、見た目は崩れない。 */
+  .sea-stage::before,
+  .sea-stage::after,
+  .sea-hint { animation: none !important; }
+}
+
+.sea-face { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.sea-face[data-face="up"]    { top: -100%; }
+.sea-face[data-face="left"]  { left: -100%; }
+.sea-face[data-face="right"] { left: 100%; }
+
+/* タグの海には、そのタグの色をうっすら敷く。名札だけだと、滑っている最中に
+   「別の海へ来た」ことが絵として分からない。--face-c は sea.js が入れる */
+.sea-face[data-face="up"],
+.sea-face[data-face="left"],
+.sea-face[data-face="right"] {
+  background: radial-gradient(120% 74% at 50% 0%,
+    color-mix(in srgb, var(--face-c, transparent) 16%, transparent), transparent 72%);
+}
+
+/* 面が空のときの言葉。読ませる文字なので --text-3 まで落とさない */
+.sea-face-empty {
+  position: absolute; inset: 0; margin: 0;
+  display: grid; place-content: center; text-align: center;
+  color: var(--text-2); font-size: 13.5px; line-height: 1.95;
+  padding: 0 34px; pointer-events: none;
+}
+
+/* ---------- いまどの面にいるか ----------
+   常に見えていること（追補3 §1）。中央は「ぜんぶ」。 */
+.sea-face-name {
+  position: absolute; top: 10px; left: 10px; z-index: 8;
+  display: inline-flex; align-items: center; gap: 7px;
+  max-width: 40%; min-height: 32px; padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--text); font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
+  pointer-events: none;
+}
+.sea-face-name .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 色の点は飾り（aria-hidden）。意味は必ず隣の名前が持つ */
+.sea-face-name .dot,
+.sea-edge-btn .dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--edge-c, var(--bub-edge));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* ---------- 端の手がかり ----------
+   帯そのものが落とし先の広さを表し、丸い札が「そこに何の海があるか」を言う。
+   ふだんは押すと移れる的。バブルを掴んでいる間は、名前を出したまま的ではなくなる
+   （指はバブルを持っているので、押されることはない）。
+   割り当てが無い向きには、そもそも出さない＝行けない・付かないと分かる。 */
+.sea-edge {
+  position: absolute; z-index: 7;
+  pointer-events: none;                      /* 判定は指先の座標で。帯は当たり判定を持たない */
+  transition: background-color .14s, box-shadow .14s;
+}
+/* 帯は辺の全長ではなく、辺の中央 1/3 だけ（利用者の指示）。深さ 64px は変えない。
+   辺の全長だと、重力で底に溜まったバブルを少し横へ動かしただけでタグが付く。
+   ここの 33.333% は sea.js の EDGE_SPAN と同じ値。片方だけ変えないこと
+   ——見えている範囲と当たる範囲がずれると「光っているのに付かない」が起きる。
+   幅の実寸: 375px 幅なら上の帯は 125px、680px 高なら左右の帯は約 227px。
+   どちらも 44px を下回らない。 */
+/* タグの落とし先の帯。辺の全長にわたり、厚みだけを薄くする（64px の 1/3 = 21px）。
+   利用者の指示。JS 側の EDGE_BAND と同じ値なので、片方だけ変えないこと
+   （ずれると「光っているのに付かない」が起きる）。 */
+.sea-edge[data-dir="up"]    { top: 0; left: 0; right: 0; height: 21px; }
+.sea-edge[data-dir="down"]  { bottom: 64px; left: 0; right: 0; height: 21px; }
+.sea-edge[data-dir="left"]  { left: 0; top: 0; bottom: 0; width: 21px; }
+.sea-edge[data-dir="right"] { right: 0; top: 0; bottom: 0; width: 21px; }
+
+.sea-edge-btn {
+  position: absolute; pointer-events: auto;
+  appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 44px; min-width: 44px; padding: 0 14px;   /* タップ目標は 44 を下回らない */
+  max-width: 150px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--text); font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
+  box-shadow: 0 2px 10px rgba(0,0,0,.10);
+  transition: transform .1s, border-color .12s, background-color .12s;
+}
+.sea-edge-btn .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sea-edge-btn:hover { border-color: var(--bub-edge); }
+.sea-edge-btn:active { transform: scale(.97); }
+.sea-edge-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* 掴んでいる間は的ではなくなるが、読める濃さのまま。薄くすると何の海か読めなくなる */
+.sea-edge-btn:disabled { cursor: default; color: var(--text); }
+
+/* 上の札だけは帯の下へ出す。帯の中に置くと、左上の名札と右上の「ならべる」に当たる */
+.sea-edge[data-dir="up"] .sea-edge-btn {
+  left: 50%; top: 100%; transform: translateX(-50%); margin-top: 8px;
+}
+.sea-edge[data-dir="up"] .sea-edge-btn:active { transform: translateX(-50%) scale(.97); }
+.sea-edge[data-dir="down"] .sea-edge-btn {
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+}
+.sea-edge[data-dir="down"] .sea-edge-btn:active { transform: translate(-50%, -50%) scale(.97); }
+/* 左右の札は端に貼り付ける。中央に浮かせるとバブルの上の飾りに見えて、
+   「そちらに海がある」に読めない。外側の角を落として、端から生えている形にする */
+.sea-edge[data-dir="left"] .sea-edge-btn {
+  left: 0; top: 50%; transform: translateY(-50%); max-width: 42vw;
+  border-radius: 0 999px 999px 0; border-left: 0; padding: 0 14px 0 11px;
+}
+.sea-edge[data-dir="left"] .sea-edge-btn:active { transform: translateY(-50%) scale(.97); }
+.sea-edge[data-dir="right"] .sea-edge-btn {
+  right: 0; top: 50%; transform: translateY(-50%); max-width: 42vw;
+  border-radius: 999px 0 0 999px; border-right: 0; padding: 0 11px 0 14px;
+}
+.sea-edge[data-dir="right"] .sea-edge-btn:active { transform: translateY(-50%) scale(.97); }
+
+/* バブルを掴んでいる間だけ、帯が落とし先として光る */
+.sea-stage.is-bubdrag .sea-edge {
+  background: color-mix(in srgb, var(--edge-c, var(--bub-edge)) 12%, transparent);
+}
+.sea-stage.is-bubdrag .sea-edge.is-over {
+  background: color-mix(in srgb, var(--edge-c, var(--bub-edge)) 26%, transparent);
+  box-shadow: inset 0 0 0 2px var(--edge-c, var(--bub-edge));
+}
+.sea-stage.is-bubdrag .sea-edge-btn { pointer-events: none; }
+.sea-stage.is-bubdrag .sea-edge.is-over .sea-edge-btn {
+  border-color: var(--edge-c, var(--bub-edge));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sea-edge, .sea-edge-btn { transition: none !important; }
+  .sea-edge[data-dir="up"] .sea-edge-btn:active { transform: translateX(-50%); }
+  .sea-edge[data-dir="down"] .sea-edge-btn:active { transform: translate(-50%, -50%); }
+  .sea-edge[data-dir="left"] .sea-edge-btn:active,
+  .sea-edge[data-dir="right"] .sea-edge-btn:active { transform: translateY(-50%); }
+}
+
+/* 空のときのヒント。読ませる文字なので --text-3 まで落とさない（4.5:1 を切る） */
+.sea-hint {
+  position: absolute; inset: 0; margin: 0;
+  display: grid; place-content: center; text-align: center;
+  color: var(--text-2); font-size: 14px; line-height: 1.95;
+  padding: 0 34px; pointer-events: none;
+  animation: sea-hint-bob 6s ease-in-out infinite alternate;
+}
+@keyframes sea-hint-bob { to { transform: translateY(7px); } }
+
+/* ---------- ならべる（トグル） ----------
+   押している間ではなく、押したら並ぶ。だから文字が「ならべる」⇄「もどす」に変わる
+   ——解除の仕方が画面に見えていること。 */
+.sea-gather {
+  position: absolute; top: 10px; right: 10px; z-index: 8;
+  appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 0 16px;      /* タップ目標は 44 を下回らない */
+  font-size: 13px; font-weight: 600; letter-spacing: .04em;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  transition: transform .1s, color .12s, border-color .12s;
+  user-select: none; -webkit-user-select: none;
+}
+.sea-gather .ic { font-size: 13px; line-height: 1; }
+.sea-gather:hover { color: var(--text); }
+.sea-gather:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.sea-gather.is-on {
+  color: var(--text);
+  border-color: var(--bub-edge);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
+}
+
+/* ---------- しぼる（中央の海だけ／追補4 §2） ----------
+   面の名前のすぐ下。名前（いま何が浮かんでいるか）と切り替えが縦に並んで対で読める。
+   「ならべる」と同じ形・同じ言い方（もどす）にそろえる——押したら戻る、が同じ操作だから。
+   右上の「ならべる」とは離して置く。2つのモードのボタンを隣り合わせない。 */
+.sea-narrow {
+  position: absolute; top: 50px; left: 10px; z-index: 8;
+  appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 0 16px;      /* タップ目標は 44 を下回らない */
+  font-size: 13px; font-weight: 600; letter-spacing: .04em;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  transition: transform .1s, color .12s, border-color .12s;
+  user-select: none; -webkit-user-select: none;
+}
+.sea-narrow .ic { font-size: 11px; line-height: 1; }
+.sea-narrow:hover { color: var(--text); }
+.sea-narrow:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.sea-narrow.is-on {
+  color: var(--text);
+  border-color: var(--bub-edge);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
+}
+
+/* 絞っている間は面の名前も変わる（「ぜんぶ」→「まだどこにも」）。
+   文字だけだと見落とすので、名札の縁も一緒に立てる。意味は必ず文字が持つ */
+.sea-face-name.is-narrow {
+  border-color: var(--bub-edge);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 22%, transparent);
+}
+
+/* ---------- ランダムスタート ----------
+   いま開いている面から1つ、無作為に選んで5分だけ集中する。
+   おすすめではないので、目立つ色は付けない（「ならべる」と同じ静かな見た目）。
+   「ならべる」の下。押せないときは形（点線）でも伝える。 */
+.sea-random {
+  position: absolute; top: 62px; right: 10px; z-index: 8;
+  appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 48px; height: 48px; padding: 0;   /* タップ目標は 44 を下回らない */
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  transition: transform .1s, color .12s, border-color .12s;
+}
+.sea-random svg { display: block; width: 22px; height: 22px; }
+.sea-random:not(:disabled):hover { color: var(--text); border-color: var(--bub-edge); }
+.sea-random:not(:disabled):active { transform: scale(.95); }
+.sea-random:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* 押せないときは形（点線の縁）で伝える。薄くしない
+   ——このファイルの他の disabled と同じ扱い（薄くすると印が読めなくなる） */
+.sea-random:disabled { cursor: default; border-style: dashed; color: var(--text-2); }
+
+/* ---------- ランダムスタートのシャッフル（追補5 §4） ----------
+   押した瞬間に「決まりました」ではなく、玉が混ざって、そこから1つが選ばれると見えるように。
+   輪が減速しながら回り（＝止まりかけ）、光が玉から玉へ次々に移り、
+   最後に着いた玉だけが大きく残る。全体で 0.63 秒。
+   当たりを演出しない——金色も紙吹雪も音も出さない。海の色のまま静かに決まる。
+   ここに置く玉は候補そのものではなく「候補が混ざっている」ことの絵。だから文字を持たない。
+   時間と回る速さは sea.js が入れる（ホップの合計に合わせるため）。 */
+.sea-shuffle {
+  position: absolute; inset: 0; z-index: 30;
+  display: grid; place-items: center;
+  /* 混ぜている 0.6 秒は指を受け止める（下のバブルを二重に触らせない） */
+  background: color-mix(in srgb, var(--bg) 64%, transparent);
+}
+/* 読み上げにだけ渡す言葉。目には出さないが、消しもしない */
+.sea-shuffle .sr {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+.sea-shuffle .rnd-ring {
+  position: relative;
+  animation-name: sea-rnd-spin;
+  animation-timing-function: cubic-bezier(.1,.72,.22,1);   /* 速く回って、ゆっくり止まる */
+  animation-fill-mode: both;
+}
+@keyframes sea-rnd-spin { from { transform: rotate(0); } to { transform: rotate(316deg); } }
+
+/* 玉。--a = 輪のどこに置くか、--r = 輪の半径（どちらも sea.js が入れる）。
+   46px は sea.js の SHUF_D と同じ値。片方だけ変えないこと */
+.sea-shuffle .rnd-b {
+  position: absolute; left: 50%; top: 50%;
+  width: 46px; height: 46px; margin: -23px 0 0 -23px;
+  transform: rotate(var(--a)) translateY(calc(-1 * var(--r))) rotate(calc(-1 * var(--a)));
+  animation: sea-rnd-bob 620ms ease-in-out infinite alternate;
+}
+/* 玉ごとに位相をずらして息をさせる。輪の回転だけだと「一枚の板が回る」に見えて混ざらない */
+@keyframes sea-rnd-bob {
+  from { transform: rotate(var(--a)) translateY(calc(-1 * var(--r))) rotate(calc(-1 * var(--a))); }
+  to   { transform: rotate(calc(var(--a) + 13deg)) translateY(calc(-0.84 * var(--r)))
+                    rotate(calc(-1 * var(--a) - 13deg)); }
+}
+
+/* 光る・大きくなるのは内側。位置と息は外側が持つ（同じ transform を二人で書かない） */
+.sea-shuffle .rnd-face {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 1.5px solid var(--bub-edge);
+  background: color-mix(in srgb, var(--bub-edge) 12%, var(--surface));
+  box-shadow: inset 0 2px 6px var(--bub-glow);
+}
+@keyframes sea-rnd-lit {
+  from { background: color-mix(in srgb, var(--bub-edge) 58%, var(--surface)); transform: scale(1.12); }
+  to   { background: color-mix(in srgb, var(--bub-edge) 12%, var(--surface)); transform: scale(1); }
+}
+@keyframes sea-rnd-win {
+  from { background: color-mix(in srgb, var(--bub-edge) 58%, var(--surface)); transform: scale(1.12); }
+  60%  { transform: scale(1.44); }
+  to   { background: color-mix(in srgb, var(--bub-edge) 62%, var(--surface)); transform: scale(1.32);
+         box-shadow: inset 0 2px 6px var(--bub-glow),
+                     0 0 0 3px color-mix(in srgb, var(--bub-edge) 30%, transparent); }
+}
+@keyframes sea-rnd-dim { to { opacity: .18; transform: scale(.86); } }
+
+/* 混ぜないときは盤ごと出さない（sea.js も reduce のときは作らない。二重の保険） */
+@media (prefers-reduced-motion: reduce) {
+  .sea-shuffle { display: none; }
+}
+
+/* ---------- 整列グリッド ----------
+   海の物理配置とは別レイアウト。海は快適7個・限界14個ほどしか入らないので、
+   全件はスクロールする格子に置く。並びは古い順（放置しているものが先頭）。 */
+.sea-grid {
+  position: absolute; inset: 0; z-index: 6;
+  overflow-y: auto; overscroll-behavior: contain;
+  touch-action: pan-y;                    /* 余白を縦になぞればスクロールできる */
+  padding: 60px 14px 88px;                /* 上はボタン、下は入力欄のぶんを空ける */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 12px 10px;
+  justify-items: center; align-content: start;
+  background-color: var(--bg);
+  background-image: linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
+}
+.sea-grid-cap,
+.sea-grid-empty {
+  grid-column: 1 / -1;
+  margin: 0; font-size: 12.5px; letter-spacing: .04em;
+  color: var(--text-2);
+}
+.sea-grid-empty { line-height: 1.8; }
+
+/* 格子の中では並びが位置を決める。海の絶対配置と transform は使わない。
+   直径は --d で渡ってくる（% の padding は親幅基準になるので使えない）。 */
+.sea-grid .bub {
+  position: relative; left: auto; top: auto;
+  transform: none;
+  width: var(--d, 96px); height: var(--d, 96px);
+  touch-action: none;                     /* バブルの上から始めた指はドラッグ */
+}
+
+/* ---------- 詳細（最初の一手 / URL / 開始した） ----------
+   入力欄の上に重ねる。ノードは JS 側で使い回す（入力中の値を落とさないため）。 */
+.sea-sheet {
+  position: absolute; left: 10px; right: 10px; bottom: 70px; z-index: 9;
+  max-height: 52%; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line-strong); border-radius: 14px;
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 16px 38px -14px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.12);
+}
+.sea-sheet-head { display: flex; align-items: center; gap: 10px; }
+.sea-sheet-head .tt {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 15px; font-weight: 600; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.sea-sheet-head .cl {
+  flex: none; appearance: none; cursor: pointer; font: inherit;
+  min-width: 44px; min-height: 44px; padding: 0 10px;
+  font-size: 13px; font-weight: 600;
+  border: 0; border-radius: 10px;
+  background: transparent; color: var(--text-2);
+}
+.sea-sheet-head .cl:hover { color: var(--text); background: var(--surface-2); }
+.sea-sheet-head .cl:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+
+.sea-detail { display: flex; flex-direction: column; gap: 10px; }
+.sea-detail .lb {
+  display: block; margin-bottom: 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  color: var(--text-2);
+}
+.sea-detail .in {
+  width: 100%; appearance: none; font: inherit; color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--bg);
+  padding: 8px 10px;
+}
+/* プレースホルダも読ませる文字なので --text-3 まで落とさない */
+.sea-detail .in::placeholder { color: var(--text-2); }
+.sea-detail .in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.sea-detail .fs .in { font-size: 15px; }
+.sea-detail .ur .in { font-size: 13px; }
+.sea-detail .ur .rw { display: flex; align-items: center; gap: 7px; }
+.sea-detail .ur .rw .in { flex: 1; min-width: 0; }
+/* 色を足さずにリンクだと分かるようにする（--accent-a は本文色としては 4.5:1 に届かない） */
+.sea-detail .open {
+  flex: none; display: grid; place-items: center;
+  min-width: 44px; min-height: 44px; padding: 0 4px;
+  font-size: 12.5px; font-weight: 600;
+  color: var(--text); text-decoration: underline;
+}
+.sea-detail .open:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+/* 弾かれたことは静かに伝える。読めないと意味がないので --text-2 */
+.sea-detail .err { margin: 5px 0 0; font-size: 11.5px; color: var(--text-2); }
+
+/* 「開始した」。5分を使わずに始めた場合の別ルート */
+.sea-detail .sea-done {
+  align-self: flex-start;
+  appearance: none; cursor: pointer; font: inherit;
+  font-size: 13px; font-weight: 600;
+  min-height: 44px; padding: 0 18px; border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent; color: var(--text-2);
+  transition: background .12s, color .12s, border-color .12s, transform .08s;
+}
+.sea-detail .sea-done:hover { color: var(--text); }
+.sea-detail .sea-done:active { transform: scale(.97); }
+.sea-detail .sea-done:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* 押せないときは形で伝える。文字を薄くして 4.5:1 を切らせない */
+.sea-detail .sea-done:disabled { cursor: default; border-style: dashed; }
+/* 押せない理由は、読める濃さで小さく置く（--text-3 は 4.5:1 を切る） */
+.sea-detail .why { margin: -4px 0 0; font-size: 11.5px; color: var(--text-2); }
+.sea-detail .sea-done.on {
+  border-color: color-mix(in srgb, var(--bub-edge) 60%, transparent);
+  background: color-mix(in srgb, var(--bub-edge) 14%, transparent);
+  color: var(--text);
+}
+
+/* ---------- 入力（いちばん下） ----------
+   ステージに重ねるので、帯そのものは指を透かす。 */
+.sea-composer {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; gap: 8px; align-items: center;
+  padding: 14px 12px 12px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--bg) 72%, transparent) 46%, var(--bg));
+}
+.sea-composer input,
+.sea-composer button { pointer-events: auto; }
+.sea-composer input {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px;
+  padding: 11px 15px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text);
+}
+.sea-composer input::placeholder { color: var(--text-2); }
+.sea-composer input:focus { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.sea-composer button {
+  flex: none; appearance: none; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  min-width: 44px; min-height: 44px; padding: 0 19px; border-radius: 999px; border: 0;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: var(--accent-text);
+  transition: transform .08s, opacity .12s;
+}
+.sea-composer button:active { transform: scale(.94); }
+.sea-composer button:disabled { opacity: .32; cursor: default; }
+.sea-composer button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* 書いて、すぐ始める（送信の右）。
+   送信と同じ色・同じ形で2つ並べない。送信は塗りつぶしの角丸、こちらは縁だけの丸。
+   印は sea.js が描くインライン SVG（外部画像は読まない／契約 §15）。
+   色は明暗どちらでも定義されているトークンだけを使う。 */
+.sea-composer .sea-quick {
+  width: 44px; height: 44px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+.sea-composer .sea-quick svg { display: block; width: 22px; height: 22px; }
+.sea-composer .sea-quick:not(:disabled):hover {
+  border-color: var(--bub-edge);
+  background: color-mix(in srgb, var(--bub-edge) 12%, var(--surface));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sea-gather, .sea-narrow, .sea-random,
+  .sea-detail .sea-done, .sea-composer button { transition: none !important; }
+  .sea-detail .sea-done:active, .sea-composer button:active,
+  .sea-random:not(:disabled):active { transform: none; }
+}
+
+/* 整列中は、ステージ直下に drift のものが残っていても出さない。
+   全件はグリッドが並べるので、浮遊ぶんが残ると同じものが2つ見える。
+   sea.js が setItems([]) で降ろしているが、drift 側が自分の都合で
+   （独自の整列や飛沫で）足したものまで含めて、ここで確実に止める。
+   4面（.sea-world）・名札・端の手がかりも、この一手で一緒に消える。
+   ヒントは .sea-face の中へ移ったので、ここで名指しする必要はなくなった。 */
+.sea-stage.is-gathering > :not(.sea-grid):not(.sea-gather) {
+  display: none !important;
+}
+
+/* ---------- 矢印看板（A-9 / A-8 / A-10） ----------
+
+   行ける向きに、矢印とその海の名前を出す。
+   **面の中の、バブルより後ろ**（JS が面のいちばん先頭に足す＝先に描かれる）。
+
+   ・後ろにあるので、上にバブルが来ても指はバブルに当たる（A-8 の直し）
+   ・面と一緒に動くので、なぞっている最中も景色として付いてくる
+   ・空いているところを押せば移れる（押す的が無くなった問題も同時に解ける）
+   ・そこから指を滑らせれば、ふつうに面が動く（JS の isBackground が例外にしている）
+
+   景色として置くが、**文字は読ませる**ので --text-2 まで（--text-3 は使わない）。
+   バブルより後ろにあるぶん、色を薄くして引っ込める必要は無い。 */
+.sea-sign {
+  position: absolute; z-index: 0;
+  appearance: none; -webkit-appearance: none;
+  cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 0 14px;          /* タップ目標は 44 を下回らない */
+  max-width: 46%;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  color: var(--text-2);
+  font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
+  white-space: nowrap;
+  transition: border-color .12s, background-color .12s, color .12s;
+}
+.sea-sign .ar {
+  flex: none; font-size: 15px; line-height: 1;
+  color: var(--sign-c, var(--text-2));        /* その海の色を1点だけ載せる（1.4.1） */
+}
+.sea-sign .nm { overflow: hidden; text-overflow: ellipsis; }
+.sea-sign:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+.sea-sign:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* 置き場所。上は左上の名札・右上の「ならべる」を避けて、そのぶん下げる。
+   下は入力欄の上（--sea-floor が面の底）。左右は辺に貼り付ける。 */
+/* 上の看板は、右上の2段（ならべる／引いて見る・さいころ）の下まで下げる。
+   あれらは面の外（.sea-stage の子）で、看板より手前に描かれるため、
+   重ねると看板が隠れる。さいころの下端が 110px なので 118px。 */
+.sea-sign[data-dir="up"]    { top: 118px; left: 50%; transform: translateX(-50%); }
+.sea-sign[data-dir="down"]  { bottom: 14px; left: 50%; transform: translateX(-50%); }
+.sea-sign[data-dir="left"]  { left: 10px;  top: 50%; transform: translateY(-50%); }
+.sea-sign[data-dir="right"] { right: 10px; top: 50%; transform: translateY(-50%); }
+
+/* ---------- 引いて見る（ズームアウト。A-1） ----------
+   「ならべる」の下、右上に置く。押すたびに 1.00 → 0.80 → 0.60 → 1.00。
+   見た目は「ならべる」に合わせる（同じ列に並ぶ、同じ種類の切り替えなので）。 */
+/* 置き場所：右上の2段目、さいころ（.sea-random は right:10px / 48px幅）の左どなり。
+   同じ段に並べるのは、どちらも「海の見え方に効く」操作だから。
+   375px 幅でも、左上の「しぼる」（左から 100px まで）とは重ならない。 */
+.sea-zoom {
+  position: absolute; z-index: 8; right: 66px; top: 62px;
+  appearance: none; -webkit-appearance: none;
+  cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 44px; min-width: 44px; padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--text); font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
+  box-shadow: 0 2px 10px rgba(0,0,0,.10);
+  transition: transform .1s, border-color .12s, background-color .12s;
+}
+.sea-zoom .ic { flex: none; font-size: 14px; line-height: 1; }
+.sea-zoom:hover { border-color: var(--bub-edge); }
+.sea-zoom:active { transform: scale(.97); }
+.sea-zoom:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.sea-zoom.is-on { border-color: var(--bub-edge); background: var(--surface); }
+
+/* 文字もバブルと一緒に縮む。--sea-zoom は sea.js が .sea-stage に入れる。
+   0.60 の段は 13px → 7.8px。読む段ではなく「どれが大きいか・何色か」を見る段。
+   1.00 のときは何も掛からない（既定値 1 でそのまま）。 */
+.sea-stage .sea-face .bub .tx { font-size: calc(13px * var(--sea-zoom, 1)); }
+.sea-stage .sea-face .bub.is-fixed .tx { font-size: calc(12px * var(--sea-zoom, 1)); }

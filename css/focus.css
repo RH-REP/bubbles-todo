@@ -1,0 +1,423 @@
+/* 集中オーバーレイ「5分だけはじめる」
+
+   目の前の1件だけを残して、他を全部消すための面。
+   だから半透明にせず、背景を var(--bg) で完全に塗りつぶす。
+   .drag-layer(60) と .toast(80) より上に出す。 */
+
+.focus {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; justify-content: center;
+  background: var(--bg);
+  color: var(--text);
+
+  /* 既定色。slotColor が渡されれば JS がこの1つだけを差し替える */
+  --focus-accent: #1d7d9c;   /* base.css の --accent-a と同じ */
+  --focus-over:   #a15a2e;   /* 5分を過ぎたあとの色。12.5px の一言に使うので
+                                --bg に対して 4.75:1 まで濃くしてある */
+}
+
+@media (prefers-color-scheme: dark) {
+  .focus {
+    --focus-accent: #6fb9d8;
+    --focus-over:   #e0a274;
+  }
+}
+
+/* 縦の分け方（作業ログで画面が長くなるため）:
+   .focus-scroll だけがスクロールし、.focus-foot（入力欄と「やめる」）は下に残る。
+   タイマーは .focus-scroll の中で上に貼り付くので、下まで書いても見えている。
+   余白は card ではなく中の2つが持つ（貼り付いたタイマーの背景を端まで届かせるため）。 */
+.focus-card {
+  flex: 1; min-width: 0; max-width: 430px;
+  display: flex; flex-direction: column;
+  padding: 0;
+}
+
+.focus-scroll {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column; align-items: stretch;
+  padding: 0 22px;
+}
+
+.focus-head { flex: none; padding-top: max(26px, 5vh); }
+
+.focus-foot {
+  flex: none;
+  display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+  padding: 10px 22px calc(12px + var(--safe-b));
+  background: var(--bg);
+  border-top: 1px solid transparent;
+}
+/* 作業ログのときはスクロールする面と地続きに見えないよう、細い線で切る */
+.focus.is-log .focus-foot { border-top-color: var(--line); }
+
+/* ---------- 枠の名前（朝 / 昼 / 夜）。表示用の小さな札 ----------
+   文字は --focus-accent で塗らない。呼び出し側からどんな色が来ても
+   12px の文字が読めなくなるため（朝の #d99a3f は --bg に対して 2.0:1）。
+   色は丸だけが持ち、文字は --text-2（明 5.30 / 暗 6.79）に固定する。 */
+.focus-slot {
+  flex: none; display: flex; align-items: center; gap: 7px;
+  font-size: 12px; font-weight: 600; letter-spacing: .08em;
+  color: var(--text-2);
+  margin-bottom: 14px;
+}
+.focus-slot .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--focus-accent);
+}
+
+/* ---------- 本文。いちばん大きく ---------- */
+.focus-title {
+  flex: none; margin: 0;
+  font-size: clamp(23px, 6.4vw, 30px); line-height: 1.45;
+  font-weight: 600; letter-spacing: .01em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+/* 作業ログのときは、下に読むものが増えるぶん本文を少し落ち着かせる */
+.focus.is-log .focus-title { font-size: clamp(19px, 5.2vw, 24px); }
+
+/* ---------- 最初の一手（作業ログを出さないとき）---------- */
+.focus-step {
+  flex: none; margin: 14px 0 0;
+  padding: 11px 13px;
+  border-left: 3px solid var(--focus-accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--surface);
+  font-size: 15.5px; line-height: 1.7;
+  /* 補助ではなく主役なので --text-3 まで落とさない */
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 参照リンク ----------
+   枠の色は縁だけが持つ。13px の文字を任意の色で塗ると読めなくなるため。 */
+.focus-link {
+  flex: none; align-self: flex-start; margin-top: 14px;
+  text-decoration: none;
+  border-color: var(--focus-accent);
+  color: var(--text);
+  padding: 8px 18px;
+}
+.focus-link:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+
+/* ---------- 残り時間 ---------- */
+.focus-timer {
+  flex: none;
+  display: flex; flex-direction: column; align-items: stretch;
+  margin-top: auto;                     /* 下の余白と分け合う */
+}
+/* 作業ログが無いときは、上下の余白を等分して真ん中あたりに置く（従来の見た目） */
+.focus:not(.is-log) .focus-timer { margin-bottom: auto; }
+
+/* 作業ログのときは上に貼り付ける。下まで書いてもタイマーが見えていること */
+.focus.is-log .focus-timer {
+  position: sticky; top: 0; z-index: 2;
+  margin-top: 0; padding: 4px 0 10px;
+  background: var(--bg);
+  box-shadow: 0 6px 10px -9px rgba(0,0,0,.5);
+}
+
+.focus-dial {
+  flex: none; position: relative;
+  width: 208px; height: 208px;
+  margin: 26px auto 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.focus.is-log .focus-dial { width: 128px; height: 128px; margin-top: 6px; }
+
+.focus-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.focus-ring .track {
+  fill: none; stroke: var(--line); stroke-width: 6;
+}
+.focus-ring .arc {
+  fill: none; stroke: var(--focus-accent); stroke-width: 6; stroke-linecap: round;
+  transform: rotate(-90deg); transform-origin: 50% 50%;
+  transition: stroke-dashoffset .25s linear, stroke .35s;
+}
+.focus.is-over .focus-ring .arc { stroke: var(--focus-over); }
+
+.focus-time {
+  font-size: clamp(42px, 12vw, 54px); line-height: 1;
+  font-weight: 500; letter-spacing: .01em;
+  font-variant-numeric: tabular-nums;   /* 桁がガタつかないように */
+  font-feature-settings: 'tnum' 1;
+  color: var(--text);
+  transition: color .35s;
+}
+.focus.is-log .focus-time { font-size: 33px; }
+.focus.is-over .focus-time { color: var(--focus-over); }
+
+/* ---------- 状態の一言。淡々と ---------- */
+.focus-note {
+  flex: none; margin-top: 12px; text-align: center;
+  font-size: 12.5px; letter-spacing: .04em;
+  /* --text-3 は 12.5px だと明 2.87:1 で足りないので --text-2 で止める */
+  color: var(--text-2);
+}
+.focus.is-log .focus-note { margin-top: 6px; }
+.focus.is-over .focus-note { color: var(--focus-over); }
+
+/* ---------- 一手の記録（前回からの続き） ---------- */
+.focus-log {
+  flex: none;
+  display: flex; flex-direction: column; gap: 13px;
+  padding: 14px 0 18px;
+}
+.focus-log:focus { outline: none; }   /* 記録したあとの受け皿。枠は出さない */
+
+.focus-field { display: flex; flex-direction: column; gap: 5px; }
+/* display を持たせた要素は hidden だけでは消えない */
+.focus-field[hidden] { display: none; }
+
+.focus-label {
+  font-size: 12px; font-weight: 600; letter-spacing: .06em;
+  /* 意味を持つ文字なので --text-3 まで落とさない */
+  color: var(--text-2);
+}
+
+/* 入力欄。16px を切ると iOS が勝手に拡大する */
+.focus-input {
+  width: 100%; box-sizing: border-box;
+  font: inherit; font-size: 16px; line-height: 1.6;
+  min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--surface); color: var(--text);
+  resize: vertical;
+}
+.focus-input.is-one { resize: none; }
+.focus-input::placeholder { color: var(--text-2); }
+.focus-input:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 1px; }
+
+/* 表示だけの欄。入力欄と見分けがつくように、縁を薄くして角の丸みを変える */
+.focus-read {
+  margin: 0; padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line);
+  font-size: 15px; line-height: 1.6;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.focus-read.is-step {
+  border-left: 3px solid var(--focus-accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.focus-read.is-url { font-size: 13.5px; }
+
+.focus-read-row { display: flex; align-items: center; gap: 8px; }
+.focus-read-row .focus-read { flex: 1; min-width: 0; }
+.focus-open {
+  flex: none; text-decoration: none;
+  border-color: var(--focus-accent); color: var(--text);
+  padding: 8px 16px;
+}
+.focus-open[hidden] { display: none; }
+.focus-open:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+
+/* 押せない理由を、欄のすぐ下に置く。叱らない大きさで。
+   意味を持つ文字なので --text-3（明2.87 / 暗3.50）まで落とさない */
+.focus-hint {
+  margin: 0;
+  font-size: 12.5px; line-height: 1.5;
+  color: var(--text-2);
+}
+/* いま押せない状態のときだけ、少しだけ前に出す（色を変えるだけ。印は付けない） */
+.focus-hint.is-blocking { color: var(--text); }
+
+/* 記録する。押したときにだけ1件積む */
+.focus-commit {
+  appearance: none; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  align-self: stretch; min-height: 48px; padding: 0 20px;
+  border: 0; border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: var(--accent-text);
+  transition: transform .08s, opacity .12s;
+}
+.focus-commit:active { transform: scale(.98); }
+.focus-commit:disabled { opacity: .32; cursor: default; }
+.focus-commit:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+
+/* ---------- 割り込んだ考えを預ける ---------- */
+/* 海の composer と同じ [入力欄][送信]。「やめる」の少し上に常設する */
+.focus-capture { display: flex; flex-direction: column; gap: 5px; }
+
+.focus-composer { display: flex; align-items: center; gap: 8px; }
+.focus-composer input {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px;
+  min-height: 44px; padding: 0 15px;
+  border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--surface); color: var(--text);
+}
+/* プレースホルダも読ませる文字なので --text-3（明2.87 / 暗3.50）まで落とさない */
+.focus-composer input::placeholder { color: var(--text-2); }
+.focus-composer input:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 1px; }
+
+.focus-send {
+  flex: none; appearance: none; font: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer;
+  min-height: 44px; padding: 0 19px; border-radius: 999px; border: 0;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: var(--accent-text);
+  transition: transform .08s, opacity .12s;
+}
+.focus-send:active { transform: scale(.94); }
+.focus-send:disabled { opacity: .32; cursor: default; }
+.focus-send:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+
+/* 預けた・積んだことだけを返す。件数も「何回目」も出さない */
+.focus-said {
+  margin: 0; font-size: 12.5px; text-align: center;
+  color: var(--text-2);
+}
+
+/* ---------- 抜ける道は3つ ----------
+   置き方:
+       [完了]                     ← 左に単独で1行。幅は文字ぶん
+       [十分すすんだ][やめる]     ← 横に2つ
+   3つを横1列にすると 375px では 1本 104px しか取れず、「十分すすんだ」が収まらない。
+   また [完了] と [やめる] は隣り合わせにしない（取り返しの差が大きい）ので、
+   左上と右下＝いちばん遠い対角に離してある。 */
+
+/* 完了。もう着手する必要が無くなった、という道。
+   ・塗りを持たせない。完了は静かに済ませる（祝祭にしない）
+   ・幅を文字ぶんに絞る。誤って触れる面積を小さくするため
+     （min-height 48px なので、狭くても 44×44 は下回らない）
+   ・下の2つより 6px ぶん離す */
+.focus-done {
+  flex: none; align-self: flex-start;
+  min-height: 48px; padding: 8px 22px;
+  margin-bottom: 6px;
+  font-size: 14px; white-space: nowrap;
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--text);
+}
+.focus-done:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+
+/* 375px 幅でも両方が 44px を割らないこと:
+   .focus-foot の左右余白 22px ずつを引いて 331px、gap 10px を引いて 1本 160.5px。
+   高さは min-height で 48px を持たせる（.btn の 44px より上）。 */
+.focus-exits {
+  flex: none;
+  display: flex; align-items: stretch; gap: 10px;
+  margin-bottom: 4px;
+}
+.focus-exits > .btn {
+  flex: 1 1 0; min-width: 0;
+  min-height: 48px; padding: 8px 12px;
+  font-size: 14px;
+  /* 長い語（十分すすんだ）でも折り返さずに収める */
+  white-space: nowrap;
+}
+
+/* 十分すすんだ。5分に届く前に切り上げるが「はじめた」は立つ道。
+   完了ではないので、完了と同じ塗り（--accent グラデーション）は使わない。
+   縁だけ色を持たせて、「やめる」と見分けが付くようにする。 */
+.focus-enough {
+  border-color: var(--focus-accent);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+}
+.focus-enough:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+
+/* ---------- やめる。1タップで閉じられること ---------- */
+.focus-stop {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--text-2);
+}
+.focus-stop:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+
+/* ---------- 抜けるときに「記録するか」を聞く ----------
+   ブラウザの confirm() は使わない。集中画面の中に出す。
+   下寄せにして、タイマーが見えたままになるようにする（時計は止まらない）。 */
+.focus-ask {
+  position: absolute; inset: 0; z-index: 4;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 22px 22px calc(22px + var(--safe-b));
+  /* 明暗どちらでも同じ働きをする覆い。片方のテーマだけの色は作らない */
+  background: rgba(0, 0, 0, .45);
+}
+.focus-ask-panel {
+  width: 100%; max-width: 386px;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .3);
+}
+.focus-ask-q {
+  margin: 0;
+  font-size: 16px; line-height: 1.6; font-weight: 600;
+  color: var(--text);
+}
+/* 押せない理由と、下書きが残ること。--text-3 は使わない */
+.focus-ask-why {
+  margin: 0;
+  font-size: 12.5px; line-height: 1.6;
+  color: var(--text-2);
+}
+
+/* 2択。375px では panel の内側が 295px、gap 10px を引いて 1本 142.5px */
+.focus-ask-row { display: flex; align-items: stretch; gap: 10px; }
+/* 縁の有無で幅が 2px ずれないよう、どちらも border-box で数える */
+.focus-ask-row > * { flex: 1 1 0; min-width: 0; min-height: 48px; box-sizing: border-box; }
+
+.focus-ask-no {
+  padding: 8px 12px; font-size: 14px;
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--text);
+}
+.focus-ask-yes {
+  appearance: none; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  padding: 0 14px;
+  border: 0; border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: var(--accent-text);
+  transition: transform .08s, opacity .12s;
+}
+.focus-ask-yes:active { transform: scale(.98); }
+.focus-ask-yes:disabled { opacity: .32; cursor: default; }
+.focus-ask-no:focus-visible,
+.focus-ask-yes:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+
+/* ---------- 動きを止める経路 ----------
+   base.css の全体指定に加えて、JS が付ける .is-still でも止まるようにしておく
+   （matchMedia を見て付ける。メディアクエリが効かない経路の保険） */
+.focus.is-still .focus-ring .arc,
+.focus.is-still .focus-time,
+.focus.is-still .focus-commit,
+.focus.is-still .focus-send,
+.focus.is-still .focus-ask-yes,
+.focus.is-still .focus-ask-no,
+.focus.is-still .focus-enough,
+.focus.is-still .focus-done,
+.focus.is-still .focus-stop { transition: none !important; animation: none !important; }
+.focus.is-still .focus-commit:active,
+.focus.is-still .focus-ask-yes:active,
+.focus.is-still .focus-ask-no:active,
+.focus.is-still .focus-enough:active,
+.focus.is-still .focus-done:active,
+.focus.is-still .focus-stop:active,
+.focus.is-still .focus-send:active { transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-ring .arc, .focus-time,
+  .focus-commit, .focus-send, .focus-ask-yes { transition: none !important; animation: none !important; }
+  .focus-commit:active, .focus-send:active, .focus-ask-yes:active { transform: none; }
+}
+
+/* 画面が低いとき（横向きなど）はリングを縮める */
+@media (max-height: 620px) {
+  .focus-dial { width: 152px; height: 152px; margin-top: 18px; }
+  .focus-time { font-size: 38px; }
+  .focus.is-log .focus-dial { width: 104px; height: 104px; margin-top: 4px; }
+  .focus.is-log .focus-time { font-size: 28px; }
+  .focus-head { padding-top: 18px; }
+}

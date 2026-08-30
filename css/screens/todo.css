@@ -1,0 +1,493 @@
+/* 画面1「Todo」— 漂うバブル / 今日する枠 / 入力
+   見た目の方針：シャボン玉。虹色の膜・照り・呼吸。
+   アニメーションは transform / opacity だけを動かす（60個でも落ちないように）。 */
+
+/* すきま時間の印の色。明暗どちらでも同じ濃さに見えるよう、両方で定義する */
+:root {
+  --gap-mark: #2f7f9e;
+  --gap-halo: rgba(255,255,255,.80);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gap-mark: #8ed3ea;
+    --gap-halo: rgba(0,0,0,.34);
+  }
+}
+
+/* ---------- 漂うエリア（海） ---------- */
+.stage {
+  flex: 1; min-height: 0; position: relative; overflow: hidden;
+  touch-action: none;                     /* ドラッグ中にページが動かないように */
+  background: linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
+}
+
+/* ゆっくり流れる光のかたまり。要素を大きめに作って transform だけ動かす */
+.stage::before {
+  content: ''; position: absolute; inset: -45%;
+  background:
+    radial-gradient(closest-side at 30% 28%, var(--drift-a), transparent 72%),
+    radial-gradient(closest-side at 72% 62%, var(--drift-b), transparent 70%);
+  animation: sea-drift 30s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes sea-drift {
+  from { transform: translate(-3.5%, -2.5%) scale(1); }
+  to   { transform: translate(3.5%, 4%) scale(1.06); }
+}
+
+/* のぼっていく光の粒。パターンの縦周期＝移動量にして継ぎ目なくループさせる */
+.stage::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: -320px;
+  background-image:
+    radial-gradient(circle, var(--spark) 0 1.4px, transparent 2.6px),
+    radial-gradient(circle, var(--spark-2) 0 1px, transparent 2px);
+  background-size: 230px 320px, 150px 320px;
+  background-position: 42px 30px, 96px 180px;
+  opacity: .45;
+  animation: spark-rise 26s linear infinite;
+  pointer-events: none;
+}
+@keyframes spark-rise { to { transform: translateY(-320px); } }
+
+.stage-hint {
+  position: absolute; inset: 0; margin: 0;
+  display: grid; place-content: center; text-align: center;
+  color: var(--text-3); font-size: 14px; line-height: 1.95;
+  padding: 0 34px; pointer-events: none;
+  animation: hint-bob 6s ease-in-out infinite alternate;
+}
+@keyframes hint-bob { to { transform: translateY(7px); } }
+
+/* ---------- バブル ----------
+   .bub      位置（JS が transform を書く）とフォーカス
+   .wob      呼吸のゆらぎ（位相は --ph で個体差を付ける）
+   .skin     膜の見た目・押したときのたわみ・生死のアニメ
+   % の padding は「親の幅」に対して解決されてしまうので使わない。直径は --d で渡る。 */
+.bub {
+  position: absolute; left: 0; top: 0;
+  border-radius: 50%;
+  cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
+  will-change: transform;
+}
+.bub .wob {
+  position: absolute; inset: 0; display: block;
+  animation: bub-breathe 6s ease-in-out infinite;
+  animation-delay: calc(var(--ph, 0s) * -1);
+}
+@keyframes bub-breathe {
+  0%, 100% { transform: scale(1); }
+  33%      { transform: scale(1.02, .982); }
+  66%      { transform: scale(.984, 1.02); }
+}
+.bub .skin {
+  position: absolute; inset: 0;
+  display: grid; place-items: center; text-align: center;
+  border-radius: 50%; overflow: hidden;
+  color: var(--bub-text);
+  /* 膜：照り＋虹色3色＋ななめのシーン＋中心ほど薄い充填 */
+  background:
+    radial-gradient(circle at 31% 24%, var(--bub-glow) 0%, transparent 42%),
+    radial-gradient(circle at 72% 80%, var(--irid-a) 0%, transparent 48%),
+    radial-gradient(circle at 18% 68%, var(--irid-b) 0%, transparent 46%),
+    radial-gradient(circle at 82% 26%, var(--irid-c) 0%, transparent 42%),
+    linear-gradient(125deg, transparent 32%, var(--sheen) 46%, transparent 58%),
+    radial-gradient(circle at 50% 50%, transparent 58%, var(--bub-fill) 82%),
+    var(--bub-fill);
+  box-shadow:
+    inset 0 0 0 1px var(--bub-edge-soft),
+    inset 0 -10px 16px -8px var(--irid-b),
+    inset 0 8px 14px -8px var(--bub-glow),
+    0 10px 22px -12px var(--bub-shadow);
+  filter: hue-rotate(var(--hue, 0deg));   /* 個体ごとにわずかに色味を変える */
+  transition: transform .16s cubic-bezier(.3,1.4,.5,1), box-shadow .2s;
+}
+/* 小さな照りの点 */
+.bub .skin::before {
+  content: ''; position: absolute; left: 17%; top: 11%;
+  width: 27%; height: 17%; border-radius: 50%;
+  background: radial-gradient(closest-side, var(--bub-glow), transparent);
+  transform: rotate(-28deg);
+}
+.bub .tx {
+  /* 円に内接する正方形（辺 ≒ 直径 × 0.707）に収める */
+  width: calc(var(--d, 100px) * .70);
+  max-height: calc(var(--d, 100px) * .70);
+  font-size: 13px; line-height: 1.45; font-weight: 500;
+  overflow: hidden; overflow-wrap: anywhere; word-break: break-word;
+}
+.bub:focus-visible { outline: 2px solid var(--today-edge); outline-offset: 3px; }
+
+/* すきま時間にできる印。膜の下のほうに小さな点をひとつ置くだけ。
+   大きさも形も変えない（バブルの大きさは文字量だけで決まる）。 */
+.bub.is-gap .skin::after {
+  content: ''; position: absolute; left: 50%; bottom: 11%;
+  width: 6px; height: 6px; margin-left: -3px; border-radius: 50%;
+  background: var(--gap-mark); opacity: .82;
+  box-shadow: 0 0 0 2.5px var(--gap-halo);
+}
+
+/* 触ったときのたわみ／つかんだときの浮き */
+.bub.is-held .skin { transform: scale(.93); }
+.bub.is-dragging { cursor: grabbing; }
+.bub.is-dragging .skin {
+  transform: scale(1.08);
+  box-shadow:
+    inset 0 0 0 1.5px var(--bub-edge),
+    inset 0 -10px 16px -8px var(--irid-b),
+    inset 0 8px 14px -8px var(--bub-glow),
+    0 20px 36px -12px var(--bub-shadow);
+}
+
+/* 生まれるとき：ぷるんと現れる（開いた瞬間は --bd で順番にずらす） */
+.bub.is-new .skin {
+  animation: bub-born .5s cubic-bezier(.34,1.3,.45,1) both;
+  animation-delay: var(--bd, 0s);
+}
+@keyframes bub-born {
+  0%   { transform: scale(.2); opacity: 0; }
+  55%  { transform: scale(1.1, .92); opacity: 1; }
+  78%  { transform: scale(.96, 1.05); }
+  100% { transform: scale(1); }
+}
+
+/* 消えるとき：ふくらんではじける（飛沫とリングは JS が足す） */
+.bub.is-popping { pointer-events: none; }
+.bub.is-popping .skin { animation: bub-pop-out .22s ease-in forwards; }
+@keyframes bub-pop-out {
+  45%  { transform: scale(1.16); opacity: .85; }
+  100% { transform: scale(1.34); opacity: 0; }
+}
+
+/* はじけたときの飛沫とリング（drag-layer に一瞬だけ置く） */
+.pop-bit {
+  position: fixed; left: 0; top: 0; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--bub-edge);
+  pointer-events: none;
+  animation: bit-fly .5s cubic-bezier(.1,.6,.4,1) forwards;
+}
+@keyframes bit-fly {
+  from { transform: translate(var(--x0), var(--y0)) scale(1); opacity: .9; }
+  to   { transform: translate(var(--x1), var(--y1)) scale(.2); opacity: 0; }
+}
+.pop-ring {
+  position: fixed; border-radius: 50%;
+  border: 2px solid var(--bub-edge);
+  pointer-events: none;
+  animation: ring-out .4s ease-out forwards;
+}
+@keyframes ring-out { to { transform: scale(1.5); opacity: 0; } }
+
+/* 「今日する」へ吸い込まれていく残像（drag-layer に一瞬だけ置く） */
+.fly {
+  position: fixed; left: 0; top: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 27%, var(--bub-glow) 0%, transparent 45%),
+    radial-gradient(circle at 70% 75%, var(--irid-b) 0%, transparent 50%),
+    var(--bub-fill);
+  box-shadow: inset 0 0 0 1px var(--bub-edge-soft), 0 0 0 1px var(--bub-edge);
+  opacity: .95;
+  pointer-events: none; will-change: transform;
+  transition: transform .42s cubic-bezier(.35,.8,.35,1), opacity .26s ease-in .16s;
+}
+
+/* ドラッグ中は body 直下の .drag-layer に移す（今日する枠の上を通すため） */
+.drag-layer .bub { position: fixed; }
+
+/* ---------- 今日する枠 ---------- */
+.today {
+  flex: none; display: flex; flex-direction: column;
+  min-height: 118px; max-height: 52%;
+  margin: 0 12px 10px; padding: 10px 12px 12px;
+  border: 1.5px dashed var(--today-edge); border-radius: 16px;
+  background: var(--today-fill);
+  transition: background .14s, box-shadow .14s, border-color .14s;
+}
+/* ドロップ先として光る */
+.today.is-over {
+  border-style: solid;
+  background: var(--today-fill-hot);
+  box-shadow: 0 0 0 3px var(--today-glow), 0 0 26px var(--today-glow);
+}
+/* 受け止めた瞬間、ひとつ波紋が広がる */
+.today.is-catch { animation: today-catch .5s ease-out; }
+@keyframes today-catch {
+  0%   { box-shadow: 0 0 0 2px var(--today-glow); }
+  100% { box-shadow: 0 0 0 14px transparent; }
+}
+.today-head {
+  flex: none; display: flex; align-items: baseline; gap: 8px;
+  font-size: 13px; font-weight: 600; color: var(--today-edge); letter-spacing: .04em;
+}
+.today-head .count {
+  margin-left: auto; font-size: 12px; font-weight: 400; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.today-list {
+  list-style: none; margin: 8px 0 0; padding: 0;
+  flex: 1; min-height: 0; overflow-y: auto;
+}
+.today-list li {
+  display: flex; align-items: center; gap: 8px;
+  /* 右側にトグルと ▶ が入るぶん、右の余白を詰めて縦を薄くする */
+  padding: 5px 6px 5px 10px; margin-bottom: 5px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  font-size: 14.5px; cursor: pointer; user-select: none;
+  transition: transform .08s;
+}
+.today-list li:active { transform: scale(.985); }
+.today-list li:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+/* 着地：上からストンと入る */
+.today-list li.is-new { animation: chip-in .32s cubic-bezier(.2,1.1,.4,1); }
+@keyframes chip-in {
+  from { transform: translateY(-9px) scale(.92); opacity: 0; }
+}
+.today-list li .mk {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 28%, var(--bub-glow) 0%, transparent 55%),
+    var(--bub-fill);
+  border: 1px solid var(--bub-edge);
+}
+.today-list li .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* 海のバブルと同じ、すきま時間の印 */
+.today-list li .gapmk {
+  flex: none; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--gap-mark); opacity: .82;
+}
+.today-empty { margin: 9px 0 0; font-size: 13px; color: var(--text-3); }
+
+/* ---------- 行の中の 朝/昼/夜 と ▶ ----------
+   単発の todo を「今日する」の中だけで完結させるための2つ。
+   ・時間帯は今日限りの目印。押しても「はじめた」にはならない
+   ・▶ は押しただけでは記録しない（5分にたどりついたときだけ）
+   画面2にも似た部品があるが、あちらは作り替わるので、こちらは自前のクラスで持つ。
+   共有するのは base.css の :root にある --slot-* の色だけ。 */
+.today-list { --slot-tint: 22%; }
+@media (prefers-color-scheme: dark) { .today-list { --slot-tint: 30%; } }
+
+.today-list .tslots { flex: none; display: flex; gap: 3px; }
+
+.today-list .tslot {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  font-size: 11px; line-height: 1; font-weight: 600;
+  flex: none; min-width: 28px; height: 26px; padding: 0 5px;
+  border-radius: 7px; border: 1px solid var(--line);
+  background: transparent; color: var(--text-2);
+  transition: background .12s, color .12s, border-color .12s, transform .08s;
+}
+/* 時間帯の色は「面と枠線」が持ち、文字は --text のままにする。
+   --slot-* を文字色にすると 4.5:1 を切るため（明 #d99a3f は白地に 2.4:1）。 */
+.today-list .tslot[data-slot="morning"] { --sc: var(--slot-morning); }
+.today-list .tslot[data-slot="noon"]    { --sc: var(--slot-noon); }
+.today-list .tslot[data-slot="night"]   { --sc: var(--slot-night); }
+/* 入／切の差は枠線が持つ。--slot-* をそのまま枠線にすると
+   明るいほうで 2.4:1 と弱いので、--text を少し混ぜて濃さを合わせる
+   （暗いほうでは --text が明るいので、同じ式で明るくなる）。色は増えない。 */
+.today-list .tslot[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--sc, var(--today-edge)) var(--slot-tint), transparent);
+  border-color: color-mix(in srgb, var(--sc, var(--today-edge)) 72%, var(--text));
+  color: var(--text); font-weight: 700;
+}
+.today-list .tslot:hover { border-color: var(--line-strong); }
+.today-list .tslot:active { transform: scale(.94); }
+
+/* 5分だけはじめる。今日する枠の色（--today-edge）で、この枠のものだと分かるようにする。
+   ▶ は印なので文字色は --text のまま（枠線と面だけ色を持つ）。 */
+.today-list .tplay {
+  flex: none; appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  width: 30px; height: 26px; padding: 0; margin-left: 2px;
+  display: grid; place-items: center;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--today-edge) 68%, var(--text));
+  background: color-mix(in srgb, var(--today-edge) 14%, transparent);
+  color: var(--text);
+  transition: background .12s, transform .08s;
+}
+.today-list .tplay .tri { font-size: 10px; line-height: 1; transform: translateX(1px); }
+.today-list .tplay:hover { background: color-mix(in srgb, var(--today-edge) 26%, transparent); }
+.today-list .tplay:active { transform: scale(.94); }
+
+/* フォーカスの輪は --today-edge にそろえる（明 3.4:1 / 暗 6.5:1） */
+.today-list .tslot:focus-visible,
+.today-list .tplay:focus-visible { outline: 2px solid var(--today-edge); outline-offset: 1px; }
+
+/* 「はじめた」が記録済みの行。丸を満たすだけで、色は増やさない。
+   薄くするのは本文の色だけ、それも --text-2 まで（--text-3 は 4.5:1 を切る）。 */
+.today-list li.is-started .mk {
+  background: var(--bub-edge); border-color: var(--bub-edge);
+}
+.today-list li.is-started .tx { color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .today-list .tslot, .today-list .tplay { transition: none; }
+  .today-list .tslot:active, .today-list .tplay:active { transform: none; }
+}
+
+/* 枠の中に直接書く行。並んだ項目の続きに見えるよう、リストと同じ形で破線にする */
+.today-add {
+  flex: none; display: flex; align-items: center; gap: 9px;
+  margin-top: 5px; padding: 6px 10px;
+  border: 1px dashed var(--line-strong); border-radius: 10px;
+  background: transparent;
+}
+.today-add:focus-within { border-style: solid; border-color: var(--today-edge); background: var(--surface); }
+.today-add .plus {
+  flex: none; width: 9px; text-align: center; line-height: 1;
+  font-size: 14px; color: var(--today-edge);
+}
+.today-add input {
+  flex: 1; min-width: 0; font: inherit; font-size: 14.5px;
+  border: 0; background: transparent; color: var(--text); padding: 3px 0;
+}
+.today-add input::placeholder { color: var(--text-3); }
+.today-add input:focus { outline: none; }
+
+/* ---------- 入力 ---------- */
+.composer { flex: none; display: flex; gap: 8px; align-items: center; padding: 0 12px 12px; }
+.composer input {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px;
+  padding: 11px 15px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text);
+}
+.composer input::placeholder { color: var(--text-3); }
+.composer input:focus { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.composer button {
+  flex: none; appearance: none; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  padding: 12px 19px; border-radius: 999px; border: 0;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: var(--accent-text);
+  transition: transform .08s, opacity .12s;
+}
+.composer button:active { transform: scale(.94); }
+.composer button:disabled { opacity: .32; cursor: default; }
+.composer button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+
+/* ---------- ならべる（押している間だけ集まる） ---------- */
+.gather {
+  position: absolute; top: 10px; right: 10px; z-index: 5;
+  appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 600; letter-spacing: .04em;
+  padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  transition: transform .1s, color .12s, border-color .12s;
+  touch-action: none; user-select: none;
+}
+.gather .ic { font-size: 13px; line-height: 1; }
+.gather:hover { color: var(--text); }
+.gather:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.gather.is-on {
+  transform: scale(.96);
+  color: var(--text); border-color: var(--bub-edge);
+}
+
+/* 集めている間だけ出る見出し */
+.gather-cap {
+  position: absolute; top: 14px; left: 14px; z-index: 4;
+  margin: 0; font-size: 12px; letter-spacing: .06em;
+  color: var(--text-3); pointer-events: none;
+  opacity: 0; transition: opacity .18s;
+}
+.gather-cap.is-on { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gather, .gather-cap { transition: none !important; }
+}
+
+/* ---------- 長押しで出る小さなメニュー ---------- */
+/* drag-layer（pointer-events:none）の中に置くので、ここだけ操作を受け取る。
+   位置は JS が画面内に収めて書き込む。 */
+.bub-menu {
+  position: fixed; left: 0; top: 0; z-index: 70;
+  min-width: 196px; max-width: min(84vw, 300px);
+  padding: 5px;
+  border: 1px solid var(--line-strong); border-radius: 13px;
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 14px 34px -12px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.12);
+  pointer-events: auto; user-select: none;
+  animation: menu-in .13s cubic-bezier(.2,1,.4,1);
+}
+@keyframes menu-in {
+  from { transform: scale(.96); opacity: 0; }
+}
+.bub-menu .mi {
+  appearance: none; width: 100%; display: flex; align-items: center; gap: 10px;
+  font: inherit; font-size: 14.5px; text-align: left; cursor: pointer;
+  padding: 11px 11px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--text);
+}
+.bub-menu .mi:hover { background: var(--surface-2); }
+.bub-menu .mi:active { background: var(--surface-2); }
+.bub-menu .mi:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+.bub-menu .mi-tx { flex: 1; min-width: 0; }
+/* トグルの丸。付いていれば印と同じ色で満ちる */
+.bub-menu .mi-knob {
+  flex: none; width: 15px; height: 15px; border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+}
+.bub-menu .mi-gap.is-on .mi-knob {
+  background: var(--gap-mark); border-color: var(--gap-mark);
+}
+/* 「消す」は誤爆しないよう、細い線で分ける */
+.bub-menu .mi-del { position: relative; }
+.bub-menu .mi-del::before {
+  content: ''; position: absolute; left: 9px; right: 9px; top: 0;
+  height: 1px; background: var(--line);
+}
+
+
+/* ---------- すきま時間の登録枠 ----------
+   既定は畳んである（1行だけ）。畳んでいてもドロップ先としては生きているので、
+   バブルをここへドラッグするだけで「移動中にできること」に入る。 */
+.gapbox {
+  flex: none; margin: 0 12px 10px;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius);
+  background: transparent;
+  display: flex; flex-direction: column; min-height: 0;
+  transition: background .14s, box-shadow .14s, border-color .14s;
+}
+.gapbox.is-over {
+  border-color: var(--gap-mark);
+  background: color-mix(in srgb, var(--gap-mark) 14%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gap-mark) 24%, transparent);
+}
+.gapbox-head {
+  flex: none; appearance: none; cursor: pointer; font: inherit;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 9px 12px; background: transparent; border: 0;
+  color: var(--text-2); font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
+  border-radius: var(--radius);
+}
+.gapbox-head:hover { color: var(--text); }
+.gapbox-head:focus-visible { outline: 2px solid var(--gap-mark); outline-offset: -2px; }
+.gapbox-head .n {
+  margin-left: auto; font-weight: 400; font-size: 12px;
+  color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.gapbox-head .cv { font-size: 12px; transition: transform .16s; }
+.gapbox.is-open .gapbox-head .cv { transform: rotate(180deg); }
+
+/* 畳んでいる間はリストを出さない */
+.gapbox-list { display: none; list-style: none; margin: 0; padding: 0 10px 10px; }
+.gapbox.is-open .gapbox-list { display: block; max-height: 30vh; overflow-y: auto; }
+.gapbox-list li {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; margin-bottom: 5px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 9px;
+  font-size: 14.5px; cursor: pointer; user-select: none;
+}
+.gapbox-list li:last-child { margin-bottom: 0; }
+.gapbox-list li .mk {
+  flex: none; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--gap-mark);
+}
+.gapbox-list li .tx { flex: 1; min-width: 0; }
+.gapbox-list li .hint { flex: none; font-size: 11px; color: var(--text-2); }
+.gapbox-list li:focus-visible { outline: 2px solid var(--gap-mark); outline-offset: 1px; }
+.gapbox-list .gapbox-empty {
+  display: block; background: transparent; border: 0; cursor: default;
+  font-size: 12.5px; color: var(--text-2); line-height: 1.7; padding: 0 2px 4px;
+}

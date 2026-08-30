@@ -1,0 +1,428 @@
+/* 画面3「きっかけ」— きっかけ（アンカー）の枠に、バブルを入れる
+
+   時刻の枠は無い。ユーザーが決めた「きっかけ」が見出しになり、その枠に
+   やることが入る。だから枠の数も並び順も固定できない——
+   ここは縦にスクロールする一本の帯として組む。
+
+   いちばん下が「未分類」。この画面に来たが、まだどの枠にも入っていないもの。
+   面には重力があるので、どこにも掴まれていないものが下に溜まるのが自然（追補5 §2）。
+
+   枠（セル）の幅はバブルの直径の整数倍。バブルはその格子に乗る。
+   そのために横方向の padding をセルから外し、枠線も border ではなく outline で描く
+   （border は box-sizing:border-box のもとで中身の幅を 2px 削るため）。
+
+   枠の中のバブルは一定サイズ（96px）。文字量で大きさが変わるのは
+   「海」と「今日」だけ。旧版の「先頭が主役。大きく出る」は廃止した——
+   同じ枠の中に上下関係を作ると、2番目以降が「後回しの列」に見えるため。 */
+
+/* ドラッグ中の分身は .plan の外（.drag-layer）へ移るので、同じ値をそちらにも置く。
+   置かないと分身の中の色がぜんぶ無効値になり、掴んだ瞬間に色が抜ける。 */
+.plan,
+.drag-layer {
+  /* アンカーの色は base.css の :root にある（画面をまたいで共有するため）。
+     色はアンカー個体に付く。hue が無いアンカーは色を持たないので、
+     既定値は無彩色にしておく（未分類の枠もこれを使う） */
+  --c: var(--text-2);
+  --slot-tint: 12%;
+
+  /* 枠（グループ）とその中の面（セル）。
+     セルのほうが手前に見えるように、明るいほうをセルに割り当てる。
+     明暗で --surface と --surface-2 の明るさの上下が逆なので、ここで入れ替えている。
+     ★この入れ替えを消すと、暗いテーマで枠と中身の前後が反転する */
+  --group: var(--surface-2);
+  --cell:  var(--surface);
+  --cell-sunk: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+}
+
+@media (prefers-color-scheme: dark) {
+  .plan,
+  .drag-layer {
+    --slot-tint: 16%;
+
+    --group: var(--surface);
+    --cell:  var(--surface-2);
+    --cell-sunk: color-mix(in srgb, var(--surface) 70%, var(--surface-2));
+  }
+}
+
+.plan {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  /* 横の padding は 0。面の幅（＝バブルの直径の整数倍）を画面幅から引き算で
+     決めると端数が出るので、面は自分の幅を持って中央に置く */
+  padding: 14px 0 12px;
+}
+
+/* 縦にスクロールするのは外側だけ。 */
+.plan-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding-bottom: 2px;
+}
+
+/* 面。ここが drift の host になる（バブルはこの座標系に絶対配置される）。
+   ★幅は JS が cols * 96px で入れる。セルはこの面いっぱいに広がるので、
+     セルの幅も必ずバブルの直径の整数倍になる。
+   面はスクロールしない——スクロールするのは .plan-scroll のほうなので、
+   セルとバブルは同じ座標系のまま一緒に動く（両者がずれない）。 */
+.plan-surface {
+  position: relative;
+  width: calc(var(--cols, 3) * var(--bd, 96px));
+  margin: 0 auto;
+}
+
+/* セルはこの中に組む。面そのものを描画のたびに空にすると、
+   drift が面に置いたバブルのノードまで消えてしまうため（入れ物を分けてある） */
+.plan-cells {
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+/* 落とし先の線。並べ替えのドラッグ中だけ出す */
+.plan-dropline {
+  position: absolute; left: 0; top: 0; width: 100%; height: 2px;
+  border-radius: 2px; background: var(--text-2);
+  pointer-events: none; z-index: 15;
+}
+
+/* ---------- 枠（きっかけ／未分類） ----------
+   ★横方向の padding は入れない。入れると中の格子に端数が出て、
+     バブルが目に乗らなくなる。文字まわりの余白は中の要素が持つ。
+   ★枠線は border ではなく outline + outline-offset:-1px。
+     border は box-sizing:border-box のもとで中身の幅を 2px 削るため。 */
+.anchor {
+  flex: none;
+  display: flex; flex-direction: column;
+  outline: 1px solid var(--line); outline-offset: -1px;
+  border-radius: var(--radius);
+  background: var(--group); padding: 9px 0 11px;
+  transition: box-shadow .14s, background .14s;
+}
+.anchor.is-over { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 45%, transparent); }
+
+/* ドラッグ中は、落とせる面がどこかを見せる。
+   拒否や警告ではないので、色は足さず輪郭だけ */
+.plan-surface.is-dragging .anchor { outline-color: var(--line-strong); }
+
+/* 並べ替えで掴んでいるカード。指に追わせている間は薄くして、下の線を読ませる */
+.anchor.is-lifted {
+  position: relative; z-index: 12;
+  opacity: .82;
+  box-shadow: 0 8px 22px rgba(0,0,0,.20);
+}
+.plan-surface.is-reordering { cursor: grabbing; }
+
+/* 未分類。きっかけの枠と同じ形にはしない（見出しが名前ではなく状態なので）。
+   囲いは残す——落とし先だと分かる必要があるため。 */
+.anchor.is-unsorted {
+  background: transparent;
+  outline-style: dashed;
+  outline-color: var(--line-strong);
+}
+.anchor .empty {
+  margin: 2px 11px 0; font-size: 12.5px; line-height: 1.8; color: var(--text-2);
+}
+
+/* 見出し。アンカーそのものは記録の対象ではないので、押せる面には見せない。
+   横の余白はセルではなくここが持つ（セルに padding を入れると格子が崩れる） */
+.anchor .hd {
+  position: relative;   /* ⋮ のメニューの基準 */
+  flex: none; display: flex; align-items: center; gap: 8px; min-height: 44px;
+  padding: 0 11px;
+}
+.anchor .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+/* 色を持たないアンカーは、丸も無彩色のまま輪郭だけにする */
+.anchor.no-hue .dot { background: transparent; border: 1.5px solid var(--c); }
+
+/* ---------- 並べ替えの取っ手 ----------
+   掴む場所をここだけにしてある。カード全体を掴めるようにすると、縦スクロールと
+   枠の中のバブルのドラッグと、3つが同じ指の動きを取り合うため。
+   当たり判定は 44×44。touch-action:none はこの取っ手だけに掛ける
+   （他の場所は今までどおり縦スクロールできる）。 */
+.ghandle {
+  flex: none; appearance: none; cursor: grab; font: inherit;
+  width: 44px; height: 44px; padding: 0; margin-left: -11px;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  border: 0; background: transparent; color: var(--text-2);
+  touch-action: none;
+  transition: color .12s;
+}
+.ghandle:active { cursor: grabbing; }
+.ghandle .gr { font-size: 12px; line-height: 1; }
+.ghandle:hover { color: var(--text); }
+.ghandle:focus-visible { outline: 2px solid var(--c); outline-offset: -3px; border-radius: 8px; }
+/* きっかけが1つだけのときは取っ手を出さない（js 側で丸だけにしている）。
+   そのときの丸は、取っ手ぶんの左余白が無いので、見出しの縦線に揃える */
+.anchor .hd > .dot { margin-left: 1px; }
+/* 見出しの文字は色で塗らない。--slot-morning を 13.5px の文字に使うと
+   明るいほうで 2.02:1 しか出ず、4.5:1 を大きく割るため。
+   色はアンカーの個体識別なので、文字ではなく丸とバブルのアクセントが持つ。 */
+.anchor .nm {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13.5px; font-weight: 600; color: var(--text); letter-spacing: .04em;
+}
+.anchor .n {
+  flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums;
+  /* 「はじめた N」という情報を載せる場所なので --text-3 (明2.87 / 暗3.50) では足りない */
+  color: var(--text-2);
+}
+
+/* その場で名前を書き換える */
+.anchor .nmin {
+  flex: 1; min-width: 0; appearance: none; font: inherit;
+  font-size: 13.5px; font-weight: 600; color: var(--text);
+  padding: 8px 8px; border-radius: 7px;
+  border: 1px solid var(--line-strong); background: var(--bg);
+}
+.anchor .nmin:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
+
+/* ⋮ 控えめな入口。名前を変える / 上へ / 下へ / 消す。
+   見た目は小さいが、当たり判定は 44×44 を下回らない（旧版は 26×26 で割っていた）。
+   面の色は中の四角が持ち、外側の 44px は透明な余白として効かせる。 */
+.amenu {
+  flex: none; appearance: none; cursor: pointer; font: inherit;
+  width: 44px; height: 44px; padding: 0; margin-right: -10px;
+  display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--text-2);
+}
+.amenu .gl {
+  display: grid; place-items: center;
+  width: 30px; height: 30px;
+  font-size: 16px; line-height: 1;
+  border-radius: 8px; border: 1px solid transparent;
+  transition: background .12s, border-color .12s;
+}
+.amenu:hover { color: var(--text); }
+.amenu:hover .gl { border-color: var(--line); background: var(--cell); }
+.amenu[aria-expanded="true"] { color: var(--text); }
+.amenu[aria-expanded="true"] .gl { border-color: var(--line-strong); background: var(--cell); }
+.amenu:focus-visible { outline: none; }
+.amenu:focus-visible .gl { outline: 2px solid var(--c); outline-offset: 1px; }
+
+.amenu-pop {
+  position: absolute; right: 0; top: calc(100% + 1px); z-index: 20;
+  min-width: 168px; padding: 4px;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--cell);
+  box-shadow: 0 10px 28px rgba(0,0,0,.22);
+}
+/* 下のほうのアンカーでは上に開く（スクロール領域からはみ出させない） */
+.amenu-pop.up { top: auto; bottom: calc(100% + 1px); }
+.amenu-pop button {
+  appearance: none; cursor: pointer; font: inherit; text-align: left;
+  font-size: 13px; min-height: 44px; padding: 8px 12px;
+  border: 0; border-radius: 7px;
+  background: transparent; color: var(--text);
+  transition: background .1s;
+}
+.amenu-pop button:hover { background: var(--cell-sunk); }
+.amenu-pop button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+.amenu-pop button[disabled] { color: var(--text-3); cursor: default; }
+.amenu-pop button[disabled]:hover { background: transparent; }
+/* 「消す」だけ少し離す。色は足さない（新しい色を増やさない約束） */
+.amenu-pop button.danger { margin-top: 3px; border-top: 1px solid var(--line); border-radius: 0 0 7px 7px; }
+
+/* ---------- 枠の中のバブル（升目の格子） ----------
+   大きさは js が --d（= 96px）で渡す。ここでは並べ方だけを決める。
+
+   ★格子には2つの間隔があり、別物なので混ぜないこと。
+     ・カードの幅 … バブルの直径の整数倍（--cols * --bd = 3 * 96 = 288px）。
+       利用者の指示。.plan-surface がこの幅を持つ。
+     ・升目の1目 … --pitch（112px）。引力の井戸をここに置く。
+       96px 刻みにすると隣り合う升目の中心が 96px しか離れず、
+       収まったバブルどうしが押し合っていつまでも微妙に動き続ける
+       （ぶつかる間合いは (96+96)/2 + 4 = 100px）。
+   288px の中に 112px の升目は 2 列（--gcols）。使う幅は 224px なので、
+   justify-content:center で左右 32px ずつの余白になる。
+   js の cellCenter() がこれと同じ式で井戸の中心を出しているので、
+   片方だけ変えないこと（面に載る前と載ったあとで位置がずれる）。
+
+   高さは js が rows * 112px で入れる（井戸を並べる範囲でもあるため、
+   中身が空でも1行ぶんは開けておく＝落とし先として見えている必要がある）。 */
+.anchor .grid {
+  flex: none;
+  position: relative;
+  width: 100%;
+  margin-top: 4px;
+  display: grid;
+  grid-template-columns: repeat(var(--gcols, 2), var(--pitch, 112px));
+  grid-auto-rows: var(--pitch, 112px);
+  gap: 0;
+  justify-content: center; align-content: start;
+}
+.anchor .grid > .bub {
+  position: relative; left: auto; top: auto;
+  margin: 0; place-self: center;
+}
+/* 開いている詳細のバブルは、その詳細と繋がっていることを見せる */
+.anchor .grid > .bub.is-open {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 60%, transparent);
+}
+.anchor .grid > .bub:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+
+/* 面（drift）が使えるときは、バブルは面の上に絶対配置される。
+   格子は「井戸の矩形」としてだけ場所を取る（中身は空） */
+.anchor .grid:empty { display: block; }
+
+/* ---------- 詳細 ----------
+   バブルは枠の中に並ぶので、詳細を「その真下」には開けない。
+   枠のいちばん下にまとめて開き、どれの詳細かは見出しの本文で示す。 */
+.anchor .dwrap {
+  display: flex; flex-direction: column; gap: 8px;
+  /* 横の余白はセルではなくここが持つ（セルの padding は 0） */
+  margin: 9px 11px 0;
+}
+.pdetail {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 10px 11px 11px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--cell-sunk);
+  cursor: default; user-select: text;
+  font-size: 14px; font-weight: 400;
+}
+.pdetail .pdhead {
+  display: flex; align-items: center; gap: 8px;
+  margin: -2px -4px 0 0;
+}
+.pdetail .pdhead .ttl {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; font-weight: 600; color: var(--text);
+}
+/* 閉じる。ここも 44×44 を下回らない */
+.pdclose {
+  flex: none; appearance: none; cursor: pointer; font: inherit;
+  width: 44px; height: 44px; padding: 0;
+  display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--text-2);
+}
+.pdclose .gl {
+  display: grid; place-items: center;
+  width: 28px; height: 28px; font-size: 13px; line-height: 1;
+  border-radius: 8px; border: 1px solid transparent;
+  transition: background .12s, border-color .12s;
+}
+.pdclose:hover { color: var(--text); }
+.pdclose:hover .gl { border-color: var(--line); background: var(--cell); }
+.pdclose:focus-visible { outline: none; }
+.pdclose:focus-visible .gl { outline: 2px solid var(--c); outline-offset: 1px; }
+
+.pdetail .lb {
+  display: block; margin-bottom: 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  color: var(--text-2);
+}
+.pdetail .in {
+  width: 100%; appearance: none; font: inherit; color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--bg);
+  padding: 11px 10px;
+}
+/* プレースホルダも読ませる文字なので --text-3（明2.87 / 暗3.50）まで落とさない */
+.pdetail .in::placeholder { color: var(--text-2); }
+.pdetail .in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+
+/* 最初の一手。やることの知覚サイズを下げるのがこの画面でいちばん効くので、
+   URL より上に、ひとまわり大きく置く */
+.pdetail .fs .in { font-size: 15px; }
+
+.pdetail .ur .in { font-size: 13px; }
+.pdetail .ur .rw { display: flex; align-items: center; gap: 7px; }
+.pdetail .ur .rw .in { flex: 1; min-width: 0; }
+/* 色を足さずにリンクだと分かるようにする（--accent-a は本文色としては 4.5:1 に届かない） */
+.pdetail .open {
+  flex: none; display: grid; place-items: center;
+  min-width: 44px; min-height: 44px; padding: 6px 4px;
+  font-size: 12.5px; font-weight: 600;
+  color: var(--text); text-decoration: underline;
+}
+.pdetail .open:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+/* 弾かれたことは静かに伝える。読めないと意味がないので --text-2 */
+.pdetail .err { margin: 5px 0 0; font-size: 11.5px; color: var(--text-2); }
+
+/* 「開始した」。5分を使わずに始めた場合の別ルート。押さなくても何も起きない */
+.pdetail .pdone {
+  align-self: flex-start;
+  appearance: none; cursor: pointer; font: inherit;
+  font-size: 13px; font-weight: 600;
+  min-height: 44px; padding: 8px 20px; border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent; color: var(--text-2);
+  transition: background .12s, color .12s, border-color .12s, transform .08s;
+}
+.pdetail .pdone:hover { color: var(--text); }
+.pdetail .pdone:active { transform: scale(.97); }
+.pdetail .pdone:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.pdetail .pdone.on {
+  border-color: color-mix(in srgb, var(--c) 60%, transparent);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+  color: var(--text);
+}
+
+/* ---------- ＋ ここにぶら下げる ----------
+   プールを経由させない。きっかけの枠に直接書いて、そのまま登録する。
+   空の枠ではこれがそのまま空の状態になる（「まだ空です」とは言わない）。 */
+/* 横の余白はセルではなくここが持つ（セルの padding は 0） */
+.phang, .pcompose {
+  display: block; width: auto; margin: 9px 11px 0;
+}
+.phang {
+  appearance: none; cursor: pointer; font: inherit; text-align: left;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--text-2);
+  min-height: 44px; padding: 7px 12px; border-radius: 10px;
+  border: 1px dashed var(--line-strong); background: transparent;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.phang .pl { font-size: 13px; line-height: 1; }
+.phang:hover { color: var(--text); border-color: color-mix(in srgb, var(--c) 55%, var(--line-strong)); }
+.phang:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
+
+.pcompose .in {
+  width: 100%; appearance: none; font: inherit; font-size: 14px; color: var(--text);
+  min-height: 44px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--c) 55%, var(--line-strong));
+  background: var(--cell);
+}
+/* プレースホルダも読ませる文字なので --text-3 まで落とさない */
+.pcompose .in::placeholder { color: var(--text-2); }
+.pcompose .in:focus-visible { outline: 2px solid var(--c); outline-offset: 1px; }
+
+/* ---------- ＋ きっかけを足す ---------- */
+/* 面には横の padding が無いので、ここで枠の中身と縦線を揃える */
+.plan-addanchor {
+  flex: none; display: flex; flex-direction: column; gap: 8px;
+  padding: 0 11px;
+}
+.plan-hint {
+  margin: 2px 0 0; font-size: 12.5px; line-height: 1.85; color: var(--text-2);
+}
+.addbtn {
+  align-self: flex-start;
+  appearance: none; cursor: pointer; font: inherit;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--text);
+  min-height: 44px; padding: 8px 18px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: transparent;
+  transition: background .12s, transform .08s;
+}
+.addbtn .pl { font-size: 14px; line-height: 1; }
+.addbtn:hover { background: var(--cell); }
+.addbtn:active { transform: scale(.97); }
+.addbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.plan-addanchor .in {
+  width: 100%; appearance: none; font: inherit; font-size: 14px; color: var(--text);
+  min-height: 44px; padding: 11px 12px; border-radius: 10px;
+  border: 1px solid var(--line-strong); background: var(--cell);
+}
+.plan-addanchor .in::placeholder { color: var(--text-2); }
+.plan-addanchor .in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anchor, .amenu .gl, .amenu-pop button, .pdclose .gl,
+  .phang, .addbtn, .pdetail .pdone, .ghandle { transition: none !important; }
+  .addbtn:active, .pdetail .pdone:active { transform: none; }
+  /* 並べ替えのドラッグでも、掴んだカードを指に追わせない（js 側でも止めている）。
+     行き先は落とし先の線だけで伝える */
+  .anchor.is-lifted { transform: none !important; box-shadow: none; }
+}

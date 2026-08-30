@@ -1,0 +1,947 @@
+/* バブル部品の見た目 — 4つの画面が共通で使う。
+
+   入っているもの：バブルの膜／タグの色の膜／着手済みの2つの見せ方／
+   中央に寄せたときの覆いと盤／鍵盤から開くメニュー。
+
+   シャボン玉の膜・照り・影は css/screens/todo.css から持ち上げたもの。
+   アニメーションは原則 transform / opacity だけを動かす（数が増えても落ちないように）。
+   例外は「色の巡回」（.tint の background-color）1つだけ。混ぜずに時間で色を替えるには
+   色そのものを動かすしかないため。理由と代償は下の「色の巡回」に書いてある。
+
+   % の padding は「親の幅」に対して解決されてしまうので使わない。
+   直径は JS が CSS 変数 --d で渡す。
+
+   このファイルは単体で完結している（todo.css が外れても見た目が崩れない）。
+   todo.css と同じクラス名を使うところは、読み込み順に左右されないよう
+   .bub.is-fixed / .bub-menu.bmenu のように詰めた指定にしてある。 */
+
+/* ---------- バブル本体 ----------
+   .bub   位置（JS が transform を書く）とフォーカス
+   .wob   呼吸のゆらぎ（位相は --ph で個体差）
+   .skin  膜の見た目・押したときのたわみ・生死のアニメ */
+.bub {
+  position: relative;                  /* 枠の中では流し込む。海では .is-floating が絶対配置にする */
+  flex: none;
+  border-radius: 50%;
+  cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
+  will-change: transform;
+}
+.bub.is-floating { position: absolute; left: 0; top: 0; }
+
+.bub .wob {
+  position: absolute; inset: 0; display: block;
+  animation: bub-breathe 6s ease-in-out infinite;
+  animation-delay: calc(var(--ph, 0s) * -1);
+}
+@keyframes bub-breathe {
+  0%, 100% { transform: scale(1); }
+  33%      { transform: scale(1.02, .982); }
+  66%      { transform: scale(.984, 1.02); }
+}
+
+.bub .skin {
+  position: absolute; inset: 0;
+  display: grid; place-items: center; text-align: center;
+  border-radius: 50%; overflow: hidden;
+  color: var(--bub-text);
+  /* 膜：照り＋虹色3色＋ななめのシーン＋中心ほど薄い充填 */
+  background:
+    radial-gradient(circle at 31% 24%, var(--bub-glow) 0%, transparent 42%),
+    radial-gradient(circle at 72% 80%, var(--irid-a) 0%, transparent 48%),
+    radial-gradient(circle at 18% 68%, var(--irid-b) 0%, transparent 46%),
+    radial-gradient(circle at 82% 26%, var(--irid-c) 0%, transparent 42%),
+    linear-gradient(125deg, transparent 32%, var(--sheen) 46%, transparent 58%),
+    radial-gradient(circle at 50% 50%, transparent 58%, var(--bub-fill) 82%),
+    var(--bub-fill);
+  box-shadow:
+    inset 0 0 0 1px var(--bub-edge-soft),
+    inset 0 -10px 16px -8px var(--irid-b),
+    inset 0 8px 14px -8px var(--bub-glow),
+    0 10px 22px -12px var(--bub-shadow);
+  filter: hue-rotate(var(--hue, 0deg));   /* 個体ごとにわずかに色味を変える */
+  transition: transform .16s cubic-bezier(.3,1.4,.5,1), box-shadow .2s, opacity .18s;
+  /* 重なりの入れ物をここで閉じる。タグの色の膜（.tint）と文字（.tx）の前後は
+     この中だけで決まる。染めたバブルは filter を切るので、filter 任せにしない */
+  isolation: isolate;
+}
+/* 小さな照りの点 */
+.bub .skin::before {
+  content: ''; position: absolute; left: 17%; top: 11%;
+  width: 27%; height: 17%; border-radius: 50%;
+  background: radial-gradient(closest-side, var(--bub-glow), transparent);
+  transform: rotate(-28deg);
+  pointer-events: none;
+}
+
+/* 文字。円に内接する正方形（辺 ≒ 直径 × 0.707）に収める。
+   タグの色の膜（.tint）より上に来ること。z-index を付けないと、
+   位置指定のある .tint のほうが後に描かれて文字が沈む。 */
+.bub .tx {
+  position: relative; z-index: 1;
+  width: calc(var(--d, 100px) * .70);
+  max-height: calc(var(--d, 100px) * .70);
+  font-size: 13px; line-height: 1.45; font-weight: 500;
+  overflow: hidden; overflow-wrap: anywhere; word-break: break-word;
+}
+
+/* 枠の中（きっかけ・すきま）は一定サイズ。12px・3行まで・はみ出しは省略記号。
+   .bub .tx（0,1,1）より詰めてあるので、todo.css の読み込み順に左右されない。
+   line-clamp が効かない環境では .bub .tx の max-height と overflow:hidden が
+   そのまま効いて、省略記号なしで切れる（読めなくはならない）。 */
+.bub.is-fixed .tx {
+  font-size: 12px; line-height: 1.34;
+  display: -webkit-box; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3; line-clamp: 3;
+  overflow: hidden;
+}
+
+.bub:focus-visible { outline: 2px solid var(--today-edge); outline-offset: 3px; }
+
+/* ---------- タグの色（追補4 §1） ----------
+   点（旧 .marks / .mk）はもう出さない。タグはバブルそのものの色で表す。
+
+     タグ無し … いまの青のまま（.tint を出さない）
+     1つ     … その色
+     2つ以上 … **ある瞬間には1色だけ。時間がたつと次の色へ移る**（下の「色の巡回」）
+
+   ■ どの層に、どれだけの濃さで載せるか
+
+   膜は「文字のすぐ下＝いちばん上」に1枚だけ置く。下（背景側）に敷いてはいけない。
+   .skin の白い照り（--bub-glow、暗テーマでも .28）は膜より上に残るので、
+   下に敷くと暗テーマでその一点だけが明るいまま残り、文字が沈む
+   （染めていないバブルの既知の弱点 B-1＝2.48:1 が、そのまま残ってしまう）。
+   上に置けば照りごと膜の色へ引き寄せられるので、明暗どちらでも計算どおりになる。
+
+   色はタグの色そのままでは載せない。--tint-mix だけタグの色を残し、
+   残りは面の地の色 --bg で薄める（明では白っぽく、暗では暗く寄る）。
+   そのうえで --tint-o の濃さで載せる。これが「膜として使う濃さを落とす」ぶん。
+
+   ■ マスクの向きに注意（前の版の申し送りを1つ直した）
+   下の .tint には「中心ほど薄い」マスクが掛かっている。これは
+   **明テーマでは安全側**（膜が明るいので、薄まればバブルは暗くなり比が上がる）だが、
+   **暗テーマでは逆**（膜が暗いので、薄まればバブルは明るくなり比が下がる）。
+   ＝ マスクを掛けずに測った値は、暗テーマでは実際より甘い。下の実測は掛けて測った。
+
+   ■ 実測（--bub-text の最小コントラスト比）—— **数字は前のパレットのもの**
+   面の背景（海のグラデ＋流れる光、--bg / --surface / --surface-2 を総当たり）・
+   レイヤの位置・マスク・染めていない側は hue-rotate ±22deg まで再現し、
+   文字box（直径の 15〜85%）を 15×15 点、直径 78/96/200 で走査した最小値。
+   パレット12色（OKLCH L .87 / C .062 / 色相 30度刻み）すべてと、
+   **色が移り変わる途中（2色の補間）も 0.05 刻みで全ペア**含めて：
+
+     明 未着手 7.21:1（桃 #f5c4da）  dim 7.67:1  mark 7.21:1
+     暗 未着手 5.58:1（緑青 #ace2ce）dim 6.24:1  mark 6.18:1
+
+   移り変わりの途中は、どのペア・どの時点でも上の値を下回らなかった。
+   （補間は sRGB ではなく **oklab** で起きる。--tf は color-mix(in srgb,…) ＝
+     color(srgb …) で legacy sRGB ではないので、CSS の既定の補間色空間が oklab になる。
+     ブラウザの computed value でそう出ることを確かめたうえで、その式で測った。）
+
+   ■ いまの10色での実測（走査の道具を作り直した。<scratchpad>/pal4/geo.mjs）
+
+   上の走査を行った道具は残っていなかったので、同じ考え方で組み直した：
+   このファイルのグラデーションを座標つきで再現（radial の farthest-corner、
+   linear の 125deg の線の長さ、::before の楕円と rotate(-28deg)、
+   inset box-shadow のぼかし、.tint のマスク）し、
+   文字box（直径の 15〜85%）を 15×15 点、直径 78/96/200、面の背景6種 ×（光あり／なし）、
+   染めていない側は hue-rotate ±22deg（filter は文字にも掛かるので文字色も回す）で走査。
+
+   組み直した道具で前の条件を測ると 染めていない 明 6.84（前の記録 6.86）／
+   暗 2.27（同 2.48）。**わずかに厳しく出るが、ほぼ同じ**ものを測れている。
+
+     明 染めた 未着手 7.00:1（洗柿）  dim 7.50  mark 7.00
+     暗 染めた 未着手 5.04:1（青竹）  dim 5.49  mark 5.54
+     明 染めてない    6.84:1          dim 7.78
+     暗 染めてない    5.15:1          dim 7.36   ← 下の veil を入れた後（前は 2.27）
+
+   移り変わりの途中（2色の oklab 補間を 0.05 刻みで全ペア）も上の値を下回らない。
+   最悪の場所はどれも「いちばん小さい 78px のバブルが、--surface-2 の上の
+   流れる光のかたまりに重なったとき」。
+
+   包絡線（各層の alpha を [0,最大] の箱で動かした厳密な下限）でも測ってあるが、
+   あれは「全部の層が同じ1点で同時に最大」を許すので実際より厳しく、
+   前のパレットも 4.5 を割る。比較には使えるが、絶対値としては読まないこと。
+
+   この保証はパレットの色に対するもの。膜の色が極端に暗い／極端に明るいと 4.5 を割る。 */
+:root {
+  /* パレットを白へ寄せた（L .82 -> .87）ぶん、膜を通したあとの色の差が縮む。
+     明テーマは 4.5:1 に対して余裕が大きい（7.1）ので、そのぶんを色の差へ回した：
+     タグの色を残す割合を 60% -> 90%、濃さを .55 -> .65 に上げてある。
+     結果、バブル上で隣り合う2色の差（OKLab）は 0.0112 -> 0.0146 と、
+     白くする前より**広がって**いる。コントラストも 7.13 -> 7.21 で下がっていない。 */
+  --tint-mix: 90%;                        /* タグの色を残す割合。残りは --bg */
+  --tint-o: .65;                           /* 膜の濃さ */
+  --tint-o-started: .40;                   /* 着手済み（薄くする側）では膜も引く。o の約 .62 倍 */
+  /* 照りを落とした版。きっかけの枠の「強調」で使う（下の .is-mark を見よ）。
+     明はほぼそのまま、暗は大きく落とす（落とさないと文字が 4.5 を割る） */
+  --bub-glow-lo: rgba(255,255,255,.55);
+  --bub-ring: var(--bub-edge);            /* 強調の輪。タグがあればその色に差し替える */
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 暗テーマは「明るい膜の下から、明るい照りが透ける」ので、
+       膜が薄いほど文字が沈む（明テーマとは逆向き）。
+       ここで --tint-mix を上げるとタグの色は濃く出るが、膜が明るくなって文字が沈む。
+       ＝ 明テーマとは違い、色の差とコントラストが真っ向から競合する。
+       白いパレットで両方を前より良くする組み合わせを走査して選んだ：
+         mix 24% -> 30%（色が出る）／濃さ .72 -> .88（沈むぶんを取り返す）
+       実測 未着手 5.58:1（前 5.57）、バブル上の色の差 0.0080（前 0.0073）。
+       どちらも前より良い。mix をこれ以上上げると濃さを上げても 4.5 に寄っていく。 */
+    --tint-mix: 30%;
+    --tint-o: .88;
+    --tint-o-started: .46;                 /* 明と同じく o の約 .52 倍 */
+    --bub-glow-lo: rgba(255,255,255,.12);
+  }
+}
+
+/* 膜の1枚。置き方（位置・丸み・マスク）はここで共通に決める。
+   ふだんは出さない。出すのは次の2つだけ：
+     ・タグが付いているとき  … タグの色（.bub.is-tinted .tint）
+     ・暗テーマでタグが無いとき … 色の無い veil（下の B-1 の節） */
+.bub .tint {
+  display: none;
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  /* 真ん中ほど薄く、縁ほど濃く（球に見せる） */
+  -webkit-mask-image: radial-gradient(circle closest-side, rgba(0,0,0,.82) 28%, #000 100%);
+  mask-image: radial-gradient(circle closest-side, rgba(0,0,0,.82) 28%, #000 100%);
+}
+
+.bub.is-tinted {
+  --tf1: color-mix(in srgb, var(--tc1) var(--tint-mix), var(--bg));
+  --tf2: color-mix(in srgb, var(--tc2) var(--tint-mix), var(--bg));
+  --tf3: color-mix(in srgb, var(--tc3) var(--tint-mix), var(--bg));
+  /* 強調の輪（.is-mark）は先頭の色で止める。膜と一緒に巡らせると、
+     バブル1つにつき box-shadow を毎フレーム塗り直すことになる（膜と違って
+     輪はぼかしを持つので塗り直しが重い）。輪は「今日それに触ったか」の合図であって、
+     どのタグかを表すものではないので、色が動かなくても意味は落ちない */
+  --bub-ring: var(--tc1);
+}
+/* 個体ごとの hue-rotate は切る。±22deg 回すとタグの色が別の色に見えてしまう */
+.bub.is-tinted .skin { filter: none; }
+
+.bub.is-tinted .tint {
+  display: block;
+  opacity: var(--tint-o);
+  /* **いつ見ても1色**。2つ以上のときは下の巡回がこの1色を時間で差し替える。
+     混ぜない（conic-gradient で空間的に混ぜていたのをやめた）。 */
+  background-color: var(--tf1);
+}
+
+/* ---------- 暗テーマ・タグの無いバブル（B-1） ----------
+
+   タグの色で染めたバブルは、膜が中心を沈めるので暗テーマでも 5.04:1 通る。
+   **通らなかったのはタグが1つも付いていない青いバブルだけで、実測 2.27:1。**
+   照りの点（.skin::before）と照りの radial が重なる (31%, 20%) あたりで、
+   膜が明るくなって --bub-text（#d8eef8）が沈む。パレットの差し替えより前からある。
+
+   直し方は「照りと虹色を薄くする」ではなく、**すでに測ってある仕掛けを1つ増やす**。
+   タグの膜とまったく同じ置き方・同じマスクで、色だけ地に寄せた1枚を掛ける。
+   ＝ 染めたバブルが通っている理由をそのまま持ってくる。
+
+   ・色  … 水 #9fd6f8 を 20%、残りは --bg（rgb(49,60,70)）。無彩色にすると
+           バブルが灰色くなるので、地の青みは残す
+   ・濃さ … .65。実測 未着手 5.15:1 / dim 7.36:1（0.60 で 4.80、0.55 で 4.49）
+   ・明テーマには掛けない。あちらは veil 無しで 6.84:1 通っている
+
+   代償：暗テーマのタグ無しバブルは、虹色の照りがいまより落ち着く。
+   ただし**染めたバブルは前から同じくらい落ち着いていた**（あちらは濃さ .88）ので、
+   むしろ暗テーマの見た目は揃う。
+
+   glow / irid を薄くする案は、4.5 に届かせるのに全体を 0.40倍まで
+   落とす必要があった（膜がほぼ平らになる）。veil のほうが代償が小さい。 */
+@media (prefers-color-scheme: dark) {
+  .bub:not(.is-tinted) .tint {
+    display: block;
+    opacity: .65;
+    background-color: color-mix(in srgb, #9fd6f8 20%, var(--bg));
+  }
+}
+
+/* ---------- タグが2つ以上のとき（多色のバブル） ----------
+
+   **時間で入れ替えるのはやめた（利用者の指示）。**
+   前は 1色ずつ出して 4.9秒ごとに次の色へ溶かしていた。速さも上げてみたが、
+   「止まっている間は1タグのバブルと見分けが付かない」という難点は残ったままだった。
+   ＝ 待たないと分からない絵は、一覧を眺める場面では働かない。
+
+   いまは **1つのバブルを色の数で分ける**。2つなら半分ずつ、3つなら3等分。
+
+   ■ 境目は硬い（＝混ぜない）
+   色と色の間に補間の幅を置いていない（`var(--tf1) 0 50%, var(--tf2) 50% 100%`）。
+   「混ぜたではなく」は最初からの決めごとで、そこは変えていない。
+   前に conic-gradient をやめたのは、**柔らかい境目で空間的に混ぜていた**ため。
+   硬い境目なら、どの一点を取ってもタグの色そのままで、中間色はどこにも現れない。
+
+   ■ コントラストはむしろ良くなる
+   溶かしていたときは、途中の補間色（oklab。色相が真向かいだと
+   いったんクロマがほぼ 0 まで落ちる）も測る必要があった。
+   分けた今は **どの画素も tf1 / tf2 / tf3 のいずれかそのもの**なので、
+   下限は「いちばん弱い1色」＝ 実測 明 7.00 / 暗 5.04 で決まる。中間色は存在しない。
+
+   ■ 向き
+   conic の 0度は真上。2色なら右半分／左半分、3色なら真上から時計回りに3等分。
+   バブルは呼吸で伸び縮みするだけで回らないので、境目の向きは個体ごとに変わらない。 */
+.bub.is-tinted.is-multi-2 .tint {
+  background-image: conic-gradient(var(--tf1) 0 50%, var(--tf2) 50% 100%);
+}
+.bub.is-tinted.is-multi-3 .tint {
+  background-image: conic-gradient(
+    var(--tf1) 0 33.3333%,
+    var(--tf2) 33.3333% 66.6667%,
+    var(--tf3) 66.6667% 100%);
+}
+/* 動きが無くなったので、reduce のための分岐も要らない
+   （前はここで巡回を止めていた）。 */
+
+/* ---------- 着手済み ----------
+   文字は残す。読めなくなると「何のバブルか分からない」ので、消さない。
+
+   薄くするのは「膜と縁」であって、文字ではない。
+   ・虹色3層（--irid-a/b/c）と ななめの照り（--sheen）を外す ＝ 彩度が落ちて平らになる
+   ・照り（--bub-glow）と充填（--bub-fill）を色はそのままで薄くする
+   ・縁（--bub-edge-soft）と落ち影を弱める
+   .skin ごと opacity を下げると文字も一緒に薄くなるので、それはやらない。
+   色は既存トークンから color-mix で作る（明暗どちらにも同じ式が効く。新しい色を足さない）。
+
+   差は「分かる」程度にとどめる。強い明暗差にすると、濃いほうの群が
+   「まだやっていないものの山」に見えてしまう（§0）。
+
+   これは opts.startedLook: 'dim'（既定）のとき。海・今日で使う。
+
+   文字色 --bub-text はそのまま。実測（面の背景・hue-rotate ±22deg・レイヤ位置まで含めた最小値）は
+   明 7.83:1 / 暗 5.83:1 で 4.5:1 を切らない。
+   タグの色が付いていれば、その上に膜が薄めで載る（明 7.67 / 暗 6.24。上の実測を見よ）。 */
+.bub.is-started .skin {
+  background:
+    radial-gradient(circle at 31% 24%,
+      color-mix(in srgb, var(--bub-glow) 30%, transparent) 0%, transparent 42%),
+    radial-gradient(circle at 50% 50%,
+      transparent 58%, color-mix(in srgb, var(--bub-fill) 60%, transparent) 82%),
+    color-mix(in srgb, var(--bub-fill) 60%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--bub-edge-soft) 40%, transparent),
+    0 6px 14px -11px var(--bub-shadow);
+}
+.bub.is-started .skin::before { opacity: .34; }
+/* 太さも一段だけ落とす。色は変えないのでコントラスト比は上の実測のまま */
+.bub.is-started .tx { font-weight: 400; }
+/* 染めてあるバブルは、薄くする側では膜も引く */
+.bub.is-tinted.is-started .tint { opacity: var(--tint-o-started); }
+
+/* ---------- 着手済み・強調（opts.startedLook: 'mark'） ----------
+   きっかけの枠だけこちら。あそこは常設で、並ぶのは習慣なので
+   「今日それに触ったか」がひと目で要る。引っ込めず、前に出す。
+
+   ただし祝祭にしない（§0）。紙吹雪も跳ねも光りもさせない。やることは3つだけ。
+     ・輪をはっきりさせる（1px の柔らかい縁 → 2.5px の実線 ＋ 外側に薄い1周）
+     ・文字を一段太く（500 → 600）
+     ・白い照りを --bub-glow-lo に落とす ＝ つやが減って中身が濃く見える
+
+   **未着手の側は何も変えていない。**沈ませると「まだやっていないものの山」になる（§0）。
+   ここで足しているのは、着手済みの側の輪と太さだけ。
+
+   照りを落とすのは見た目のためだけではない。暗テーマでは、照りの点と --bub-glow の
+   radial が重なる一点で --bub-text が 2.48:1 まで沈む（既知の B-1）。
+   引っ込めない見た目でその一点を残すと、そこが最悪値になってしまう。
+
+   実測（同じ走査。文字box 15×15 点 × 直径78/96/200 × 面の背景 × hue-rotate ±22deg）:
+     タグ無し  明 6.86:1 / 暗 4.61:1
+     タグ色付き 明 7.21:1 / 暗 6.18:1（パレット12色＋移り変わりの途中の最小）
+   暗の 4.61 は、下側の inset --irid-b（水色）が効く左下の一点。照りをこれ以上
+   落としても下がらない（--irid-b が最悪値を決めるため）。 */
+.bub.is-started.is-mark .skin {
+  background:
+    radial-gradient(circle at 31% 24%, var(--bub-glow-lo) 0%, transparent 42%),
+    radial-gradient(circle at 72% 80%, var(--irid-a) 0%, transparent 48%),
+    radial-gradient(circle at 18% 68%, var(--irid-b) 0%, transparent 46%),
+    radial-gradient(circle at 82% 26%, var(--irid-c) 0%, transparent 42%),
+    linear-gradient(125deg, transparent 32%, var(--sheen) 46%, transparent 58%),
+    radial-gradient(circle at 50% 50%, transparent 58%, var(--bub-fill) 82%),
+    var(--bub-fill);
+}
+/* 輪は、掴んでいる間・中央にいる間だけ譲る（そちらの影のほうが強い合図なので）。
+   このセレクタは .bub.is-dragging .skin より詰まっているので、:not() を付けないと勝ってしまう */
+.bub.is-started.is-mark:not(.is-dragging):not(.is-centered) .skin {
+  box-shadow:
+    inset 0 0 0 2.5px var(--bub-ring),
+    inset 0 -10px 16px -8px var(--irid-b),
+    inset 0 8px 14px -8px var(--bub-glow-lo),
+    0 0 0 2px color-mix(in srgb, var(--bub-ring) 20%, transparent),
+    0 10px 22px -12px var(--bub-shadow);
+}
+.bub.is-started.is-mark .skin::before {
+  opacity: 1;
+  background: radial-gradient(closest-side, var(--bub-glow-lo), transparent);
+}
+.bub.is-started.is-mark .tx { font-weight: 600; }
+/* 強調する側では膜も引かない（濃さは未着手と同じ） */
+.bub.is-tinted.is-started.is-mark .tint { opacity: var(--tint-o); }
+
+/* ---------- 触ったとき ---------- */
+.bub.is-held .skin { transform: scale(.93); }
+.bub.is-dragging { cursor: grabbing; }
+.bub.is-dragging .skin {
+  transform: scale(1.08);
+  box-shadow:
+    inset 0 0 0 1.5px var(--bub-edge),
+    inset 0 -10px 16px -8px var(--irid-b),
+    inset 0 8px 14px -8px var(--bub-glow),
+    0 20px 36px -12px var(--bub-shadow);
+}
+
+/* 生まれるとき：ぷるんと現れる（開いた瞬間は --bd で順番にずらす） */
+.bub.is-new .skin {
+  animation: bub-born .5s cubic-bezier(.34,1.3,.45,1) both;
+  animation-delay: var(--bd, 0s);
+}
+@keyframes bub-born {
+  0%   { transform: scale(.2); opacity: 0; }
+  55%  { transform: scale(1.1, .92); opacity: 1; }
+  78%  { transform: scale(.96, 1.05); }
+  100% { transform: scale(1); }
+}
+
+/* ---------- はまった瞬間（drift.js の SNAP_*） ----------
+   セルの中心へ収まり切った、その1回だけ出す合図。
+   drift.js が .is-snap を 0.3 秒だけ付ける（付け外しはあちらが持つ）。
+
+   祝祭にしない（§0）。やることは2つだけで、どちらも 0.2 秒で終わる。
+     ・膜がごくわずかに縮んで戻る（.955 まで。押した .93 より浅い）
+     ・縁が外から締まって消える（1.07 倍から等倍へ、薄くなりながら）
+   はじけるときの .pop-ring は外へ広がる（＝散る）。こちらは内へ締まる（＝収まる）。
+   向きを逆にしてあるので、消えたのか収まったのかを取り違えない。
+
+   跳ね返り（行き過ぎ）・光り・色の変化は入れない。大きく動かさないので、
+   隣のバブルの当たり判定にも触らない（動いているのは描画上の transform だけ）。
+
+   ■ 触るのは transform だけ
+   box-shadow は動かさない。きっかけの枠の「今日それに触ったか」の輪
+   （.bub.is-started.is-mark … の box-shadow）が、合図のあいだ消えてしまうため。
+   輪は別に用意する ── .bub::after は誰も使っていないので、そこへ1枚だけ置く。 */
+.bub.is-snap .skin {
+  animation: bub-snap .2s cubic-bezier(.3,.9,.4,1);
+}
+@keyframes bub-snap {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(.955); }
+  100% { transform: scale(1); }
+}
+.bub.is-snap::after {
+  content: ''; position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--bub-edge);      /* 明暗どちらにもある（css/base.css） */
+  pointer-events: none;                   /* 指も鍵盤も素通りさせる */
+  animation: bub-snap-ring .22s ease-out forwards;
+}
+@keyframes bub-snap-ring {
+  from { transform: scale(1.07); opacity: .5; }
+  to   { transform: scale(1);    opacity: 0; }
+}
+
+/* 消えるとき：ふくらんではじける（飛沫とリングは JS が足す） */
+.bub.is-popping { pointer-events: none; }
+.bub.is-popping .skin { animation: bub-pop-out .22s ease-in forwards; }
+@keyframes bub-pop-out {
+  45%  { transform: scale(1.16); opacity: .85; }
+  100% { transform: scale(1.34); opacity: 0; }
+}
+
+/* はじけたときの飛沫とリング（drag-layer に一瞬だけ置く） */
+.pop-bit {
+  position: fixed; left: 0; top: 0; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--bub-edge);
+  pointer-events: none;
+  animation: bit-fly .5s cubic-bezier(.1,.6,.4,1) forwards;
+}
+@keyframes bit-fly {
+  from { transform: translate(var(--x0), var(--y0)) scale(1); opacity: .9; }
+  to   { transform: translate(var(--x1), var(--y1)) scale(.2); opacity: 0; }
+}
+.pop-ring {
+  position: fixed; border-radius: 50%;
+  border: 2px solid var(--bub-edge);
+  pointer-events: none;
+  animation: ring-out .4s ease-out forwards;
+}
+@keyframes ring-out { to { transform: scale(1.5); opacity: 0; } }
+
+/* ---------- ドラッグ層へ持ち出したとき ----------
+   .drag-layer は pointer-events:none。バブルはそれを継ぐので、
+   触れるのは中央にいるときの当たり判定（.bub-hit）だけになる。
+   position は読み込み順に負けないよう !important で押さえる
+   （left/top は JS がインラインで書くので、ここでは指定しない）。 */
+.drag-layer .bub { position: fixed !important; }
+
+/* ---------- タップ → 中央 ----------
+   中央にいる間はほかのバブルを暗くする（実質モーダルなので、そう見せる）。
+   時間で戻る窓は無くなったので、旧 .is-window の輪郭はここへ畳んだ
+   （中央にいる＝受け付けている、で常に同じ見た目になる）。 */
+.bub.is-centered .skin {
+  box-shadow:
+    inset 0 0 0 2px var(--bub-edge),
+    inset 0 -10px 16px -8px var(--irid-b),
+    inset 0 8px 14px -8px var(--bub-glow),
+    0 24px 44px -14px var(--bub-shadow);
+}
+
+body.is-focusing .bub:not(.is-centered) { opacity: .3; }
+
+/* 暗くするだけでなく、まわりをぼかす。目が中央へ行くように。
+
+   ぼかしは重い。バブル1つずつに filter をかけると、居る数だけぼかしが走る。
+   だから「面ごとに1回」にする ── ドラッグ層に膜を1枚だけ敷いて、その膜の
+   backdrop-filter で「膜より下に描かれたもの全部」をまとめて1回ぼかす。
+
+   中央のバブルをどう外すか：
+   中央へ寄るとき takeNode() がバブルを #drag-layer へ移す（.bub-hit も同じ層）。
+   覆いは JS がその層へ「いちばん先に」足すので、層の最初の子として描かれる。
+   あとから appendChild されるバブル・当たり判定・盤は、覆いより「上」に来る。
+   backdrop-filter がぼかすのは覆いより下だけなので、中央のバブルは巻き込まれない。
+   ＝ z-index も :not() も要らず、置いた順で外れる。
+
+   下タブは z-index 70 で drag-layer(60) より上にあるため、覆いの backdrop に入らない
+   ＝ ぼけない・触れる。行き先の名前は読めたままで、タブでの移動も塞がない。
+
+   ■ 覆いは擬似要素ではなく、実体のある1枚の要素にしてある（.bub-veil）。
+   擬似要素だった頃は pointer-events を持てず、「外を触った」pointerdown が
+   そのまま下のバブルへ届いていた。＝ いまの中央が解除されると同時に、
+   触った先のバブルが中央へ行ってしまう。実体にして、そこで止める。
+   pointerdown / pointerup / click / contextmenu をすべてここで食べる（JS 側）。 */
+.bub-veil {
+  position: fixed; inset: 0;
+  pointer-events: auto;                 /* .drag-layer の none を上書きする */
+  background: transparent;
+  cursor: default;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  /* 出るときだけ短くなじませる。fill-mode は付けない
+     （タブが隠れていてアニメが動かない環境で、opacity:0 のまま固まらないように） */
+  animation: veil-in .16s ease;
+}
+@keyframes veil-in { from { opacity: 0; } }
+
+/* ---------- 中央の盤（まずは開始／次の一手／リンク／はじめた・完了・消す） ----------
+   ドラッグ層の中、膜（::before）より後ろに足すので、ぼけない。
+
+   盤の枠そのものは pointer-events:none にしてある。押せるのはボタンと入力欄だけで、
+   盤の余白を押したら「無関係なところを触った」＝中央から戻る、を保つため。
+
+   位置は JS が書く（バブルの上下に置き、画面と下タブの内側へ収める）。
+   translate(-50%) 前提なので、left にはバブルの中心 x が入る。 */
+.bub-center { position: fixed; inset: 0; pointer-events: none; }
+.bub-center .bc-start,
+.bub-center .bc-fields { position: fixed; left: 0; top: 0; pointer-events: auto; }
+
+/* [まずは開始]。海の送信ボタンと同じ勾配。白文字は 4.5:1 を切らない
+   （--accent-a 側がいちばん薄く 明暗とも 4.70:1） */
+.bub-center .bc-start {
+  transform: translate(-50%, -100%);
+  appearance: none; -webkit-appearance: none; border: 0;
+  font: inherit; font-size: 14.5px; font-weight: 600; cursor: pointer;
+  min-height: 44px; padding: 10px 22px;      /* タップ目標 44×44 を下回らせない */
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: var(--accent-text);
+  box-shadow: 0 12px 28px -14px var(--bub-shadow);
+}
+.bub-center .bc-start:active { transform: translate(-50%, -100%) scale(.97); }
+.bub-center .bc-start:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 3px; }
+
+/* 次の一手 / リンク */
+.bub-center .bc-fields {
+  transform: translate(-50%, 0);
+  width: min(320px, calc(100vw - 24px));
+  display: grid; gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line-strong); border-radius: 13px;
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 14px 34px -12px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.12);
+}
+.bub-center .bc-row {
+  display: grid; grid-template-columns: 66px 1fr; align-items: center; gap: 8px;
+}
+/* --text-3 は 4.5:1 を切るので使わない。--text-2 は --surface に対し 明5.85 / 暗6.79 */
+.bub-center .bc-lb { font-size: 12.5px; color: var(--text-2); }
+.bub-center .bc-in {
+  font: inherit; font-size: 14px;
+  min-height: 44px; min-width: 0;            /* こちらも 44 を下回らせない */
+  padding: 8px 11px; border-radius: 9px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg); color: var(--text); /* --bg に対し 明14.49 / 暗15.81 */
+}
+.bub-center .bc-in::placeholder { color: var(--text-2); }   /* --bg に対し 明5.31 / 暗7.63 */
+.bub-center .bc-in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -1px; }
+/* http / https 以外は保存されない。文字で叱らず、縁だけで知らせる */
+.bub-center .bc-in.is-bad { border-color: var(--today-edge); }
+
+/* ---------- タグの名前 ----------
+   バブルはタグを色でしか表せない（小さくて文字が入らない）。
+   色だけを情報の手がかりにしないため（WCAG 1.4.1）、盤では名前を文字にする。
+
+   点は色の目印にすぎない（JS 側で aria-hidden）。読めなければならないのは名前のほうで、
+   その文字は --text を --surface に載せる（明14.49 / 暗14.31）。
+   タグの色の上には文字を置かない ＝ 利用者が選んだ色でコントラストが崩れない。 */
+.bub-center .bc-tags {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 2px;
+}
+.bub-center .bc-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 100%; min-width: 0;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--bg);
+}
+.bub-center .bc-tag-dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--tcd, var(--bub-edge));
+  box-shadow: inset 0 0 0 1px var(--line);   /* 地に近い色でも輪郭が残る */
+}
+.bub-center .bc-tag-tx {
+  font-size: 12.5px; color: var(--text);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------- リンク ----------
+   既定は「押せる」。入っていれば、そのまま別のタブで開ける（http / https だけ）。
+   編集は隣の [編集] を押したときだけ。打ち終わったら押せる形に戻る。
+   空・不正のときは押せるものが無いので、入力欄のほうを出す（JS の syncUrl）。
+
+   リンクの文字色は --text のまま（--bg に対し 明14.49 / 暗15.81）。
+   「押せる」は下線＋外部リンクの印＋隣の [編集] で伝える。色に頼らない
+   （4.5:1 を確実に超える青は、明暗の両方では作りにくい）。 */
+.bub-center .bc-url { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bub-center .bc-url .bc-in { flex: 1; }
+.bub-center .bc-link {
+  flex: 1; min-width: 0; min-height: 44px;    /* タップ目標 44 を下回らせない */
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 11px; border-radius: 9px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg); color: var(--text);
+  font-size: 14px;
+}
+.bub-center .bc-link-tx {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+/* 外部リンクの印。静的な文字なので ::after でよい（利用者の文字列は入れない） */
+.bub-center .bc-link::after {
+  content: '↗'; flex: none; font-size: 12px; color: var(--text-2);
+}
+.bub-center .bc-link:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -1px; }
+.bub-center .bc-link:hover,
+.bub-center .bc-link:active { background: var(--surface-2); }
+
+.bub-center .bc-edit {
+  flex: none;
+  appearance: none; -webkit-appearance: none;
+  min-height: 44px; min-width: 44px;          /* タップ目標 44×44 を下回らせない */
+  padding: 10px 11px;
+  font: inherit; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--line-strong); border-radius: 9px;
+  background: var(--surface-2); color: var(--text);
+}
+.bub-center .bc-edit:hover,
+.bub-center .bc-edit:active { background: var(--bg); }
+.bub-center .bc-edit:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+
+/* ---------- 履歴を開くボタン ----------
+   読むだけで、何も変えない。だから「はじめた / 完了」と同じ列に並べない
+   （隣が「完了」＝項目が消える。押し間違いの代償が釣り合わない）。
+   それが要約している「次の一手」のすぐ下に置き、面を持たせず輪郭だけにする。
+
+   .bc-act より詰めた指定にしてあるのは、.bc-act の定義がこの下にあるため
+   （同じ強さだと、あとに書いてあるほうが勝ってしまう）。 */
+.bub-center .bc-act.bc-hist-open {
+  width: 100%;
+  background: transparent;
+  border-color: var(--line-strong);
+}
+.bub-center .bc-act.bc-hist-open:hover,
+.bub-center .bc-act.bc-hist-open:active { background: var(--surface-2); }
+
+/* ---------- 履歴の面 ----------
+   盤はもう縦に長い。履歴を下へ足すと下タブへもぐるので、足さずに入れ替える
+   （開いている間 [まずは開始] と盤の中身は伏せ、同じ場所にこの面だけを出す）。
+
+   高さの上限は JS が書く（画面の上の余白から下タブの手前まで）。
+   あふれるぶんはこの面の中だけでスクロールする。外へは伝えない
+   （overscroll-behavior: contain。後ろの面が動くと、中央から出たように見える）。 */
+.bub-center .bc-hist {
+  position: fixed; left: 0; top: 0;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+  width: min(320px, calc(100vw - 24px));
+  display: flex; flex-direction: column; min-height: 0;
+  border: 1px solid var(--line-strong); border-radius: 13px;
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 14px 34px -12px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.12);
+}
+.bub-center .bh-head {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.bub-center .bh-title { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.bub-center .bh-close {
+  appearance: none; -webkit-appearance: none;
+  min-height: 44px; min-width: 44px;          /* タップ目標 44×44 を下回らせない */
+  padding: 10px 12px;
+  font: inherit; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--line-strong); border-radius: 9px;
+  background: var(--surface-2); color: var(--text);
+}
+.bub-center .bh-close:hover,
+.bub-center .bh-close:active { background: var(--bg); }
+.bub-center .bh-close:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+
+.bub-center .bh-list {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; touch-action: pan-y;
+  margin: 0; padding: 8px 12px 12px; list-style: none;
+}
+/* 古い順に、上から。番号は振らない（「◯件目」を数えないため。§0） */
+.bub-center .bh-item {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.bub-center .bh-item:first-child { border-top: 0; padding-top: 2px; }
+/* 日時。意味を持つ文字なので --text-3 は使わない（--surface に対し 明5.85 / 暗6.79） */
+.bub-center .bh-at {
+  margin: 0 0 4px; font-size: 12px; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.bub-center .bh-line { display: grid; gap: 1px; margin-top: 6px; }
+.bub-center .bh-k { font-size: 11.5px; color: var(--text-2); }
+.bub-center .bh-v {
+  margin: 0; font-size: 14px; line-height: 1.5; color: var(--text);
+  overflow-wrap: anywhere; word-break: break-word;
+}
+
+/* ---------- 盤の操作（はじめた / 完了 / 消す） ----------
+   長押しメニューから移してきたもの。操作の入口を中央の盤ひとつにまとめた。
+
+   「消す」は取り返しがつきにくいので、ほかの2つと同じ列に並べない。
+   細い線で分けて下に1つだけ置き、面も縁も持たせない（弱く見せる）。
+   確認ダイアログは作らない（取り消しのトーストが画面側にある）。
+
+   375px 幅での実寸：盤は min(320, 100vw-24) = 320、padding 10 で中身 300。
+   上段は2列 + gap 8 ＝ 146px ずつ、下段は 300px。どれも高さ 44px 以上。 */
+.bub-center .bc-acts { display: grid; gap: 8px; }
+.bub-center .bc-act-row {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px;
+}
+.bub-center .bc-act {
+  appearance: none; -webkit-appearance: none;
+  min-height: 44px; min-width: 44px;         /* タップ目標 44×44 を下回らせない */
+  padding: 10px 12px;
+  font: inherit; font-size: 14px; cursor: pointer;
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-2); color: var(--text);
+}
+.bub-center .bc-act:hover,
+.bub-center .bc-act:active { background: var(--bg); }
+.bub-center .bc-act:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+
+/* 「消す」だけは弱く。--text-2 は --surface に対し 明5.85 / 暗6.79 で 4.5 を切らない */
+.bub-center .bc-act-del {
+  position: relative;
+  margin-top: 3px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+.bub-center .bc-act-del::before {
+  content: ''; position: absolute; left: 2px; right: 2px; top: -6px;
+  height: 1px; background: var(--line);
+}
+.bub-center .bc-act-del:hover,
+.bub-center .bc-act-del:active { background: var(--surface-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bub-center .bc-start:active { transform: translate(-50%, -100%); }
+}
+
+/* 当たり判定は押した瞬間から中央に置く（動いている的を押させない）。
+   44×44 を下回らせない。見えないが、触れる。 */
+.bub-hit {
+  position: fixed; left: 0; top: 0;
+  min-width: 44px; min-height: 44px;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: none;
+  z-index: 1;
+}
+
+/* ---------- タブへのドラッグ ----------
+   .drag-layer は z-index 60。タブバーはその下なので、ドラッグ中だけ持ち上げる。
+   .app は position/transform を持たないので、ここでの z-index は根の重なりで効く。
+   ドロップ判定そのものは指先座標で行う（バブルの外形はタブ6本ぶんを覆うため）。 */
+body.is-dragging .tabbar {
+  position: relative; z-index: 61;
+  box-shadow: 0 -6px 18px -10px var(--bub-shadow);
+}
+body.is-dragging .tabbar button { transition: background .12s, color .12s; }
+
+/* 落とせるタブ。指が乗ったところだけ光る */
+.tabbar button.is-drop {
+  background: color-mix(in srgb, var(--bub-edge) 22%, transparent);
+  color: var(--text);
+}
+.tabbar button.is-drop .ic { color: var(--bub-edge); }
+
+/* 落とせないタブ（ふりかえり・設定）は不活性に見せる */
+.tabbar button.is-nodrop { opacity: .34; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.is-dragging .tabbar button { transition: none; }
+  /* はまった合図は出さない。drift.js 側でも .is-snap を付けないので二重の備え
+     （設定が動いている最中に切り替わっても、動きが残らない）。
+     収まること自体は残る（位置はその場で中心へ置かれる） */
+  .bub.is-snap .skin { animation: none; }
+  .bub.is-snap::after { display: none; }
+  /* ぼかしは酔いの原因になりうるので入れない。暗くするほうは残す。
+     display:none にはしないこと。見た目が無くても、取り消しの口として指を受ける要素は要る */
+  .bub-veil {
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    animation: none;
+  }
+}
+
+/* ---------- 漂う面 ---------- */
+.bub-field { position: relative; }
+.bub-spacer { position: relative; width: 1px; height: 0; pointer-events: none; }
+
+/* 「ならべる」中。全件が並ぶので、縮めずに縦へスクロールさせる */
+.bub-field.is-gathering { overflow-y: auto; touch-action: pan-y; }
+.bub-field.is-gathering .bub .wob { animation: none; }   /* 並んでいる間は呼吸を止める */
+
+/* ---------- 小さなメニュー（全画面共通の5項目） ----------
+   長押しからは開かない。いま開くのは鍵盤の経路だけ（ContextMenu / Shift+F10 / m、右クリック）。
+   drag-layer（pointer-events:none）の中に置くので、ここだけ操作を受け取る。
+   位置は JS が画面内に収めて書き込む。 */
+.bub-menu.bmenu {
+  position: fixed; left: 0; top: 0; z-index: 70;
+  min-width: 208px; max-width: min(84vw, 300px);
+  padding: 5px;
+  border: 1px solid var(--line-strong); border-radius: 13px;
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 14px 34px -12px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.12);
+  pointer-events: auto; user-select: none;
+  animation: menu-in .13s cubic-bezier(.2,1,.4,1);
+}
+@keyframes menu-in {
+  from { transform: scale(.96); opacity: 0; }
+}
+.bmenu .mi {
+  appearance: none; -webkit-appearance: none;
+  width: 100%; min-height: 44px;            /* タップ目標 44×44 を下回らせない */
+  display: flex; align-items: center; gap: 10px;
+  font: inherit; font-size: 14.5px; text-align: left; cursor: pointer;
+  padding: 11px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--text);
+}
+.bmenu .mi:hover,
+.bmenu .mi:active { background: var(--surface-2); }
+.bmenu .mi:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+.bmenu .mi-tx { flex: 1; min-width: 0; }
+/* 「消す」は誤爆しないよう、細い線で分ける */
+.bmenu .mi-sep { position: relative; margin-top: 4px; }
+.bmenu .mi-sep::before {
+  content: ''; position: absolute; left: 9px; right: 9px; top: -2px;
+  height: 1px; background: var(--line);
+}
+
+/* ---------------- 「本当に消す？」 ----------------
+   js/bubble.js の askDelete が組み立てる。
+
+   下タブ（z-index 70）とトースト（80）より手前に出す。
+   消したあとの取り消しトーストとは時間が重ならないが、
+   重なったときに下敷きになると「押せないボタン」ができるので上に置く。
+
+   動きは付けない。出た瞬間に読める状態でいてほしいし、
+   prefers-reduced-motion の分岐も要らなくなる。 */
+.ask-back {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(0,0,0,.34);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.ask {
+  position: fixed; z-index: 91;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(340px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 18px 18px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 12px 34px rgba(0,0,0,.24);
+}
+
+.ask-title {
+  margin: 0 0 8px;
+  font-size: 16px; font-weight: 600; line-height: 1.45;
+  /* 長い名前でも枠を割らない */
+  overflow-wrap: anywhere;
+}
+
+.ask-body {
+  margin: 0 0 16px;
+  font-size: 13.5px; line-height: 1.65;
+  color: var(--text-2);          /* --surface に対し 明5.85 / 暗6.79 */
+}
+
+.ask-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; }
+
+.ask-btn {
+  appearance: none; -webkit-appearance: none;
+  min-height: 44px; min-width: 44px;     /* タップ目標 44×44 を下回らせない */
+  padding: 10px 12px;
+  font: inherit; font-size: 14px; cursor: pointer;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+}
+.ask-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* 既定の行き先。ここに焦点が乗る */
+.ask-no { background: var(--surface-2); color: var(--text); }
+.ask-no:hover, .ask-no:active { background: var(--bg); }
+
+/* 消すほうは弱く。読めるが、目が先に行かない */
+.ask-yes { background: transparent; color: var(--text-2); }
+.ask-yes:hover, .ask-yes:active { background: var(--surface-2); }
+
+/* ---------- 盤のタグ（付け外しできる版。A-10） ----------
+   1つのタグ＝1つのボタン。押している／いないを aria-pressed で持つ。
+   付いていないほうを薄くするのではなく、**付いているほうを起こす**——
+   薄いものが並ぶと「まだ付けていないものの山」に見えるため（§0）。 */
+.bub-center .bc-tag-btn {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; cursor: pointer;
+  min-height: 30px;                 /* 並ぶ数が多いので、盤の中では 44 を敷かない
+                                       （※ 44×44 を守るのは画面の主要な操作。
+                                          ここは同じ機能がタブへのドラッグにもある） */
+  transition: border-color .12s, background-color .12s, box-shadow .12s;
+}
+.bub-center .bc-tag-btn[aria-pressed="false"] .bc-tag-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--tcd, var(--line-strong));
+}
+.bub-center .bc-tag-btn[aria-pressed="false"] .bc-tag-tx { color: var(--text-2); }
+.bub-center .bc-tag-btn[aria-pressed="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+.bub-center .bc-tag-btn:hover { border-color: var(--line-strong); }
+.bub-center .bc-tag-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }

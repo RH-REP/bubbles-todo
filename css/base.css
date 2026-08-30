@@ -1,0 +1,193 @@
+/* Bubbles — 骨格・トークン・共通部品
+   画面固有のスタイルは css/screens/ に置く。 */
+
+:root {
+  color-scheme: light;
+
+  --bg: #f4f4f1;
+  --surface: #ffffff;
+  --surface-2: #eceae6;
+  --line: rgba(0,0,0,.10);
+  --line-strong: rgba(0,0,0,.22);
+  --text: #22221e;
+  --text-2: #66655f;
+  --text-3: #9a998f;
+
+  /* 海（ステージ背景）。上から下へ 空色 → 藤色 → --bg に溶ける */
+  --sea-1: #d9eff6;
+  --sea-2: #e7ebf8;
+  --sea-3: #f5efe8;
+  --drift-a: rgba(159,214,248,.42);   /* 流れる光のかたまり */
+  --drift-b: rgba(255,210,232,.36);
+  --spark: rgba(255,255,255,.95);     /* のぼる光の粒 */
+  --spark-2: rgba(150,210,240,.85);
+
+  /* バブル：シャボン玉の膜 */
+  --bub-fill: rgba(148,205,233,.14);
+  --bub-edge: rgba(60,140,176,.60);
+  --bub-edge-soft: rgba(255,255,255,.70);
+  --bub-text: #14424f;
+  --bub-glow: rgba(255,255,255,.85);
+  --bub-shadow: rgba(38,80,110,.28);
+  --irid-a: rgba(255,148,208,.30);    /* 虹色の膜（桃） */
+  --irid-b: rgba(110,226,255,.34);    /* 同（水） */
+  --irid-c: rgba(186,158,255,.28);    /* 同（藤） */
+  --sheen: rgba(255,255,255,.22);     /* ななめの照り */
+
+  --today-edge: #c07a4e;
+  --today-fill: rgba(192,122,78,.09);
+
+  /* 時間帯の色。画面2・ふりかえり・集中オーバーレイが共有するので :root に置く。
+     オーバーレイやドラッグの分身は画面の外に出るため、画面スコープに置くと色が抜ける */
+  --slot-morning: #d99a3f;
+  --slot-noon:    #4fa3c7;
+  --slot-night:   #6f6ab8;
+  --today-fill-hot: rgba(192,122,78,.17);
+  --today-glow: rgba(192,122,78,.35);
+
+  /* 送信ボタン */
+  /* 送信ボタン。白文字を載せるので 4.5:1 を切らない深さにしてある
+     （#3aa5c8 は 2.84:1 で不足していた） */
+  --accent-a: #1d7d9c;
+  --accent-b: #5b4cc2;
+  --accent-text: #ffffff;
+
+  --radius: 12px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #15151a;
+    --surface: #202027;
+    --surface-2: #2a2a32;
+    --line: rgba(255,255,255,.12);
+    --line-strong: rgba(255,255,255,.26);
+    --text: #f0efeb;
+    --text-2: #a9a8a2;
+    --text-3: #76756f;
+
+    --sea-1: #101c2a;
+    --sea-2: #151529;
+    --sea-3: #1c1626;
+    --drift-a: rgba(64,140,200,.22);
+    --drift-b: rgba(190,110,180,.14);
+    --spark: rgba(255,255,255,.55);
+    --spark-2: rgba(140,200,235,.42);
+
+    --bub-fill: rgba(120,190,225,.10);
+    --bub-edge: rgba(124,196,226,.62);
+    --bub-edge-soft: rgba(255,255,255,.30);
+    --bub-text: #d8eef8;
+    --bub-glow: rgba(255,255,255,.28);
+    --bub-shadow: rgba(0,0,0,.55);
+    --irid-a: rgba(255,120,200,.20);
+    --irid-b: rgba(100,220,255,.22);
+    --irid-c: rgba(170,140,255,.20);
+    --sheen: rgba(255,255,255,.10);
+
+    --today-edge: #d99568;
+    --today-fill: rgba(217,149,104,.11);
+
+    --slot-morning: #e0aa5c;
+    --slot-noon:    #63b6d8;
+    --slot-night:   #8f8ade;
+    --today-fill-hot: rgba(217,149,104,.22);
+    --today-glow: rgba(217,149,104,.40);
+
+    --accent-a: #1d7d9c;
+    --accent-b: #6f5fc9;
+    --accent-text: #ffffff;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; padding: 0; height: 100%; overscroll-behavior: none; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 400 16px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- アプリの骨格 ---------- */
+.app {
+  display: flex; flex-direction: column;
+  height: 100dvh; max-width: 430px; margin: 0 auto;
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.panes { flex: 1; min-height: 0; position: relative; }
+.pane { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
+.pane.is-active { display: flex; }
+
+/* ---------- 下タブ ---------- */
+/* タブはナビゲーションであると同時に、バブルの落下先でもある。
+   ドラッグ層（z-index 60）より手前に置いて、掴んだバブルがタブの下へ潜るようにする。
+   潜ってくれないと、バブルの外形がタブ6本ぶんを覆って、どれを狙っているか見えない。 */
+.tabbar {
+  flex: none; position: relative; z-index: 70;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding-bottom: var(--safe-b);
+}
+.tabbar button {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  /* --text-3 は --surface に対し 明2.87 / 暗3.50 で 4.5:1 を切る。
+     タブのラベルは意味を持つ文字（しかも落下先の名前）なので --text-2 で止める */
+  font: inherit; font-size: 11px; color: var(--text-2);
+  padding: 9px 0 8px;
+  display: grid; gap: 3px; justify-items: center;
+  transition: opacity .14s, background-color .14s;
+}
+.tabbar button .ic { font-size: 17px; line-height: 1; }
+.tabbar button.is-active { color: var(--text); }
+.tabbar button.is-active .ic { color: var(--bub-edge); }
+.tabbar button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -3px; }
+
+/* ドラッグ中だけ、タブが落下先に見える。
+   受けないタブ（ふりかえり・設定）は薄くして、狙っても無駄だと分かるようにする。 */
+body.is-dragging .tabbar button[data-drop="no"] { opacity: .3; }
+body.is-dragging .tabbar button[data-drop="yes"] { background: var(--today-fill); }
+body.is-dragging .tabbar button.is-over {
+  background: var(--today-fill-hot);
+  box-shadow: inset 0 2px 0 var(--today-edge);
+}
+
+/* ---------- ドラッグ層 ---------- */
+.drag-layer { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
+
+/* ---------- 共通部品 ---------- */
+/* タップ目標は 44×44 を下回らない。padding だけだと 39px にしかならない */
+.btn {
+  appearance: none; font: inherit; font-size: 13px; cursor: pointer;
+  border-radius: 999px; padding: 8px 16px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-strong); background: transparent; color: var(--text);
+  transition: transform .08s;
+}
+.btn:active { transform: scale(.97); }
+.btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(126px + var(--safe-b)); z-index: 80;   /* 下タブ＋入力欄の上に出す */
+  display: flex; align-items: center; gap: 12px;
+  background: var(--text); color: var(--bg);
+  font-size: 13.5px; padding: 9px 15px; border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.24);
+  max-width: min(94vw, 406px);
+}
+.toast button {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--bg);
+  text-decoration: underline; padding: 0; white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

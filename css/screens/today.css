@@ -1,0 +1,209 @@
+/* 画面2「今日」— 一面の水面。枠は無い（契約 §1 §3）。
+
+   バブルそのものの見た目は css/bubble.css の担当。ここには置かない。
+   この画面が持つのは「面」と「何も無いときのことば」と「詳細」だけ。
+
+   海（sea.css）とは別ファイルにしてある。同じ物理を使うが、
+   面の色は今日の色（--today-*）を薄く重ねて、海と見分けがつくようにする。 */
+
+/* 詳細の中で使う文字色。どちらも既存トークンが 4.5:1 を切ったので別に持つ（契約 §15）。
+   --accent-a  は暗いテーマの --surface に対して 3.44:1
+   --today-edge は明るいテーマの --surface に対して 3.42:1
+   片方のテーマにしか無い色は作らないので、明暗の両方で定義する。 */
+:root { --today-link: #12617a; --today-warn: #9a5426; }
+@media (prefers-color-scheme: dark) {
+  :root { --today-link: #7fc7e0; --today-warn: #d99568; }
+}
+
+/* ---------- 漂う面 ---------- */
+.today-stage {
+  flex: 1; min-height: 0; position: relative; overflow: hidden;
+  touch-action: none;                     /* ドラッグ中にページを動かさない */
+  background:
+    linear-gradient(180deg, var(--today-fill), transparent 40%),
+    linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
+}
+
+/* ゆっくり流れる光。要素を大きく作って transform だけ動かす（60個でも落ちないように） */
+.today-stage::before {
+  content: ''; position: absolute; inset: -45%;
+  background:
+    radial-gradient(closest-side at 34% 30%, var(--drift-a), transparent 72%),
+    radial-gradient(closest-side at 68% 64%, var(--drift-b), transparent 70%);
+  animation: today-drift 34s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes today-drift {
+  from { transform: translate(-3%, -2%) scale(1); }
+  to   { transform: translate(3%, 3.5%) scale(1.05); }
+}
+
+/* ---------- 何も無いとき ----------
+   件数も、消えたものの数も、未達も言わない（契約 §0）。
+   ここが何の面で、どうすれば浮かぶのかだけを置く。
+   意味を持つ文字なので --text-3 は使わない（4.5:1 に届かないため。契約 §14） */
+.today-empty {
+  position: absolute; inset: 0; margin: 0;
+  display: grid; place-content: center; justify-items: center; gap: 8px;
+  text-align: center; padding: 0 34px;
+  color: var(--text-2);
+  pointer-events: none;
+  animation: today-empty-bob 6s ease-in-out infinite alternate;
+}
+.today-empty .l1 { font-size: 15px; letter-spacing: .02em; }
+.today-empty .l2 { font-size: 13.5px; line-height: 1.8; }
+@keyframes today-empty-bob { to { transform: translateY(6px); } }
+
+/* ---------- ランダムスタート（追補5 §4） ----------
+   選べないときに、選ばずに始めるためのもの。おすすめではないので目立つ色は付けない
+   （海の .sea-random と同じ静かな見た目・同じ大きさ）。
+   この画面には他のボタンが無いので右上。押せないときは形（点線の縁）でも伝える。 */
+.today-random {
+  position: absolute; top: 10px; right: 10px; z-index: 8;
+  appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 48px; height: 48px; padding: 0;   /* タップ目標は 44 を下回らない（契約 §15） */
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  transition: transform .1s, color .12s, border-color .12s;
+}
+.today-random svg { display: block; width: 22px; height: 22px; }
+.today-random:not(:disabled):hover { color: var(--text); border-color: var(--bub-edge); }
+.today-random:not(:disabled):active { transform: scale(.95); }
+.today-random:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* 薄くしない——薄くすると印そのものが読めなくなる。形で伝える */
+.today-random:disabled { cursor: default; border-style: dashed; color: var(--text-2); }
+
+/* ---------- ランダムスタートのシャッフル（追補5 §4） ----------
+   押した瞬間に「決まりました」ではなく、玉が混ざって、そこから1つが選ばれると見えるように。
+   輪が減速しながら回り（＝止まりかけ）、光が玉から玉へ次々に移り、
+   最後に着いた玉だけが大きく残る。全体で 0.63 秒。海（sea.css）と同じ見せ方・同じ時間。
+   当たりを演出しない——金色も紙吹雪も音も出さない。
+   時間と回る速さは today.js が入れる（ホップの合計に合わせるため）。 */
+.today-shuffle {
+  position: absolute; inset: 0; z-index: 30;
+  display: grid; place-items: center;
+  /* 混ぜている 0.6 秒は指を受け止める（下のバブルを二重に触らせない） */
+  background: color-mix(in srgb, var(--bg) 64%, transparent);
+}
+/* 読み上げにだけ渡す言葉。目には出さないが、消しもしない */
+.today-shuffle .sr {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+.today-shuffle .rnd-ring {
+  position: relative;
+  animation-name: tdy-rnd-spin;
+  animation-timing-function: cubic-bezier(.1,.72,.22,1);   /* 速く回って、ゆっくり止まる */
+  animation-fill-mode: both;
+}
+@keyframes tdy-rnd-spin { from { transform: rotate(0); } to { transform: rotate(316deg); } }
+
+/* 玉。--a = 輪のどこに置くか、--r = 輪の半径（どちらも today.js が入れる）。
+   46px は today.js の SHUF_D と同じ値。片方だけ変えないこと */
+.today-shuffle .rnd-b {
+  position: absolute; left: 50%; top: 50%;
+  width: 46px; height: 46px; margin: -23px 0 0 -23px;
+  transform: rotate(var(--a)) translateY(calc(-1 * var(--r))) rotate(calc(-1 * var(--a)));
+  animation: tdy-rnd-bob 620ms ease-in-out infinite alternate;
+}
+/* 玉ごとに位相をずらして息をさせる。輪の回転だけだと「一枚の板が回る」に見えて混ざらない */
+@keyframes tdy-rnd-bob {
+  from { transform: rotate(var(--a)) translateY(calc(-1 * var(--r))) rotate(calc(-1 * var(--a))); }
+  to   { transform: rotate(calc(var(--a) + 13deg)) translateY(calc(-0.84 * var(--r)))
+                    rotate(calc(-1 * var(--a) - 13deg)); }
+}
+
+/* 光る・大きくなるのは内側。位置と息は外側が持つ（同じ transform を二人で書かない） */
+.today-shuffle .rnd-face {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 1.5px solid var(--bub-edge);
+  background: color-mix(in srgb, var(--bub-edge) 12%, var(--surface));
+  box-shadow: inset 0 2px 6px var(--bub-glow);
+}
+@keyframes tdy-rnd-lit {
+  from { background: color-mix(in srgb, var(--bub-edge) 58%, var(--surface)); transform: scale(1.12); }
+  to   { background: color-mix(in srgb, var(--bub-edge) 12%, var(--surface)); transform: scale(1); }
+}
+@keyframes tdy-rnd-win {
+  from { background: color-mix(in srgb, var(--bub-edge) 58%, var(--surface)); transform: scale(1.12); }
+  60%  { transform: scale(1.44); }
+  to   { background: color-mix(in srgb, var(--bub-edge) 62%, var(--surface)); transform: scale(1.32);
+         box-shadow: inset 0 2px 6px var(--bub-glow),
+                     0 0 0 3px color-mix(in srgb, var(--bub-edge) 30%, transparent); }
+}
+@keyframes tdy-rnd-dim { to { opacity: .18; transform: scale(.86); } }
+
+/* 混ぜないときは盤ごと出さない（today.js も reduce のときは作らない。二重の保険）。
+   ボタンそのものは reduce でも残る——動きの話であって、経路の話ではない */
+@media (prefers-reduced-motion: reduce) {
+  .today-shuffle { display: none; }
+  .today-random { transition: none !important; }
+  .today-random:not(:disabled):active { transform: none; }
+}
+
+/* ---------- 詳細（長押しメニューの「詳細」から） ----------
+   下から出る板。ドラッグ層（z-index 60）より下、面より上。 */
+.today-detail {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -8px 28px rgba(0,0,0,.16);
+  padding: 12px 16px calc(16px + var(--safe-b));
+  display: grid; gap: 12px;
+  max-height: 72%; overflow-y: auto;
+}
+
+.today-detail .td-head {
+  display: flex; align-items: center; gap: 12px;
+}
+.today-detail .td-title {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 15px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.today-detail .td-close {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--text-2);
+  /* タップ目標は 44×44 を下回らない（契約 §15） */
+  min-width: 44px; min-height: 44px;
+  display: grid; place-content: center;
+}
+.today-detail .td-close:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+
+.today-detail .td-field { display: grid; gap: 5px; }
+.today-detail .td-lb { font-size: 12px; color: var(--text-2); }
+.today-detail .td-row { display: flex; align-items: center; gap: 10px; }
+
+.today-detail .td-in {
+  appearance: none; width: 100%; min-width: 0;
+  font: inherit; font-size: 15px; color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  padding: 10px 12px; min-height: 44px;
+}
+.today-detail .td-in::placeholder { color: var(--text-2); opacity: .8; }
+.today-detail .td-in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+
+.today-detail .td-open {
+  flex: none; font-size: 13px; color: var(--today-link);
+  min-height: 44px; display: grid; place-content: center; padding: 0 6px;
+}
+.today-detail .td-err { margin: 0; font-size: 12px; color: var(--today-warn); }
+
+.today-detail .td-done {
+  appearance: none; cursor: pointer; justify-self: start;
+  font: inherit; font-size: 13px;
+  min-height: 44px; padding: 0 18px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: transparent; color: var(--text);
+}
+.today-detail .td-done.on {
+  border-color: var(--today-edge);
+  background: var(--today-fill);
+  color: var(--text);
+}
+.today-detail .td-done:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }

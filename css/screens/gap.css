@@ -1,0 +1,233 @@
+/* 画面4「すきま」— すきま時間にできることを、条件ごとに1個ずつ置く
+
+   追補5 §3 でこの画面は「漂う面」になった。
+   面の上に4つの枠、いちばん下に未分類。重力があるので、放したものは下へ落ちて溜まる。
+
+   位置はすべて JS（gap.js の layout()）が px で入れる。
+   同じ矩形を引力の井戸（field.setWells）にも渡しているので、絵と物理がずれない。
+   ここでは「見た目」だけを持つ。幅・高さ・left・top をここで指定しないこと。
+
+   重なりの順（.gap-back は z-index を持たない＝重なりの箱を作らない。
+   作ると、中の丸を面より上に出せなくなる）:
+       .gap-cell  z1   帯（見出しと説明）
+       .gap-field z2   漂うバブル
+       .gap-well  z1   空の枠の丸（バブルが上を通れる）
+       .gap-well.is-dom z3  井戸が無いときだけ、枠のバブルをここに置く
+       .gap-detail z30
+
+   この画面の見た目でいちばん大事なのは「埋まっている枠が、掴んだ時点で分かる」こと。
+   予告なしに押し出すと「置いたものが消えた」に見える。
+   body.is-dragging（bubble.js が付ける）を手がかりに、埋まっている枠の縁を変える。 */
+
+.gap {
+  /* 枠（グループ）と、その中の面（セル）。
+     明暗で --surface と --surface-2 の明るさの上下が逆なので、ここで入れ替える
+     （画面2と同じ割り当て。手前に見えるほうを --cell にする） */
+  --group: var(--surface-2);
+  --cell:  var(--surface);
+
+  position: relative;             /* 面と詳細パネルの基準 */
+  flex: 1; min-height: 0;
+  overflow: hidden;               /* 面の外にははみ出さない */
+}
+
+@media (prefers-color-scheme: dark) {
+  .gap {
+    --group: var(--surface);
+    --cell:  var(--surface-2);
+  }
+}
+
+/* 敷く層。z-index を持たせない（上のコメント参照） */
+.gap-back { position: absolute; inset: 0; }
+
+/* 漂う面。バブルはこの中で絶対配置される */
+.gap-field { position: absolute; inset: 0; z-index: 2; }
+
+/* ---------- 4つの枠 ---------- */
+
+/* 帯。位置と大きさは JS が入れる */
+.gap-cell {
+  position: absolute; z-index: 1;
+  display: flex; align-items: center;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--group);
+  padding: 8px 11px;
+  /* 丸のぶんだけ右を空ける。丸は格子のいちばん右の列（幅 96px）に乗る。
+     帯の右端は丸の右端より 8px 外にあるので、96 + 8 でちょうど接する。
+     さらに 8px 足して、文字が丸に触れないようにする。 */
+  padding-right: calc(96px + 16px);
+  transition: box-shadow .14s, background-color .14s;
+}
+
+.gap-cell-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.gap-cell-text .nm {
+  font-size: 13.5px; font-weight: 600; letter-spacing: .04em;
+  color: var(--text);
+}
+/* 説明。--text-3 は 4.5:1 を切るので使わない */
+.gap-cell-text .ds {
+  font-size: 11.5px; line-height: 1.45; color: var(--text-2);
+}
+
+/* バブルが1個だけ入る窪み。位置と大きさ（96×96）は JS が入れる。
+   空でも大きさは変わらない（入る場所が見えていること）。
+   指はここを通り抜けて面に届く（落とし先の判定は gap.js が矩形で持つ）。 */
+/* 空いている枠（A-6）。
+
+   前は 96px の破線の丸を `--line-strong`（明 .22 / 暗 .26）で常時描いていた。
+   破線は「まだ何か入るはず」と読ませる書き方で、しかも大きい。
+   結果、**空いている枠のほうが、入っているバブルより強く見えていた**。
+   ここは「まだ埋めていない場所」が並ぶ画面なので、それが目立つのは
+   「やっていないことの山」を作るのと同じ（§0）。
+
+   直し方は、**輪の役目を「置ける場所の合図」に絞る**こと。
+   その役目はドラッグしている間にしか無い。だから：
+     ・平時 … 実線のヘアライン `--line`（明 .10 / 暗 .12）。場所だけ示して黙る
+     ・掴んでいる間 … いままでの破線 `--line-strong` に戻す（狙えないと困る）
+   入っている枠が掴んだ瞬間に縁を変えるのは前からある（下の is-filled）。
+   これで平時／ドラッグ中のどちらでも、空きと埋まりの強さが逆転しない。 */
+.gap-well {
+  position: absolute; z-index: 1;
+  pointer-events: none;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: transparent;
+  transition: border-color .14s, border-style .14s, box-shadow .14s;
+}
+/* 落とし先を探している間だけ、空いている枠をはっきりさせる */
+body.is-dragging .gap-well:not(.is-filled) {
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+/* 引力の井戸が無い版の drift のときだけ、枠のバブルをここに置く。
+   そのときはバブルを触れるようにし、面より手前へ上げる。 */
+.gap-well.is-dom { z-index: 3; }
+.gap-well > .bub { pointer-events: auto; }
+
+/* 入っているときは縁を消して、バブルそのものを見せる */
+.gap-well.is-filled { border-color: transparent; }
+
+/* ---------- 未分類（面のいちばん下） ---------- */
+
+/* 落ちたものが溜まる場所。件数は出さない（分母のある数字を作らない）。
+   幅は JS が「バブルの直径 × 列数」で入れる。 */
+.gap-unsorted {
+  position: absolute; z-index: 1;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--group);
+  /* 枠線 1px ＋ 余白 7px で、中身の左端が格子の左端にぴったり乗る
+     （枠は格子より 8px 外側に置いてある） */
+  padding: 0 7px 8px;
+  transition: box-shadow .14s, background-color .14s;
+}
+
+.gap-hd {
+  flex: none; height: 30px; margin: 0;
+  display: flex; align-items: center;
+  font-size: 13.5px; font-weight: 600; letter-spacing: .04em;
+  color: var(--text);
+}
+
+/* 面を作らないとき（prefers-reduced-motion: reduce）の受け皿。
+   格子の列にそろえる。1マス = バブルの直径。
+   マスのあいだの溝 --gut も面と同じにして、動かない側でも同じ升目に見えるようにする
+   （ここは物理が動かないので間隔は見た目の都合だけ）。 */
+.gap-tray {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), var(--cell-size, 96px));
+  grid-auto-rows: var(--cell-size, 96px);
+  gap: var(--gut, 8px);
+  justify-content: center; align-content: start;
+}
+.gap.is-field .gap-tray { display: none; }
+
+/* 空のときの一行。責める言い方にしない（「まだ」で急かさない） */
+.gap-empty {
+  flex: none; margin: 2px 0 0;
+  font-size: 12.5px; line-height: 1.6; color: var(--text-2);
+  pointer-events: none;
+}
+.gap.is-field .gap-empty { position: absolute; left: 10px; right: 10px; top: 34px; }
+
+/* ---------- ドラッグ中 ---------- */
+
+/* 掴んだ時点で、埋まっている枠がそうと分かる。
+   ここが見えないと、落とした瞬間に前のものが黙って未分類へ移ったように見える。 */
+body.is-dragging .gap-well.is-filled {
+  border-color: var(--slot-noon);
+  border-style: solid;
+  border-width: 2px;
+}
+
+/* 何が起きるかを先に言う。命令形にしない（「入れ替わる」）。 */
+.gap-swap {
+  position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
+  z-index: 2;
+  display: none; white-space: nowrap;
+  font-size: 11px; line-height: 1.5; color: var(--text-2);
+  padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--cell);
+}
+body.is-dragging .gap-well.is-filled .gap-swap { display: block; }
+
+/* いま狙っている落とし先 */
+.gap-cell.is-over,
+.gap-unsorted.is-over {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--slot-noon) 45%, transparent);
+}
+
+/* ---------- 枠の中のバブル ----------
+   面のバブルは drift が絶対配置する。ここで位置に触らない。
+   DOM 側（井戸が無いとき）の1個だけ、通常の流れに戻す。
+   大きさは 96px を bubble.js が --d で持つ。 */
+.gap-well > .bub,
+.gap-tray > .bub {
+  position: relative; left: auto; top: auto; right: auto; bottom: auto;
+  margin: 0;
+}
+
+/* ---------- 詳細パネル ----------
+   下から出る。再描画をまたいでノードを使い回すので、閉じるときは hidden にするだけ。 */
+.gap-detail {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 30;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 12px 14px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--cell);
+  box-shadow: 0 12px 30px rgba(0,0,0,.24);
+}
+
+.gap-detail-hd { display: flex; align-items: center; gap: 10px; }
+.gap-detail-hd .nm {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 14px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* タップ目標は 44×44 を下回らない */
+.gap-x {
+  flex: none; appearance: none; cursor: pointer; font: inherit; font-size: 13px;
+  min-width: 56px; min-height: 44px; padding: 0 12px;
+  border-radius: 10px; border: 1px solid var(--line-strong);
+  background: transparent; color: var(--text);
+}
+.gap-x:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+
+.gap-lb {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 11.5px; color: var(--text-2);
+}
+.gap-in {
+  appearance: none; font: inherit; font-size: 14px; color: var(--text);
+  min-height: 44px; padding: 6px 10px;
+  border-radius: 9px; border: 1px solid var(--line-strong); background: var(--bg);
+}
+.gap-in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+
+.gap-start { align-self: flex-start; min-height: 44px; }
+.gap-start[disabled] { opacity: .5; cursor: default; }
