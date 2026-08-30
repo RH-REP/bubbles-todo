@@ -88,7 +88,28 @@ SCREENS.forEach(s => {
   const lb = document.createElement('span');
   lb.textContent = s.label;
   btn.appendChild(ic);
-  btn.appendChild(lb);
+  /* 「今日」だけは、長押しで日を選べることを ▽ で示す（利用者の指示）。
+     ▽ は海の「▽しぼる」と同じ意味で使っている記号——**押すと何か出る**。
+     この画面で新しい記号を増やさないよう、そちらに合わせた。
+
+     ・aria-hidden。読み上げには乗せない（名前は「今日」のままでよい）。
+       長押しでできることは title で添える
+     ・ラベルとは別の span にしてある。日付に変わるとき差し替えるのは
+       ラベルのほうだけなので、同じ span に入れると ▽ ごと消える */
+  if (s.id === 'today') {
+    const row = document.createElement('span');
+    row.className = 'lbrow';
+    const hint = document.createElement('span');
+    hint.className = 'hold';
+    hint.textContent = '▽';
+    hint.setAttribute('aria-hidden', 'true');
+    row.appendChild(lb);
+    row.appendChild(hint);
+    btn.appendChild(row);
+    btn.title = '長押しで日を選ぶ';
+  } else {
+    btn.appendChild(lb);
+  }
   btn.addEventListener('click', () => show(s.id));
   /* 「今日」だけ、長押しで日を選べる（利用者の指示）。
      いま映している日がタブの落とし先でもあるので、

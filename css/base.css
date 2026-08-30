@@ -213,3 +213,22 @@ body.is-dragging .tabbar button.is-over {
   margin: 2px auto 0; width: 18px; height: 2px; border-radius: 1px;
   background: var(--bub-edge);
 }
+
+/* 「今日」タブの ▽（利用者の指示）。長押しで日を選べることを示す。
+   海の「▽しぼる」と同じ記号・同じ意味（押すと何か出る）。
+   ラベルと同じ行に並べるため、この2つだけ横並びの入れ物に入れてある
+   （下タブ自体は縦並びの grid なので、素直に足すと ▽ が下の段へ落ちる）。 */
+/* 下タブは縦並びの grid で、既定では行が縦に伸びる（align-items: stretch）。
+   伸びると ▽ が文字から離れるので、この入れ物だけ中央に置く */
+.tabbar button .lbrow {
+  display: inline-flex; align-items: center; gap: 3px;
+  align-self: center;
+}
+/* 記号なので 4.5:1 の対象ではないが、--text-3 までは落とさない
+   （--surface に対し 明2.87 / 暗3.50。輪郭として見えなくなる）。
+   --text-2 は 明5.85 / 暗6.79。 */
+.tabbar button .hold {
+  font-size: 9px; line-height: 1; color: var(--text-2);
+  position: relative; top: .5px;
+}
+.tabbar button.is-active .hold { color: var(--text-2); }
