@@ -30,6 +30,32 @@ import { playComplete } from '../sound.js';
    today.js は sea.js を読まないので、循環にはならない。 */
 import { dropDay } from './today.js';
 
+/* --- 海に出すバブルの上限（利用者の指示）---
+
+   海は増える一方なので、**新しいほうから数えて この数まで**しか出さない。
+   隠れたぶんは「ならべる」（文字の一覧）で全部読める。
+
+   隠すのは**古いほう**。古くて手つかずのものこそ「やっていないことの山」になるので、
+   漂わせ続けないほうが憲章に合う（README の禁止事項）。
+
+   **数を決めたのは重さではなく、混み具合のほう。**
+   利用者の案は「50個など」だったので 50 で組んで測ったが、読めなかった：
+
+     50個 … バブルの面積の合計が面の **220%**、1個あたり 8.1個と重なる
+     17個 … 同 73%、重なり 18組（A-1 で測った値）
+
+   面はスクロールしない1画面なので、入らないぶんはそのまま重なりになる。
+   20個で面積 **88%**、1個あたり 1.9個の重なり。ここを上限にした。
+   「引いて見る」の 0.6倍まで引くと面積は 0.36倍（32%）になるので、
+   20個は引いて見れば余裕で収まる。
+
+   重さのほうは、これで自動的に収まる。参考の実測：
+   バブル1個は DOM 5ノード・グラデーション7層・影1枚・動く CSS アニメ1本。
+   物理（drift の総当たり）は 400個で 1フレーム 0.82ms（この Mac。予算 16.7ms の 5%）。
+   **塗りの費用はペインが裏に回っていて測れていない**（契約 §14）が、
+   個数に素直に比例するので、個数を抑えれば効く。 */
+const SEA_MAX = 20;
+
 const GRID_D = 96;     /* 整列中のバブルの直径。枠の中と同じ一定サイズ（契約 §4） */
 const SAVE_MS = 400;   /* 詳細の自動保存。打っている途中で毎回は書かない */
 
@@ -83,7 +109,7 @@ const EDGE_BAND = 21;   /* 帯の厚み px。利用者の指示で 64 の 1/3。
    狭めるのは長さではなく厚み（EDGE_BAND）のほう。 */
 const EDGE_SPAN = 1;
 
-let root, stage, world, hint, grid, gridCap, gridEmpty;
+let root, stage, world, hint, grid, gridCap, gridEmpty, moreLine;
 let faceName, faceDot, faceLabel;
 let gatherBtn, gatherLabel;
 let narrowBtn, narrowLabel, centerEmpty;
@@ -294,22 +320,39 @@ function isUnsorted(t) {
 /* 中央 = すべての海。完了したものだけ出さない（追補3 §1・§3）。
    タグ API が無い版では従来どおり「どこにも属していないもの」だけ。
    絞っている間は、まだどこにも入れていないものだけ（追補4 §2）。 */
+/* 新しいほうから SEA_MAX 件だけ残す。**並びは元のまま**——
+   drift はノードを id で使い回すので、並べ替えると使い回しが崩れる。
+   どれを残すかだけを決めて、順番には触らない。 */
+let seaClipped = false;
+
+function capForSea(list) {
+  seaClipped = list.length > SEA_MAX;      /* 直後に読むこと（syncMore を参照） */
+  if (!seaClipped) return list;
+  const newest = list.slice()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, SEA_MAX);
+  const keep = new Set(newest.map(t => t.id));
+  return list.filter(t => keep.has(t.id));
+}
+
 function centerItems() {
-  if (!hasTags()) return store.floating();
+  if (!hasTags()) return capForSea(store.floating());
   /* 長期保留はふだん出さない。**ただし長期保留そのもので絞ったときだけ出す**
      ——「いまは見ない」と決めたものを、自分から見に行く道は残す */
   const wantHold = narrowSet.has('hold');
   const list = store.all().filter(t => !isDoneItem(t) && (wantHold || !isHoldItem(t)));
-  if (!narrowSet.size) return list;
-  /* 選んだものは全部かかる（「かつ」）。押すたびに狭くなる */
-  return list.filter(t => {
+  if (!narrowSet.size) return capForSea(list);
+  /* 選んだものは全部かかる（「かつ」）。押すたびに狭くなる。
+     絞ったあとにも上限はかける——絞り込みは「どれを見るか」で、
+     一度に出す数の話とは別だから */
+  return capForSea(list.filter(t => {
     const tags = tagsOfSafe(t.id);
     for (const k of narrowSet) {
       if (k === UNSORTED_ONLY) { if (!isUnsorted(t)) return false; }
       else if (tags.indexOf(k) < 0) return false;
     }
     return true;
-  });
+  }));
 }
 
 /* 絞り込みに出す一覧。**完了は出さない**（下の海とふりかえりに専用の道がある）。
@@ -343,14 +386,14 @@ function faceItems(face) {
   const tag = dirTag(face);
   if (!tag) return [];
   if (tag.id === 'done') {
-    if (has('doneItems')) { try { return store.doneItems() || []; } catch (err) { return []; } }
-    return store.all().filter(isDoneItem);
+    if (has('doneItems')) { try { return capForSea(store.doneItems() || []); } catch (err) { return []; } }
+    return capForSea(store.all().filter(isDoneItem));
   }
   let list;
   try { list = store.inTag(tag.id) || []; } catch (err) { return []; }
   /* 長期保留の海だけが、長期保留を出す。ほかのタグの海からは外す */
-  if (tag.id === 'hold') return list;
-  return list.filter(t => !isHoldItem(t));
+  if (tag.id === 'hold') return capForSea(list);
+  return capForSea(list.filter(t => !isHoldItem(t)));
 }
 
 function isStarted(t) {
@@ -1700,35 +1743,62 @@ function clearGrid() {
    store.all() をそのまま並べると完了の海の中身がここへ混ざる）。 */
 function renderGrid() {
   /* 契約 §7 は「ならべるは全件が並ぶ」だが、長期保留はここにも出さない。
-     この盤の見出しは「古い順 — 放置しているものが先頭」で、
-     長期保留＝**自分で「いまは見ない」と決めたもの**がその先頭に並ぶと、
-     まさに「やっていないことの山」を突き返す絵になる（README の禁止事項）。
-     完了を外しているのと同じ理由の外し方。出したいときは上の海へ行く。 */
+     長期保留＝**自分で「いまは見ない」と決めたもの**なので、
+     全部を読む場所にも出さない（完了を外しているのと同じ理由）。出したいときは上の海へ。 */
   const list = store.all().filter(t => !isDoneItem(t) && !isHoldItem(t))
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  const want = new Set(list.map(t => t.id));
-
-  gridNodes.forEach((g, id) => {
-    if (want.has(id)) return;
-    if (typeof g.detach === 'function') g.detach();
-    g.node.remove();
-    gridNodes.delete(id);
-  });
 
   gridEmpty.hidden = list.length > 0;
 
+  /* 行はバブルを組まずに作り直す。**海が新しいほうしか出さなくなったので、
+     ここが「ぜんぶ読む場所」になった**——読む場所は、絵ではなく文字のほうが速い。
+     バブルを1件ずつ組むと DOM 5ノード・グラデーション7層が件数ぶん増えるが、
+     行なら3ノードで済む（実測：バブル1個で5ノード／7層／影1／動くアニメ1本）。
+
+     押したら長押しメニューを開く。詳細・5分・はじめた・完了・消す が全部そこにある
+     ——一覧のために別の操作を発明しない。 */
+  gridNodes.forEach(g => { if (typeof g.detach === 'function') g.detach(); g.node.remove(); });
+  gridNodes.clear();
+
+  const map = tagColorMap();
   list.forEach(t => {
-    let g = gridNodes.get(t.id);
-    if (!g) {
-      const node = makeBubble(itemOf(t), optsOf(t, GRID_D));
-      g = { node, detach: bindNode(node, t.id, () => grid) };
-      gridNodes.set(t.id, g);
-    } else if (typeof updateBubble === 'function') {
-      updateBubble(g.node, itemOf(t), optsOf(t, GRID_D));
+    const row = el('button', 'sea-row');
+    row.type = 'button';
+    row.dataset.id = t.id;
+
+    /* 色の点。付いているタグのぶんだけ、最大3つ（それ以上は行が点で埋まる）。
+       色だけを手がかりにしないので、読み上げ文にはタグの名前を入れる（1.4.1） */
+    const dots = el('span', 'sea-row-dots');
+    dots.setAttribute('aria-hidden', 'true');
+    const ids = tagsOfSafe(t.id);
+    const cols = ids.map(x => map.get(x)).filter(c => c);
+    if (!cols.length) {
+      const d = el('span', 'dot is-none');
+      dots.appendChild(d);
+    } else {
+      cols.slice(0, 3).forEach(c => {
+        const d = el('span', 'dot');
+        d.style.setProperty('--tcd', c);
+        dots.appendChild(d);
+      });
     }
-    /* 掴んでいる最中のものは動かさない。
-       ジェスチャ層がドラッグ層へ移していれば、親がグリッドでなくなっている */
-    if (!g.node.isConnected || g.node.parentElement === grid) grid.appendChild(g.node);
+    row.appendChild(dots);
+
+    const tx = el('span', 'sea-row-tx');
+    tx.textContent = t.text;                 /* ユーザーの文字。innerHTML には入れない */
+    row.appendChild(tx);
+
+    if (isStarted(t)) {
+      const st = el('span', 'sea-row-st', 'はじめた');
+      row.appendChild(st);
+    }
+
+    const names = namesOf(t);
+    row.setAttribute('aria-label', t.text + (names.length ? '（' + names.join('、') + '）' : ''));
+    row.addEventListener('click', ev => { ev.preventDefault(); menuFor(t.id, row); });
+
+    gridNodes.set(t.id, { node: row, detach: null });
+    grid.appendChild(row);
   });
 }
 
@@ -1779,10 +1849,26 @@ function renderChrome() {
   });
 
   syncHint();
+  syncMore();
   syncNarrowBtn();
   syncRandomBtn();
   renderEdges(); renderSigns(); syncZoomBtn();
   syncComposer();
+}
+
+/* 出し切れていないときの1行（利用者の指示）。
+
+   **数は出さない。**「あと120件」は、やっていないことの数を突き返すのと同じになる
+   （README の禁止事項）。言うのは「新しいほうから出している」という**見え方の説明**と、
+   全部を読む行き先だけ。
+
+   出す条件は「いまの面が上限に当たっている」。当たっていなければ何も出さない
+   ——ふだんの海には出ない1行にする。 */
+function syncMore() {
+  if (!moreLine) return;
+  const shown = faceItems(curFace);         /* ここで seaClipped が立つ */
+  const clipped = seaClipped && shown.length > 0;
+  moreLine.hidden = !clipped || gathering || !!bubbleDrag;
 }
 
 /* 中央の海が空のときの言葉。
@@ -1964,6 +2050,11 @@ export default {
       stage.appendChild(box);
     });
 
+    /* --- 出し切れていないときの1行（利用者の指示）--- */
+    moreLine = el('p', 'sea-more', '新しいほうから出している。<br>「ならべる」で、ぜんぶ。');
+    moreLine.hidden = true;
+    stage.appendChild(moreLine);
+
     /* --- 引いて見る（ズームアウト。A-1） ---
        押すたびに 1.00 → 0.80 → 0.60 → 1.00 と回る。段は3つしかないので
        スライダにはしない（片手で押せるほうが、この画面には合う）。 */
@@ -2028,7 +2119,11 @@ export default {
     grid.hidden = true;
     grid.setAttribute('role', 'group');
     grid.setAttribute('aria-label', 'すべてのバブル');
-    gridCap = el('p', 'sea-grid-cap', '古い順 — 放置しているものが先頭');
+    /* 並びは古い順のまま。海が新しいほうしか出さなくなったので、
+       **ここの先頭が「海から隠れたもの」**になる＝探しに来た人が最初に見る場所。
+       ただし「放置しているものが先頭」という言い方はやめた——
+       出す範囲が広がったぶん、その札は未達の名指しに寄りすぎる（§0）。 */
+    gridCap = el('p', 'sea-grid-cap', '古い順');
     grid.appendChild(gridCap);
     gridEmpty = el('p', 'sea-grid-empty', 'まだ何も無い。下に書くと、ここに並ぶ。');
     gridEmpty.hidden = true;

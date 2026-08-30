@@ -443,36 +443,73 @@
   .sea-shuffle { display: none; }
 }
 
-/* ---------- 整列グリッド ----------
-   海の物理配置とは別レイアウト。海は快適7個・限界14個ほどしか入らないので、
-   全件はスクロールする格子に置く。並びは古い順（放置しているものが先頭）。 */
+/* ---------- ならべる（文字の一覧。利用者の指示） ----------
+   海は新しいほうから 50 までしか出さなくなったので、**ここが「ぜんぶ読む場所」**。
+   読む場所は絵ではなく文字のほうが速いので、バブルは組まずに行にした
+   （バブル1個は DOM 5ノード＋グラデーション7層。行は3ノード）。
+   並びは古い順のまま＝海から隠れたものが先頭に来る。 */
 .sea-grid {
   position: absolute; inset: 0; z-index: 6;
   overflow-y: auto; overscroll-behavior: contain;
   touch-action: pan-y;                    /* 余白を縦になぞればスクロールできる */
   padding: 60px 14px 88px;                /* 上はボタン、下は入力欄のぶんを空ける */
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 12px 10px;
-  justify-items: center; align-content: start;
+  display: flex; flex-direction: column; gap: 2px;
   background-color: var(--bg);
   background-image: linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
 }
 .sea-grid-cap,
 .sea-grid-empty {
-  grid-column: 1 / -1;
-  margin: 0; font-size: 12.5px; letter-spacing: .04em;
+  margin: 0 0 6px; font-size: 12.5px; letter-spacing: .04em;
   color: var(--text-2);
 }
 .sea-grid-empty { line-height: 1.8; }
 
-/* 格子の中では並びが位置を決める。海の絶対配置と transform は使わない。
-   直径は --d で渡ってくる（% の padding は親幅基準になるので使えない）。 */
-.sea-grid .bub {
-  position: relative; left: auto; top: auto;
-  transform: none;
-  width: var(--d, 96px); height: var(--d, 96px);
-  touch-action: none;                     /* バブルの上から始めた指はドラッグ */
+.sea-row {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font: inherit; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+  min-height: 44px; padding: 8px 12px;     /* タップ目標は 44 を下回らない */
+  border: 0; border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--text);
+}
+.sea-row:hover { background: var(--surface); }
+.sea-row:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+.sea-row:active { background: var(--surface-2); }
+
+.sea-row-dots { flex: none; display: inline-flex; gap: 3px; }
+.sea-row-dots .dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--tcd, var(--bub-edge));
+  box-shadow: inset 0 0 0 1px var(--line);   /* 地に近い色でも輪郭が残る */
+}
+/* タグの付いていないもの。無彩色は「タグ無し」の意味なので、輪郭だけにする */
+.sea-row-dots .dot.is-none { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+
+.sea-row-tx {
+  flex: 1; min-width: 0; font-size: 14px; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 「はじめた」は数えない印（回数は出さない）。付いていることだけを言う */
+.sea-row-st {
+  flex: none; font-size: 11px; letter-spacing: .04em;
+  color: var(--text-2);
+}
+
+/* ---------- 出し切れていないときの1行（利用者の指示） ----------
+   海の底（入力欄の上）に小さく置く。**数は出さない**——
+   「あと◯件」は、やっていないことの数を突き返すのと同じになる。 */
+.sea-more {
+  position: absolute; left: 50%; z-index: 7;
+  bottom: calc(var(--sea-floor, 64px) + 8px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 28px);
+  margin: 0; text-align: center; pointer-events: none;
+  padding: 6px 14px; border-radius: 12px;
+  /* バブルの上に重なるので、地を敷かないと読めない（実測で読めなかった）。
+     押す的ではないので縁は付けない——押せるものと見分けが付くように */
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  font-size: 11.5px; line-height: 1.6; color: var(--text-2);
 }
 
 /* ---------- 詳細（最初の一手 / URL / 開始した） ----------
