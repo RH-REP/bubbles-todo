@@ -687,6 +687,10 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
   width: min(320px, calc(100vw - 24px));
   display: grid; gap: 8px;
   padding: 10px;
+  /* 高さの上限は place() が入れる（画面の上端から下タブの手前まで）。
+     背の低い画面で行が全部入らないときだけ、この中でスクロールする。
+     外はスクロールしない＝海が動かない */
+  overflow-y: auto; overscroll-behavior: contain;
   border: 1px solid var(--line-strong); border-radius: 13px;
   background: var(--surface); color: var(--text);
   box-shadow: 0 14px 34px -12px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.12);
@@ -1134,4 +1138,12 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
 .bub-center .bc-act-ok.is-done {
   background: var(--surface-2);
   border-color: var(--bub-edge);
+}
+/* 積まなかったとき（次の一手が空 / 変わっていない）。
+   **赤くしない。**咎めるものではなく、まだ足りていないだけなので、
+   縁を弱いままにして地だけ変える＝「効いてはいる、でも積んでいない」 */
+.bub-center .bc-act-ok.is-nope {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text-2);
 }

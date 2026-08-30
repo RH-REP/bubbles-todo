@@ -8,11 +8,11 @@ import { el, toast, escapeHtml } from '../ui.js';
 import { store } from '../store.js';
 import { isOn, setOn } from '../sound.js';
 
-/* ユーザーが選べる向きは3つ。中央は「ぜんぶ」なので割り当てない。
-   下は固有枠（完了）なのでここに出さない——出しても store.setTagDir が受け付けない */
+/* ユーザーが選べる向きは左右だけ。中央は「ぜんぶ」なので割り当てない。
+   上（長期保留）と下（完了）は固有枠なのでここに出さない
+   ——出しても store.setTagDir が受け付けない */
 const DIRS = [
   { id: 'left',  label: '左' },
-  { id: 'up',    label: '上' },
   { id: 'right', label: '右' },
 ];
 

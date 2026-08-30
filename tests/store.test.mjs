@@ -2682,39 +2682,35 @@ await test('setTagDir は1向き1タグ。既に居たタグは null へ押し�
   assert.equal(store.tagDir('left'), null, '空いたままで、押し出されたタグは戻らない');
   assert.equal(store.tag(mine.id).dir, null);
 
-  /* 長期保留の海は既定で「上」。別の向きへも移せる */
-  assert.equal(store.tag('hold').dir, 'up');
-  assert.equal(store.setTagDir('hold', 'left'), true);
-  assert.equal(store.tagDir('up'), null, '移したら元の向きは空く');
-  assert.equal(store.tagDir('left').id, 'hold');
-
-  /* **完了は下の固有枠**（利用者の指示）。動かせないし、外せない */
+  /* **上下は固有枠**（利用者の指示）。上=長期保留 / 下=完了。
+     どちらも動かせないし、外せないし、ほかのタグに横取りされない */
+  assert.equal(store.tagDirFixed('hold'), 'up');
   assert.equal(store.tagDirFixed('done'), 'down');
   assert.equal(store.tagDirFixed(mine.id), null, 'ふつうのタグは固定されない');
-  assert.equal(store.tag('done').dir, 'down');
-  assert.equal(store.tagDir('down').id, 'done');
-  assert.equal(store.setTagDir('done', 'right'), false, '完了は動かせない');
-  assert.equal(store.setTagDir('done', null), false, '外すこともできない');
-  assert.equal(store.tag('done').dir, 'down', 'どちらも弾かれて変わらない');
-  assert.equal(store.tagDir('right').id, 'private', '押し出しも起きない');
 
-  /* 下は取り合いに出ない。ほかのタグは入れない */
-  assert.equal(store.setTagDir(mine.id, 'down'), false, '固有枠は選べない');
-  assert.equal(store.tagDir('down').id, 'done', '横取りされない');
+  [['hold', 'up'], ['done', 'down']].forEach(([tid, dir]) => {
+    assert.equal(store.tag(tid).dir, dir);
+    assert.equal(store.tagDir(dir).id, tid);
+    assert.equal(store.setTagDir(tid, 'right'), false, tid + ' は動かせない');
+    assert.equal(store.setTagDir(tid, null), false, tid + ' は外せない');
+    assert.equal(store.tag(tid).dir, dir, 'どちらも弾かれて変わらない');
+    assert.equal(store.setTagDir(mine.id, dir), false, dir + ' は選べない');
+    assert.equal(store.tagDir(dir).id, tid, '横取りされない');
+  });
+  assert.equal(store.tagDir('right').id, 'private', '押し出しも起きない');
 
   /* 不正な向き・無いタグ */
   assert.equal(store.setTagDir(mine.id, 'LEFT'), false);
   assert.equal(store.setTagDir('nosuch', 'left'), false);
-  assert.equal(store.tagDir('left').id, 'hold', '弾かれたので変わらない');
+  assert.equal(store.tagDir('left'), null, '弾かれたので空いたまま');
 
   /* 保存され、開き直しても向きはそのまま（外した null も残る） */
+  assert.equal(store.setTagDir(mine.id, 'left'), true);
   const again = await open();
-  assert.equal(again.tagDir('left').id, 'hold');
+  assert.equal(again.tagDir('left').id, mine.id);
   assert.equal(again.tag('work').dir, null, '押し出された状態が保たれる');
-  assert.equal(again.tag('hold').dir, 'left', '「上」から「左」へ移した状態も保たれる');
-  assert.equal(again.tagDir('up'), null, '空いた「上」も空いたまま');
-  assert.equal(again.tag(mine.id).dir, null);
-  assert.equal(again.tag('done').dir, 'down', '完了は開き直しても下の固有枠');
+  assert.equal(again.tag('hold').dir, 'up', '上は固有枠のまま');
+  assert.equal(again.tag('done').dir, 'down', '下も固有枠のまま');
 });
 
 await test('特別なタグの setTag は既存のフラグに委ねる（二重の状態を持たない）', async () => {
@@ -3093,7 +3089,7 @@ await test('tags / done の無い旧データを読んでも壊れず、既定�
 await test('タグと完了は保存の往復・restore で保たれる', async () => {
   const store = await open({ raw: null, now: NOW });
   const mine = store.addTag('読みもの', '#4a8');
-  store.setTagDir(mine.id, 'up');
+  store.setTagDir(mine.id, 'left');   /* 上下は固有枠なので、取れるのは左右だけ */
   const t = store.add('積んである本を開く');
   const gone = store.add('消すもの');
   store.setTag(t.id, mine.id, true);
@@ -3109,8 +3105,9 @@ await test('タグと完了は保存の往復・restore で保たれる', async 
   const again = await open();
   assert.equal(again.isDone(t.id), true);
   assert.deepEqual(again.tagsOf(t.id), ['done', mine.id]);
-  assert.equal(again.tagDir('up').id, mine.id);
-  assert.equal(again.tag('done').dir, 'down', '完了は固有枠のまま');
+  assert.equal(again.tagDir('left').id, mine.id);
+  assert.equal(again.tag('hold').dir, 'up', '上は固有枠のまま');
+  assert.equal(again.tag('done').dir, 'down', '下も固有枠のまま');
 
   /* 完了したまま消して戻しても、完了のまま戻る（勝手に取り消さない） */
   const snap = again.remove(t.id);

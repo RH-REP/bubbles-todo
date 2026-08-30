@@ -411,20 +411,29 @@ function actionRow(actions, run, onOk) {
   if (canOk) {
     /* OK は他のボタンと性質が違う。**盤を閉じない**（書き留めるだけ）。
        押したことが分かるよう、少しのあいだ文字を変える——
-       閉じないぶん、何も起きなかったように見えてしまうため */
+       閉じないぶん、何も起きなかったように見えてしまうため。
+
+       出す文字は onOk() が決める。積めたときは「書き留めた」、
+       積まなかったときはその理由（「次の一手が要る」など）。
+       **積めなかったことを黙って同じ顔で返さない**——
+       押したのに何も起きていない、が分からないため。 */
     const ok = el('button', 'bc-act bc-act-ok');
     ok.type = 'button';
     ok.textContent = 'OK';
     let back = 0;
     ok.addEventListener('click', ev => {
       ev.preventDefault();
-      onOk();
+      const said = onOk();
+      const label = typeof said === 'string' && said ? said : '書き留めた';
+      const done = label === '書き留めた';
       clearTimeout(back);
-      ok.textContent = '書き留めた';
-      ok.classList.add('is-done');
+      ok.textContent = label;
+      ok.classList.toggle('is-done', done);
+      ok.classList.toggle('is-nope', !done);
       back = setTimeout(() => {
         ok.textContent = 'OK';
         ok.classList.remove('is-done');
+        ok.classList.remove('is-nope');
       }, 1200);
     });
     top.appendChild(ok);
@@ -592,7 +601,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   root.appendChild(start);
 
   const a = centerAdapter;
-  let fields = null, stepIn = null, urlIn = null;
+  let fields = null, stepIn = null, memoIn = null, urlIn = null;
+  let draft0 = null;            /* 開いた時点の入力欄の中身（触ったかを見るため） */
   let urlLink = null, urlLinkTx = null, urlEdit = null;
   let histBtn = null, hist = null, histList = null, histClose = null;
   let lastPlace = null;
@@ -603,8 +613,10 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      関数宣言は巻き上がるうえ、呼ばれるのは押されたときなので参照できる。
      ついでに入力欄の焦点を外す（端末のキーボードが引っ込む） */
   const acts = actionRow(actions, runAction, () => {
-    saveStep();
+    const label = commitPair();
     if (stepIn) stepIn.blur();
+    if (memoIn) memoIn.blur();
+    return label;
   });
   if (a || acts) fields = el('div', 'bc-fields');
 
@@ -789,20 +801,55 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     fields.appendChild(tags);
   }
 
-  /* ---- 次の一手（いままでどおり常に入力欄）---- */
+  /* ---- 作業メモ と 次の一手（利用者の指示）----
+
+     **この2つは1組で、[OK] を押したときだけ記録が1件積まれる。**
+     git のコミットと同じ形で、「今回なにをしてたか（作業メモ）」と
+     「次はここから（次の一手）」が日時とともに積み上がる。
+
+     ■ 打っている途中では記録しない（利用者の指摘）
+       前は打つたびに 400ms 後と blur で `setFirstStep` を書いていて、
+       **[OK] が飾りになっていた**。いまは打った文字は「書きかけ」（draft）へ
+       控えるだけで、記録に触るのは [OK] だけ。
+       書きかけは記録ではないので、履歴にもふりかえりにも出ない
+       ——それでも控えるのは、打った文字が消えるのが事故だから。
+
+     ■ 次の一手が空だと積まない
+       git のコミットが必ず次を指すのと同じ（store.commitStep も空を弾く）。
+       **その代わり、次の一手を空にして消すことはできなくなった。**
+       置き換えることはできる（新しく書いて [OK]）。
+
+     ■ 並びは 作業メモ → 次の一手
+       履歴の並びと同じ。過去から未来へ読む向きにそろえる。 */
+  const canCommit = !!(a && typeof a.commitStep === 'function');
   if (a && fields) {
-    const wrap = el('label', 'bc-row');
-    const lb = el('span', 'bc-lb');
-    lb.textContent = '次の一手';               /* innerHTML には入れない */
-    stepIn = el('input', 'bc-in');
-    stepIn.type = 'text';
-    stepIn.value = String(ask(a, 'firstStep', id) || '');   /* .value は生でよい */
-    stepIn.placeholder = 'ひとつめだけ';
-    stepIn.autocomplete = 'off';
-    stepIn.enterKeyHint = 'done';
-    wrap.appendChild(lb);
-    wrap.appendChild(stepIn);
-    fields.appendChild(wrap);
+    const draft = (canCommit && ask(a, 'draft', id)) || null;
+    const mkRow = (label, placeholder) => {
+      const wrap = el('label', 'bc-row');
+      const lb = el('span', 'bc-lb');
+      lb.textContent = label;                  /* innerHTML には入れない */
+      const inp = el('input', 'bc-in');
+      inp.type = 'text';
+      inp.placeholder = placeholder;
+      inp.autocomplete = 'off';
+      inp.enterKeyHint = 'done';
+      wrap.appendChild(lb);
+      wrap.appendChild(inp);
+      fields.appendChild(wrap);
+      return inp;
+    };
+
+    if (canCommit) {
+      memoIn = mkRow('作業メモ', 'ここまでやったこと');
+      memoIn.value = String((draft && draft.did) || '');
+    }
+    stepIn = mkRow('次の一手', 'ひとつめだけ');
+    /* 書きかけがあればそちら、無ければいまの「次の一手」 */
+    stepIn.value = String((draft && draft.next) || ask(a, 'firstStep', id) || '');
+    /* 開いた時点の中身。**触っていないなら書きかけも書かない**
+       ——開いて閉じただけで書きかけが生まれると、集中画面が
+       「前回の続きがある」と読んでしまう */
+    draft0 = { did: memoIn ? memoIn.value : '', next: stepIn.value };
   }
 
   /* ---- リンク ----
@@ -852,13 +899,18 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      アダプタに steps が無ければ出さない。記録が1件も無くても出さない。
      押しても何も無いボタンを作らないため。 */
   const hasSteps = !!(a && typeof a.steps === 'function');
-  if (fields && hasSteps && stepsNow().length) {
+  if (fields && hasSteps) {
     histBtn = el('button', 'bc-act bc-hist-open');
     histBtn.type = 'button';
     histBtn.textContent = '履歴';
     histBtn.setAttribute('aria-expanded', 'false');
     histBtn.addEventListener('click', ev => { ev.preventDefault(); openHistory(); });
     fields.appendChild(histBtn);
+    /* **箱は先に作っておく。**[OK] で1件目が積まれた瞬間に出せるようにするため
+       （前は組み立て時に1件も無ければボタンごと作らず、
+         積んでも盤を開き直すまで出てこなかった）。
+       押しても何も無いボタンは作らない、という決めは守る＝中身が無い間は隠す。 */
+    syncHistBtn();
   }
 
   if (fields) {
@@ -869,9 +921,47 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   /* ---- 打ち終わりを待って保存する（打つたびには書かない） ---- */
   let stepTimer = 0, urlTimer = 0;
 
+  /* 打った文字を「書きかけ」へ控える。**記録には触らない。**
+     預け先が古い（commitStep が無い）版では、いままでどおり次の一手を直に書く
+     ——そちらには積む先が無いので、控えても行き場が無い */
   function saveStep() {
     clearTimeout(stepTimer); stepTimer = 0;
-    if (stepIn) ask(a, 'setFirstStep', id, stepIn.value.trim());
+    if (!stepIn) return;
+    if (!canCommit) { ask(a, 'setFirstStep', id, stepIn.value.trim()); return; }
+    const did = memoIn ? memoIn.value : '';
+    const next = stepIn.value;
+    if (draft0 && did === draft0.did && next === draft0.next) return;   /* 触っていない */
+    ask(a, 'setDraft', id, { did: did.trim(), next: next.trim() });
+  }
+
+  /* [OK]。**記録に触るのはここだけ。**
+     -> ボタンに出す言葉。積まなかったときは、その理由を言う */
+  function commitPair() {
+    if (!stepIn) return null;
+    const next = stepIn.value.trim();
+    const did = memoIn ? memoIn.value.trim() : '';
+
+    if (!canCommit) {                          /* 古い預け先。いままでどおり書くだけ */
+      ask(a, 'setFirstStep', id, next);
+      return '書き留めた';
+    }
+    /* 次の一手が空なら積まない（store.commitStep も同じ理由で弾く）。
+       打った作業メモは書きかけに残るので、消えはしない */
+    if (!next) { saveStep(); return '次の一手が要る'; }
+    /* 作業メモが空で、次の一手も変わっていない＝積むものが無い。
+       同じ記録が押すたびに増えるのを避ける（git の空コミットと同じ扱い） */
+    if (!did && next === String(ask(a, 'firstStep', id) || '')) return '変わっていない';
+
+    if (!ask(a, 'commitStep', id, { did: did, next: next })) return null;
+    /* 積んだので書きかけは空。作業メモも空にする——次に開いたときに
+       前回のメモが残っていると、それが今回のメモに見える。
+       次の一手は残す（いまの「次の一手」そのものなので、消すと見えなくなる） */
+    if (memoIn) memoIn.value = '';
+    /* 積んだ時点が新しい起点。ここを更新しないと、閉じるときに
+       いま消したはずの書きかけが同じ内容で生き返る */
+    draft0 = { did: '', next: stepIn.value };
+    syncHistBtn();
+    return '書き留めた';
   }
   function saveUrl() {
     clearTimeout(urlTimer); urlTimer = 0;
@@ -910,13 +1000,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     markUrl();
   }
 
-  if (stepIn) {
-    stepIn.addEventListener('input', () => {
+  /* 打っている途中も blur も、**書きかけへ控えるだけ**（記録は [OK] だけ） */
+  [stepIn, memoIn].forEach(inp => {
+    if (!inp) return;
+    inp.addEventListener('input', () => {
       clearTimeout(stepTimer);
       stepTimer = setTimeout(saveStep, SAVE_MS);
     });
-    stepIn.addEventListener('blur', saveStep);
-  }
+    inp.addEventListener('blur', saveStep);
+  });
   if (urlIn) {
     urlIn.addEventListener('input', () => {
       markUrl();
@@ -958,6 +1050,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function stepsNow() {
     const rows = ask(a, 'steps', id);
     return Array.isArray(rows) ? rows : [];
+  }
+
+  /* 記録が1件でもあれば出す。無ければ隠す。高さが変わるので置き直しまで */
+  function syncHistBtn() {
+    if (!histBtn) return;
+    const want = !stepsNow().length;
+    if (histBtn.hidden === want) return;
+    histBtn.hidden = want;
+    relayout();
   }
 
   function buildHist() {
@@ -1005,7 +1106,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         w.appendChild(v);
         li.appendChild(w);
       };
-      line('今回なにをしてたか', s && s.did);
+      line('作業メモ', s && s.did);
       line('次の一手', s && s.next);
       histList.appendChild(li);
     });
@@ -1064,10 +1165,17 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       lower.style.left = cx + 'px';
       lower.style.top = (cy + d / 2 + CENTER_GAP) + 'px';
     }
-    /* 履歴の高さの上限：画面の上の余白から下タブの手前まで。
-       これを入れておくと、下の縦の寄せで必ず画面の中へ収まる */
-    if (hist && vh) {
-      hist.style.maxHeight = Math.max(160, barTop - CENTER_M * 2) + 'px';
+    /* 高さの上限：画面の上の余白から下タブの手前まで。
+       これを入れておくと、下の縦の寄せで必ず画面の中へ収まる。
+
+       **盤にも同じ上限を掛ける。**行が増えて（作業メモ・長期保留の日）、
+       いちばん背が高い形は 592px ある。375×667 では余りが 8px しかなく、
+       これより低い画面では下タブへもぐる（もぐると触れない）。
+       あふれるぶんは盤の中だけでスクロールさせる——履歴と同じ扱い。 */
+    if (vh) {
+      const cap = Math.max(160, barTop - CENTER_M * 2) + 'px';
+      if (hist) hist.style.maxHeight = cap;
+      if (fields) fields.style.maxHeight = cap;
     }
     if (!vw || !vh) return;                    /* 寸法が取れないときは置いたまま */
 

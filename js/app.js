@@ -228,6 +228,13 @@ setCenterHandler({
   /* 一手の記録（古い順）。無ければ盤に「履歴」のボタンを出さない */
   steps:        (id) => (has('stepsOf') ? store.stepsOf(id) : []),
 
+  /* 盤の [OK] が積む1件（利用者の指示）。
+     集中画面と**同じ store の口**を使う（記録の入口を2つにしない）。
+     draft は「書きかけ」で記録ではない。打った文字が消えないためだけのもの。 */
+  commitStep:   (id, entry) => (has('commitStep') ? store.commitStep(id, entry) : null),
+  draft:        (id) => (has('draftOf') ? store.draftOf(id) : null),
+  setDraft:     (id, d) => { if (has('setDraft')) store.setDraft(id, d); },
+
   /* 盤でタグを付け外しするための3つ（A-10）。
      「完了」は盤が自分で外す（専用のボタンがあり、音と取り消しが付いているため）。 */
   tags:         () => (has('tags') ? store.tags() : []),

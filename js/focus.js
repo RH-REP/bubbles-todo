@@ -516,13 +516,13 @@ function buildWorklog(id, a) {
   urlWrap.appendChild(urlRow);
   node.appendChild(urlWrap);
 
-  /* --- 今回なにをしてたか。初期は空白 --- */
+  /* --- 作業メモ（今回なにをしてたか）。初期は空白 --- */
   const didWrap = el('div', 'focus-field');
-  didWrap.appendChild(fieldLabel('今回なにをしてたか'));
+  didWrap.appendChild(fieldLabel('作業メモ'));
   const didArea = document.createElement('textarea');
   didArea.className = 'focus-input';
   didArea.rows = 2;
-  didArea.setAttribute('aria-label', '今回なにをしてたか');
+  didArea.setAttribute('aria-label', '作業メモ');
   didWrap.appendChild(didArea);
   node.appendChild(didWrap);
 
@@ -596,7 +596,7 @@ function buildWorklog(id, a) {
 
   /* 「次の一手」が空のときは記録できない。
      記録は必ず「次はここから」を持つ（git のように）。
-     「今回なにをしてたか」は空でも押せる。 */
+     「作業メモ」は空でも押せる。 */
   function syncCommit() {
     commit.disabled = !nextInput.value.trim();
     nextHint.classList.toggle('is-blocking', commit.disabled);
