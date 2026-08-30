@@ -155,7 +155,16 @@ function syncZoomBtn() {
   /* 整列中は面が丸ごと隠れるので、引く対象が無い */
   zoomBtn.hidden = gathering;
 }
-let narrowing = false;      /* 中央（ぜんぶ）の海を「まだどこにも入れていないもの」だけに絞る */
+/* 中央（ぜんぶ）の海の絞り込み（利用者の指示でタグごとに増やした）。
+     null       … 絞らない
+     UNSORTED   … まだ 今日・きっかけ・すきま のどれにも入れていないものだけ（前からある道）
+     タグの id  … そのタグが付いているものだけ
+
+   **タグごとの絞り込みが要る理由**：向きは左右の2つしか無く、上下は固有枠なので、
+   ユーザーのタグは3つ目から「海が無い」状態になる。絞り込みがその見に行く道になる。
+   長期保留も、ふだんはどの海にも出ないが、ここから呼べば出る。 */
+const UNSORTED_ONLY = '\u0000unsorted';
+let narrowTag = null;
 let shown = false;
 let unsubscribe = null;
 let ro = null;
@@ -266,7 +275,7 @@ function isDoneItem(t) {
 /* 絞り込みが効いているか。
    タグ API が無い版では中央がもともと store.floating()（＝未分類だけ）なので、
    絞っても何も変わらない。そういう版では切り替え自体を出さない。 */
-function narrowOn() { return narrowing && hasTags(); }
+function narrowOn() { return narrowTag !== null && hasTags(); }
 
 /* まだ 今日／きっかけ／すきま のどれにも入れていないもの。
    ユーザーが作ったタグは数に入れない（追補4 §2）。
@@ -281,8 +290,34 @@ function isUnsorted(t) {
    絞っている間は、まだどこにも入れていないものだけ（追補4 §2）。 */
 function centerItems() {
   if (!hasTags()) return store.floating();
-  const list = store.all().filter(t => !isDoneItem(t) && !isHoldItem(t));
-  return narrowing ? list.filter(isUnsorted) : list;
+  /* 長期保留はふだん出さない。**ただし長期保留そのもので絞ったときだけ出す**
+     ——「いまは見ない」と決めたものを、自分から見に行く道は残す */
+  const wantHold = narrowTag === 'hold';
+  const list = store.all().filter(t => !isDoneItem(t) && (wantHold || !isHoldItem(t)));
+  if (narrowTag === null) return list;
+  if (narrowTag === UNSORTED_ONLY) return list.filter(isUnsorted);
+  return list.filter(t => tagsOfSafe(t.id).indexOf(narrowTag) >= 0);
+}
+
+/* 絞り込みに出す一覧。**完了は出さない**（下の海とふりかえりに専用の道がある） */
+function narrowChoices() {
+  const out = [{ id: null, name: CENTER_NAME }, { id: UNSORTED_ONLY, name: NARROW_NAME }];
+  if (!has('tags')) return out;
+  try {
+    (store.tags() || []).forEach(t => {
+      if (!t || typeof t.id !== 'string' || t.id === 'done') return;
+      out.push({ id: t.id, name: nameOf(t), color: colorOf(t, null) });
+    });
+  } catch (err) { /* タグの無い版 */ }
+  return out;
+}
+
+/* いま絞っているものの名前。絞っていなければ null */
+function narrowName() {
+  if (narrowTag === null) return null;
+  if (narrowTag === UNSORTED_ONLY) return NARROW_NAME;
+  const c = narrowChoices().find(x => x.id === narrowTag);
+  return c ? c.name : null;
 }
 
 function faceItems(face) {
@@ -920,6 +955,7 @@ function settle() {
 
 function goFace(face) {
   if (!faces[face]) return;
+  closeNarrowPop(false);
   if (face !== 'center' && !dirTag(face)) face = 'center';
   /* 面が変われば候補の集合も変わる。混ぜている途中なら畳む
      （別の海へ移ったのに、前の海のものが開くのは筋が通らない） */
@@ -1386,12 +1422,67 @@ function setGathering(on) {
    ならべている間はボタンごと引っ込め（面が丸ごと隠れるので絞る対象が無い）、
    もどしたときに元の絞り込みへ戻る。同時に2つのモードを重ねない。 */
 
-function setNarrow(on) {
-  const next = !!on;
-  if (narrowing === next) return;
-  narrowing = next;
+function setNarrow(tagId) {
+  const next = (tagId === undefined) ? null : tagId;
+  if (narrowTag === next) return;
+  narrowTag = next;
   syncFaces();          /* 中央の顔ぶれが変わる */
   renderChrome();
+}
+
+/* --- 絞り込みの選び札（利用者の指示でタグごとに増やした） ---
+   前は「しぼる」⇄「もどす」の2択トグルだった。タグが増えると2択では足りないので、
+   小さな一覧を出す形にした。**戻し方は一覧の先頭（ぜんぶ）**——
+   別のボタンにすると、絞っている間だけ現れる的が増える。 */
+let narrowPop = null;
+
+function closeNarrowPop(restoreFocus) {
+  if (!narrowPop) return false;
+  narrowPop.remove();
+  narrowPop = null;
+  if (narrowBtn) narrowBtn.setAttribute('aria-expanded', 'false');
+  if (restoreFocus && narrowBtn && !narrowBtn.hidden) narrowBtn.focus({ preventScroll: true });
+  return true;
+}
+
+function openNarrowPop() {
+  if (closeNarrowPop(true)) return;
+  const pop = el('div', 'sea-narrow-pop');
+  pop.setAttribute('role', 'menu');
+  pop.setAttribute('aria-label', 'しぼりこみ');
+  narrowChoices().forEach(c => {
+    const b = el('button', 'sea-narrow-row');
+    b.type = 'button';
+    b.setAttribute('role', 'menuitemradio');
+    b.setAttribute('aria-checked', c.id === narrowTag ? 'true' : 'false');
+    const dot = el('span', 'dot');
+    dot.setAttribute('aria-hidden', 'true');
+    if (c.color) dot.style.setProperty('--tcd', c.color);
+    else dot.classList.add('is-none');
+    const nm = el('span', 'nm');
+    nm.textContent = c.name;                 /* ユーザーの文字。innerHTML には入れない */
+    b.appendChild(dot);
+    b.appendChild(nm);
+    b.addEventListener('click', ev => {
+      ev.preventDefault();
+      closeNarrowPop(true);
+      setNarrow(c.id);
+    });
+    pop.appendChild(b);
+  });
+  pop.addEventListener('keydown', ev => {
+    const rows = Array.from(pop.querySelectorAll('button'));
+    const i = rows.indexOf(document.activeElement);
+    if (ev.key === 'Escape') { ev.preventDefault(); closeNarrowPop(true); return; }
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); rows[(i + 1 + rows.length) % rows.length].focus(); return; }
+    if (ev.key === 'ArrowUp') { ev.preventDefault(); rows[(i - 1 + rows.length) % rows.length].focus(); return; }
+    if (ev.key === 'Tab') closeNarrowPop(false);
+  });
+  stage.appendChild(pop);
+  narrowPop = pop;
+  narrowBtn.setAttribute('aria-expanded', 'true');
+  const first = pop.querySelector('[aria-checked="true"]') || pop.querySelector('button');
+  if (first) first.focus({ preventScroll: true });
 }
 
 function syncNarrowBtn() {
@@ -1399,16 +1490,16 @@ function syncNarrowBtn() {
   /* 中央（ぜんぶ）の海にだけ置く。タグの海には出さない（絞る意味が無い） */
   const show = curFace === 'center' && hasTags() && !gathering;
   narrowBtn.hidden = !show;
-  const on = narrowOn();
-  narrowLabel.textContent = on ? 'もどす' : 'しぼる';
-  narrowBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  narrowBtn.classList.toggle('is-on', on);
-  narrowBtn.setAttribute('aria-label', on
-    ? 'ぜんぶの海にもどす'
-    : 'まだどこにも入れていないものだけにする');
-  narrowBtn.title = on
-    ? '押すと、ぜんぶの海にもどる'
-    : '押すと、まだ 今日・きっかけ・すきま のどれにも入れていないものだけになる';
+  if (!show) closeNarrowPop(false);
+  const nm = narrowName();
+  /* 絞っている間はボタンにその名前を出す。何で絞っているかが、
+     面の名前とボタンの2か所に出ることになるが、面の名前は滑ると隠れるので残す */
+  narrowLabel.textContent = nm || 'しぼる';
+  narrowBtn.setAttribute('aria-pressed', nm ? 'true' : 'false');
+  narrowBtn.classList.toggle('is-on', !!nm);
+  narrowBtn.setAttribute('aria-label', nm
+    ? '「' + nm + '」でしぼっている。押すと選び直す'
+    : 'しぼりこみを選ぶ');
 }
 
 /* ---------------- ランダムスタート ----------------
@@ -1601,7 +1692,7 @@ function renderChrome() {
   const tag = curFace === 'center' ? null : dirTag(curFace);
   /* 絞っている間は面の名前が変わる。これが「いま絞っている」の常時の合図（追補4 §2） */
   const narrow = curFace === 'center' && narrowOn();
-  const name = curFace !== 'center' ? nameOf(tag) : (narrow ? NARROW_NAME : CENTER_NAME);
+  const name = curFace !== 'center' ? nameOf(tag) : (narrow ? (narrowName() || NARROW_NAME) : CENTER_NAME);
 
   /* 面が中央ひとつしか無いなら、名前を出さない（選びようがないものに名札は要らない）。
      ただし絞っている間は、名前そのものが合図なので必ず出す */
@@ -1866,9 +1957,11 @@ export default {
     narrowBtn.appendChild(nic);
     narrowBtn.appendChild(narrowLabel);
     narrowBtn.hidden = true;
+    narrowBtn.setAttribute('aria-haspopup', 'menu');
+    narrowBtn.setAttribute('aria-expanded', 'false');
     narrowBtn.addEventListener('click', ev => {
       ev.preventDefault();
-      setNarrow(!narrowing);
+      openNarrowPop();
     });
     stage.appendChild(narrowBtn);
 
@@ -1903,6 +1996,13 @@ export default {
 
     /* 背景から始めた指だけが面を動かす。バブルから始めた指はタグ付け（bubble.js が拾う） */
     stage.addEventListener('pointerdown', onStageDown);
+    /* 選び札の外を押したら畳む。押した先のボタンを取りこぼさないよう capture で先に拾う */
+    document.addEventListener('pointerdown', ev => {
+      if (!narrowPop) return;
+      const t = ev.target;
+      if (t && t.closest && t.closest('.sea-narrow-pop, .sea-narrow')) return;
+      closeNarrowPop(false);
+    }, true);
 
     pane.appendChild(stage);
 
