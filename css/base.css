@@ -151,6 +151,7 @@ body {
 }
 .tabbar button {
   appearance: none; border: 0; background: transparent; cursor: pointer;
+  position: relative;                      /* 選んでいるときの上の線を置くため */
   /* --text-3 は --surface に対し 明2.87 / 暗3.50 で 4.5:1 を切る。
      タブのラベルは意味を持つ文字（しかも落下先の名前）なので --text-2 で止める */
   font: inherit; font-size: 11px; color: var(--text-2);
@@ -162,6 +163,32 @@ body {
 .tabbar button.is-active { color: var(--text); }
 .tabbar button.is-active .ic { color: var(--bub-edge); }
 .tabbar button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -3px; }
+
+/* ---------- タブの色（利用者の指示） ----------
+   --tab-c は app.js が入れる＝そのタブが指している場所の**いまの色**。
+   持っていないタブ（ふりかえり・設定）には .has-c が付かず、今までどおりの見た目。
+
+   **文字には載せない。**タグの色は OKLCH の L .855〜.935 の淡色ばかりで、
+   白地の文字に使うと 2:1 も出ない。ラベルは --text-2 / --text のまま動かさない。
+
+   アイコンも生の色では出さず、**文字色と混ぜて**沈める。混ぜ先が --text なので、
+   明るいテーマでは暗く、暗いテーマでは明るくなる——1つの式で両方に効く。
+   混ぜる比はアイコンが 3:1（文字ではない部品の下限）を切らないところで決めた。 */
+.tabbar button.has-c .ic {
+  color: color-mix(in oklab, var(--tab-c) 52%, var(--text));
+}
+.tabbar button.is-active.has-c .ic {
+  color: color-mix(in oklab, var(--tab-c) 66%, var(--text));
+}
+/* 選んでいるタブだけ、地をうっすらとその色にして、上に線を1本引く。
+   線は色だけの手がかりにしない——ラベルの色と太さも一緒に変わる（1.4.1） */
+.tabbar button.is-active.has-c {
+  background: color-mix(in srgb, var(--tab-c) 13%, transparent);
+}
+.tabbar button.is-active.has-c::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: color-mix(in oklab, var(--tab-c) 66%, var(--text));
+}
 
 /* ドラッグ中だけ、タブが落下先に見える。
    受けないタブ（ふりかえり・設定）は薄くして、狙っても無駄だと分かるようにする。 */

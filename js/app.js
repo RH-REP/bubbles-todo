@@ -159,6 +159,57 @@ SCREENS.forEach(s => {
   tabbar.appendChild(btn);
 });
 
+/* ---------------- タブの色（利用者の指示） ----------------
+
+   「下のタブの色を、現在の対応色にして（文字の見やすさに注意して）」
+
+   タブが指している場所の色を、そのままタブに出す。**いまの色**を出すので、
+   ここでは決め打ちせず store から読む（タグの色は配り直しが起きうる。PAL_VER）。
+
+     海       … --bub-edge（海そのものの色。タグではない）
+     今日     … タグ「今日」の色
+     きっかけ … タグ「きっかけ」の色
+     すきま   … タグ「すきま」の色
+     ふりかえり / 設定 … 対応する色が無いので、色を持たせない
+
+   ふりかえりと設定に色を付けなかったのは、**対応する色が無いから**。
+   揃えるために適当な色を割り当てると「この色は何を指しているのか」に答えが無くなる。
+
+   **文字には載せない。**タグの色は 12色すべて OKLCH の L .855〜.935 の淡色で、
+   白地の文字に使うと 4.5:1 どころか 2:1 も出ない。色を出すのはアイコンと、
+   選んでいるときの上の線・地の色だけ。ラベルは今までどおり --text-2 / --text。
+   アイコンも生の色ではなく、**文字色と混ぜて**沈める（明るい地では暗く、
+   暗い地では明るくなる＝1つの式で両方のテーマに効く）。 */
+const TAB_TAG = { today: 'today', plan: 'plan', gap: 'gap' };
+const HEX_OK = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/;
+
+function tabColorOf(id, byId) {
+  if (id === 'sea') return 'var(--bub-edge)';
+  const key = TAB_TAG[id];
+  if (!key) return '';
+  const t = byId.get(key);
+  const c = t && typeof t.color === 'string' ? t.color.trim() : '';
+  return HEX_OK.test(c) ? c : '';
+}
+
+function syncTabColors() {
+  let list = [];
+  try { list = (typeof store.tags === 'function' ? store.tags() : []) || []; }
+  catch (err) { list = []; }
+  const byId = new Map();
+  list.forEach(t => { if (t && typeof t.id === 'string') byId.set(t.id, t); });
+  [...tabbar.children].forEach(btn => {
+    const c = tabColorOf(btn.dataset.id, byId);
+    if (c) btn.style.setProperty('--tab-c', c);
+    else btn.style.removeProperty('--tab-c');
+    btn.classList.toggle('has-c', !!c);
+  });
+}
+
+syncTabColors();
+/* 色が配り直されたら追いかける（設定でタグを触ったときもここを通る） */
+if (typeof store.on === 'function') store.on(syncTabColors);
+
 window.addEventListener('bubbles:dayview', ev => {
   if (!todayTabLabel) return;
   const b = (ev && ev.detail && ev.detail.badge) || null;
