@@ -209,9 +209,31 @@
 .today-detail .td-done:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 
 /* ---------- 見ている日（利用者の指示） ----------
-   左上に日付。押すと近い日が選べる。遠い日は左右になぞって行く。 */
-.today-day {
+   左上に日付。押すと近い日が選べる。遠い日は左右になぞって行く。
+
+   **両脇の ‹ › は、なぞれることの手がかり**（利用者の指摘）。
+   なぞる操作は前から動いていたが、画面のどこにもそう書いていなかった。
+   札としてだけでなく押しても移れる——指だけの経路にしない（海の矢印看板と同じ考え）。 */
+.today-dayrow {
   position: absolute; z-index: 8; left: 10px; top: 10px;
+  display: flex; align-items: center; gap: 2px;
+  max-width: calc(100% - 20px);
+}
+.today-daystep {
+  flex: none;
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  min-width: 36px; min-height: 36px; padding: 0;
+  font-size: 17px; line-height: 1;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text-2);
+}
+.today-daystep:hover { color: var(--text); border-color: var(--line-strong); }
+.today-daystep:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+.today-day {
+  flex: 1; min-width: 0;
   appearance: none; -webkit-appearance: none;
   cursor: pointer; font: inherit;
   min-height: 36px; padding: 0 13px;

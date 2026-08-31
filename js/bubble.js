@@ -756,6 +756,46 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     });
     fields.appendChild(tags);
 
+    /* ---- 日を移す（利用者の指示）----
+
+       > タスクも次の日に移せるようにしたい
+
+       **「今日」の画面に居るときだけ出す。**あそこは日を1つ映している画面なので、
+       「この日から次の日へ」が何を指すか迷いようが無い。
+       海やきっかけの盤に出すと、どの日のことか読めない——1件は複数の日に置けるので、
+       「次の日」と言われても、どの日の次なのかが決まらない。
+
+       **移動であって追加ではない。**いま映している日から外して、隣の日へ入れる。
+       押した先は口で言う（トーストは画面側が出す。ここは店を呼ぶだけ）。 */
+    const vDay = ask(a, 'viewDay');
+    const canMoveDay = !!vDay && typeof (a || {}).moveDay === 'function'
+      && ask(a, 'onDay', id, vDay);
+    if (canMoveDay) {
+      const box = el('div', 'bc-day');
+      const lb = el('span', 'bc-day-lb', 'この日から');
+      box.appendChild(lb);
+      const row = el('div', 'bc-day-picks');
+      [
+        { tx: '‹ 前の日へ', n: -1 },
+        { tx: '次の日へ ›', n: +1 },
+      ].forEach(p => {
+        const b = el('button', 'bc-day-pick');
+        b.type = 'button';
+        b.textContent = p.tx;
+        b.addEventListener('click', ev => {
+          ev.preventDefault();
+          const to = ask(a, 'shiftDay', vDay, p.n);
+          if (!to) return;
+          ask(a, 'moveDay', id, vDay, to);
+          /* 移した先は別の日なので、この盤はもう「この日」の話ではない。
+             store が emit して画面が組み直す＝盤は閉じる */
+        });
+        row.appendChild(b);
+      });
+      box.appendChild(row);
+      fields.appendChild(box);
+    }
+
     /* ---- 長期保留の「戻ってくる日」（利用者の指示）----
 
        長期保留は「いつかやるが、いまは見ない」。

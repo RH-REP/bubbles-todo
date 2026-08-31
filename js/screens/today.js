@@ -161,13 +161,17 @@ function announceDay() {
   } catch (_) { /* 古い環境。札が出ないだけ */ }
 }
 
+/* いま映している日そのもの（過去でも返す）。盤の「日を移す」が読む。
+   dropDay() と違って過去も返す——移すのは書き換えではなく置き直しなので */
+export function viewingDay() { return curDay(); }
+
 export function dropDay() {
   const k = curDay();
   return (k < todayKey()) ? null : k;
 }
 
 let viewDay = null;          /* 'YYYY-MM-DD'。null なら今日 */
-let dayBtn = null;
+let dayBtn = null, dayPrev = null, dayNext = null;
 let dayPop = null;
 
 const todayKey = () => (typeof store.todayKey === 'function' ? store.todayKey() : '');
@@ -1049,11 +1053,34 @@ export default {
        海と同じ形・同じ印・同じ言い方。海では「ならべる」の下に置いているが、
        この画面には他のボタンが無いので右上に置く（親指の届く角は同じ側）。 */
     /* 見出しの日付。押すと近い日が選べる（利用者の判断）。
-       遠い日は左右になぞって行く */
+       遠い日は左右になぞって行く。
+
+       **両脇に ‹ › を置く**（利用者の指摘）。左右になぞれば日が移ることは
+       前から動いていたが、画面のどこにもそう書いていなかった——
+       海には矢印の看板があるのに、ここには手がかりが無かった。
+       札としてだけでなく**押しても移れる**ようにする（指だけの経路にしない／A-9 と同じ）。 */
+    const dayRow = el('div', 'today-dayrow');
+
+    dayPrev = el('button', 'today-daystep');
+    dayPrev.type = 'button';
+    dayPrev.textContent = '‹';
+    dayPrev.setAttribute('aria-label', '前の日へ');
+    dayPrev.addEventListener('click', ev => { ev.preventDefault(); goDay(shiftDay(curDay(), -1)); });
+    dayRow.appendChild(dayPrev);
+
     dayBtn = el('button', 'today-day');
     dayBtn.type = 'button';
     dayBtn.addEventListener('click', ev => { ev.preventDefault(); openDayPop(dayBtn); });
-    stage.appendChild(dayBtn);
+    dayRow.appendChild(dayBtn);
+
+    dayNext = el('button', 'today-daystep');
+    dayNext.type = 'button';
+    dayNext.textContent = '›';
+    dayNext.setAttribute('aria-label', '次の日へ');
+    dayNext.addEventListener('click', ev => { ev.preventDefault(); goDay(shiftDay(curDay(), 1)); });
+    dayRow.appendChild(dayNext);
+
+    stage.appendChild(dayRow);
     syncDayBtn();
     stage.addEventListener('pointerdown', onDayDown);
 

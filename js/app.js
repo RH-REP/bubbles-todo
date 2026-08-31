@@ -14,7 +14,7 @@ import { toast } from './ui.js';
 import { setCaptureHandler, setWorklogHandler } from './focus.js';
 import { setCenterHandler } from './bubble.js';
 import sea from './screens/sea.js';
-import today, { openDayPicker, dayBadge } from './screens/today.js';
+import today, { openDayPicker, dayBadge, viewingDay } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
@@ -89,6 +89,18 @@ function show(id) {
 
   current = next;
   if (typeof next.onShow === 'function') next.onShow();
+}
+
+/* 日付キーを n 日ずらす。正午に寄せてから動かす（夏時間の日でも飛ばない）。
+   today.js が同じものを持っているが、あちらは画面の内側なので、
+   ここから呼べる形で1つ置く（store には日をずらす口が dayAfter しか無い＝今日起点のみ） */
+function shiftDayKey(key, n) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+  d.setDate(d.getDate() + (Math.floor(Number(n)) || 0));
+  const p = x => (x < 10 ? '0' + x : String(x));
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 }
 
 /* ---- 「今日」タブの長押しと、日付の札（利用者の指示） ----
@@ -229,6 +241,24 @@ setCenterHandler({
   setUrl:       (id, v) => { if (has('setUrl')) store.setUrl(id, v); },
   /* 一手の記録（古い順）。無ければ盤に「履歴」のボタンを出さない */
   steps:        (id) => (has('stepsOf') ? store.stepsOf(id) : []),
+
+  /* --- 日を移す（利用者の指示）---
+
+     「今日」の画面に居るときだけ出す。あそこは**日を1つ映している**画面なので、
+     「この日から次の日へ」が何を指すか迷いようが無い。
+     海やきっかけの盤にも出すと、どの日のことか読めない（1件が複数の日に置ける）。
+
+     渡すのは「いま映している日」と、その日に置かれているかどうか。
+     移すのは その日から外して、隣の日へ入れる——**移動であって追加ではない**。 */
+  viewDay:      () => (current && current.id === 'today' ? viewingDay() : null),
+  onDay:        (id, key) => (has('daysOf') ? store.daysOf(id).indexOf(key) >= 0 : false),
+  moveDay:      (id, from, to) => {
+    if (!has('setDay')) return false;
+    store.setDay(id, from, false);
+    store.setDay(id, to, true);
+    return true;
+  },
+  shiftDay:     (key, n) => shiftDayKey(key, n),
 
   /* 盤の [OK] が積む1件（利用者の指示）。
      集中画面と**同じ store の口**を使う（記録の入口を2つにしない）。

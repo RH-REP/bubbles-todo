@@ -1088,6 +1088,26 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
 .bub-center .bc-tag-btn:hover { border-color: var(--line-strong); }
 .bub-center .bc-tag-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 
+/* ---------- 日を移す（利用者の指示） ----------
+   「今日」の画面に居るときだけ出る。いま映している日から、隣の日へ移す。
+   もどってくる日の欄と同じ形にそろえてある（どちらも日の話なので）。 */
+.bub-center .bc-day {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px; margin-top: 2px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-2);
+}
+.bub-center .bc-day-lb { font-size: 12px; color: var(--text-2); }
+.bub-center .bc-day-picks { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.bub-center .bc-day-pick {
+  appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px;
+  cursor: pointer; min-height: 44px; padding: 0 10px;   /* タップ目標 44 を下回らせない */
+  color: var(--text); background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: 10px;
+}
+.bub-center .bc-day-pick:hover { border-color: var(--bub-edge); }
+.bub-center .bc-day-pick:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
 /* ---------- 長期保留の「もどってくる日」（利用者の指示） ----------
    長期保留の札を押しているあいだだけ出る。
    見出し・日付欄・目安の札の3段。目安を押すと日付欄に入る（別々に持たない）。
