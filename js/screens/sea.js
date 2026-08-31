@@ -930,6 +930,112 @@ let overEdge = null;
 function onBubblePointer(ev) {
   lastPt = { x: ev.clientX, y: ev.clientY };
   markEdge(edgeHitAt(lastPt.x, lastPt.y));
+  markOff(offHitAt(lastPt.x, lastPt.y));
+}
+
+/* ---------------- タグを外す枠（利用者の指示） ----------------
+
+   バブルを掴んでいる間だけ、**下の真ん中**に出す。そこへ持っていって
+   **少し置いてから離す**と、いまの海のタグが外れる。
+
+   なぜ「置いてから」なのか。端の帯（タグを付ける）は触れて離せばすぐ付くが、
+   外すほうは戻す手間が違う（付け直すには、その海まで運び直すことになる）。
+   だから、うっかり通り過ぎただけでは外れないようにした。時間は 0.5秒。
+
+   **ぜんぶの海には出さない**（利用者の指示）。あそこは「すべて」で、
+   外す相手のタグが1つに決まらないため。
+
+   置いてある時間そのものは画面に出さない（0.5 と数字を出すと、
+   このアプリが数えないことにしているものが1つ増える）。出すのは
+   「まだ」と「離すと外れる」の2つの姿だけ。 */
+const OFF_MS = 500;
+let dropOff = null, offLabel = null;
+let offTimer = 0, offArmed = false, offIn = false;
+
+/* いまの海のタグ。ぜんぶの海なら null＝枠を出さない */
+function offTag() {
+  return curFace === 'center' ? null : dirTag(curFace);
+}
+
+/* 当たり判定は、出ている枠の矩形そのもの（見えている範囲＝当たる範囲）。
+   ドロップ判定は指先の座標で（契約 §14。バブルの外形は広すぎる） */
+function offHitAt(x, y) {
+  if (!dropOff || dropOff.hidden) return false;
+  if (!Number.isFinite(x) || x < 0 || !Number.isFinite(y) || y < 0) return false;
+  const q = dropOff.getBoundingClientRect();
+  if (!q.width || !q.height) return false;
+  return x >= q.left && x <= q.right && y >= q.top && y <= q.bottom;
+}
+
+function syncOffLabel() {
+  if (!offLabel) return;
+  const tag = offTag();
+  if (!tag) return;
+  const name = trim(nameOf(tag));
+  /* 端の帯（「〈仕事〉 が付く」）と同じ言い方にそろえる＝「いま離すとどうなるか」 */
+  offLabel.textContent = offArmed
+    ? '離すと『' + name + '』が外れる'
+    : 'ここに少し置くと『' + name + '』が外れる';
+}
+
+function setOffArmed(on) {
+  if (offArmed === on) return;
+  offArmed = on;
+  if (dropOff) dropOff.classList.toggle('is-armed', on);
+  syncOffLabel();
+}
+
+function markOff(inside) {
+  if (inside === offIn) return;
+  offIn = inside;
+  if (dropOff) dropOff.classList.toggle('is-over', inside);
+  clearTimeout(offTimer); offTimer = 0;
+  if (!inside) { setOffArmed(false); return; }
+  offTimer = setTimeout(() => { offTimer = 0; setOffArmed(true); }, OFF_MS);
+}
+
+function clearOff() {
+  clearTimeout(offTimer); offTimer = 0;
+  offIn = false; offArmed = false;
+  if (dropOff) dropOff.classList.remove('is-over', 'is-armed');
+}
+
+function renderOff() {
+  if (!dropOff) return;
+  const tag = bubbleDrag ? offTag() : null;
+  dropOff.hidden = !tag || gathering;
+  if (!tag) return;
+  syncOffLabel();
+}
+
+/* 外す。付けるほう（tagFromEdge）と対にしてある */
+function untagHere(id, tag) {
+  const t = store.get(id);
+  if (!tag || !t) return;
+  if (!has('setTag')) { toast('いまはタグを外せない'); return; }
+  const name = nameOf(tag);
+  if (tagsOfSafe(id).indexOf(tag.id) < 0) {
+    toast('「' + trim(t.text) + '」に『' + trim(name) + '』は付いていない');
+    return;
+  }
+  /* 長期保留を外すと、もどってくる日も一緒に落ちる。戻すときに書き戻せるよう控える */
+  const until = (tag.id === 'hold' && has('holdUntil')) ? store.holdUntil(id) : null;
+  if (store.setTag(id, tag.id, false) === false) return;
+  const back = () => {
+    if (!has('setTag')) return;
+    store.setTag(id, tag.id, true);
+    if (until && has('setHoldUntil')) store.setHoldUntil(id, until);
+  };
+  const nm = trim(t.text);
+  if (tag.id === 'done') {
+    toast('「' + nm + '」を、まだのほうへ戻した', { label: '取り消す', on: back });
+    return;
+  }
+  if (tag.id === 'hold') {
+    toast('「' + nm + '」の長期保留をやめた', { label: '取り消す', on: back });
+    return;
+  }
+  toast('「' + nm + '」から『' + trim(name) + '』を外した', { label: '取り消す', on: back });
 }
 
 function beginBubbleDrag(id) {
@@ -940,7 +1046,8 @@ function beginBubbleDrag(id) {
   window.addEventListener('pointermove', onBubblePointer, true);
   window.addEventListener('pointerup', onBubblePointer, true);
   stage.classList.add('is-bubdrag');
-  renderEdges(); renderSigns(); syncZoomBtn();
+  clearOff();
+  renderEdges(); renderSigns(); syncZoomBtn(); renderOff();
 }
 
 function endBubbleDrag() {
@@ -949,15 +1056,20 @@ function endBubbleDrag() {
   window.removeEventListener('pointermove', onBubblePointer, true);
   window.removeEventListener('pointerup', onBubblePointer, true);
   stage.classList.remove('is-bubdrag');
-  markEdge(null);
   const pt = lastPt;
-  renderEdges(); renderSigns(); syncZoomBtn();
+  /* 外す枠の判定は**畳む前に**。畳むと矩形が取れない。
+     置いた時間が足りていなければ（offArmed が偽）、ここは何もしない */
+  const offT = (offArmed && offHitAt(pt.x, pt.y)) ? offTag() : null;
+  markEdge(null);
+  clearOff();
+  renderEdges(); renderSigns(); syncZoomBtn(); renderOff();
   if (!d) return;
   /* onDropToTab と onDragEnd のどちらが先に来るかは決まっていないので、
      マイクロタスク1つぶん待ってから見る（plan.js と同じ間合い） */
   Promise.resolve().then(() => {
     if (tabDropped) return;
     if (overTabbar(pt)) return;
+    if (offT) { untagHere(d.id, offT); return; }
     const dir = edgeHitAt(pt.x, pt.y, true);
     if (dir) tagFromEdge(d.id, dir);
   });
@@ -2105,7 +2217,7 @@ function renderChrome() {
   syncMore();
   syncNarrowBtn();
   syncRandomBtn();
-  renderEdges(); renderSigns(); syncZoomBtn();
+  renderEdges(); renderSigns(); syncZoomBtn(); renderOff();
   syncComposer();
 }
 
@@ -2314,6 +2426,17 @@ export default {
     moreLine = el('p', 'sea-more', '新しいほうから出している。<br>「ならべる」で、ぜんぶ。');
     moreLine.hidden = true;
     stage.appendChild(moreLine);
+
+    /* --- タグを外す枠（掴んでいる間だけ、下の真ん中に出る）---
+       ステージの子。倍率が掛かると狙いにくくなるので、面の中には置かない。
+       指は透かす——判定は指先の座標でやるので、当たり判定を持つ必要がない
+       （持つと、真下に居るバブルを掴めなくする） */
+    dropOff = el('div', 'sea-dropoff');
+    dropOff.hidden = true;
+    dropOff.setAttribute('aria-hidden', 'true');
+    offLabel = el('span', 'lb');
+    dropOff.appendChild(offLabel);
+    stage.appendChild(dropOff);
 
     /* --- 引いて見る（ズームアウト。A-1） ---
        押すたびに 1.00 → 0.80 → 0.60 → 1.00 と回る。段は3つしかないので

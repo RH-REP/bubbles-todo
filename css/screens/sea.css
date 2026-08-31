@@ -767,3 +767,55 @@
 /* 文字を縮める上書きはもう要らない。面ごと scale が掛かるので、
    文字もバブルも枠も同じ率で小さくなる（それがズームという言葉の意味）。
    --sea-zoom は sea.js が .sea-stage に入れたままにしてある（見た目の分岐用）。 */
+
+/* ---------- タグを外す枠（利用者の指示） ----------
+   バブルを掴んでいる間だけ、下の真ん中に出る。少し置いてから離すと外れる。
+   ぜんぶの海には出さない（外す相手が1つに決まらないので。JS 側で hidden にする）。
+
+   置き場所はステージの下端の少し上。左右の帯（.sea-edge、厚み 21px）とは
+   重ならない——枠の幅は最大 260px なので、375px 幅でも両脇に 57px ずつ残る。
+
+   指は透かす。判定は指先の座標でやるので当たり判定は要らず、
+   持たせると真下のバブルを掴めなくなる（A-8 と同じ理由）。 */
+.sea-dropoff {
+  position: absolute; z-index: 9;
+  left: 50%; bottom: 16px; transform: translateX(-50%);
+  width: min(260px, 62%); min-height: 60px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1.5px dashed var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text-2);
+  font-size: 12.5px; line-height: 1.45; text-align: center; letter-spacing: .02em;
+  pointer-events: none;
+  overflow: hidden;
+  isolation: isolate;
+}
+.sea-dropoff .lb { position: relative; z-index: 1; }
+
+/* 置いている間の手応え。左から満ちて、満ちたら外れる合図になる。
+   時間そのもの（0.5秒）は数字で出さない——満ち具合が、そのまま残り時間 */
+.sea-dropoff::before {
+  content: ''; position: absolute; inset: 0; z-index: 0;
+  background: color-mix(in srgb, var(--bub-edge) 22%, transparent);
+  transform: scaleX(0); transform-origin: left center;
+}
+.sea-dropoff.is-over::before { animation: dropoff-fill .5s linear forwards; }
+.sea-dropoff.is-armed::before { animation: none; transform: scaleX(1); }
+@keyframes dropoff-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* 満ちたら、点線をやめて「いま離せば外れる」の姿にする。
+   色ではなく**線の種類**も変える（色だけに頼らない。1.4.1） */
+.sea-dropoff.is-armed {
+  border-style: solid;
+  border-color: var(--bub-edge);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 満ちる動きは出さない。満ちた姿（＝離せば外れる）だけを、そのとき出す */
+  .sea-dropoff.is-over::before { animation: none; }
+}
