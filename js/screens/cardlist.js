@@ -204,287 +204,28 @@ const keyOf = (id, where) => id + '::' + (where || 'none');
    drift へ渡す id は todo の id ではなく key にする（id では区別が付かない）。 */
 const entries = new Map();
 
-/* ---------------- 面（drift の引力の井戸） ----------------
+/* ---------------- バブルの置き方 ----------------
 
-   追補5 §1 で drift.js に `setWells` が入る。入ると枠は「引力の井戸」になり、
-   バブルは面を漂って、セルに近づくと吸い込まれて止まる。
+   **カードの中へ DOM で流し込む。**物理は使わない（利用者の指示）。
 
-   面に載せ替えるには、井戸のほかにもう1つ要る——**どのバブルがどのセルの持ち物か**。
-   この画面のバブルは「どのきっかけにぶら下がっているか」そのものなので、
-   置き場所が物理まかせだと、意味が消える。だから setItems へ渡す1件に
-   `well`（落ち着き先のセルの id）を載せている。
+   一度は drift の「引力の井戸」に載せていた（追補5 §1）。枠を井戸にして、
+   バブルは面を漂い、セルに近づくと吸い込まれて止まる、という作りだった。
+   利用者の報告「きっかけのバブル操作がおかしい」と
+   「もしかしたらバブルが画面裏に隠れているだけかも」で外した。
 
-   drift が `setWells` を持たない／`well` を見ないうちに面へ載せると、
-   バブルは重力でいちばん下まで落ちて全部が未分類の井戸に溜まる。
-   例外は出ないが、画面としては壊れている（どのきっかけに何があるか読めない）。
-   なので「壊れない」を「例外を出さない」ではなく「画面として読める」で取り、
-   その2つが揃うまでは、これまでどおり枠の中へ流し込む（格子には乗せる）。
-   揃ったかどうかは最初の setItems の結果で確かめる（下の checkPlacement）。 */
-let field = null;              /* drift の面。井戸と置き場所が使えるときだけ持つ */
-let fieldTried = false;
-let fieldChecked = false;      /* 置き場所の確認を済ませたか */
-let fieldItems = [];           /* 面へ渡す並び。流し込みのときは使わない */
+   **外した理由は、直せないからではなく、確かめられないから。**
+   引力・漂い・吸い込みは requestAnimationFrame の上で起きるが、
+   検証に使っているブラウザペインは裏に回っていて rAF が発火しない（契約 §14）。
+   つまり**この機構は一度も観測できたことがない**。observable でないものを
+   画面の中心に置き続けるのは、直し方の当てが無いまま持ち続けることになる。
 
-function fieldOn() { return !!field; }
+   隠れて見えなくなる筋道も、面に置くとありうる：セルから弾き出されたバブルは
+   重力で面のいちばん下まで落ちる。そこは最後のカードより下＝スクロールの外側で、
+   画面のどこにも出てこない。DOM で流し込めば、バブルは必ずカードの中の
+   `.grid` の子になるので、落ちる先も隠れる先も無い。
 
-/* 面から返ってくる id を、この画面の1件に結び直す。
+   物理を使うのは「海」と「今日」だけ（あちらは漂うことそのものが画面の意味）。 */
 
-   ★ ここは素直に entries.get(id) では足りない。
-     この画面は同じ todo を複数の枠に出すので、面へ渡す id は todo の id ではなく
-     key（todo.id + '::' + where）にしている。ところが drift は、コールバックで
-     **todo の id をそのまま返してくることがある**（実測: item.id に
-     'bmtf9xn0qpgvz3::amtf9xn10ioaf6' を渡したのに onDragStart は
-     'bmtf9xn0qpgvz3' で来た）。key でしか引かないと、掴めるのに離しても
-     何も起きない——枠から枠への移動も、タブへのドロップも、全部黙って落ちる。
-
-   引き直す順番（上ほど確か）:
-     1. key そのもの
-     2. いま掴まれているノードの data-key（stampNodes が書いてある）。
-        同じ todo が複数の枠に出ていても、これならどの枠のバブルか一つに決まる
-     3. todo.id での照合。複数の枠に出ていると、どれか一つには決められない */
-function resolveEntry(id) {
-  if (id == null) return null;
-  const hit = entries.get(id);
-  if (hit) return hit;
-
-  /* 掴まれているノードはドラッグ層へ移されるので、そこも見る */
-  const held = document.querySelector(
-    '#drag-layer .bub[data-key], .plan-surface .bub[data-key].is-dragging, .plan-surface .bub[data-key].is-held');
-  if (held && held.dataset.key) {
-    const e = entries.get(held.dataset.key);
-    if (e && (e.todo.id === id || held.dataset.key === id)) return e;
-  }
-
-  const hits = [];
-  entries.forEach(e => { if (e.todo && e.todo.id === id) hits.push(e); });
-  return hits.length ? hits[0] : null;
-}
-
-/* drift へ渡すハンドラ。
-   ★ drift のノードには attachGestures を張らない（二重に張ると、離したときに
-     バブルがドラッグ層へ残って画面の外へ出る。実際に起きた不具合） */
-function fieldHandlers() {
-  return {
-    size: BUB_SIZE,
-    onFocusRequest(key) {
-      const e = resolveEntry(key);
-      if (e) startFive(e.todo, e.anchor);
-    },
-    onMenu(key, node) {
-      const e = resolveEntry(key);
-      if (!e) return;
-      openItemMenu(e.todo, e.anchor, e.key, node || nodeForKey(e.key));
-    },
-    onDropToTab(key, tabId) {
-      const e = resolveEntry(key);
-      tabDropped = true;
-      if (e) dropToTab(e.todo, tabId);
-    },
-    onDragStart(key) {
-      const e = resolveEntry(key);
-      if (e) { beginDrag(e.todo.id, e.where); return; }
-      /* 面が知っている id を、こちらが引けない。黙って落とすと
-         「掴めるのに、離しても何も起きない」になる（実際に踏んだ） */
-      console.warn('[plan] onDragStart の id を引けない', key);
-    },
-    onDragEnd() { endDrag(); },
-    getHost() { return surfaceEl; },
-  };
-}
-
-/* 面を1度だけ作る。drift.js は動的に読む——
-   静的 import にすると、drift.js が無い／壊れている間はこの画面ごと読めなくなる */
-function ensureField() {
-  if (fieldTried) return Promise.resolve();
-  fieldTried = true;
-  return import('../drift.js').then(m => {
-    if (typeof m.createField !== 'function') return;
-    let f = null;
-    try { f = m.createField(surfaceEl, fieldHandlers()); }
-    catch (err) { console.warn('[plan] createField が失敗した。枠へ流し込む', err); return; }
-    if (!f || typeof f.setWells !== 'function' || typeof f.wellOf !== 'function') {
-      /* まだ井戸が無い。重力だけの面にはしない（上のコメント参照） */
-      console.info('[plan] drift.setWells / wellOf がまだ無いので、枠へ流し込む形で出す');
-      try { if (f && typeof f.destroy === 'function') f.destroy(); } catch (err) { /* 片付けで転ばない */ }
-      return;
-    }
-    field = f;
-    fieldChecked = false;
-    if (typeof f.start === 'function') f.start();
-    render();
-    layout();
-  }).catch(err => {
-    console.warn('[plan] drift.js を読み込めなかった。枠へ流し込む', err);
-  });
-}
-
-/* 面を畳んで、枠へ流し込む形に戻す */
-function dropField() {
-  const f = field;
-  field = null;
-  try { if (f && typeof f.destroy === 'function') f.destroy(); }
-  catch (err) { /* 片付けで転ばない */ }
-}
-
-/* 面へ並びを渡す。
-   最初の1回だけ「置き場所を守れたか」を確かめる——このときは面にノードが1つも
-   無いので、渡した全件が新しく置かれる。頼んだセル（it.well）に入っていなければ、
-   drift はまだ置き場所を見ていない。物理まかせの位置は、この画面では
-   「どのきっかけにぶら下がっているか」を壊すので、その場合は面を畳む。 */
-function pushItems() {
-  if (!field) return;
-  /* 升目を先に渡すこと。drift は「バブルを作るその場」で置き場所を決めるので、
-     setItems が先だと、そのとき升目がまだ空＝置き場所の指定が無いことになり、
-     全部が物理まかせの位置に出てしまう（実際にそうなっていた）。 */
-  applyWells();
-  try { field.setItems(fieldItems); }
-  catch (err) { console.warn('[plan] setItems が失敗した', err); return; }
-  stampNodes();
-  if (fieldChecked || !fieldItems.length) return;
-  fieldChecked = true;
-  const stray = fieldItems.filter(it => {
-    try { return field.wellOf(it.id) !== it.well; }
-    catch (err) { return true; }
-  });
-  if (!stray.length) return;
-  console.info('[plan] drift の setItems が item.well を見ていない（' + stray.length + '/'
-    + fieldItems.length + '件が頼んだセルの外に置かれた）。'
-    + '新しいバブルを item.well の矩形の中に置いてくれれば、面へ載せ替わる。'
-    + 'それまでは枠へ流し込む形で出す');
-  dropField();
-  /* いまは render の内側。ここから呼び直しても inRender で弾かれるので、1手ずらす */
-  Promise.resolve().then(() => render());
-}
-
-/* 面のバブルに、どれが何なのかを書いておく。
-
-   ★ このノードを作るのは drift なので、makeItemBubble（枠へ流し込む道）で付けている
-     data-key / data-id が付かない。無いと困るのは2つ:
-       ・restoreFocus の最後の逃げ道（同じ todo のバブルへフォーカスを戻す）が
-         `[data-key]` を探すので、面の道では一度も当たらない
-       ・外から「この項目のバブル」を掴めない（検証や支援技術からの経路が消える）
-     どちらの道で描いても同じ手がかりが読めるように、ここで書き足す。
-
-   付けるのは data-key / data-id だけにする。data-fk は付けない——
-   restoreFocus の byFk は当たったノードに focus() を試みるが、drift のノードは
-   tabIndex を持たないので、当たっただけで戻せず、後ろの逃げ道まで塞いでしまう。
-   role / tabIndex も足さない（ジェスチャは drift が持っている。契約どおり触らない）。 */
-/* その key のバブルのノード。面の側で引けなければ、stampNodes が書いた
-   data-key から探す（面が id をどちらの形で持っていても届くように） */
-function nodeForKey(key) {
-  if (field && typeof field.nodeOf === 'function') {
-    try { const n = field.nodeOf(key); if (n) return n; } catch (err) { /* 下で探す */ }
-  }
-  if (!pane) return null;
-  return Array.from(pane.querySelectorAll('.bub[data-key]'))
-    .find(n => n.dataset.key === key) || null;
-}
-
-function stampNodes() {
-  if (!field || typeof field.nodeOf !== 'function') return;
-  fieldItems.forEach(it => {
-    let node;
-    try { node = field.nodeOf(it.id); }
-    catch (err) { return; }
-    if (!node || !node.dataset) return;
-    const e = entries.get(it.id);
-    node.dataset.key = it.id;                 /* it.id は keyOf(todo.id, where) */
-    if (e && e.todo) node.dataset.id = e.todo.id;
-    /* 詳細が開いていれば、どのパネルの開閉なのかを読み上げに繋ぐ */
-    const d = details.get(it.id);
-    if (d && d.node && d.node.id) node.setAttribute('aria-controls', d.node.id);
-    else node.removeAttribute('aria-controls');
-    node.setAttribute('aria-expanded', openKeys.has(it.id) ? 'true' : 'false');
-  });
-}
-
-/* 井戸の id。カード（where）と、その中の何番目かで決まる。
-   where はカードごとに一意なので、これで面ぜんぶを通して一意になる。 */
-function wellIdOf(where, i) { return 'w' + i + ':' + where; }
-
-/* 升目の中心（.grid の左上からの相対座標）。
-   横は slotCols 列ぶんを .grid の幅の中で中央に寄せる（CSS の justify-content:center と同じ）。
-   縦は上から順に CELL_PITCH ずつ。 */
-function cellCenter(i, gridW) {
-  const run = slotCols * CELL_PITCH;
-  const x0 = (gridW - run) / 2;
-  return {
-    x: x0 + (i % slotCols) * CELL_PITCH + CELL_PITCH / 2,
-    y: Math.floor(i / slotCols) * CELL_PITCH + CELL_PITCH / 2,
-  };
-}
-
-/* 井戸 = バブル1個ぶんの升目。面の座標系での矩形。
-   ★カードの .grid を丸ごと1つの井戸にしてはいけない（上の CELL_PITCH の注を参照）。
-     ぶら下がっている数だけ升目を作り、1つの井戸には1個だけが収まるようにする。
-   矩形はバブルの外形ちょうど（96×96）。升目の間合いは 112px なので矩形どうしは
-   重ならず、バブルの中心はどの瞬間もたかだか1つの井戸の中にいる。
-   setWells が無い作りとも同居できるよう typeof で包む */
-function applyWells() {
-  if (!field || typeof field.setWells !== 'function' || !surfaceEl) return;
-  const sr = surfaceEl.getBoundingClientRect();
-  const half = BUB_SIZE / 2;
-  const wells = [];
-  Object.keys(anchorRef).forEach(where => {
-    const ref = anchorRef[where];
-    const g = ref.grid;
-    if (!g) return;
-    const r = g.getBoundingClientRect();
-    if (!r.width || !r.height) return;
-    const gx = r.left - sr.left;
-    const gy = r.top - sr.top;
-    for (let i = 0; i < ref.count; i++) {
-      const c = cellCenter(i, r.width);
-      wells.push({
-        id: wellIdOf(where, i),
-        x: gx + c.x - half,
-        y: gy + c.y - half,
-        w: BUB_SIZE,
-        h: BUB_SIZE,
-      });
-    }
-  });
-  try { field.setWells(wells); }
-  catch (err) { console.warn('[plan] setWells が失敗した', err); }
-}
-
-/* ---------------- 5分だけはじめる ---------------- */
-
-/* focus.js は動的に読む。静的 import にすると、focus.js が無い／壊れている間は
-   この画面ごと（app.js 経由で他の画面まで）読み込めなくなるため。
-
-   押した時点では何も記録しない。5分にたどりついて初めて「はじめた」を立てる。
-   途中でやめたときは何も残らない（押しただけを「はじめた」とは数えない） */
-function startFive(todo, anchor) {
-  import('../focus.js').then(m => {
-    m.openFocus({
-      id:        todo.id,
-      title:     todo.text,
-      firstStep: store.firstStepOf(todo.id),
-      url:       store.urlOf(todo.id),
-      slotName:  anchor ? anchor.name : '',
-      slotColor: colorOf(anchor),
-      minutes:   5,
-      /* 5分にたどりついたら「はじめた」として記録する。
-         「終わった？」と聞くのではなく、5分座っていたという観測できた事実を残すだけ */
-      onClose(info) {
-        /* 集中画面の [完了]。completed:true のとき reachedGoal は false（両方立てない） */
-        if (info && info.completed) { completeItem(todo); render(); return; }
-        if (info && info.reachedGoal) store.start(todo.id, startKey(anchor ? anchor.id : null));
-        render();
-      },
-    });
-  }).catch(err => {
-    console.error('[plan] focus.js を読み込めなかった', err);
-    toast('集中の画面をいま開けない。');
-  });
-}
-
-/* ---------------- 行の詳細 ---------------- */
-
-/* バブルは枠の中に並ぶので、詳細は「その下」には開けない。
-   枠のいちばん下にまとめて開く。どれの詳細か分からなくならないよう、
-   見出しに本文を出して、閉じるボタンを付ける。 */
 function makeDetail(todo, anchorId, key) {
   const node = el('div', 'pdetail');
   node.id = 'pd-' + (++detailSeq);
@@ -667,27 +408,6 @@ function toggleDetail(key) {
 /* 面（drift）へ渡す1件。作るのは drift の側なので、ここでは中身だけを揃える。
    ★ colors と tagNames を落とさないこと（タグの色と、読み上げ用のタグ名）。
      色を見分けられない人に所属が伝わらなくなる（WCAG 1.4.1） */
-function fieldItemFor(todo, where, index) {
-  const anchorId = where === UNSORTED ? null : where;
-  const anchor = anchorId ? A.get(anchorId) : null;
-  const key = keyOf(todo.id, where);
-  renderedKeys.add(key);
-  entries.set(key, { todo, where, anchor, anchorId, key });
-  return {
-    id: key,                 /* 同じ todo が複数の枠に出るので、id ではなく key で持つ */
-    text: todo.text,
-    started: isStarted(todo.id, anchorId),
-    size: BUB_SIZE,
-    marks: [],
-    colors: tagColors(todo.id),
-    tagNames: tagNames(todo.id),
-    startedLook: 'mark',     /* この画面では着手済みを強調する（利用者の決定） */
-    anchorHue: anchor ? (anchor.hue == null ? null : anchor.hue) : null,
-    /* 落ち着き先の升目。setWells の id と揃える。
-       升目はバブル1個ぶんなので、1件につき1つ（カード単位ではない） */
-    well: wellIdOf(where, index),
-  };
-}
 
 /* where … アンカーの id / UNSORTED */
 function makeItemBubble(todo, where) {
@@ -1413,19 +1133,13 @@ function makeGrip(a, index, total) {
   return g;
 }
 
-/* そのきっかけにぶら下がっているバブルのノード。
-   entries は key（todo id ＋ どの枠か）で引くので、anchorId で絞る。 */
+/* そのきっかけにぶら下がっているバブルのノード。並べ替えのあいだ一緒に運ぶ。
+   バブルはカードの .grid の中に居るので、カードごと引ける
+   （面に絶対配置していた頃は entries と drift の nodeOf を突き合わせていた）。 */
 function bubblesOfAnchor(anchorId) {
-  const out = [];
-  if (!field || typeof field.nodeOf !== 'function') return out;
-  entries.forEach((e, key) => {
-    if (!e || e.anchorId !== anchorId) return;
-    let node = null;
-    try { node = field.nodeOf(key) || field.nodeOf(e.todo && e.todo.id); }
-    catch (err) { node = null; }
-    if (node) out.push(node);
-  });
-  return out;
+  const r = anchorRef[anchorId];
+  if (!r || !r.grid) return [];
+  return [...r.grid.querySelectorAll('.bub')];
 }
 
 /* 表示の並びでの行き先を、store の並びでのずらし量に直す。
@@ -1676,11 +1390,6 @@ function layout() {
     const r = anchorRef[w];
     if (r.grid) r.grid.style.height = rowsFor(r.count) * CELL_PITCH + 'px';
   });
-  if (field) {
-    try { field.relayout(); }
-    catch (err) { console.warn('[plan] relayout が失敗した', err); }
-    applyWells();
-  }
   return changed;
 }
 
@@ -1708,12 +1417,7 @@ function fillFrame(box, items, where) {
   const grid = el('div', 'grid');
   grid.style.height = rowsFor(items.length) * CELL_PITCH + 'px';
 
-  if (fieldOn()) {
-    /* 面に置く。DOM はここには入れない（drift が面の上に絶対配置する） */
-    items.forEach((t, i) => fieldItems.push(fieldItemFor(t, where, i)));
-  } else {
-    items.forEach(t => grid.appendChild(makeItemBubble(t, where)));
-  }
+  items.forEach(t => grid.appendChild(makeItemBubble(t, where)));
   box.appendChild(grid);
 
   const opened = items.filter(t => openKeys.has(keyOf(t.id, where)));
@@ -2047,7 +1751,6 @@ function render() {
     renderedKeys = new Set();
     anchorRef = {};
     entries.clear();
-    fieldItems = [];
     detachAll();
 
     const list = visibleAnchors();
@@ -2097,10 +1800,8 @@ function render() {
       if (!renderedKeys.has(k)) closeDetail(k);
     });
 
-    /* 先に寸法（＝井戸の矩形）を決めてから、面へ並びを渡す。
-       順番が逆だと、drift は置き場所の分からないまま置くことになる */
+    /* 升目の高さは中身の数で決まるので、組み終わってから測り直す */
     layout();
-    pushItems();
 
     restoreFocus(keep);
   } finally {
@@ -2241,14 +1942,11 @@ return {
     store.rollover();   /* 日をまたいでいたら、今日する枠は残さない（きっかけの下は残る） */
     render();
     layout();           /* ここで初めてペインに幅が入る（契約 §14） */
-    ensureField();
-    if (field && typeof field.start === 'function') field.start();
   },
 
   onHide() {
     closeAnchorMenu();
     endReorder();
-    if (field && typeof field.stop === 'function') field.stop();
     /* 書きかけを持ったまま画面を離れさせない */
     details.forEach(d => d.flush());
   },
