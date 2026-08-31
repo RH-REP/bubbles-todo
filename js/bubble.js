@@ -82,6 +82,13 @@ function todayDow(key) {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0).getDay();
 }
 
+/* 長い文を札に出すときの丸め。文字数は書記素ではなくコード点で数える
+   （絵文字を割らないための Array.from。既存の trim と同じやり方） */
+function trimTx(t, n) {
+  const a = Array.from(String(t == null ? '' : t));
+  return a.length > n ? a.slice(0, n).join('') + '…' : a.join('');
+}
+
 function eatOpeningClick(pt) {
   if (!pt || !(pt.x >= 0)) return;
   const t0 = Date.now();
@@ -688,7 +695,10 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
 
   const a = centerAdapter;
-  let fields = null, stepIn = null, memoIn = null, urlIn = null;
+  let fields = null, stepIn = null, urlIn = null;
+  /* 作業メモは盤に入力欄を持たない。入口のボタンと、別の面と、その中身 */
+  let memoBtn = null, memoPane = null, memoArea = null, memoSaid = null;
+  let memoDraft = '';
   let draft0 = null;            /* 開いた時点の入力欄の中身（触ったかを見るため） */
   let urlLink = null, urlLinkTx = null, urlEdit = null;
   let histBtn = null, hist = null, histList = null, histClose = null;
@@ -700,9 +710,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      関数宣言は巻き上がるうえ、呼ばれるのは押されたときなので参照できる。
      ついでに入力欄の焦点を外す（端末のキーボードが引っ込む） */
   const acts = actionRow(actions, runAction, () => {
-    const label = commitPair();
+    const label = applyEdits();
     if (stepIn) stepIn.blur();
-    if (memoIn) memoIn.blur();
     return label;
   }, onStart);
   if (a || acts) fields = el('div', 'bc-fields');
@@ -986,55 +995,57 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     fields.appendChild(tags);
   }
 
-  /* ---- 作業メモ と 次の一手（利用者の指示）----
+  /* ---- 次の一手 と 作業メモ（利用者の指示）----
 
-     **この2つは1組で、[OK] を押したときだけ記録が1件積まれる。**
-     git のコミットと同じ形で、「今回なにをしてたか（作業メモ）」と
-     「次はここから（次の一手）」が日時とともに積み上がる。
+     並びは **次の一手 → 作業メモ**。次の一手は1行で、いつでも書き替える短いもの。
+     作業メモは長くなるので、盤には**入口だけ**を置いて、押したら別の面で書く。
 
-     ■ 打っている途中では記録しない（利用者の指摘）
-       前は打つたびに 400ms 後と blur で `setFirstStep` を書いていて、
-       **[OK] が飾りになっていた**。いまは打った文字は「書きかけ」（draft）へ
-       控えるだけで、記録に触るのは [OK] だけ。
+     ■ 打っている途中では記録しない
+       打った文字は「書きかけ」（draft）へ控えるだけ。記録に触るのは
+       [OK]（次の一手・いつの日・リンク）と [作業メモを保存] だけ。
        書きかけは記録ではないので、履歴にもふりかえりにも出ない
        ——それでも控えるのは、打った文字が消えるのが事故だから。
 
      ■ 次の一手が空だと積まない
        git のコミットが必ず次を指すのと同じ（store.commitStep も空を弾く）。
-       **その代わり、次の一手を空にして消すことはできなくなった。**
-       置き換えることはできる（新しく書いて [OK]）。
-
-     ■ 並びは 作業メモ → 次の一手
-       履歴の並びと同じ。過去から未来へ読む向きにそろえる。 */
+       **その代わり、次の一手を空にして消すことはできない。**置き換えはできる。 */
   const canCommit = !!(a && typeof a.commitStep === 'function');
   if (a && fields) {
     const draft = (canCommit && ask(a, 'draft', id)) || null;
-    const mkRow = (label, placeholder) => {
-      const wrap = el('label', 'bc-row');
-      const lb = el('span', 'bc-lb');
-      lb.textContent = label;                  /* innerHTML には入れない */
-      const inp = el('input', 'bc-in');
-      inp.type = 'text';
-      inp.placeholder = placeholder;
-      inp.autocomplete = 'off';
-      inp.enterKeyHint = 'done';
-      wrap.appendChild(lb);
-      wrap.appendChild(inp);
-      fields.appendChild(wrap);
-      return inp;
-    };
 
-    if (canCommit) {
-      memoIn = mkRow('作業メモ', 'ここまでやったこと');
-      memoIn.value = String((draft && draft.did) || '');
-    }
-    stepIn = mkRow('次の一手', 'ひとつめだけ');
+    const wrap = el('label', 'bc-row');
+    const lb = el('span', 'bc-lb');
+    lb.textContent = '次の一手';               /* innerHTML には入れない */
+    stepIn = el('input', 'bc-in');
+    stepIn.type = 'text';
+    stepIn.placeholder = 'ひとつめだけ';
+    stepIn.autocomplete = 'off';
+    stepIn.enterKeyHint = 'done';
+    wrap.appendChild(lb);
+    wrap.appendChild(stepIn);
+    fields.appendChild(wrap);
     /* 書きかけがあればそちら、無ければいまの「次の一手」 */
     stepIn.value = String((draft && draft.next) || ask(a, 'firstStep', id) || '');
+
+    if (canCommit) {
+      /* 作業メモは入口だけ。中身は別の面で書く（利用者の指示）。
+         入口には**いま何か書いてあるか**を出す——押さないと分からない、にしない */
+      memoDraft = String((draft && draft.did) || '');
+      const mrow = el('div', 'bc-row');
+      const mlb = el('span', 'bc-lb', '作業メモ');
+      memoBtn = el('button', 'bc-memo-open');
+      memoBtn.type = 'button';
+      memoBtn.addEventListener('click', ev => { ev.preventDefault(); openMemo(); });
+      mrow.appendChild(mlb);
+      mrow.appendChild(memoBtn);
+      fields.appendChild(mrow);
+      syncMemoBtn();
+    }
+
     /* 開いた時点の中身。**触っていないなら書きかけも書かない**
        ——開いて閉じただけで書きかけが生まれると、集中画面が
        「前回の続きがある」と読んでしまう */
-    draft0 = { did: memoIn ? memoIn.value : '', next: stepIn.value };
+    draft0 = { did: memoDraft, next: stepIn.value };
   }
 
   /* ---- リンク ----
@@ -1113,41 +1124,42 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     clearTimeout(stepTimer); stepTimer = 0;
     if (!stepIn) return;
     if (!canCommit) { ask(a, 'setFirstStep', id, stepIn.value.trim()); return; }
-    const did = memoIn ? memoIn.value : '';
+    const did = memoDraft;
     const next = stepIn.value;
     if (draft0 && did === draft0.did && next === draft0.next) return;   /* 触っていない */
     ask(a, 'setDraft', id, { did: did.trim(), next: next.trim() });
   }
 
-  /* [OK]。**記録に触るのはここだけ。**
-     -> ボタンに出す言葉。積まなかったときは、その理由を言う */
-  function commitPair() {
-    if (!stepIn) return null;
+  /* [OK]（利用者の指示で役目を替えた）。
+
+     **いつの日 ／ 次の一手 ／ リンク を、その場で書き留める。**
+     押しても盤は閉じない。閉じたときにも同じものが書かれる（＝取りこぼさない）——
+     OK は「閉じずに、いま反映する」ための道。
+
+     作業メモはここでは触らない。あちらは別の面の [作業メモを保存] が持つ。
+
+     -> ボタンに出す言葉。何も起きなかったときは、その理由を言う */
+  function applyEdits() {
+    let did = false;
+    if (saveDays) { saveDays(); did = true; }        /* いつの日 */
+    saveUrl();                                       /* リンク */
+
+    if (!stepIn) return did ? '書き留めた' : null;
     const next = stepIn.value.trim();
-    const did = memoIn ? memoIn.value.trim() : '';
+    if (!canCommit) { ask(a, 'setFirstStep', id, next); return '書き留めた'; }
 
-    if (!canCommit) {                          /* 古い預け先。いままでどおり書くだけ */
-      ask(a, 'setFirstStep', id, next);
-      return '書き留めた';
-    }
-    /* 次の一手が空なら積まない（store.commitStep も同じ理由で弾く）。
-       打った作業メモは書きかけに残るので、消えはしない */
-    if (!next) { saveStep(); return '次の一手が要る'; }
-    /* 作業メモが空で、次の一手も変わっていない＝積むものが無い。
-       同じ記録が押すたびに増えるのを避ける（git の空コミットと同じ扱い） */
-    if (!did && next === String(ask(a, 'firstStep', id) || '')) return '変わっていない';
+    const cur = String(ask(a, 'firstStep', id) || '');
+    if (!next) { saveStep(); return next === cur ? '書き留めた' : '次の一手が要る'; }
+    if (next === cur) { saveStep(); return '書き留めた'; }
 
-    if (!ask(a, 'commitStep', id, { did: did, next: next })) return null;
-    /* 積んだので書きかけは空。作業メモも空にする——次に開いたときに
-       前回のメモが残っていると、それが今回のメモに見える。
-       次の一手は残す（いまの「次の一手」そのものなので、消すと見えなくなる） */
-    if (memoIn) memoIn.value = '';
-    /* 積んだ時点が新しい起点。ここを更新しないと、閉じるときに
-       いま消したはずの書きかけが同じ内容で生き返る */
-    draft0 = { did: '', next: stepIn.value };
+    /* 次の一手が変わったなら、記録として1件積む（git のコミットと同じ形）。
+       作業メモは空——あちらは [作業メモを保存] が積む */
+    if (!ask(a, 'commitStep', id, { did: '', next: next })) return null;
+    draft0 = { did: memoDraft, next: stepIn.value };
     syncHistBtn();
     return '書き留めた';
   }
+
   function saveUrl() {
     clearTimeout(urlTimer); urlTimer = 0;
     if (!urlIn) return;
@@ -1186,7 +1198,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   }
 
   /* 打っている途中も blur も、**書きかけへ控えるだけ**（記録は [OK] だけ） */
-  [stepIn, memoIn].forEach(inp => {
+  [stepIn].forEach(inp => {
     if (!inp) return;
     inp.addEventListener('input', () => {
       clearTimeout(stepTimer);
@@ -1273,6 +1285,122 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     fillStepList(histList, rows);
   }
 
+  /* ---- 作業メモの面（利用者の指示）----
+
+     > 作業メモは別画面を開いて詳細な入力が出来るように
+     > 作業メモは[作業メモを保存]ボタンを用意
+
+     履歴と同じ入れ替え方（盤と場所を分け合う。足すと下タブへもぐる）。
+     長い文が書けるよう、残りの高さをぜんぶ使う。
+
+     **[作業メモを保存] が記録を1件積む。**組むのは
+     {作業メモ, いまの次の一手} で、git のコミットと同じ形。
+     次の一手が空だと積めない（store の決まり）ので、そのときは理由を言う。 */
+  function syncMemoBtn() {
+    if (!memoBtn) return;
+    const t = memoDraft.trim();
+    memoBtn.textContent = t ? trimTx(t, 16) : '書く';
+    memoBtn.classList.toggle('is-empty', !t);
+    memoBtn.setAttribute('aria-label', t ? '作業メモを書き替える' : '作業メモを書く');
+  }
+
+  function buildMemo() {
+    memoPane = el('div', 'bc-memo');
+    memoPane.setAttribute('role', 'group');
+    memoPane.setAttribute('aria-label', '作業メモ');
+    memoPane.hidden = true;
+
+    const head = el('div', 'bm-head');
+    head.appendChild(el('span', 'bm-title', '作業メモ'));
+    const close = el('button', 'bm-close', '閉じる');
+    close.type = 'button';
+    close.addEventListener('click', ev => { ev.preventDefault(); closeMemo(true); });
+    head.appendChild(close);
+    memoPane.appendChild(head);
+
+    /* いまの「次の一手」を読むだけで添える。何に続く記録なのかが要る */
+    const ctx = el('p', 'bm-ctx');
+    ctx.textContent = '';
+    memoPane.appendChild(ctx);
+    memoPane._ctx = ctx;
+
+    memoArea = document.createElement('textarea');
+    memoArea.className = 'bm-in';
+    memoArea.rows = 6;
+    memoArea.placeholder = 'ここまでやったこと';
+    memoArea.setAttribute('aria-label', '作業メモ');
+    memoArea.addEventListener('input', () => {
+      memoDraft = memoArea.value;
+      clearTimeout(stepTimer);
+      stepTimer = setTimeout(saveStep, SAVE_MS);   /* 書きかけへ控えるだけ */
+    });
+    memoPane.appendChild(memoArea);
+
+    const save = el('button', 'bm-save', '作業メモを保存');
+    save.type = 'button';
+    let back = 0;
+    save.addEventListener('click', ev => {
+      ev.preventDefault();
+      const said = saveMemo();
+      clearTimeout(back);
+      save.textContent = said;
+      save.classList.toggle('is-nope', said !== '記録した');
+      back = setTimeout(() => {
+        save.textContent = '作業メモを保存';
+        save.classList.remove('is-nope');
+      }, 1400);
+    });
+    memoPane.appendChild(save);
+
+    memoSaid = el('p', 'bm-said');
+    memoSaid.setAttribute('role', 'status');
+    memoPane.appendChild(memoSaid);
+
+    root.appendChild(memoPane);
+  }
+
+  /* -> ボタンに出す言葉 */
+  function saveMemo() {
+    const did = memoArea ? memoArea.value.trim() : '';
+    const next = stepIn ? stepIn.value.trim() : '';
+    if (!did) return '書いてから';
+    if (!next) return '次の一手が要る';
+    if (!ask(a, 'commitStep', id, { did: did, next: next })) return '記録できない';
+    memoArea.value = '';
+    memoDraft = '';
+    draft0 = { did: '', next: stepIn ? stepIn.value : '' };
+    syncMemoBtn();
+    syncHistBtn();
+    if (memoSaid) memoSaid.textContent = '履歴に積んだ';
+    return '記録した';
+  }
+
+  function openMemo() {
+    if (!memoPane) buildMemo();
+    memoPane._ctx.textContent = stepIn && stepIn.value.trim()
+      ? '次の一手：' + stepIn.value.trim()
+      : '次の一手がまだ無い。書いてからでないと記録できない';
+    memoArea.value = memoDraft;
+    if (memoSaid) memoSaid.textContent = '';
+    memoPane.hidden = false;
+    if (fields) fields.hidden = true;
+    relayout();
+    memoArea.focus({ preventScroll: true });
+  }
+
+  /* 戻り値：閉じたかどうか（Escape の受け手が「自分で処理した」を知るため） */
+  function closeMemo(restoreFocus) {
+    if (!memoPane || memoPane.hidden) return false;
+    memoDraft = memoArea ? memoArea.value : memoDraft;
+    saveStep();                                   /* 書きかけを控える */
+    memoPane.hidden = true;
+    if (fields) fields.hidden = false;
+    syncMemoBtn();
+    relayout();
+    if (restoreFocus && memoBtn && memoBtn.isConnected) memoBtn.focus({ preventScroll: true });
+    return true;
+  }
+
   function openHistory() {
     const rows = stepsNow();                   /* 開くたびに読み直す（古い順のまま） */
     if (!rows.length) {                        /* 外で消えていたら、ボタンごと引っ込める */
@@ -1316,7 +1444,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       ? bar.getBoundingClientRect().top : vh;
 
     /* バブルの下に置く箱は、いま出ているほう（盤 か 履歴）ひとつだけ */
-    const lower = (hist && !hist.hidden) ? hist : fields;
+    const lower = (hist && !hist.hidden) ? hist
+      : ((memoPane && !memoPane.hidden) ? memoPane : fields);
 
     if (lower) {
       lower.style.left = cx + 'px';
@@ -1337,6 +1466,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const lowerTop = cy + d / 2 + CENTER_GAP;
       const cap = Math.max(160, barTop - CENTER_M - lowerTop) + 'px';
       if (hist) hist.style.maxHeight = cap;
+      if (memoPane) memoPane.style.maxHeight = cap;
       if (fields) fields.style.maxHeight = cap;
     }
     if (!vw || !vh) return;                    /* 寸法が取れないときは置いたまま */
@@ -1373,6 +1503,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     /* 順番に意味がある。長期保留の札を先に書いてから日を足す
        （外れているものに日は付かない＝ store が弾く） */
     flush() {
+      if (memoPane && !memoPane.hidden && memoArea) memoDraft = memoArea.value;
       saveStep(); saveUrl();
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
@@ -1391,7 +1522,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     },
     /* Escape をここで先に受ける。履歴が開いていれば、閉じるのは履歴だけ
        （中央から抜けない）。開いていなければ false を返し、中央が閉じる。 */
-    handleEscape() { return closeHistory(true); },
+    handleEscape() { return closeMemo(true) || closeHistory(true); },
   };
 }
 
