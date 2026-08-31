@@ -266,7 +266,7 @@ const SNAP_FX_MS = 300;  /* 見た目の合図（.is-snap）を外すまで。CS
        persist: bool,              既定 true（store の fx/fy を読み書きする）
        onFocusRequest, onMenu, onDropToTab, onDragStart, onDragEnd,
      }
-   返り値 = { setItems, relayout, start, stop, setGathering,
+   返り値 = { setItems, relayout, syncBounds, start, stop, setGathering,
               setWells, wellOf, nodeOf, pop, destroy } */
 export function createField(host, opts = {}) {
   const size = (opts.size == null) ? 'text' : opts.size;
@@ -1208,25 +1208,41 @@ export function createField(host, opts = {}) {
     if (typeof RM.removeEventListener === 'function') RM.removeEventListener('change', onRM);
   }
 
+  /* 面の広さが変わったときに、中身を新しい広さへ移す。
+     **相対位置を保ったまま伸縮させる**（回転・分割表示でも散らばらない）。
+     海のズームは面ごと広げ縮めするので、ここがそのまま「引くと間隔が空く」になる。
+
+     ResizeObserver からも呼ぶが、**外から直に呼べるようにもしてある**。
+     観測は次の描画の前という約束で、描画が来ない状況（裏に回ったペイン、
+     契約 §14）では遅れる。ズームは1回のホイールで何度も広さを変えるので、
+     遅れると中身が置いていかれて、隅に寄って見える（実際にそうなった）。 */
+  function syncBounds() {
+    const w = host.clientWidth, h = host.clientHeight;
+    if (!w || !h) return false;           /* 非表示。寸法は覚えない */
+    /* **前の広さを先に控える。**relayout() は最後に lastW / lastH を
+       いまの寸法で上書きするので、そのあとで比べると必ず「変わっていない」になる。
+       この順番のせいで、伸縮の付け替えは書かれてから一度も走っていなかった
+       （画面の回転や分割表示でも、位置は付いていかず、物理の壁で押し戻されるだけだった）。 */
+    const pw = lastW, ph = lastH;
+    relayout();                            /* 未配置のものがあれば先に救う */
+    const changed = !!(pw && ph && (w !== pw || h !== ph));
+    if (changed) {
+      const sx = w / pw, sy = h / ph;
+      bubbles.forEach(b => {
+        const r = b.d / 2;
+        b.cx = clamp(b.cx * sx, r, Math.max(r, w - r));
+        b.cy = clamp(b.cy * sy, r, Math.max(r, h - r));
+        place(b);
+      });
+    }
+    lastW = w; lastH = h;
+    if (gathering) gatherLayout();
+    return changed;
+  }
+
   /* 画面サイズが変わったら、はみ出したバブルを引き戻す */
   if (window.ResizeObserver) {
-    ro = new ResizeObserver(() => {
-      const w = host.clientWidth, h = host.clientHeight;
-      if (!w || !h) return;               /* 非表示。寸法は覚えない */
-      relayout();                          /* 未配置のものがあれば先に救う */
-      if (lastW && lastH && (w !== lastW || h !== lastH)) {
-        /* 相対位置を保ったまま伸縮させる（回転・分割表示でも散らばらない） */
-        const sx = w / lastW, sy = h / lastH;
-        bubbles.forEach(b => {
-          const r = b.d / 2;
-          b.cx = clamp(b.cx * sx, r, Math.max(r, w - r));
-          b.cy = clamp(b.cy * sy, r, Math.max(r, h - r));
-          place(b);
-        });
-      }
-      lastW = w; lastH = h;
-      if (gathering) gatherLayout();
-    });
+    ro = new ResizeObserver(syncBounds);
     ro.observe(host);
   }
 
@@ -1239,5 +1255,5 @@ export function createField(host, opts = {}) {
 
   window.addEventListener('pagehide', saveAllPos);
 
-  return { setItems, relayout, start, stop, setGathering, setWells, wellOf, nodeOf, pop, destroy };
+  return { setItems, relayout, syncBounds, start, stop, setGathering, setWells, wellOf, nodeOf, pop, destroy };
 }

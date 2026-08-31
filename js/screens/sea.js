@@ -46,9 +46,13 @@ import { dropDay } from './today.js';
 
    面はスクロールしない1画面なので、入らないぶんはそのまま重なりになる。
    20個で面積 **88%**、1個あたり 1.9個の重なり。ここを上限にした。
-   **引けば収まる、とは言えない。**ズームは面ごと縮めるので、
-   混み具合（面積の割合・重なりの数）は倍率を変えても1ミリも変わらない。
-   だから上限はズームとは別に、これ単体で立っていなければならない。
+   **引けば混み具合は下がる**（海そのものが広がるので）。実測、15個で：
+
+     1.00 … 面積 65%、重なり 34組
+     0.45 … 面積 13%、重なり **4組**（海は縦横 2.2倍＝面積 4.9倍）
+
+   ただし上限はズームとは別に、これ単体で立っていなければならない。
+   引いた状態は「眺める」状態で、そこで読み書きするわけではないため。
 
    重さのほうは、これで自動的に収まる。参考の実測：
    バブル1個は DOM 5ノード・グラデーション7層・影1枚・動く CSS アニメ1本。
@@ -142,21 +146,32 @@ let gathering = false;
    **ズームアウトではない**。ズームは「同じ世界を、遠くから見る」ことなので、
    遠ざかれば水面も枠も一緒に小さくなる。中身だけ縮むのは別の概念だった。
 
-   面ごと縮める本物のズームに替えた。指示は「世界の広さは変えない」なので、
-   海の世界は画面ぴったりのまま。**その帰結を隠さずに書いておく：**
+   面ごと縮める本物のズームに替えた。はじめは「世界の広さは変えない」で組んだが、
+   それだと**引いても見えるものが増えない**（端まで最初から見えているので、
+   出てくるのは水の外側の余白だけ）。そのとおりの指摘を受けて、いまは
 
-     引いても、見えるものは増えない。世界の端まで最初から見えているので、
-     引いて出てくるのは水の外側の余白だけ。小さくなるぶん、むしろ読みにくい。
-     混み具合（重なりの数）も倍率では1ミリも変わらない。
+     **引いたぶんだけ、海そのものが広がる。**
 
-   引く操作に中身が入るのは、世界が画面より広くなってからで、それが次の指示
-   （枠の大きさを中のバブルの数で決める）にあたる。その日に足すものが無いよう、
-   寄せ（pan）と、画面より広い世界を前提にした当たり判定まで先に入れてある。
+   世界の広さ ＝ 画面 ÷ 倍率（ただし 1.00 より近づくときは広げない）。
+   0.45 まで引けば海は縦横 2.2倍＝**面積 4.9倍**になり、そのぶん余裕ができる。
+   画面に映る海の大きさは、どの段でも画面いっぱいのまま（広げたぶんを同じ率で縮めるので）。
+
+   広げ縮めの受け口は drift の ResizeObserver がもともと持っている。
+   あれは**相対位置を保ったまま伸縮させる**ので、引くとバブルの間隔が世界の px で
+   広がり、画面では「その場で小さくなって、すきまが空く」ように見える。戻せば戻る。
+
+   1.00 より近づくときは世界を狭めない（狭めると、近づくほどバブルが押し込まれる）。
+   代わりに、はみ出したぶんを寄せ（pan）で見て回る。
 
    ---- 座標系 ----
 
-   掛ける先は .sea-view（新設）。中身は .sea-world（面の切り替えで動く）。
-   view が clip するので、引いても隣の面がはみ出して見えることはない。
+   .sea-view（新設）は**カメラの窓**——ステージいっぱいのまま、はみ出しを clip するだけ。
+   倍率と寄せは、その中の .sea-world に掛ける。世界を広げてから同じ率で縮めるので、
+   映る大きさは画面ぴったりに戻る。窓が clip するので、隣の面は外へ出てこない。
+
+   （はじめは窓のほうを縮めていた。世界が画面と同じ大きさのうちは同じ絵になるが、
+     世界が画面より広くなった途端に**窓が先に切り落とす**ので、広げたぶんが見えない。
+     実際に、引くと水が細い帯になった。）
 
    CSS の変形は**3つの別々の口**を使う（合成の順は translate → scale → transform）：
 
@@ -196,50 +211,70 @@ let zoomLabel = null;
 const zoom = () => zLevel;
 const r3 = v => Math.round(v * 1000) / 1000;
 
-/* 寄せられる幅。倍率が 1 以下なら世界は画面に収まるので 0。
-   1 を超えたぶん、はみ出した半分まで寄せられる（＝世界の外は決して見えない）。 */
+/* 世界の広さ（世界の px）。引いたぶんだけ広げる。近づくときは広げない。
+   これを .sea-world の width/height に入れる＝ .sea-face もそれに従い、
+   drift の当たり判定（host.clientWidth/Height）もそのまま広がる。 */
+function worldSize() {
+  const w = (stage && stage.clientWidth) || 0, h = (stage && stage.clientHeight) || 0;
+  const k = 1 / Math.min(1, zLevel || 1);
+  return { w: Math.round(w * k), h: Math.round(h * k) };
+}
+
+/* 画面に映る海の大きさ（画面の px）＝ 世界 × 倍率。
+   1.00 以下ではちょうど画面と同じ、1.00 を超えたぶんだけ画面からはみ出す。 */
+function shownSize() {
+  const ws = worldSize();
+  return { w: ws.w * zLevel, h: ws.h * zLevel };
+}
+
+/* 寄せられる幅。はみ出した半分まで（＝世界の外は決して見えない）。
+   はみ出していなければ 0＝真ん中に置く。 */
 function panLimit() {
-  const w = stage ? stage.clientWidth : 0, h = stage ? stage.clientHeight : 0;
-  const k = Math.max(0, zLevel - 1) / 2;
-  return { x: w * k, y: h * k };
+  const w = (stage && stage.clientWidth) || 0, h = (stage && stage.clientHeight) || 0;
+  const sh = shownSize();
+  return { x: Math.max(0, (sh.w - w) / 2), y: Math.max(0, (sh.h - h) / 2) };
 }
 
 /* 見え方だけを書き換える（毎フレーム呼ばれる側。看板の作り直しはしない） */
 function applyView() {
-  if (!view || !stage) return;
+  if (!view || !stage || !world) return;
+  const w0 = stage.clientWidth || 0, h0 = stage.clientHeight || 0;
+  /* 世界を広げ縮めする。左上を 0 に置いたまま負の余白で中心を合わせる
+     （transform の3つの口は倍率・寄せ・面の切り替えで埋まっているので、
+       位置合わせには余白を使う。互いを上書きしない） */
+  const ws = worldSize();
+  if (ws.w && ws.h && (ws.w !== world.clientWidth || ws.h !== world.clientHeight)) {
+    world.style.width = ws.w + 'px';
+    world.style.height = ws.h + 'px';
+    world.style.marginLeft = Math.round((w0 - ws.w) / 2) + 'px';
+    world.style.marginTop = Math.round((h0 - ws.h) / 2) + 'px';
+    /* 広さが変わったことを、その場で drift へ伝える。
+       drift 自身も ResizeObserver で見ているが、あれは「次の描画の前」なので、
+       描画が来ない状況では遅れる。遅れると中身が古い広さのまま隅に残る。 */
+    FACES.forEach(f => {
+      const fl = faces[f] && faces[f].field;
+      if (fl && fl.syncBounds) { try { fl.syncBounds(); } catch (err) { /* 測れないだけ */ } }
+    });
+  }
   const lim = panLimit();
   panX = clamp(panX, -lim.x, lim.x);
   panY = clamp(panY, -lim.y, lim.y);
   /* 端数（1e-14 など）は 0 にする。真なら translate を書いてしまうので */
   if (Math.abs(panX) < 0.5) panX = 0;
   if (Math.abs(panY) < 0.5) panY = 0;
-  view.style.scale = zLevel === 1 ? '' : String(r3(zLevel));
-  view.style.translate = (panX || panY)
+  world.style.scale = zLevel === 1 ? '' : String(r3(zLevel));
+  world.style.translate = (panX || panY)
     ? Math.round(panX) + 'px ' + Math.round(panY) + 'px' : '';
   stage.classList.toggle('is-zoomed', zLevel !== 1);
   stage.classList.toggle('is-zoomed-out', zLevel < 1);
   stage.style.setProperty('--sea-zoom', String(r3(zLevel)));
 
-  /* ドラッグ中に出る受け口の帯（.sea-edge）は**ステージの子**なので、倍率が掛からない。
-     「この先に別の海がある」と言っている帯が画面の端に居ると、引いたときに
-     海の枠の外＝水の無いところに立ってしまう。寄ったぶんを4辺それぞれ渡して、
-     枠の端に付け直す。近づいて枠が画面より大きいときは 0＝画面の端のまま
-     （枠の端は画面の外なので、そこへ出しても押せない）。
-
-     矢印の看板（.sea-sign）はこれを渡さない。あちらは**面の子**で、
-     面ごと縮む＝自分で正しい位置に付いてくる。画面の px をそこへ足すと、
-     世界の px として二重に効く（実際にずれた）。 */
-  const w = stage.clientWidth || 0, h = stage.clientHeight || 0;
-  const ex = w * (1 - zLevel) / 2, ey = h * (1 - zLevel) / 2;
-  const set = (k, v) => stage.style.setProperty(k, Math.max(0, Math.round(v)) + 'px');
-  set('--sea-il', ex + panX); set('--sea-ir', ex - panX);
-  set('--sea-it', ey + panY); set('--sea-ib', ey - panY);
 }
 function applyZoom() { applyView(); syncZoomBtn(); }
 
 /* 画面の点 (px,py) の下にあるものを動かさずに倍率を変える。
    ホイールならポインタの下、つまむ指なら2本の真ん中が動かない。
-   .sea-view はステージいっぱいなので、変形の原点＝ステージの中心。 */
+   .sea-world は負の余白で窓の真ん中に置いてあるので、変形の原点＝ステージの中心。 */
 function zoomTo(nz, px, py) {
   if (!stage) return;
   const z0 = zLevel;
@@ -1134,7 +1169,9 @@ function neighbor(face, way) {
 }
 
 function faceBase(face) {
-  const w = stage.clientWidth || 0, h = stage.clientHeight || 0;
+  /* 面は世界の大きさで並んでいる（±100% ＝ ±世界1つぶん）。
+     ステージの大きさで測ると、引いたときだけ隣の面が半端な位置で止まる */
+  const w = (world && world.clientWidth) || 0, h = (world && world.clientHeight) || 0;
   if (face === 'up') return { x: 0, y: h };
   if (face === 'down') return { x: 0, y: -h };
   if (face === 'left') return { x: w, y: 0 };
@@ -1316,10 +1353,17 @@ function setFaceItems(face, list) {
   if (typeof field.setItems === 'function') {
     /* drift へ渡す一件ぶん。色はここで決めて渡す（追補4 §1）。
        marks / anchorHue は渡さない——点は描かなくなったので。
-       **size は渡さない。**ズームは面ごと掛かるので、中身は実寸のままでよい
-       （前は倍率を直径に掛けていた。物理も当たり判定も実寸で回る） */
-    field.setItems(list.map(t =>
-      Object.assign(itemOf(t), { colors: colorsOf(t), tagNames: namesOf(t) })));
+
+       **直径はステージの寸法で決める。**引くと世界は広がるが、バブルは広がらない
+       ——それが「引いたぶんだけ余裕ができる」の中身。drift へ渡さないと、
+       あちらは host（＝広がった面）の寸法で上限を決めるので、
+       画面の狭い機種では引くたびにバブルまで大きくなってしまう。 */
+    const dw = stage.clientWidth, dh = stage.clientHeight;
+    field.setItems(list.map(t => {
+      const it = Object.assign(itemOf(t), { colors: colorsOf(t), tagNames: namesOf(t) });
+      it.size = Math.round(diameterFor(it.text, dw, dh));
+      return it;
+    }));
   }
   if (typeof field.nodeOf !== 'function') return;
 
