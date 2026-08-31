@@ -176,7 +176,7 @@ let cols = 3;                  /* カード幅を決める倍数。カード幅 
 let slotCols = 2;              /* 1行に並ぶ升目の数。cols とは別物（間合いが違う） */
 let resizeObs = null;
 
-let composerAnchor = null;     /* いま「ここにぶら下げる」を開いているアンカー */
+let composerAnchor = null;     /* 入力欄が開いているか。開くのは未分類だけ（UNSORTED か null） */
 let renaming = null;           /* いま名前を書き換えているアンカー */
 let menuPop = null, menuOwner = null;
 let wantFocus = null;          /* 次の描画でここへフォーカスを置く（fk） */
@@ -1440,8 +1440,8 @@ function fillFrame(box, items, where) {
 /* 升目の行数。**空のカードは 0 行**（レビューの指摘）。
    前は空でも1行ぶん（112px）確保していたので、いちばん場所を食っているのが
    空のカード、という状態になっていた——A-6 の「空き枠を目立たせない」の逆。
-   置き場所が消えるわけではない：下の [＋ここにぶら下げる] がそのまま落とし先で、
-   カードの当たり判定はカード全体なので、狙う的も小さくならない */
+   置き場所が消えるわけではない：カードの当たり判定はカード全体なので、
+   升目が 0 行でも狙う的は小さくならない（見出しのぶんの高さが残る） */
 function rowsFor(n) {
   if (!n) return 0;
   return Math.ceil(n / Math.max(1, slotCols));
@@ -1481,11 +1481,10 @@ function makeUnsortedFrame() {
       CFG.unsortedNote));
   }
 
-  /* **未分類にも直に書ける**（利用者の指示）。
-     前はカードの下にしか入力欄が無く、「まだどこにも決めていないもの」を
-     この画面で作る道が無かった（海で書いてから運ぶしかなかった）。
+  /* **この画面で書く口は、ここひとつ**（利用者の指示）。
      書いたものにはタグも一緒に付けられる——付け先を決めるのは、
-     どのカードにぶら下げるかとは別の軸なので。 */
+     どのカードにぶら下げるかとは別の軸なので。
+     枠へ載せるのは、書いたあとに上の枠へドラッグする。 */
   if (composerAnchor === UNSORTED) {
     if (composerBox._tags) renderComposerTags(composerBox._tags);
     box.appendChild(composerBox);
@@ -1494,8 +1493,8 @@ function makeUnsortedFrame() {
     hang.type = 'button';
     hang.dataset.fk = 'hang:' + UNSORTED;
     hang.appendChild(el('span', 'pl', '＋'));
-    hang.appendChild(el('span', null, 'ここに足す'));
-    hang.setAttribute('aria-label', '未分類に足す');
+    hang.appendChild(el('span', null, 'ここに書く'));
+    hang.setAttribute('aria-label', '未分類に書く');
     hang.addEventListener('pointerdown', ev => ev.stopPropagation());
     hang.addEventListener('click', ev => {
       ev.preventDefault();
@@ -1582,32 +1581,19 @@ function makeAnchorFrame(a, index, total, special) {
 
   const grid = fillFrame(box, items, a.id);
 
-  /* ＋ ここにぶら下げる。プールを経由せず、その場で書いて登録する */
-  if (composerAnchor === a.id) {
-    if (composerBox._tags) renderComposerTags(composerBox._tags);
-    box.appendChild(composerBox);
-  } else {
-    const hang = el('button', 'phang');
-    hang.type = 'button';
-    hang.dataset.fk = 'hang:' + a.id;
-    hang.appendChild(el('span', 'pl', '＋'));
-    hang.appendChild(el('span', null, 'ここにぶら下げる'));
-    hang.setAttribute('aria-label', '「' + a.name + '」の下に足す');
-    hang.addEventListener('pointerdown', ev => ev.stopPropagation());
-    hang.addEventListener('click', ev => {
-      ev.stopPropagation();
-      composerAnchor = a.id;
-      wantFocus = 'compose';
-      render();
-    });
-    box.appendChild(hang);
-  }
+  /* **カードごとの入力欄は置かない**（利用者の指示）。
+     書く場所はいちばん下の「未分類」ひとつだけで、そこから枠へ運ぶ。
+
+     前は枠ごとに [＋ここにぶら下げる] があった。書く口が枠の数だけあると、
+     画面の下ほど「書けるところ」が増えていき、**枠を選んでから書く**ことになる。
+     この画面の枠は「きっかけ」＝すでに毎日起きている行動なので、
+     思いついたことのほうが先にあって、繋ぎ先はあとから決まる。順番が逆だった。 */
 
   anchorRef[a.id] = { box, grid, count: items.length, index };
   return box;
 }
 
-/* ---------------- 入力（ぶら下げ／きっかけの追加） ---------------- */
+/* ---------------- 入力（未分類に書く／枠の追加） ---------------- */
 
 /* 入力欄は再描画のたびに作り直すと、打ちかけが消えてカーソルも飛ぶ。
    だからノードは1つだけ作って、開いているアンカーの下へ付け替える。 */
@@ -1657,10 +1643,10 @@ function makeComposer() {
   boxEl._tags = tagsEl;
   const inp = el('input', 'in');
   inp.type = 'text';
-  inp.placeholder = 'ここにぶら下げる';
+  inp.placeholder = '思いついたことを書く';
   inp.autocomplete = 'off';
   inp.dataset.fk = 'compose';
-  inp.setAttribute('aria-label', 'ぶら下げるものを書く');
+  inp.setAttribute('aria-label', '未分類に書く');
   inp.addEventListener('pointerdown', ev => ev.stopPropagation());
   inp.addEventListener('keydown', ev => {
     if (ev.key === 'Escape') {
@@ -1683,11 +1669,11 @@ function makeComposer() {
     }
     /* 習慣の計画は「今日の選択」ではないので today は立てない。
        この画面で生まれたものなので、この画面の軸は立てる（外したとき未分類に残る）。
-       行き先が未分類なら、カードにはぶら下げずにそこで止める。 */
+       **カードにはぶら下げない。**書く口は未分類ひとつだけになったので、
+       ここで生まれたものは必ず未分類に落ちる。枠へ載せるのは、そのあとのドラッグ。 */
     const t = store.add(text);
     if (t && t.id) {
       setPlan(t.id, true);
-      if (target !== UNSORTED) A.setMember(t.id, target, true);
       if (typeof store.setTag === 'function') {
         picked.forEach(tg => { try { store.setTag(t.id, tg, true); } catch (e) { /* 無いタグ */ } });
       }
@@ -1767,7 +1753,7 @@ function render() {
     if (renaming && !A.get(renaming)) renaming = null;
     /* 消えたカードの下に入力欄を出したままにしない。
        未分類は「カード」ではないので、この検査から外す（A.get は必ず null を返す） */
-    if (composerAnchor && composerAnchor !== UNSORTED && !A.get(composerAnchor)) composerAnchor = null;
+    if (composerAnchor && composerAnchor !== UNSORTED) composerAnchor = null;
 
     /* ★消してよいのはセルだけ。面（surfaceEl）を replaceChildren すると、
        drift が面に置いたバブルのノードまで消える。drift は自分の側では
@@ -1912,10 +1898,10 @@ return {
       const a = A.add(v);
       if (!a) { toast(CFG.word + 'はこれ以上ふやせない'); return; }
       addInput.value = '';
-      /* 足したら、すぐその下に書けるところまで連れて行く */
-      composerAnchor = a.id;
+      /* 枠を足しても、その下に入力欄は開かない（入力欄はもう未分類にしか無い）。
+         続けて枠を足せるよう、足す口に居場所を残す */
       addBox.classList.remove('is-open');
-      wantFocus = 'compose';
+      wantFocus = 'addanchor';
       render();
     });
     addBox.appendChild(addInput);
