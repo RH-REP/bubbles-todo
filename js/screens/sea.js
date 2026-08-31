@@ -8,7 +8,7 @@
      　　　　  │  完了   │
      　　　　  └────────┘
 
-   ・中央 = すべての海（完了と長期保留は出さない）
+   ・中央 = すべての海（完了と、静かな3つ＝きっかけ・すきま・長期保留は出さない）
    ・上・下 = **固有枠**。上=長期保留 / 下=完了。ユーザーは動かせない
    ・左・右 = タグの海。どのタグをどの向きに置くかは store.tagDir(dir) が決める
    ・背景をドラッグ／スワイプ = 隣の面へ移る（隣どうしは直接つながらない。必ず中央を通る）
@@ -416,8 +416,43 @@ function colorsOf(t) {
   return out;
 }
 
-/* 長期保留。**どの海からも既定では出さない**（利用者の指示）。
-   出るのは上の海だけ。完了と同じ扱い方だが、意味は別もの——
+/* ---- 海に既定では出さないタグ（利用者の指示）----
+
+   > 「全ての海のデフォルトを、今日 + 未整理 + プライベート + 仕事 だけにして
+   >  正確に言えば以下三つが入っているものは除きたい（Not filter）
+   >  きっかけ／すきま／長期保留：毎日考えるものではない」
+
+   3つに共通するのは、**毎日は考えないもの**であること。そしてどれも、
+   ここではない置き場所を自分で持っている：
+
+     きっかけ … 「きっかけ」の画面（枠にぶら下がっている）
+     すきま   … 「すきま」の画面
+     長期保留 … 上の海（「いまは見ない」と決めたもの）
+
+   だから海から外しても、行き場を失うものは無い。
+
+   **UI は1つも増やしていない**（指示：UIを複雑化せずに）。
+   絞り込み（▽しぼる）の一覧にはもともと全部のタグが並んでいるので、
+   **そこでそのタグを選べば出る**。「または」の絞り込みはそのまま、
+   既定で出さないものの数が 1つ（長期保留）から 3つに増えただけ。
+
+   ならべる（一覧）はこの規則を継がない。あそこは「ぜんぶ読む場所」で、
+   既定の眺めではないため（長期保留だけは前から外している——
+   あれは自分で「見ない」と決めたものなので）。 */
+const QUIET_TAGS = ['hold', 'plan', 'gap'];
+
+/* その項目が持っている「静かなタグ」。except に渡した1つは数えない
+   （その海そのもののタグ。長期保留の海が長期保留を出せなくなるのを防ぐ） */
+function quietOf(t, except) {
+  if (!t) return [];
+  const ids = tagsOfSafe(t.id);
+  return QUIET_TAGS.filter(k => k !== except && ids.indexOf(k) >= 0);
+}
+
+function isQuietItem(t, except) { return quietOf(t, except).length > 0; }
+
+/* 長期保留。上の海（と、絞り込みで名指ししたとき）だけに出る。
+   完了と同じ扱い方だが、意味は別もの——
    完了は「終わった」、長期保留は「まだ終わっていないが、いまは見ない」。 */
 function isHoldItem(t) {
   if (!t) return false;
@@ -464,10 +499,17 @@ function capForSea(list) {
 
 function centerItems() {
   if (!hasTags()) return capForSea(store.floating());
-  /* 長期保留はふだん出さない。**ただし長期保留そのもので絞ったときだけ出す**
-     ——「いまは見ない」と決めたものを、自分から見に行く道は残す */
-  const wantHold = narrowSet.has('hold');
-  const list = store.all().filter(t => !isDoneItem(t) && (wantHold || !isHoldItem(t)));
+  /* 静かなタグ（きっかけ・すきま・長期保留）はふだん出さない。
+     **ただし、そのタグを名指しで絞ったときだけ出す**
+     ——「いまは見ない」と決めたものを、自分から見に行く道は残す。
+     名指ししたタグ以外の静かなタグが付いていても、それは邪魔しない
+     （「きっかけを見せて」と言ったなら、きっかけのものは全部出る） */
+  const called = QUIET_TAGS.filter(k => narrowSet.has(k));
+  const list = store.all().filter(t => {
+    if (isDoneItem(t)) return false;
+    const q = quietOf(t, null);
+    return !q.length || q.some(k => called.indexOf(k) >= 0);
+  });
   if (!narrowSet.size) return capForSea(list);
   /* 選んだうちの**どれかが付いていれば出す**（「または」）。
      絞ったあとにも上限はかける——絞り込みは「どれを見るか」で、
@@ -518,9 +560,9 @@ function faceItems(face) {
   }
   let list;
   try { list = store.inTag(tag.id) || []; } catch (err) { return []; }
-  /* 長期保留の海だけが、長期保留を出す。ほかのタグの海からは外す */
-  if (tag.id === 'hold') return capForSea(list);
-  return capForSea(list.filter(t => !isHoldItem(t)));
+  /* タグの海も同じ規則。**その海そのもののタグだけは数えない**ので、
+     長期保留の海は長期保留を出すし、きっかけを左右へ置いた人の海も空にならない */
+  return capForSea(list.filter(t => !isQuietItem(t, tag.id)));
 }
 
 function isStarted(t) {
