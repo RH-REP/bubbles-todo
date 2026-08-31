@@ -1666,6 +1666,7 @@ export function attachGestures(node, handlers = {}) {
 
   let homeParent = null, homeNext = null, homeTransform = '';
   let taken = false;                 /* いま位置の主導権をこちらが持っているか */
+  let heldScale = 1;                 /* 掴んだ時点で面に掛かっていた倍率 */
   let center = null;                 /* 中央に寄せている間の状態 */
 
   function call(name, ...args) {
@@ -1674,24 +1675,40 @@ export function attachGestures(node, handlers = {}) {
   }
 
   /* 層へ持ち出す／元の場所へ返す */
+  /* 掴んでいる間の倍率。面がズームされていると、ノードは倍率つきの面から
+     倍率の掛かっていないドラッグ層へ移る＝そのままだと大きさが跳ねる。
+     画面での見え方（rect.width）と組版上の幅（offsetWidth）の比を、
+     移したあとのノードに掛け直して、跳ねを消す。 */
   function takeNode(rect) {
     if (taken) return;
     taken = true;
     homeParent = node.parentNode;
     homeNext = node.nextSibling;
     homeTransform = node.style.transform;
+    const w = node.offsetWidth || rect.width || 1;
+    heldScale = rect.width ? rect.width / w : 1;
     node.style.left = rect.left + 'px';
     node.style.top = rect.top + 'px';
-    node.style.transform = 'translate(0px, 0px)';
+    /* 動かすのは translate（scale の**外**の口）。transform を使うと
+       下の scale に飲まれて、指の動きが倍率ぶん縮む。
+       原点を左上に置くのは、left/top で置いた位置がそのまま左上になるようにするため */
+    node.style.transformOrigin = '0 0';
+    node.style.transform = '';
+    node.style.translate = '0px 0px';
+    if (Math.abs(heldScale - 1) > 0.005) node.style.scale = String(Math.round(heldScale * 1000) / 1000);
     layerEl().appendChild(node);
     call('onHold', idOf(), true);
   }
   function giveBack() {
     if (!taken) return;
     taken = false;
+    heldScale = 1;
     node.style.left = '';
     node.style.top = '';
     node.style.transition = '';
+    node.style.translate = '';
+    node.style.scale = '';
+    node.style.transformOrigin = '';
     node.style.transform = homeTransform || '';
     if (homeParent && homeParent.isConnected) {
       const before = (homeNext && homeNext.parentNode === homeParent) ? homeNext : null;
@@ -1731,7 +1748,7 @@ export function attachGestures(node, handlers = {}) {
     if (inPlace) {
       call('onDragEnd', id, {
         reason: 'center', droppedTo: null,
-        x: c.cx, y: c.cy,
+        x: c.cx, y: c.cy, cx: c.cx, cy: c.cy,
         left: c.cx - c.d / 2, top: c.cy - c.d / 2,
         vx: 0, vy: 0,          /* 投げていないので勢いは乗せない */
       });
@@ -1762,12 +1779,26 @@ export function attachGestures(node, handlers = {}) {
     const from = node.getBoundingClientRect();
     if (!from.width) return;               /* 寸法が取れないときは何もしない */
 
+    /* 中央へ置いたバブルは、倍率の掛かっていないドラッグ層に立つので**実寸**になる。
+       from は面の上での見え方（＝倍率つき）なので、寄せ先の計算には使わない。
+       1.00 のときは W/H = from.width/height なので、前と1ピクセルも変わらない。 */
+    const W = node.offsetWidth || from.width;
+    const H = node.offsetHeight || from.height;
+
     const hr = (host && host.getBoundingClientRect) ? host.getBoundingClientRect() : from;
-    const cx = hr.left + hr.width / 2;
+    /* 近づいている（倍率 1 超）と、面は画面からはみ出す。はみ出した側まで含めて
+       中心を取ると、盤が画面の外へ寄ってしまう。**見えている範囲**の真ん中に置く。
+       1.00 では面は画面の中に収まっているので、これは hr そのものになる。 */
+    const vw = window.innerWidth || hr.right, vh = window.innerHeight || hr.bottom;
+    let vl = Math.max(hr.left, 0), vr = Math.min(hr.right, vw);
+    let vt = Math.max(hr.top, 0), vb = Math.min(hr.bottom, vh);
+    if (vr - vl < W || vb - vt < H) { vl = hr.left; vr = hr.right; vt = hr.top; vb = hr.bottom; }
+
+    const cx = (vl + vr) / 2;
     /* 上部へ。[まずは開始] のぶんだけ空けた、いちばん上に置ける位置。
        面がとても低いときだけ真ん中に留める（上に寄せると下がもっと狭くなるため） */
-    const cyTop = hr.top + CENTER_M + CENTER_TOP_BAND + from.height / 2;
-    const cy = Math.min(hr.top + hr.height / 2, cyTop);
+    const cyTop = vt + CENTER_M + CENTER_TOP_BAND + H / 2;
+    const cy = Math.min((vt + vb) / 2, cyTop);
 
     /* ---- 覆い（取り消しの口） ----
        いちばん先に置く＝この層の最初の子。あとから足す中央のバブル・当たり判定・盤は
@@ -1793,7 +1824,7 @@ export function attachGestures(node, handlers = {}) {
 
     /* 当たり判定は押した瞬間から中央に置く。動いている的を押させない。
        44×44 を下回らせない。 */
-    const hd = Math.max(from.width, 44);
+    const hd = Math.max(W, 44);
     const hit = el('div', 'bub-hit');
     hit.style.left = (cx - hd / 2) + 'px';
     hit.style.top = (cy - hd / 2) + 'px';
@@ -1849,19 +1880,25 @@ export function attachGestures(node, handlers = {}) {
       idOf(), node.getAttribute('aria-label') || '', accept, actions, runAction,
       tagInfoOf(node));
     layerEl().appendChild(panel.root);
-    panel.place(cx, cy, from.width);
+    panel.place(cx, cy, W);
 
     /* 指で開いたなら、このタップが生む click を1つだけ捨てる。
        盤を組んだあとに張る（張る前に return する枝は無いが、順番を読みやすくするため） */
     eatOpeningClick(pt);
 
-    /* 中央へ寄せる。rAF は隠れている間 発火しないので、reflow で開始位置を確定させる */
-    const dx = cx - (from.left + from.width / 2);
-    const dy = cy - (from.top + from.height / 2);
+    /* 中央へ寄せる。rAF は隠れている間 発火しないので、reflow で開始位置を確定させる。
+       takeNode が左上を from.left/top に置き、原点も左上にしてあるので、
+       寄せ先の左上との差がそのまま translate になる。
+       あわせて scale を 1 へ戻す＝引いて見ているときは「近づきながら開く」。
+       小さいまま開くと、盤は実寸なのにバブルだけ小さく、読めないため。 */
+    const dx = cx - W / 2 - from.left;
+    const dy = cy - H / 2 - from.top;
     void node.offsetWidth;
     const ms = RM.matches ? 0 : CENTER_MS;
-    node.style.transition = ms ? `transform ${ms}ms cubic-bezier(.2,.9,.3,1)` : '';
-    node.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    node.style.transition = ms
+      ? `translate ${ms}ms cubic-bezier(.2,.9,.3,1), scale ${ms}ms cubic-bezier(.2,.9,.3,1)` : '';
+    node.style.translate = `${dx.toFixed(1)}px ${dy.toFixed(1)}px`;
+    node.style.scale = '1';
 
     /* 戻る条件はこれだけ。時間では戻さない。
        中央のバブル（当たり判定）と盤の中を触っている間は戻らない。
@@ -1910,7 +1947,7 @@ export function attachGestures(node, handlers = {}) {
     /* cx / cy / d は、閉じたときに「その場で解放する」ための座標として持ち回す */
     center = {
       hit, veil, panel, host, wasFocused,
-      onOutside, onEsc, onAway, onScroll, cx, cy, d: from.width,
+      onOutside, onEsc, onAway, onScroll, cx, cy, d: W,
     };
 
     /* キーボードで来たときだけ、盤の先頭へ移す（指のときは焦点を横取りしない）。
@@ -1972,11 +2009,17 @@ export function attachGestures(node, handlers = {}) {
       while (track.length > 2 && now - track[0].t > FLICK_WINDOW) track.shift();
       if (!moved && Math.hypot(dx, dy) > DRAG_PX) { moved = true; beginDrag(); }
       if (!dragging) return;
-      node.style.transform = `translate(${dx}px, ${dy}px)`;
+      /* translate は scale の外の口なので、指の px がそのまま画面の px になる
+         （transform に書くと、掴んだときに掛けた scale に飲まれて動きが縮む） */
+      node.style.translate = `${dx}px ${dy}px`;
       hilite(e.clientX, e.clientY);
       call('onDragMove', idOf(), {
         x: e.clientX, y: e.clientY,
         left: rect.left + dx, top: rect.top + dy,
+        /* 面の側で「世界のどこか」へ直すのは中心のほうが確か。
+           左上＋半径だと、画面での大きさと世界での大きさが倍率ぶん食い違う */
+        cx: rect.left + dx + rect.width / 2,
+        cy: rect.top + dy + rect.height / 2,
       });
     }
 
@@ -2011,6 +2054,8 @@ export function attachGestures(node, handlers = {}) {
       call('onDragEnd', id, {
         reason: 'drag', droppedTo,
         x, y, left: x - grabDX, top: y - grabDY, vx, vy,
+        cx: x - grabDX + rect.width / 2,
+        cy: y - grabDY + rect.height / 2,
       });
       call('onHold', id, false);
       if (droppedTo) call('onDropToTab', id, droppedTo);

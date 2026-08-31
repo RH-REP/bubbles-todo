@@ -277,6 +277,18 @@ export function createField(host, opts = {}) {
   const fx = new Map();        /* id -> はまった合図を外すタイマー */
   let raf = 0, lastT = 0, running = false;
   let lastW = 0, lastH = 0;
+
+  /* 面に掛かっている倍率。**外から渡してもらわない**——渡し忘れると、
+     指の座標が静かにずれる（原因の分かりにくい不具合になる）。
+     getBoundingClientRect は変形のあとの画面の幅、clientWidth は変形の前の
+     組版上の幅なので、その比がそのまま倍率になる。掛かっていなければ 1。 */
+  function zoomOf() {
+    const w = host.clientWidth;
+    if (!w) return 1;
+    const r = host.getBoundingClientRect().width;
+    const z = r / w;
+    return (z > 0.01 && z < 100) ? z : 1;
+  }
   let gathering = false;
   let dead = false;
   let ro = null;
@@ -965,21 +977,31 @@ export function createField(host, opts = {}) {
       /* 掴まれたら固定も寄せもほどける。手を離せば、そこからまた吸い込まれる */
       if (on) { b.pin = false; clearSnap(b); }
     },
-    /* ドラッグ中の現在位置。漂う仲間をかき分けるため物理へ伝える */
+    /* ドラッグ中の現在位置。漂う仲間をかき分けるため物理へ伝える。
+       info は**画面の px**、こちらの cx/cy は**面の px**。海がズームされていると
+       この2つは倍率ぶんずれるので、zoomOf() で割って移す（1.00 なら何も変わらない）。 */
     onDragMove: (id, info) => {
       const b = bubbles.get(id);
       if (!b) return;
       const r = host.getBoundingClientRect();
-      b.cx = info.left + b.d / 2 - r.left;
-      b.cy = info.top + b.d / 2 - r.top;
+      const z = zoomOf();
+      /* 中心をそのまま貰えるならそれを使う。左上＋半径だと、画面での大きさと
+         面の上での大きさが倍率ぶん食い違う場合（中央の盤から離すとき）にずれる */
+      const px = Number.isFinite(info.cx) ? info.cx : info.left + b.d * z / 2;
+      const py = Number.isFinite(info.cy) ? info.cy : info.top + b.d * z / 2;
+      b.cx = (px - r.left) / z;
+      b.cy = (py - r.top) / z;
     },
     onDragEnd: (id, info) => {
       const b = bubbles.get(id);
       if (b) {
         const r = host.getBoundingClientRect();
+        const z = zoomOf();
         const rad = b.d / 2;
-        b.cx = clamp(info.left - r.left + rad, rad, Math.max(rad, host.clientWidth - rad));
-        b.cy = clamp(info.top - r.top + rad, rad, Math.max(rad, host.clientHeight - rad));
+        const px = Number.isFinite(info.cx) ? info.cx : info.left + rad * z;
+        const py = Number.isFinite(info.cy) ? info.cy : info.top + rad * z;
+        b.cx = clamp((px - r.left) / z, rad, Math.max(rad, host.clientWidth - rad));
+        b.cy = clamp((py - r.top) / z, rad, Math.max(rad, host.clientHeight - rad));
         b.held = false;
 
         /* 離した位置がセルの「近く」なら、迷わず中心へ収める。
@@ -1001,7 +1023,8 @@ export function createField(host, opts = {}) {
         } else if (!RM.matches && !info.droppedTo && Number.isFinite(info.vx)) {
           /* 投げた勢いを載せる。速すぎるぶんは tick 側で空気抵抗のように減衰する。
              タブへ落としたときと reduced motion のときは勢いを付けない */
-          b.vx = info.vx; b.vy = info.vy;
+          /* 勢いも画面の px/秒。面の px/秒へ直さないと、引いているときだけ速く飛ぶ */
+          b.vx = info.vx / z; b.vy = info.vy / z;
         }
         place(b);
         savePos(b);

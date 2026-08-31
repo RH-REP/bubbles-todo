@@ -46,8 +46,9 @@ import { dropDay } from './today.js';
 
    面はスクロールしない1画面なので、入らないぶんはそのまま重なりになる。
    20個で面積 **88%**、1個あたり 1.9個の重なり。ここを上限にした。
-   「引いて見る」の 0.6倍まで引くと面積は 0.36倍（32%）になるので、
-   20個は引いて見れば余裕で収まる。
+   **引けば収まる、とは言えない。**ズームは面ごと縮めるので、
+   混み具合（面積の割合・重なりの数）は倍率を変えても1ミリも変わらない。
+   だから上限はズームとは別に、これ単体で立っていなければならない。
 
    重さのほうは、これで自動的に収まる。参考の実測：
    バブル1個は DOM 5ノード・グラデーション7層・影1枚・動く CSS アニメ1本。
@@ -117,7 +118,7 @@ const EDGE_BAND = 21;   /* 帯の厚み px。利用者の指示で 64 の 1/3。
    狭めるのは長さではなく厚み（EDGE_BAND）のほう。 */
 const EDGE_SPAN = 1;
 
-let root, stage, world, hint, grid, gridCap, gridEmpty, moreLine;
+let root, stage, view, world, hint, grid, gridCap, gridEmpty, moreLine;
 let faceName, faceDot, faceLabel;
 let gatherBtn, gatherLabel;
 let narrowBtn, narrowLabel, centerEmpty;
@@ -134,61 +135,163 @@ const edges = {};       /* dir  -> { el, btn, dot, label } */
 let curFace = 'center';
 let gathering = false;
 
-/* ---- 海のズームアウト（利用者の指示。A-1）----
+/* ---- 海のズーム（利用者の指示）----
 
-   中央の海は「すべて」なので、使うほど増えて重なる（実測 17個で面積の 73%、重なり 18組）。
-   面は画面そのもので、外側にスクロールできる海があるわけではない。
-   だから「引いて見る」＝**中身を小さくして、同じ面により多く収める**こと。
+   前の「引いて見る」は**バブルの直径だけ**を 0.8／0.6 倍にしていた。水面の広さは
+   そのままなので、同じ面により多く収まる。けれど利用者の言うとおり、これは
+   **ズームアウトではない**。ズームは「同じ世界を、遠くから見る」ことなので、
+   遠ざかれば水面も枠も一緒に小さくなる。中身だけ縮むのは別の概念だった。
 
-   やり方は2つあった：
-     ・面ごと CSS の transform で縮める … 物理の面は広がるが、
-       指の座標から面の座標へ戻す計算（drift.js が rect の差で出している）が
-       倍率ぶんずれる。drift の座標系に手を入れることになる
-     ・**1件ずつ直径を掛け算する** … 物理も当たり判定も実寸のままなので、
-       座標の計算はどこも変わらない。こちらを採った
+   面ごと縮める本物のズームに替えた。指示は「世界の広さは変えない」なので、
+   海の世界は画面ぴったりのまま。**その帰結を隠さずに書いておく：**
 
-   段は3つ。バブルの最小直径 78px に掛けるので：
-     1.00 … いままで（78〜200px）
-     0.80 … 62〜160px。面積は 0.64倍（重なりの見込みは 73% → 47%）
-     0.60 … 47〜120px。面積は 0.36倍（同 26%）。47px はタップ目標 44 を下回らない
-   0.6 より下は 44×44 を割るので用意しない。
+     引いても、見えるものは増えない。世界の端まで最初から見えているので、
+     引いて出てくるのは水の外側の余白だけ。小さくなるぶん、むしろ読みにくい。
+     混み具合（重なりの数）も倍率では1ミリも変わらない。
 
-   文字も一緒に縮む（CSS の --sea-zoom）。0.6 で 13px → 7.8px なので、
-   いちばん引いた段は「どれが大きいか・何色か」を見る段で、読む段ではない。
+   引く操作に中身が入るのは、世界が画面より広くなってからで、それが次の指示
+   （枠の大きさを中のバブルの数で決める）にあたる。その日に足すものが無いよう、
+   寄せ（pan）と、画面より広い世界を前提にした当たり判定まで先に入れてある。
 
-   状態は持ち回さない（開き直すと 1.00 に戻る）。
-   保存すると「小さいまま開いて、なぜ小さいのか分からない」が起きうるため。 */
-const ZOOMS = [1, 0.8, 0.6];
-let zoomIx = 0;
+   ---- 座標系 ----
+
+   掛ける先は .sea-view（新設）。中身は .sea-world（面の切り替えで動く）。
+   view が clip するので、引いても隣の面がはみ出して見えることはない。
+
+   CSS の変形は**3つの別々の口**を使う（合成の順は translate → scale → transform）：
+
+     translate … 寄せ。     scale の**外**なので、値は画面の px
+     scale     … 倍率
+     transform … 面の切り替え。scale の**中**なので、値は世界の px
+
+   3つは互いを上書きしない。おかげで面の切り替えの式は1文字も変えなくていい
+   （もともと世界の px で書いてあり、それがそのまま正しい単位になる）。
+
+   指の px から世界の px へ戻すのは、倍率で割るだけ。drift.js へは倍率を渡さない
+   ——渡し忘れると静かにずれるので、あちらが host の
+   getBoundingClientRect（倍率つき）と clientWidth（倍率なし）の比から自分で出す。
+
+   段は 0.4〜2.4。0.4 まで引くと 78px のバブルが 31px になり、タップ目標 44 を割る。
+   割ってよいことにしたのは、引いた状態が「眺める」状態だから——押すなら近づく。
+   ボタンは 1 → 0.7 → 0.45 の3段だけを回す（片手で戻せるように）。
+   ホイールとつまむ指は連続。
+
+   ズームは画面を離れると 1.0 に戻す。小さいまま・寄せたまま開くと
+   「なぜ端が見えないのか」が分からなくなるため。 */
+const Z_MIN = 0.4, Z_MAX = 2.4;
+const Z_STOPS = [1, 0.7, 0.45];
+const Z_WHEEL = 0.0022;      /* ホイール1px ぶんの指数。100px で約 1.25 倍 */
+
+/* **2つ持つ理由。**ホイールは掛け算で効くので、引いて戻すと 0.99996 のような
+   端数が残る。それをそのまま使うと「戻したのに枠が付いたまま・ボタンが〈もどす〉のまま」
+   になる（実際になった）。そこで 1.00 の近くは 1.00 に吸い付かせる。
+   吸い付かせた値だけを持つと、細かく刻むトラックパッドが谷から出られなくなるので、
+   刻みを足していく生の値（zRaw）と、実際に掛ける値（zLevel）を分ける。 */
+const Z_SNAP = 0.02;
+let zRaw = 1;
+let zLevel = 1;
+let panX = 0, panY = 0;      /* 画面 px。倍率が 1 以下なら必ず 0（世界は真ん中） */
 let zoomBtn = null;
 let zoomLabel = null;
-const zoom = () => ZOOMS[zoomIx] || 1;
+const zoom = () => zLevel;
+const r3 = v => Math.round(v * 1000) / 1000;
 
-/* 押すたびに次の段へ。いちばん引いたら 1.00 へ戻る（戻し方が画面にある）。 */
+/* 寄せられる幅。倍率が 1 以下なら世界は画面に収まるので 0。
+   1 を超えたぶん、はみ出した半分まで寄せられる（＝世界の外は決して見えない）。 */
+function panLimit() {
+  const w = stage ? stage.clientWidth : 0, h = stage ? stage.clientHeight : 0;
+  const k = Math.max(0, zLevel - 1) / 2;
+  return { x: w * k, y: h * k };
+}
+
+/* 見え方だけを書き換える（毎フレーム呼ばれる側。看板の作り直しはしない） */
+function applyView() {
+  if (!view || !stage) return;
+  const lim = panLimit();
+  panX = clamp(panX, -lim.x, lim.x);
+  panY = clamp(panY, -lim.y, lim.y);
+  /* 端数（1e-14 など）は 0 にする。真なら translate を書いてしまうので */
+  if (Math.abs(panX) < 0.5) panX = 0;
+  if (Math.abs(panY) < 0.5) panY = 0;
+  view.style.scale = zLevel === 1 ? '' : String(r3(zLevel));
+  view.style.translate = (panX || panY)
+    ? Math.round(panX) + 'px ' + Math.round(panY) + 'px' : '';
+  stage.classList.toggle('is-zoomed', zLevel !== 1);
+  stage.classList.toggle('is-zoomed-out', zLevel < 1);
+  stage.style.setProperty('--sea-zoom', String(r3(zLevel)));
+
+  /* ドラッグ中に出る受け口の帯（.sea-edge）は**ステージの子**なので、倍率が掛からない。
+     「この先に別の海がある」と言っている帯が画面の端に居ると、引いたときに
+     海の枠の外＝水の無いところに立ってしまう。寄ったぶんを4辺それぞれ渡して、
+     枠の端に付け直す。近づいて枠が画面より大きいときは 0＝画面の端のまま
+     （枠の端は画面の外なので、そこへ出しても押せない）。
+
+     矢印の看板（.sea-sign）はこれを渡さない。あちらは**面の子**で、
+     面ごと縮む＝自分で正しい位置に付いてくる。画面の px をそこへ足すと、
+     世界の px として二重に効く（実際にずれた）。 */
+  const w = stage.clientWidth || 0, h = stage.clientHeight || 0;
+  const ex = w * (1 - zLevel) / 2, ey = h * (1 - zLevel) / 2;
+  const set = (k, v) => stage.style.setProperty(k, Math.max(0, Math.round(v)) + 'px');
+  set('--sea-il', ex + panX); set('--sea-ir', ex - panX);
+  set('--sea-it', ey + panY); set('--sea-ib', ey - panY);
+}
+function applyZoom() { applyView(); syncZoomBtn(); }
+
+/* 画面の点 (px,py) の下にあるものを動かさずに倍率を変える。
+   ホイールならポインタの下、つまむ指なら2本の真ん中が動かない。
+   .sea-view はステージいっぱいなので、変形の原点＝ステージの中心。 */
+function zoomTo(nz, px, py) {
+  if (!stage) return;
+  const z0 = zLevel;
+  zRaw = clamp(nz, Z_MIN, Z_MAX);
+  const z1 = Math.abs(zRaw - 1) < Z_SNAP ? 1 : zRaw;
+  /* 掛ける値が動かなくても zRaw は進めておく（谷から出られるように） */
+  if (Math.abs(z1 - z0) < 0.0005) { zLevel = z1; return; }
+  const r = stage.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const ax = (px == null) ? cx : px;
+  const ay = (py == null) ? cy : py;
+  const wx = (ax - cx - panX) / z0, wy = (ay - cy - panY) / z0;
+  zLevel = z1;
+  panX = ax - cx - wx * z1;
+  panY = ay - cy - wy * z1;
+  applyZoom();
+}
+
+function resetZoom() {
+  zRaw = 1; zLevel = 1; panX = 0; panY = 0;
+  applyZoom();
+}
+
+/* ボタンは3段を回る。段の外（ホイールで 1.6 など）に居るときは、まず 1.0 へ戻す */
+let zsmoothTimer = 0;
 function cycleZoom() {
-  zoomIx = (zoomIx + 1) % ZOOMS.length;
-  if (stage) stage.style.setProperty('--sea-zoom', String(zoom()));
-  syncFaces();          /* 大きさが変わるので、面の中身を渡し直す */
-  FACES.forEach(f => {
-    const fl = faces[f] && faces[f].field;
-    if (fl && fl.relayout) { try { fl.relayout(); } catch (err) { /* 測れないだけ */ } }
-  });
-  renderChrome();
+  const ix = Z_STOPS.findIndex(v => Math.abs(v - zLevel) < 0.02);
+  const nz = ix < 0 ? 1 : Z_STOPS[(ix + 1) % Z_STOPS.length];
+  /* ボタンで飛ぶときだけ滑らせる。ホイールとつまむ指は指に貼り付いていてほしいので、
+     あちらには掛けない（掛けると、指を止めたあとも動き続けて酔う） */
+  stage.classList.add('is-zsmooth');
+  clearTimeout(zsmoothTimer);
+  zsmoothTimer = setTimeout(() => stage.classList.remove('is-zsmooth'), 260);
+  panX = 0; panY = 0;
+  zoomTo(nz, null, null);
+  applyZoom();                    /* 段が同じで zoomTo が素通りしたときのため */
 }
 
 function syncZoomBtn() {
   if (!zoomBtn || !zoomLabel) return;
-  const z = zoom();
+  const at = v => Math.abs(v - zLevel) < 0.02;
   /* 「いまどれだけ引いているか」ではなく「押すとどうなるか」を出す。
      ならべる／しぼるが「もどす」に変わるのと同じ言い方 */
-  zoomLabel.textContent = z === 1 ? '引いて見る' : (z === 0.6 ? 'もどす' : 'もっと引く');
-  zoomBtn.classList.toggle('is-on', z !== 1);
+  zoomLabel.textContent = at(1) ? '引いて見る' : (at(0.7) ? 'もっと引く' : 'もどす');
+  zoomBtn.classList.toggle('is-on', !at(1));
   zoomBtn.setAttribute('aria-label',
-    z === 1 ? '引いて見る（バブルを小さくして、多く見る）'
-      : (z === 0.6 ? 'もとの大きさへもどす' : 'もっと引いて見る'));
+    at(1) ? '引いて見る（海ごと小さくして、全体を眺める）'
+      : (at(0.7) ? 'もっと引いて見る' : 'もとの大きさへもどす'));
   /* 整列中は面が丸ごと隠れるので、引く対象が無い */
   zoomBtn.hidden = gathering;
 }
+
 /* 中央（ぜんぶ）の海の絞り込み（利用者の指示。タグごと → **複数選べる**）。
 
    選べるのは：
@@ -919,13 +1022,101 @@ function isBackground(target) {
 }
 
 function onStageDown(ev) {
-  if (gathering || bubbleDrag || swipe) return;
+  if (gathering || bubbleDrag || swipe || panning || pinch) return;
   if (ev.button != null && ev.button !== 0) return;
   if (!isBackground(ev.target)) return;
+  /* 近づいているとき（倍率 1 超）は、背景の指は**寄せ**。
+     面の移動はここでは受けない——世界が画面より広いあいだ、
+     同じ指の動きに「まだ見えていないところへ寄る」と「隣の面へ移る」の
+     2つの意味を持たせると、どちらも出しにくくなる。
+     面を移りたければ端の看板（.sea-edge-btn）を押す。あれは倍率に関係なく効く。 */
+  if (zLevel > 1) { startPan(ev); return; }
   swipe = { pid: ev.pointerId, x0: ev.clientX, y0: ev.clientY, axis: null, dx: 0, dy: 0, to: null };
   window.addEventListener('pointermove', onSwipeMove, true);
   window.addEventListener('pointerup', onSwipeEnd, true);
   window.addEventListener('pointercancel', onSwipeCancel, true);
+}
+
+/* ---------------- 寄せ（近づいているときの背景ドラッグ） ---------------- */
+
+let panning = null;   /* { pid, x0, y0, px0, py0, moved } */
+
+function startPan(ev) {
+  panning = { pid: ev.pointerId, x0: ev.clientX, y0: ev.clientY, px0: panX, py0: panY, moved: 0 };
+  window.addEventListener('pointermove', onPanMove, true);
+  window.addEventListener('pointerup', endPan, true);
+  window.addEventListener('pointercancel', endPan, true);
+}
+function onPanMove(ev) {
+  if (!panning || ev.pointerId !== panning.pid) return;
+  const dx = ev.clientX - panning.x0, dy = ev.clientY - panning.y0;
+  panning.moved = Math.max(panning.moved, Math.hypot(dx, dy));
+  /* 寄せは scale の**外**の口（translate）なので、値は画面の px のまま。
+     指と1対1で付いてくる（世界の px へ直すと、近づくほど速く滑ってしまう） */
+  panX = panning.px0 + dx;
+  panY = panning.py0 + dy;
+  applyView();
+}
+function endPan(ev) {
+  if (!panning || (ev && ev.pointerId !== panning.pid)) return;
+  if (panning.moved > 6) signSuppress = Date.now();
+  closePan();
+}
+function closePan() {
+  panning = null;
+  window.removeEventListener('pointermove', onPanMove, true);
+  window.removeEventListener('pointerup', endPan, true);
+  window.removeEventListener('pointercancel', endPan, true);
+}
+
+/* ---------------- ホイール／つまむ指 ---------------- */
+
+/* ホイールはページを動かさない（ステージはスクロールしない）ので横取りしてよい。
+   Mac の2本指スワイプもここに来る＝そのまま拡大・縮小になる。 */
+function onWheel(ev) {
+  if (gathering) return;
+  const t = ev.target;
+  /* 整列のグリッド・詳細シート・選び札の中は、素直にスクロールさせる */
+  if (t && t.closest && t.closest('.sea-grid, .sea-sheet, .sea-narrow-pop, input, textarea')) return;
+  ev.preventDefault();
+  /* deltaMode 1 = 行、2 = ページ。px に揃えてから指数に掛ける */
+  const unit = ev.deltaMode === 1 ? 16 : (ev.deltaMode === 2 ? (stage.clientHeight || 600) : 1);
+  zoomTo(zRaw * Math.exp(-ev.deltaY * unit * Z_WHEEL), ev.clientX, ev.clientY);
+}
+
+/* つまむ指。**背景から始めた指だけ**を数える。
+   バブルの上から始めた指は bubble.js が掴んでいて、そこから取り上げる口が無い
+   （取り上げれば、掴んだつもりのバブルが手から消える）。
+   実機の指2本は、この環境（契約 §14）では合成イベントでしか動かせていない。 */
+const pinchPts = new Map();
+let pinch = null;     /* { d0, z0 } */
+
+function trackDown(ev) {
+  if (ev.pointerType === 'mouse') return;
+  if (gathering || bubbleDrag) return;
+  if (!isBackground(ev.target)) return;
+  pinchPts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (pinchPts.size === 2 && !pinch) {
+    cancelSwipe(); closePan();
+    const p = [...pinchPts.values()];
+    pinch = { d0: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1, z0: zRaw };
+  }
+}
+function trackMove(ev) {
+  if (!pinchPts.size) return;
+  const rec = pinchPts.get(ev.pointerId);
+  if (!rec) return;
+  rec.x = ev.clientX; rec.y = ev.clientY;
+  if (!pinch || pinchPts.size < 2) return;
+  const p = [...pinchPts.values()];
+  const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  if (!d) return;
+  zoomTo(pinch.z0 * (d / pinch.d0), (p[0].x + p[1].x) / 2, (p[0].y + p[1].y) / 2);
+}
+function trackUp(ev) {
+  if (!pinchPts.size) return;
+  pinchPts.delete(ev.pointerId);
+  if (pinchPts.size < 2) pinch = null;
 }
 
 /* 指の向きから「その先にある面」を言う。
@@ -980,13 +1171,18 @@ function onSwipeMove(ev) {
   /* reduce-motion のときは追従させない（面は最後に切り替わるだけ） */
   if (reduceMotion()) return;
 
+  /* ここから先は**世界の px**。指の動き（画面の px）を倍率で割って移す。
+     割らないと、引いているときだけ面が指の倍の速さで滑る。
+     しきい値のほう（AXIS_LOCK・振り切ったか）は画面の px のままにしてある——
+     あれは「指がどれだけ動いたか」の話で、世界の広さとは関係がないため */
+  const wx = dx / zLevel, wy = dy / zLevel;
   const base = faceBase(curFace);
   if (!to) { setWorldPx(base.x, base.y); return; }   /* 行けない向きへは動かない */
   const t = faceBase(to);
   if (swipe.axis === 'x') {
-    setWorldPx(clamp(base.x + dx, Math.min(base.x, t.x), Math.max(base.x, t.x)), base.y);
+    setWorldPx(clamp(base.x + wx, Math.min(base.x, t.x), Math.max(base.x, t.x)), base.y);
   } else {
-    setWorldPx(base.x, clamp(base.y + dy, Math.min(base.y, t.y), Math.max(base.y, t.y)));
+    setWorldPx(base.x, clamp(base.y + wy, Math.min(base.y, t.y), Math.max(base.y, t.y)));
   }
 }
 
@@ -1119,15 +1315,11 @@ function setFaceItems(face, list) {
   if (!field) return;
   if (typeof field.setItems === 'function') {
     /* drift へ渡す一件ぶん。色はここで決めて渡す（追補4 §1）。
-       marks / anchorHue は渡さない——点は描かなくなったので */
-    const z = zoom();
-    field.setItems(list.map(t => {
-      const it = Object.assign(itemOf(t), { colors: colorsOf(t), tagNames: namesOf(t) });
-      /* 1.00 のときは size を渡さない＝ drift の 'text'（文字量で決まる）のまま。
-         引いているときだけ、その直径に倍率を掛けて渡す */
-      if (z !== 1) it.size = Math.round(diameterFor(it.text, stage.clientWidth, stage.clientHeight) * z);
-      return it;
-    }));
+       marks / anchorHue は渡さない——点は描かなくなったので。
+       **size は渡さない。**ズームは面ごと掛かるので、中身は実寸のままでよい
+       （前は倍率を直径に掛けていた。物理も当たり判定も実寸で回る） */
+    field.setItems(list.map(t =>
+      Object.assign(itemOf(t), { colors: colorsOf(t), tagNames: namesOf(t) })));
   }
   if (typeof field.nodeOf !== 'function') return;
 
@@ -1956,6 +2148,12 @@ export default {
     stage = el('div', 'sea-stage');
     stage.id = 'sea-stage';
 
+    /* --- ズームの窓。ここに倍率と寄せが掛かる ---
+       世界（.sea-world）を直に縮めると、面が ±100% の位置に置いてあるぶん、
+       引いたときに隣の面が余白へはみ出して見える。窓を1枚かぶせて clip する。
+       倍率 1.00 のときは窓はステージと同じ大きさなので、何も変わらない。 */
+    view = el('div', 'sea-view');
+
     /* --- 4つの面。世界ごと動かして切り替える --- */
     world = el('div', 'sea-world');
     FACES.forEach(f => {
@@ -2033,7 +2231,8 @@ export default {
       faces[f].signs = rec;
     });
 
-    stage.appendChild(world);
+    view.appendChild(world);
+    stage.appendChild(view);
 
     /* --- いまどの面にいるか（常に見えていること） --- */
     faceName = el('div', 'sea-face-name');
@@ -2156,6 +2355,16 @@ export default {
 
     /* 背景から始めた指だけが面を動かす。バブルから始めた指はタグ付け（bubble.js が拾う） */
     stage.addEventListener('pointerdown', onStageDown);
+
+    /* ズーム。ホイールは既定の動き（ページのスクロール）を止めるので passive にできない */
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    /* つまむ指の数を数える。捕捉（capture）で先に拾うのは、
+       下の誰かが stopPropagation しても本数を数え損ねないため。
+       上げるほうは window で受ける——ステージの外で指を離すことがある */
+    stage.addEventListener('pointerdown', trackDown, true);
+    window.addEventListener('pointermove', trackMove, true);
+    window.addEventListener('pointerup', trackUp, true);
+    window.addEventListener('pointercancel', trackUp, true);
     /* 選び札の外を押したら畳む。押した先のボタンを取りこぼさないよう capture で先に拾う */
     document.addEventListener('pointerdown', ev => {
       if (!narrowPop) return;
@@ -2273,6 +2482,7 @@ export default {
       if (fl && fl.relayout) { try { fl.relayout(); } catch (err) { /* 測れないだけ */ } }
     });
     setWorldFace(curFace);
+    applyZoom();                       /* 寄せられる幅は面の高さで決まる。測れてから掛け直す */
     render();
     startCurrent();
   },
@@ -2280,6 +2490,8 @@ export default {
   onHide() {
     shown = false;
     cancelSwipe();
+    closePan(); pinchPts.clear(); pinch = null;
+    resetZoom();              /* 小さいまま・寄せたまま開き直すと、端が無いように見える */
     cancelShuffle();          /* 混ぜかけのまま裏に回ったら畳む。開かない */
     setGathering(false);      /* タブを離れたら整列は解除（契約 §7） */
     closeDetail();
