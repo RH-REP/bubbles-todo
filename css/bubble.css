@@ -663,23 +663,7 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
    位置は JS が書く（バブルの上下に置き、画面と下タブの内側へ収める）。
    translate(-50%) 前提なので、left にはバブルの中心 x が入る。 */
 .bub-center { position: fixed; inset: 0; pointer-events: none; }
-.bub-center .bc-start,
 .bub-center .bc-fields { position: fixed; left: 0; top: 0; pointer-events: auto; }
-
-/* [まずは開始]。海の送信ボタンと同じ勾配。白文字は 4.5:1 を切らない
-   （--accent-a 側がいちばん薄く 明暗とも 4.70:1） */
-.bub-center .bc-start {
-  transform: translate(-50%, -100%);
-  appearance: none; -webkit-appearance: none; border: 0;
-  font: inherit; font-size: 14.5px; font-weight: 600; cursor: pointer;
-  min-height: 44px; padding: 10px 22px;      /* タップ目標 44×44 を下回らせない */
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
-  color: var(--accent-text);
-  box-shadow: 0 12px 28px -14px var(--bub-shadow);
-}
-.bub-center .bc-start:active { transform: translate(-50%, -100%) scale(.97); }
-.bub-center .bc-start:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 3px; }
 
 /* 次の一手 / リンク */
 .bub-center .bc-fields {
@@ -884,6 +868,27 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bc-act:active { background: var(--bg); }
 .bub-center .bc-act:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
 
+/* [タスク開始]（利用者の指示）。盤の中でいちばん強い。
+   海の送信ボタンと同じ勾配で、白文字は 4.5:1 を切らない
+   （--accent-a 側がいちばん薄く 明暗とも 4.70:1）。
+   もとはバブルの上に浮かせていたが、バブルが画面の上部へ移ってから
+   縁ぎりぎりの細い帯になり、いちばん強いはずの導線がいちばん見つけにくくなっていた。 */
+.bub-center .bc-act-start {
+  border: 0; font-size: 15px; font-weight: 600;
+  min-height: 48px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  color: var(--accent-text);
+  box-shadow: 0 10px 24px -14px var(--bub-shadow);
+  transition: transform .08s;
+}
+.bub-center .bc-act-start:hover,
+.bub-center .bc-act-start:active {
+  background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+}
+.bub-center .bc-act-start:active { transform: scale(.985); }
+.bub-center .bc-act-start:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
 /* 「消す」だけは弱く。--text-2 は --surface に対し 明5.85 / 暗6.79 で 4.5 を切らない */
 .bub-center .bc-act-del {
   position: relative;
@@ -900,7 +905,8 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bc-act-del:active { background: var(--surface-2); }
 
 @media (prefers-reduced-motion: reduce) {
-  .bub-center .bc-start:active { transform: translate(-50%, -100%); }
+  .bub-center .bc-act-start { transition: none; }
+  .bub-center .bc-act-start:active { transform: none; }
 }
 
 /* 当たり判定は押した瞬間から中央に置く（動いている的を押させない）。

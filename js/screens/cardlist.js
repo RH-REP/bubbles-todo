@@ -70,6 +70,14 @@ function tagColors(id) {
 
 /* 枠の中は一定サイズ（契約 §4）。文字量では変えない。
    カードの幅はかならずこの整数倍にする（利用者の指示）。端数を出さないための約束。 */
+/* 着手（store.start）の印を、画面で何と呼ぶか（利用者の指示）。
+   「はじめた」「開始した」と別々に呼んでいたが、同じ印を指している。
+   実際にしていることは「今日ぶんはここまで」——押すとバブルが薄くなり、
+   5時に戻る（契約 §5）。だから名前もそう呼ぶ。
+   **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
+   （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
+const DONE_LB = '今日は終わり';
+
 const BUB_SIZE = 96;
 const MAX_COLS = 4;    /* 375px 幅ではカード幅 3×96=288px。広い画面でも横に散らしすぎない */
 
@@ -602,7 +610,7 @@ function makeDetail(todo, anchorId, key) {
   function syncDone() {
     const on = isStarted(todo.id, anchorId);
     doneBtn.classList.toggle('on', on);
-    doneBtn.textContent = on ? '開始した ✓' : '開始した';
+    doneBtn.textContent = on ? DONE_LB + ' ✓' : DONE_LB;
     doneBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
     doneBtn.setAttribute('aria-label',
       todo.text + (anchorId ? ' を「' + nameOf(anchorId) + '」で' : ' を')

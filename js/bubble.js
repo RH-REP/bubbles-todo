@@ -5,7 +5,7 @@
      ・バブルの DOM（膜・文字・タグの色・着手済みの見た目）
      ・ジェスチャ（タップ→中央／タブへのドラッグ。長押しではメニューを開かない）
      ・中央に寄せたときに出る盤
-       （まずは開始／次の一手／リンク／履歴／はじめた・完了・消す）
+       （タスク開始／次の一手／リンク／履歴／今日は終わり・完了・消す）
      ・鍵盤から開くメニュー（openMenu。ContextMenu / Shift+F10 / m）
 
    物理（漂う・投げる・跳ね返る）は js/drift.js。
@@ -36,13 +36,24 @@ export const CENTER_MS = 260;  /* 中央へ寄るのにかかる時間 */
    focus.js / plan.js の SAVE_MS と同じ値にしてある。 */
 const SAVE_MS = 400;
 
+/* 着手（store.start）の印を、画面で何と呼ぶか（利用者の指示）。
+   「はじめた」「開始した」と別々に呼んでいたが、同じ印を指している。
+   実際にしていることは「今日ぶんはここまで」——押すとバブルが薄くなり、
+   5時に戻る（契約 §5）。だから名前もそう呼ぶ。
+   **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
+   （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
+const DONE_LB = '今日は終わり';
+
 const CENTER_GAP = 12;   /* バブルと盤のすきま px */
 const CENTER_M = 8;      /* 画面の縁との余白 px */
 /* 中央へ寄せたバブルを置く高さ（利用者の指示）。
    **真ん中ではなく上部。**盤の行が増えて（作業メモ・長期保留の日）、
    真ん中に置くと盤が下タブに突き当たり、押し上げられてバブルに重なっていた。
-   上に空けるのは [まずは開始] のぶん（ボタン 44 ＋ すきま 12）。 */
-const CENTER_TOP_BAND = 44 + CENTER_GAP;
+
+   前は [まずは開始] のぶん（44+12）を上に空けていたが、そのボタンは
+   盤の中へ移った（利用者の指示）。空ける理由が無くなったので 0 にする
+   ——そのぶん盤に使える高さが 56px 増える。 */
+const CENTER_TOP_BAND = 0;
 
 /* --- タップで開いたときの click を1つだけ捨てる（利用者の報告）---
 
@@ -109,7 +120,7 @@ export const RM = window.matchMedia
      setUrl(id, text),       // http / https 以外は store 側が弾く前提
      steps(id),              // 任意。[{ at, did, next }] を古い順で。無ければ []
    }
-   差されていなければ、次の一手・リンクの欄は出さない（[まずは開始] だけ出す）。
+   差されていなければ、次の一手・リンクの欄は出さない（[タスク開始] だけ出す）。
    行き先の無い入力欄を出さないため。
    steps が無ければ「履歴」のボタンを出さない（＝押しても何も無いボタンを作らない）。 */
 let centerAdapter = null;
@@ -231,7 +242,7 @@ function ariaFor(item, names, marks, started) {
   const tags = names.length ? names : marks.map(m => MARK_LABEL[m]).filter(Boolean);
   return String(item.text || '')
     + (tags.length ? '・' + tags.join('・') : '')
-    + (started ? '・はじめた' : '')
+    + (started ? '・' + DONE_LB : '')
     + '（タップで真ん中へ）';
 }
 
@@ -432,13 +443,30 @@ function harvestActions(run) {
 
    「消す」は取り返しがつきにくいので、いちばん下に1つだけ、色も弱く。
    押したあとは askDelete が一度だけ聞く（run に key を渡しているのはそのため）。 */
-function actionRow(actions, run, onOk) {
+function actionRow(actions, run, onOk, onStart) {
   const a = actions || {};
   const has = k => typeof a[k] === 'function';
   const canOk = typeof onOk === 'function';
-  if (!has('onStarted') && !has('onComplete') && !has('onDelete') && !canOk) return null;
+  const canStart = typeof onStart === 'function';
+  if (!canStart && !has('onStarted') && !has('onComplete') && !has('onDelete') && !canOk) return null;
 
   const box = el('div', 'bc-acts');
+
+  /* --- [タスク開始]（利用者の指示）---
+
+     もとは盤の外、バブルの**上**に浮かせていた（追補3 §5 の「いちばん上」）。
+     バブルを画面の上部へ移してから、そこが画面の縁ぎりぎりの細い帯になり、
+     いちばん強いはずの導線がいちばん見つけにくくなっていた（利用者の指摘）。
+
+     **「今日は終わり」の上へ移した**（利用者の指示）。目が行く場所は盤の中で、
+     しかも「状態を変える3つ」の先頭。並びの意味は変わらない——
+     進む → 今日ぶんを終える → タスクごと終える → 消す、と下るほど重くなる。 */
+  if (canStart) {
+    const st = el('button', 'bc-act bc-act-start', 'タスク開始');
+    st.type = 'button';
+    st.addEventListener('click', ev => { ev.preventDefault(); onStart(); });
+    box.appendChild(st);
+  }
   const mk = (cls, label, key) => {
     const b = el('button', 'bc-act ' + cls);
     b.type = 'button';
@@ -448,7 +476,12 @@ function actionRow(actions, run, onOk) {
   };
 
   const top = el('div', 'bc-act-row');
-  if (has('onStarted')) top.appendChild(mk('bc-act-started', 'はじめた', 'onStarted'));
+  /* 「はじめた」から「今日は終わり」へ（利用者の指示）。
+     **記録している中身は変えていない**（store.start の着手印のまま）。
+     名前を変えたのは、この印が実際にしていることが「今日ぶんはここまで」だから——
+     押すとバブルが薄くなって「もう見なくていい」を伝え、5時に戻る（契約 §5）。
+     「はじめた」ではその意味が読めなかった、という指摘。 */
+  if (has('onStarted')) top.appendChild(mk('bc-act-started', '今日は終わり', 'onStarted'));
   if (canOk) {
     /* OK は他のボタンと性質が違う。**盤を閉じない**（書き留めるだけ）。
        押したことが分かるよう、少しのあいだ文字を変える——
@@ -599,17 +632,19 @@ function closeAsk(restoreFocus) {
 
 /* ---------------- 中央の盤 ----------------
 
-       [ まずは開始 ]
-       （バブル本体）
+       （バブル本体）              ← 画面の上部
        ● タグ名  ● タグ名        ← 色だけを手がかりにしない（1.4.1）
+       作業メモ  [編集できる]
        次の一手  [編集できる]
        リンク    [押せる] [編集]
        [ 履歴 ]                   ← 記録があるときだけ
-       [ はじめた ] [ 完了 ]
+       [ タスク開始 ]             ← いちばん強い。5分の集中画面へ
+       [ 今日は終わり ] [ OK ]
+       [ タスク完了 ]
        ────────────
        [ 消す ]
 
-   ・[まずは開始] だけは預け先が無くても出す（5分の集中画面はここが唯一の入口）
+   ・[タスク開始] だけは預け先が無くても出す（5分の集中画面はここが唯一の入口）
    ・次の一手 / リンクは setCenterHandler() が差されているときだけ出す
      （行き先の無い入力欄を出さないため）
    ・はじめた / 完了 / 消す は、長押しメニューから移してきたもの。
@@ -618,11 +653,15 @@ function closeAsk(restoreFocus) {
    ・盤そのものは pointer-events:none。押せるのはボタンと入力欄だけ。
      盤の余白を押したら「無関係なところを触った」＝中央から戻る
 
-   ■ 並びの理由（なぜ「履歴」がここか）
-     まずは開始 … 進む。いちばん強く、いちばん上
+   ■ 並びの理由
      次の一手 / リンク / 履歴 … その項目の中身。読む・直す
-     はじめた / 完了 … 状態を変える
+     タスク開始 … 進む。状態を変える列の先頭で、いちばん強い
+     今日は終わり / タスク完了 … 状態を変える。下るほど重い
      消す … 取り返しがつかない。線で切って、いちばん下、いちばん弱く
+
+   [タスク開始] は前はバブルの**上**に浮いていた（追補3 §5 の「いちばん上」）。
+   バブルが画面の上部へ移ってから、そこが縁ぎりぎりの細い帯になり、
+   いちばん強いはずの導線がいちばん見つけにくくなっていた（利用者の指摘）。
    「履歴」は**読むだけ**で何も変えない。状態を変える2つと同じ列に並べると、
    押し間違いの代償が釣り合わない（隣は「完了」＝項目が消える）。
    だから、それが要約している「次の一手」のすぐ下に置き、面も持たせない。
@@ -635,11 +674,6 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   root.setAttribute('role', 'group');
   root.setAttribute('aria-label', (ariaLabel.split('（')[0] || '') + ' の操作');
 
-  const start = el('button', 'bc-start');
-  start.type = 'button';
-  start.textContent = 'まずは開始';           /* 命令形にしない（§0） */
-  start.addEventListener('click', ev => { ev.preventDefault(); onStart(); });
-  root.appendChild(start);
 
   const a = centerAdapter;
   let fields = null, stepIn = null, memoIn = null, urlIn = null;
@@ -658,7 +692,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (stepIn) stepIn.blur();
     if (memoIn) memoIn.blur();
     return label;
-  });
+  }, onStart);
   if (a || acts) fields = el('div', 'bc-fields');
 
   /* ---- タグの名前 ----
@@ -1083,7 +1117,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      読むだけ。ここからは直せない（書き損じ直しは集中画面の「最後になにをしてたか」）。
 
      盤はもう縦に長い。履歴を下へ足すと下タブへもぐるので、**足さずに入れ替える**。
-     開いている間は [まずは開始] と盤の中身を伏せ、同じ場所に履歴の面だけを出す。
+     開いている間は盤の中身を伏せ、同じ場所に履歴の面だけを出す。
      高さは「画面の上の余白から下タブの手前まで」を超えないところで頭打ちにして、
      あふれるぶんは面の中だけでスクロールさせる（外はスクロールしない）。
      中央から抜けないのは、この面が盤（.bub-center）の中にあるから
@@ -1139,7 +1173,6 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (!hist) buildHist();
     renderHist(rows);
     hist.hidden = false;
-    start.hidden = true;
     if (fields) fields.hidden = true;
     if (histBtn) histBtn.setAttribute('aria-expanded', 'true');
     relayout();
@@ -1151,7 +1184,6 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function closeHistory(restoreFocus) {
     if (!hist || hist.hidden) return false;
     hist.hidden = true;
-    start.hidden = false;
     if (fields) fields.hidden = false;
     if (histBtn) histBtn.setAttribute('aria-expanded', 'false');
     relayout();
@@ -1176,8 +1208,6 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     /* バブルの下に置く箱は、いま出ているほう（盤 か 履歴）ひとつだけ */
     const lower = (hist && !hist.hidden) ? hist : fields;
 
-    start.style.left = cx + 'px';
-    start.style.top = (cy - d / 2 - CENTER_GAP) + 'px';
     if (lower) {
       lower.style.left = cx + 'px';
       lower.style.top = (cy + d / 2 + CENTER_GAP) + 'px';
@@ -1208,12 +1238,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       nd.style.left = clamp(cx, CENTER_M + w / 2,
         Math.max(CENTER_M + w / 2, vw - CENTER_M - w / 2)) + 'px';
     };
-    fitX(start);
     if (lower) fitX(lower);
 
-    /* 縦：上は画面の縁、下は下タブの手前まで */
-    const rs = start.getBoundingClientRect();
-    if (rs.height && rs.top < CENTER_M) start.style.top = (CENTER_M + rs.height) + 'px';
+    /* 縦：下タブの手前まで */
     if (lower) {
       const rf = lower.getBoundingClientRect();
       const limit = barTop - CENTER_M;
@@ -1236,7 +1263,13 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     /* 順番に意味がある。長期保留の札を先に書いてから日を足す
        （外れているものに日は付かない＝ store が弾く） */
     flush() { saveStep(); saveUrl(); if (saveTags) saveTags(); if (saveHoldUntil) saveHoldUntil(); },
-    focusFirst() { start.focus({ preventScroll: true }); },
+    /* 盤の先頭の的。[タスク開始] は盤の中へ移ったので、そこを探す
+       （無い版もある——操作が1つも渡っていないとき） */
+    focusFirst() {
+      const first = root.querySelector('.bc-act-start')
+        || root.querySelector('button:not([hidden])');
+      if (first) first.focus({ preventScroll: true });
+    },
     isTyping() {
       const el2 = document.activeElement;
       return !!(el2 && root.contains(el2) && el2.classList.contains('bc-in'));
@@ -1733,8 +1766,11 @@ export function attachGestures(node, handlers = {}) {
 const MENU_ITEMS = [
   { key: 'onDetail',   label: '詳細' },
   { key: 'onFocus',    label: '5分だけ集中' },
-  { key: 'onStarted',  label: 'はじめた' },
-  { key: 'onComplete', label: '完了' },
+  /* 盤の [今日は終わり] と同じ操作なので、同じ言葉にする */
+  { key: 'onStarted',  label: '今日は終わり' },
+  /* 盤と同じ「タスク完了」に。となりに「今日は終わり」が並ぶので、
+     どちらが重いほうかが名前で読めないと取り違える */
+  { key: 'onComplete', label: 'タスク完了' },
   { key: 'onDelete',   label: '消す', sep: true },
 ];
 
@@ -1761,7 +1797,7 @@ export function openMenu(node, handlers = {}) {
     btn.type = 'button';
     btn.setAttribute('role', 'menuitem');
     const tx = el('span', 'mi-tx');
-    /* 完了したものの上では「完了」ではなく「海にもどす」。
+    /* 完了したものの上では「タスク完了」ではなく「海にもどす」。
        完了の海から戻す道が、ここにしか無いため。
        画面側が handlers.isDone を渡してくれたときだけ入れ替える。 */
     const done = (spec.key === 'onComplete') && handlers.isDone === true;

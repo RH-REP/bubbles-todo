@@ -78,6 +78,14 @@ function trim(s, n = 18) {
 }
 
 /* 着手はこの画面ではアンカーに属さない。だからアンカーは常に null（契約 §11） */
+/* 着手（store.start）の印を、画面で何と呼ぶか（利用者の指示）。
+   「はじめた」「開始した」と別々に呼んでいたが、同じ印を指している。
+   実際にしていることは「今日ぶんはここまで」——押すとバブルが薄くなり、
+   5時に戻る（契約 §5）。だから名前もそう呼ぶ。
+   **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
+   （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
+const DONE_LB = '今日は終わり';
+
 function isStarted(id) {
   return typeof store.isStarted === 'function' && !!store.isStarted(id, null);
 }
@@ -86,7 +94,7 @@ function markStarted(id) {
   if (isStarted(id)) return;
   store.start(id, null);
   const t = store.get(id);
-  toast('「' + trim(t ? t.text : '') + '」を はじめた にした', {
+  toast('「' + trim(t ? t.text : '') + '」を ' + DONE_LB + ' にした', {
     label: '取り消す',
     on: () => { if (typeof store.unstart === 'function') store.unstart(id, null); },
   });
@@ -944,7 +952,7 @@ function makeDetail() {
     const id = current();
     const on = !!id && isStarted(id);
     doneBtn.classList.toggle('on', on);
-    doneBtn.textContent = on ? '開始した ✓' : '開始した';
+    doneBtn.textContent = on ? DONE_LB + ' ✓' : DONE_LB;
     doneBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
   doneBtn.addEventListener('click', () => {

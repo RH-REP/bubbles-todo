@@ -56,6 +56,14 @@ import { dropDay } from './today.js';
    個数に素直に比例するので、個数を抑えれば効く。 */
 const SEA_MAX = 20;
 
+/* 着手（store.start）の印を、画面で何と呼ぶか（利用者の指示）。
+   「はじめた」「開始した」と別々に呼んでいたが、同じ印を指している。
+   実際にしていることは「今日ぶんはここまで」——押すとバブルが薄くなり、
+   5時に戻る（契約 §5）。だから名前もそう呼ぶ。
+   **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
+   （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
+const DONE_LB = '今日は終わり';
+
 const GRID_D = 96;     /* 整列中のバブルの直径。枠の中と同じ一定サイズ（契約 §4） */
 const SAVE_MS = 400;   /* 詳細の自動保存。打っている途中で毎回は書かない */
 
@@ -1374,7 +1382,7 @@ function makeDetail(id) {
     doneBtn.disabled = !can;
     doneWhy.hidden = true;
     doneBtn.classList.toggle('on', on);
-    doneBtn.textContent = on ? '開始した ✓' : '開始した';
+    doneBtn.textContent = on ? DONE_LB + ' ✓' : DONE_LB;
     doneBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
     doneBtn.setAttribute('aria-label',
       (cur ? cur.text : '') + ' を開始したと'
@@ -1798,7 +1806,7 @@ function renderGrid() {
     row.appendChild(tx);
 
     if (isStarted(t)) {
-      const st = el('span', 'sea-row-st', 'はじめた');
+      const st = el('span', 'sea-row-st', DONE_LB);
       row.appendChild(st);
     }
 
