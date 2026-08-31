@@ -1090,31 +1090,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   }
 
   function renderHist(rows) {
-    histList.textContent = '';                 /* innerHTML には入れない */
-    rows.forEach(s => {
-      const li = el('li', 'bh-item');
-      const at = fmtAt(s && s.at);
-      if (at) {
-        const p = el('p', 'bh-at');
-        p.textContent = at;
-        li.appendChild(p);
-      }
-      const line = (label, raw) => {
-        const t = String(raw == null ? '' : raw).trim();
-        if (!t) return;
-        const w = el('div', 'bh-line');
-        const k = el('span', 'bh-k');
-        k.textContent = label;
-        const v = el('p', 'bh-v');
-        v.textContent = t;                     /* innerHTML には入れない */
-        w.appendChild(k);
-        w.appendChild(v);
-        li.appendChild(w);
-      };
-      line('作業メモ', s && s.did);
-      line('次の一手', s && s.next);
-      histList.appendChild(li);
-    });
+    fillStepList(histList, rows);
   }
 
   function openHistory() {
@@ -1233,6 +1209,49 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        （中央から抜けない）。開いていなければ false を返し、中央が閉じる。 */
     handleEscape() { return closeHistory(true); },
   };
+}
+
+/* --- 一手の記録の一覧（盤と集中画面で共通） ---
+
+   盤（この中）と集中画面（focus.js）が**同じものを使う**。
+   別々に組むと、片方だけ直したときに同じ記録が2つの顔で出ることになる
+   （詳細パネルが4実装ある件と同じ轍。DEV_NOTES B-2）。
+
+   スタイルは css/bubble.css の .bh-* が持つ。あれは全画面で読み込まれるので、
+   集中画面から使っても CSS を足す必要は無い。
+   数え方（「◯件目」「◯回目」）は出さない——§0。 */
+export function fillStepList(ul, rows) {
+  ul.textContent = '';                       /* innerHTML には入れない */
+  (Array.isArray(rows) ? rows : []).forEach(s => {
+    const li = el('li', 'bh-item');
+    const at = fmtAt(s && s.at);
+    if (at) {
+      const p = el('p', 'bh-at');
+      p.textContent = at;
+      li.appendChild(p);
+    }
+    const line = (label, raw) => {
+      const t = String(raw == null ? '' : raw).trim();
+      if (!t) return;
+      const w = el('div', 'bh-line');
+      const k = el('span', 'bh-k');
+      k.textContent = label;
+      const v = el('p', 'bh-v');
+      v.textContent = t;                     /* innerHTML には入れない */
+      w.appendChild(k);
+      w.appendChild(v);
+      li.appendChild(w);
+    };
+    line('作業メモ', s && s.did);
+    line('次の一手', s && s.next);
+    ul.appendChild(li);
+  });
+  return ul;
+}
+
+/* 印は出さない ul（番号を振ると「◯件目」を数えることになる／§0） */
+export function stepList(rows) {
+  return fillStepList(el('ul', 'bh-list'), rows);
 }
 
 /* いまドラッグ中のノード。body の is-dragging を、別のバブルの detach で

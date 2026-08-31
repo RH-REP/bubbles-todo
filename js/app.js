@@ -215,6 +215,8 @@ setWorklogHandler({
   commit:    (id, v) => (has('commitStep') ? store.commitStep(id, v) : null),
   /* 書き損じ直し。新しい記録は増やさない */
   amendLast: (id, v) => (has('amendLastStep') ? store.amendLastStep(id, v) : false),
+  /* 一手の記録（古い順）。集中画面の [履歴] が読む。無ければボタンを出さない */
+  steps:     (id) => (has('stepsOf') ? store.stepsOf(id) : []),
 });
 
 /* 中央に寄せたバブルに出る「次の一手」と「リンク」の出し入れ。

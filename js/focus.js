@@ -26,6 +26,9 @@
    setWorklogHandler() で外から差してもらう。 */
 
 import { el, escapeHtml } from './ui.js';
+/* 一手の記録の一覧は盤と共通のものを使う（bubble.js）。
+   bubble.js は ui.js しか読まないので、ここから読んでも循環しない。 */
+import { stepList } from './bubble.js';
 
 /* ---------- 状態（同時に1つしか開かない） ---------- */
 let state = null;
@@ -554,6 +557,54 @@ function buildWorklog(id, a) {
   said.setAttribute('role', 'status');
   node.appendChild(said);
 
+  /* --- 履歴（利用者の指示）---
+
+     **入れ替えではなく、その場で開く**（盤は狭いので面ごと差し替えているが、
+     こちらは縦にスクロールする囲みなので、開いて押しのけるほうが素直）。
+     タイマーには触らない（追補2 §A）。
+
+     置き場所は**「記録する」の下**。最初は「最後になにをしてたか」の隣に置いたが、
+     開いた瞬間に 次の一手 と 記録する が画面の外へ出た（実測。240px でも足りない）。
+     **この画面の仕事は書くほうで、履歴は読むための添えもの**なので、
+     添えもののほうが下がる。ここなら開いても上の欄は動かない。
+
+     記録が1件も無ければボタンごと出さない（押しても何も無い的を作らない）。
+     記録したら、その場で組み直す（開いたまま増える）。 */
+  const histBtn = el('button', 'focus-histbtn', '履歴');
+  histBtn.type = 'button';
+  histBtn.setAttribute('aria-expanded', 'false');
+  histBtn.hidden = true;
+  node.appendChild(histBtn);
+
+  const histBox = el('div', 'focus-hist');
+  histBox.setAttribute('role', 'group');
+  histBox.setAttribute('aria-label', '履歴');
+  histBox.hidden = true;
+  node.appendChild(histBox);
+
+  function stepsNow() {
+    const rows = ask(a, 'steps', id);
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  /* 開いていれば中身を組み直す。ボタンの出し入れもここでやる */
+  function syncHist() {
+    const rows = stepsNow();
+    histBtn.hidden = rows.length === 0;
+    if (histBtn.hidden) { histBox.hidden = true; histBtn.setAttribute('aria-expanded', 'false'); }
+    if (histBox.hidden) return;
+    histBox.replaceChildren(stepList(rows));
+  }
+
+  histBtn.addEventListener('click', ev => {
+    ev.preventDefault();
+    const open = histBox.hidden;
+    histBox.hidden = !open;
+    histBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) histBox.replaceChildren(stepList(stepsNow()));
+  });
+
+
   /* ---- 初期値 ---- */
   function loadLast() {
     const last = ask(a, 'lastStep', id);
@@ -582,6 +633,7 @@ function buildWorklog(id, a) {
 
   loadLast();
   loadRead();
+  syncHist();
 
   /* ---- 下書きの自動保存（記録ではない） ---- */
   let draftTimer = 0;
@@ -648,6 +700,7 @@ function buildWorklog(id, a) {
     lastWrap.hidden = false;
     lastArea.value = String(rec.did == null ? '' : rec.did);
     loadRead();                             // 「開始の１手」が新しい値になる
+    syncHist();                             // 履歴も1件増える（開いていれば、その場で）
     syncCommit();
     said.textContent = '記録した';
     return true;

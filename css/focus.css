@@ -216,6 +216,37 @@
 .focus-open[hidden] { display: none; }
 .focus-open:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
 
+/* ---------- 履歴（利用者の指示） ----------
+   「最後になにをしてたか」の下。**その場で開く**（入れ替えない）。
+   ボタンは「記録する」より一段弱く——読むだけの操作なので、
+   状態を変える操作と同じ強さで並べない（盤の [履歴] と同じ考え方）。 */
+.focus-histbtn {
+  align-self: flex-start;
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  min-height: 44px; padding: 0 16px;        /* タップ目標は 44 を下回らない */
+  font-size: 13px; letter-spacing: .04em;
+  border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--text-2);
+}
+.focus-histbtn:hover { color: var(--text); border-color: var(--line-strong); }
+.focus-histbtn:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
+.focus-histbtn[hidden] { display: none; }
+
+/* 中身（.bh-*）は css/bubble.css が持つ。あれは全画面で読み込まれるので、
+   ここでは囲みの余白と、伸びすぎない高さだけを決める。
+
+   **高さは 320px で頭打ち。**「記録する」より下に置いてあるので、
+   開いても上の欄は動かない。あふれる分は中でスクロールする。
+
+   囲みが分かるように地を一段落とす。開いたものが「開いた」と見えないと、
+   下の欄がどこへ行ったのか読めなくなる。 */
+.focus-hist {
+  max-height: 320px; overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px 10px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line);
+}
+.focus-hist[hidden] { display: none; }
+
 /* 押せない理由を、欄のすぐ下に置く。叱らない大きさで。
    意味を持つ文字なので --text-3（明2.87 / 暗3.50）まで落とさない */
 .focus-hint {
