@@ -44,6 +44,42 @@ const CENTER_M = 8;      /* 画面の縁との余白 px */
    上に空けるのは [まずは開始] のぶん（ボタン 44 ＋ すきま 12）。 */
 const CENTER_TOP_BAND = 44 + CENTER_GAP;
 
+/* --- タップで開いたときの click を1つだけ捨てる（利用者の報告）---
+
+   「時々バブルのタップで完了になる」の正体。
+
+   タップは pointerup で中央を開く。**盤はその場で作られるので、
+   ブラウザが pointerup のあとに出す click は、盤が並んだあとの座標で当たりを取る**。
+   離した点にちょうど [タスク完了] が来ていれば、その click がボタンに入る。
+   実測：(90,500) で離すと、pointerdown の時点では .skin、20ms 後には .bc-act-done。
+
+   バブルを上部へ移してから（利用者の指示）盤が 180〜719px を占めるようになり、
+   当たる面積がそれまでの倍以上になっている。**起きやすさを上げたのはこちらの変更。**
+
+   捨てるのは「開いたタップが生む1つ」だけに絞る：
+     ・時間 … 開いてから CLICK_EAT_MS 以内（compat click は数ms で来る）
+     ・場所 … 離した点から CLICK_EAT_R px 以内
+   どちらかを外れたら、それは人が狙って押した click なので通す。
+   キーボード（Enter / Space）で開いたときは click が生まれないので、そもそも張らない。 */
+const CLICK_EAT_MS = 400;   /* 看板の押し分け（signSuppress）と同じ間合いにそろえた */
+const CLICK_EAT_R = 12;     /* 離した点からの許容。指のぶれ（AXIS_LOCK 10）より少し広い */
+
+function eatOpeningClick(pt) {
+  if (!pt || !(pt.x >= 0)) return;
+  const t0 = Date.now();
+  const off = () => window.removeEventListener('click', eat, true);
+  function eat(ev) {
+    if (Date.now() - t0 > CLICK_EAT_MS) { off(); return; }
+    if (Math.abs(ev.clientX - pt.x) > CLICK_EAT_R) return;
+    if (Math.abs(ev.clientY - pt.y) > CLICK_EAT_R) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    off();
+  }
+  window.addEventListener('click', eat, true);
+  setTimeout(off, CLICK_EAT_MS);
+}
+
 /* タブへ落とせるのはこの4つだけ。ふりかえり・設定は不可 */
 export const DROPPABLE = ['sea', 'today', 'plan', 'gap'];
 
@@ -1370,7 +1406,9 @@ export function attachGestures(node, handlers = {}) {
     call('onFocusRequest', id);
   }
 
-  function startCenter() {
+  /* pt を渡すと、そのタップが生む click を1つだけ捨てる（上の eatOpeningClick）。
+     指で開いたときだけ渡す。キーボードから開くときは渡さない */
+  function startCenter(pt) {
     if (center) return;          /* 既に中央。二度目のタップで開く経路はもう無い */
     const host = call('getHost') || node.parentNode;
     const from = node.getBoundingClientRect();
@@ -1464,6 +1502,10 @@ export function attachGestures(node, handlers = {}) {
       tagInfoOf(node));
     layerEl().appendChild(panel.root);
     panel.place(cx, cy, from.width);
+
+    /* 指で開いたなら、このタップが生む click を1つだけ捨てる。
+       盤を組んだあとに張る（張る前に return する枝は無いが、順番を読みやすくするため） */
+    eatOpeningClick(pt);
 
     /* 中央へ寄せる。rAF は隠れている間 発火しないので、reflow で開始位置を確定させる */
     const dx = cx - (from.left + from.width / 2);
@@ -1594,7 +1636,10 @@ export function attachGestures(node, handlers = {}) {
       if (done) return;
       done = true; cleanup();
 
-      if (!moved) { startCenter(); return; }        /* タップ */
+      if (!moved) {                                  /* タップ */
+        startCenter({ x: e.clientX, y: e.clientY });
+        return;
+      }
 
       const x = e.clientX, y = e.clientY;
       const t = tabAt(tabs || [], x, y);
