@@ -505,9 +505,13 @@ function actionRow(actions, run, onOk, onStart) {
        積まなかったときはその理由（「次の一手が要る」など）。
        **積めなかったことを黙って同じ顔で返さない**——
        押したのに何も起きていない、が分からないため。 */
+    /* 「OK」から「書き留める」へ（レビューの指摘）。
+       となりに「今日は終わり」が並ぶと [キャンセル｜OK] のダイアログに見えて、
+       押すと閉じるものと読めていた。実際は閉じないし、するのは書き留めることだけ。
+       押したあとの「書き留めた」とも、そのまま繋がる */
     const ok = el('button', 'bc-act bc-act-ok');
     ok.type = 'button';
-    ok.textContent = 'OK';
+    ok.textContent = '書き留める';
     let back = 0;
     ok.addEventListener('click', ev => {
       ev.preventDefault();
@@ -519,7 +523,7 @@ function actionRow(actions, run, onOk, onStart) {
       ok.classList.toggle('is-done', done);
       ok.classList.toggle('is-nope', !done);
       back = setTimeout(() => {
-        ok.textContent = 'OK';
+        ok.textContent = '書き留める';
         ok.classList.remove('is-done');
         ok.classList.remove('is-nope');
       }, 1200);
@@ -809,10 +813,29 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const want = new Set(days0);
 
       const box = el('div', 'bc-cal');
+
+      /* 既定では畳む（レビューの指摘）。開いたままだと盤の中身が 671px になり、
+         375×812 で 49px はみ出して [消す] が下タブの裏に隠れていた（実測）。
+         カレンダーは三次的な情報なのに、盤の中でいちばん面積を食っていた。
+         畳んだ姿でも**いつの日か**は読めること——押さないと分からない、にしない */
+      const head = el('button', 'bc-cal-head');
+      head.type = 'button';
+      head.setAttribute('aria-expanded', 'false');
       const lb = el('span', 'bc-cal-lb', 'いつの日');
-      box.appendChild(lb);
+      const sum = el('span', 'bc-cal-sum');
+      head.appendChild(lb);
+      head.appendChild(sum);
+      box.appendChild(head);
 
       const grid = el('div', 'bc-cal-grid');
+      grid.hidden = true;
+      head.addEventListener('click', ev => {
+        ev.preventDefault();
+        const open = grid.hidden;
+        grid.hidden = !open;
+        head.setAttribute('aria-expanded', open ? 'true' : 'false');
+        relayout();
+      });
       ['日', '月', '火', '水', '木', '金', '土'].forEach(d => {
         const h = el('span', 'bc-cal-h', d);
         h.setAttribute('aria-hidden', 'true');
@@ -853,6 +876,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           c.b.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
         if (syncTodayChip) syncTodayChip(want.has(today));
+        /* 畳んだ姿の要約。日にちは古い順に、近いものから2つまで。
+           数は出さない——「あと◯日」はやり残しの数え上げに近い */
+        const on = [...want].sort();
+        const md = k => Number(k.slice(5, 7)) + '/' + Number(k.slice(8, 10));
+        sum.textContent = on.length === 0 ? 'まだ決めていない'
+          : on.slice(0, 2).map(k => (k === today ? '今日' : md(k))).join('・')
+            + (on.length > 2 ? ' ほか' : '');
+        head.setAttribute('aria-label', 'いつの日：' + sum.textContent + '。押すとカレンダー');
       }
       paint();
 
@@ -896,8 +927,27 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       let until = until0;
 
       const box = el('div', 'bc-hold');
+
+      /* いつの日と同じく畳む（レビューの指摘）。長期保留の項目では、
+         この欄が出るだけで盤が 45px はみ出して [消す] が下タブの裏に隠れていた（実測）。
+         畳んだ姿でも**いつ戻るか**は読める */
+      const head = el('button', 'bc-cal-head');
+      head.type = 'button';
+      head.setAttribute('aria-expanded', 'false');
+      const hsum = el('span', 'bc-cal-sum');
       const lb = el('label', 'bc-hold-lb', 'もどってくる日');
       const picks = el('div', 'bc-hold-picks');
+      const body = el('div', 'bc-hold-body');
+      body.hidden = true;
+      head.appendChild(lb);
+      head.appendChild(hsum);
+      head.addEventListener('click', ev => {
+        ev.preventDefault();
+        const open = body.hidden;
+        body.hidden = !open;
+        head.setAttribute('aria-expanded', open ? 'true' : 'false');
+        relayout();
+      });
       const dayIn = el('input', 'bc-hold-day');
       dayIn.type = 'date';
       const today = ask(a, 'todayKey') || '';
@@ -938,11 +988,17 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           const v = p.get() || null;
           b.setAttribute('aria-pressed', v === until ? 'true' : 'false');
         });
+        /* 畳んだ姿の要約。日は出すが、あと何日かは出さない（数え上げにしない） */
+        hsum.textContent = until
+          ? Number(until.slice(5, 7)) + '/' + Number(until.slice(8, 10))
+          : '決めていない';
+        head.setAttribute('aria-label', 'もどってくる日：' + hsum.textContent + '。押すと選べる');
       }
 
-      box.appendChild(lb);
-      box.appendChild(dayIn);
-      box.appendChild(picks);
+      box.appendChild(head);
+      body.appendChild(dayIn);
+      body.appendChild(picks);
+      box.appendChild(body);
       dayIn.value = until || '';
       syncPicks();
       fields.appendChild(box);
@@ -1096,12 +1152,20 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      押しても何も無いボタンを作らないため。 */
   const hasSteps = !!(a && typeof a.steps === 'function');
   if (fields && hasSteps) {
-    histBtn = el('button', 'bc-act bc-hist-open');
+    /* 読むだけの入口なので、状態を変えるボタンと同じ強さにしない（レビューの指摘）。
+       全幅・同じ角丸・中央揃えだと6個目のアクションに見えていた。
+       左寄せの文字だけにして、要約している「作業メモ」のすぐ下へ置く */
+    histBtn = el('button', 'bc-hist-open');
     histBtn.type = 'button';
-    histBtn.textContent = '履歴';
+    histBtn.textContent = '履歴を読む ›';
     histBtn.setAttribute('aria-expanded', 'false');
     histBtn.addEventListener('click', ev => { ev.preventDefault(); openHistory(); });
-    fields.appendChild(histBtn);
+    /* 作業メモの行のすぐ下へ。要約しているものの隣に置く */
+    if (memoBtn && memoBtn.parentElement && memoBtn.parentElement.parentElement === fields) {
+      fields.insertBefore(histBtn, memoBtn.parentElement.nextSibling);
+    } else {
+      fields.appendChild(histBtn);
+    }
     /* **箱は先に作っておく。**[OK] で1件目が積まれた瞬間に出せるようにするため
        （前は組み立て時に1件も無ければボタンごと作らず、
          積んでも盤を開き直すまで出てこなかった）。
@@ -1365,7 +1429,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const next = stepIn ? stepIn.value.trim() : '';
     if (!did) return '書いてから';
     if (!next) return '次の一手が要る';
-    if (!ask(a, 'commitStep', id, { did: did, next: next })) return '記録できない';
+    if (!ask(a, 'commitStep', id, { did: did, next: next })) return 'まだ積めない';
     memoArea.value = '';
     memoDraft = '';
     draft0 = { did: '', next: stepIn ? stepIn.value : '' };
@@ -1379,7 +1443,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (!memoPane) buildMemo();
     memoPane._ctx.textContent = stepIn && stepIn.value.trim()
       ? '次の一手：' + stepIn.value.trim()
-      : '次の一手がまだ無い。書いてからでないと記録できない';
+      : '次の一手を書くと、ここから記録が積める';
     memoArea.value = memoDraft;
     if (memoSaid) memoSaid.textContent = '';
     memoPane.hidden = false;
@@ -1467,7 +1531,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const cap = Math.max(160, barTop - CENTER_M - lowerTop) + 'px';
       if (hist) hist.style.maxHeight = cap;
       if (memoPane) memoPane.style.maxHeight = cap;
-      if (fields) fields.style.maxHeight = cap;
+      if (fields) {
+        fields.style.maxHeight = cap;
+        /* 入りきらないときだけ、下端をぼかして「続きがある」を出す。
+           モバイルではスクロールバーが出ないので、これが唯一の手がかりになる */
+        fields.classList.toggle('is-cut', fields.scrollHeight > fields.clientHeight + 1);
+      }
     }
     if (!vw || !vh) return;                    /* 寸法が取れないときは置いたまま */
 

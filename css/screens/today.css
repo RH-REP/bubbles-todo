@@ -219,10 +219,12 @@
   display: flex; align-items: center; gap: 2px;
   max-width: calc(100% - 20px);
 }
+/* 44×44（レビューの指摘）。36 で置いていたが、契約 §15 に例外として
+   記録していなかった。カレンダーの枡と違って幅の制約は無いので、素直に 44 にする */
 .today-daystep {
   flex: none;
   appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
-  min-width: 36px; min-height: 36px; padding: 0;
+  min-width: 44px; min-height: 44px; padding: 0;
   font-size: 17px; line-height: 1;
   border-radius: 999px;
   border: 1px solid transparent;

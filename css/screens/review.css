@@ -142,24 +142,22 @@
    枠の大きさが中身で変わってしまう。0 まで縮められるようにして列を必ず等分にする。
    grid-auto-rows: 1fr：行が折り返しても4枠の高さを揃える。 */
 .review .rv-counts {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: 1fr; gap: 10px;
+  display: flex; flex-direction: column; gap: 2px;
 }
+/* 1行を文として置く。数字はラベルのすぐ後ろ——**列を作らない**のが要点で、
+   右へ揃えると数字だけの列ができて、そこで見比べが起きる（レビューの指摘）。
+   枠も敷かない。同じ大きさの枠が並ぶこと自体が、比べる絵になる */
 .review .rv-count {
-  display: flex; flex-direction: column; justify-content: center;
-  min-height: 76px; padding: 12px;
-  border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--surface);
+  margin: 0; padding: 7px 2px;
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 14px; line-height: 1.5;
 }
-.review .rv-count .q { display: flex; align-items: baseline; gap: 2px; }
+.review .rv-count .lb { color: var(--text-2); }
 .review .rv-count .n {
-  font-size: 26px; line-height: 1.1; font-weight: 300;
+  font-size: 20px; line-height: 1.2; font-weight: 300;
   color: var(--text); font-variant-numeric: tabular-nums;
 }
-.review .rv-count .u { font-size: 12px; color: var(--text-2); }
-.review .rv-count .lb {
-  margin-top: 6px; font-size: 12.5px; color: var(--text-2); line-height: 1.4;
-}
+.review .rv-count .u { font-size: 12.5px; color: var(--text-2); }
 
 /* ---------- 5. 空のとき ---------- */
 .review .rv-empty {

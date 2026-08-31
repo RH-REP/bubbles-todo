@@ -272,7 +272,9 @@ const MAX_ANCHORS = 12;
 const HUES = [0, 1, 2, 3, 4];
 
 /* 集計で「アンカー無しで始めたぶん」に付ける名前 */
-const NO_ANCHOR_NAME = 'アンカー無し';
+/* 画面に出る言葉。中では anchor と呼んでいるが、UI では一貫して「きっかけ」
+   （レビューの指摘。ここだけ内部の言葉が漏れていた） */
+const NO_ANCHOR_NAME = 'きっかけ無し';
 
 /* started / log で「アンカー無し」を表すキー。log 側では null で持つ */
 const NO_ANCHOR_KEY = '';

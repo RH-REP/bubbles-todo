@@ -666,6 +666,13 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bc-fields { position: fixed; left: 0; top: 0; pointer-events: auto; }
 
 /* 次の一手 / リンク */
+/* 中身が入りきらないときに、続きがあることを見せる。
+   モバイルではスクロールバーが出ないので、下端をぼかして手がかりにする。
+   mask なので押す的は塞がない（pointer-events に影響しない） */
+.bub-center .bc-fields.is-cut {
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent);
+}
 .bub-center .bc-fields {
   transform: translate(-50%, 0);
   width: min(320px, calc(100vw - 24px));
@@ -775,7 +782,19 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 
    .bc-act より詰めた指定にしてあるのは、.bc-act の定義がこの下にあるため
    （同じ強さだと、あとに書いてあるほうが勝ってしまう）。 */
-.bub-center .bc-act.bc-hist-open {
+/* 読むだけの入口。状態を変えるボタンと同じ強さにしない（レビューの指摘）。
+   左寄せ・枠なし・一段小さく。押す的は 44 を保つ */
+.bub-center .bc-hist-open {
+  align-self: flex-start;
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font: inherit; font-size: 12.5px; text-align: left;
+  min-height: 44px; padding: 0 2px;
+  border: 0; background: transparent; color: var(--text-2);
+}
+.bub-center .bc-hist-open:hover { color: var(--text); }
+.bub-center .bc-hist-open:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; border-radius: 6px; }
+
+.bub-center .bc-act.bc-hist-open-old {
   width: 100%;
   background: transparent;
   border-color: var(--line-strong);
@@ -812,7 +831,7 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
   border-bottom: 1px solid var(--line);
 }
 .bub-center .bm-title,
-.bub-center .bh-title { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.bub-center .bh-title { font-size: 14px; font-weight: 600; color: var(--text); }
 .bub-center .bm-close,
 .bub-center .bh-close {
   appearance: none; -webkit-appearance: none;
@@ -846,7 +865,7 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 /* 何に続く記録なのかを、書く前に読めるようにする */
 .bub-center .bm-ctx {
   flex: none; margin: 0; padding: 8px 12px 0;
-  font-size: 12px; line-height: 1.5; color: var(--text-2);
+  font-size: 12.5px; line-height: 1.5; color: var(--text-2);
   overflow-wrap: anywhere;
 }
 .bub-center .bm-in {
@@ -865,7 +884,7 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bm-save {
   flex: none; margin: 0 12px 4px;
   appearance: none; -webkit-appearance: none; cursor: pointer;
-  font: inherit; font-size: 14.5px; font-weight: 600;
+  font: inherit; font-size: 15px; font-weight: 600;
   min-height: 48px; padding: 0 16px;
   border: 1px solid var(--bub-edge); border-radius: 999px;
   background: var(--surface-2); color: var(--text);
@@ -876,7 +895,7 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bm-save.is-nope { border-color: var(--line); color: var(--text-2); }
 .bub-center .bm-said {
   flex: none; margin: 0; padding: 0 12px 10px;
-  font-size: 12px; color: var(--text-2); min-height: 16px;
+  font-size: 12.5px; color: var(--text-2); min-height: 16px;
 }
 
 .bub-center .bh-list {
@@ -948,6 +967,11 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 }
 .bub-center .bc-act-start:active { transform: scale(.985); }
 .bub-center .bc-act-start:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* [タスク完了] は盤を閉じて状態を大きく変える。となりの「今日は終わり」と
+   同じ見た目だと、名前だけが違いになってしまう（レビューの指摘）。
+   縁を一段濃くして、下へ行くほど重い、を色でも読めるようにする */
+.bub-center .bc-act-done { border-color: var(--text-2); }
 
 /* 「消す」だけは弱く。--text-2 は --surface に対し 明5.85 / 暗6.79 で 4.5 を切らない */
 .bub-center .bc-act-del {
@@ -1162,7 +1186,25 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
   border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface-2);
 }
-.bub-center .bc-cal-lb { font-size: 12px; color: var(--text-2); }
+/* 畳んだ姿。押すと開く（タグの札と同じ方式）。
+   畳んでいても「いつの日か」は読める——押さないと分からない、にしない */
+.bub-center .bc-cal-head {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 44px; padding: 0;
+  border: 0; background: transparent; text-align: left;
+}
+.bub-center .bc-cal-head:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; border-radius: 6px; }
+.bub-center .bc-cal-head::after {
+  content: '▾'; margin-left: auto; font-size: 11px; color: var(--text-2);
+}
+.bub-center .bc-cal-head[aria-expanded="true"]::after { content: '▴'; }
+.bub-center .bc-cal-sum {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; color: var(--text);
+}
+.bub-center .bc-cal-grid[hidden] { display: none; }
+.bub-center .bc-cal-lb { flex: none; font-size: 12.5px; color: var(--text-2); }
 .bub-center .bc-cal-grid {
   display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
   justify-items: stretch;
@@ -1172,7 +1214,7 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
   padding-bottom: 2px;
 }
 .bub-center .bc-cal-d {
-  appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px;
+  appearance: none; -webkit-appearance: none; font: inherit; font-size: 14px;
   cursor: pointer; min-height: 44px; padding: 0;
   color: var(--text); background: var(--bg);
   border: 1px solid var(--line); border-radius: 8px;
@@ -1211,7 +1253,9 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
   background: var(--surface-2);
 }
 .bub-center .bc-hold[hidden] { display: none; }
-.bub-center .bc-hold-lb { font-size: 12px; color: var(--text-2); }
+.bub-center .bc-hold-lb { flex: none; font-size: 12.5px; color: var(--text-2); }
+.bub-center .bc-hold-body { display: flex; flex-direction: column; gap: 6px; }
+.bub-center .bc-hold-body[hidden] { display: none; }
 .bub-center .bc-hold-day {
   font: inherit; font-size: 13px; color: var(--text);
   background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px;

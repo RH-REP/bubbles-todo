@@ -341,7 +341,7 @@ function syncEmptyNote() {
   const n = offsetOf(curDay());
   if (n === 0) {
     l1.textContent = '今日ぶんの水面。';
-    l2.textContent = '海のバブルをこのタブに落とすと、ここに浮かぶ。';
+    l2.textContent = '海のバブルを、このタブに落とすと浮かぶ。';
   } else if (n < 0) {
     l1.textContent = dayLabel(curDay()) + 'の水面。';
     l2.textContent = 'この日には、まだ何も置いていなかった。';

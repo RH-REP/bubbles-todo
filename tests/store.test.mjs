@@ -1203,7 +1203,7 @@ await test('start(id, null) はアンカー無しで始めた記録になる', a
   /* 集計。アンカー無しは末尾に来る */
   assert.deepEqual(store.startedByAnchor(1), [
     { id: A.id, name: '歯を磨いたら', n: 1 },
-    { id: null, name: 'アンカー無し', n: 1 },
+    { id: null, name: 'きっかけ無し', n: 1 },
   ]);
 
   /* 取り消しも null で通る。消えるのはアンカー無しのぶんだけ */
@@ -1278,7 +1278,7 @@ await test('海・すきま・きっかけの未分類、どこにあっても s
   ]);
 
   /* 集計。アンカーが1つも無いので「アンカー無し」の行だけが出る */
-  assert.deepEqual(store.startedByAnchor(1), [{ id: null, name: 'アンカー無し', n: 3 }]);
+  assert.deepEqual(store.startedByAnchor(1), [{ id: null, name: 'きっかけ無し', n: 3 }]);
   assert.equal(store.startedCount(1), 3);
 
   /* 取り消しも対称に効く。ログも1件減る */
@@ -1286,7 +1286,7 @@ await test('海・すきま・きっかけの未分類、どこにあっても s
   assert.equal(store.isStarted(gap.id, null), false);
   assert.equal(store.startedAt(gap.id, null), null);
   assert.equal(store.unstart(gap.id, null), false, '二重の取り消しは false');
-  assert.deepEqual(store.startedByAnchor(1), [{ id: null, name: 'アンカー無し', n: 2 }]);
+  assert.deepEqual(store.startedByAnchor(1), [{ id: null, name: 'きっかけ無し', n: 2 }]);
 
   /* 保存の往復でも残る（today:false のまま） */
   const again = await open();

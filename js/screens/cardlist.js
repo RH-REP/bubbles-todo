@@ -1437,8 +1437,14 @@ function fillFrame(box, items, where) {
 
 /* 何行いるか。空でも1行ぶんは開けておく——落とし先として見えている必要がある。
    割るのは cols（カード幅の倍数）ではなく slotCols（升目の列数） */
+/* 升目の行数。**空のカードは 0 行**（レビューの指摘）。
+   前は空でも1行ぶん（112px）確保していたので、いちばん場所を食っているのが
+   空のカード、という状態になっていた——A-6 の「空き枠を目立たせない」の逆。
+   置き場所が消えるわけではない：下の [＋ここにぶら下げる] がそのまま落とし先で、
+   カードの当たり判定はカード全体なので、狙う的も小さくならない */
 function rowsFor(n) {
-  return Math.max(1, Math.ceil(n / Math.max(1, slotCols)));
+  if (!n) return 0;
+  return Math.ceil(n / Math.max(1, slotCols));
 }
 
 /* querySelector に入れる前に、属性値の " と \ だけ逃がす。
@@ -1460,7 +1466,11 @@ function makeUnsortedFrame() {
   hd.appendChild(el('span', 'nm', '未分類'));
   const items = planUnsorted();
   const n = el('span', 'n');
-  n.textContent = items.length ? items.length + '件' : '';
+  /* 件数は出さない（レビューの指摘）。ぶら下がるバブルはカードの中に見えているので、
+     数字は情報を足していない。増えたときに「溜まった数の名指し」だけが残る。
+     A-17 で今日の画面について決めた「件数も出さない」と同じ扱いにそろえる。
+     「はじめた」の印だけは残す——あれは数ではなく状態 */
+  n.textContent = '';
   hd.appendChild(n);
   box.appendChild(hd);
 
@@ -1550,7 +1560,7 @@ function makeAnchorFrame(a, index, total, special) {
   const n = el('span', 'n');
   const started = items.filter(t => isStarted(t.id, a.id)).length;
   n.textContent = items.length
-    ? items.length + '件' + (started ? ' ・ はじめた ' + started : '')
+    ? (started ? DONE_LB + ' ' + started : '')
     : '';
   hd.appendChild(n);
 

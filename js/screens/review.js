@@ -195,11 +195,14 @@ function makeCounts() {
 
      帯は置かない。数を長さに変えると、4つの行が同じ目盛りを共有することになり、
      「書いた16 → 完了1」がそのまま漏斗＝達成率の絵になる。
-     代わりに、大きさの等しい4つの枠に数字だけを置く。
-     枠の大きさは件数に依らないので、見比べても比率が現れる形がどこにも無い。 */
+
+     **枠を並べるのもやめた**（レビューの指摘）。大きさの等しい4枠を 2×2 に並べると、
+     並置そのものが読み手に 1/16 の割り算をさせる。帯を消しても絵の形が残っていた。
+     いまは縦に1行ずつ、**文の形**で置く。数字はラベルのすぐ後ろに来るので、
+     ラベルの長さが違えば数字の位置も揃わない——**見比べる列ができない**。 */
   const rows = [
     { label: '書いた',           n: countOf('writtenCount', SPAN) },
-    { label: '今日するに入れた', n: countOf('todayedCount', SPAN) },
+    { label: '今日の水面に置いた', n: countOf('todayedCount', SPAN) },
     { label: 'はじめた',         n: countOf('startedCount', SPAN) },
     /* 完了は追補3 §4。store.doneCount がまだ無い間は、この枠を出さない */
     { label: '完了',             n: countOf('doneCount', SPAN) },
@@ -207,12 +210,10 @@ function makeCounts() {
 
   const list = el('div', 'rv-counts');
   rows.forEach(r => {
-    const item = el('div', 'rv-count');
-    const q = el('div', 'q');
-    q.appendChild(el('span', 'n', String(r.n)));
-    q.appendChild(el('span', 'u', '件'));
-    item.appendChild(q);
-    item.appendChild(el('div', 'lb', escapeHtml(r.label)));
+    const item = el('p', 'rv-count');
+    item.appendChild(el('span', 'lb', escapeHtml(r.label)));
+    item.appendChild(el('span', 'n', String(r.n)));
+    item.appendChild(el('span', 'u', '件'));
     list.appendChild(item);
   });
 

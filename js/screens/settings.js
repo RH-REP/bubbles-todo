@@ -74,7 +74,8 @@ export default {
 
   mount(pane) {
     const box = el('div', 'stub');
-    box.appendChild(el('h2', null, '設定'));
+    /* 見出しは置かない（レビューの指摘）。ほかの5画面はどれも見出しを持たず、
+       いまどこに居るかは下タブが言う。ここだけ見出しがあると顔が揃わない */
 
     /* --- タグ --- */
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */
@@ -83,7 +84,7 @@ export default {
       tagBox.appendChild(el('h3', null, 'タグ'));
       tagBox.appendChild(el(
         'p', 'note',
-        '海の上・左・右に置けるのは3つまで。ここで割り当てを決める。'
+        '海の左と右に置けるのは1つずつ。上（長期保留）と下（完了）は動かせない。'
         + '中央の海には、どのタグのものも浮かぶ。'
       ));
       const list = el('div', 'taglist');
