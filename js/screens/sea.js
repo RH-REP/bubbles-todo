@@ -187,8 +187,17 @@ function syncZoomBtn() {
      UNSORTED_ONLY … まだ 今日・きっかけ・すきま のどれにも入れていないもの
      タグの id     … そのタグが付いているもの
 
-   **重ねると「かつ」**（絞るという言葉のとおり、押すたびに狭くなる）。
-   「または」にしない——選ぶほど増えるのは、絞るの逆になるため。
+   **重ねると「または」**（選んだ種類のどれかが付いているもの）。
+
+   最初は「かつ」で組んだ。「絞る」という言葉から素直に考えたが、**言葉から考えて、
+   データを見ていなかった。**このアプリでは1件が持つ置き場所のタグはふつう1つなので、
+   **2つ選ぶと必ず0件になる**（実測：組み合わせ15通りすべてで0）。
+   それでは重ねる意味が無い。
+
+   「または」でも絞り込みではある——「ぜんぶ」から「この種類だけ」へ狭めている。
+   狭め方が「全部を同時に持つもの」ではなく「どれかを持つもの」というだけ。
+   実測：きっかけ＋すきま＝9件、今日＋きっかけ＝5件。どれも使える数になる。
+
    空っぽ＝絞らない（＝ぜんぶ）。「ぜんぶ」は一覧の先頭に置いた選択の取り消しで、
    トグルではない。
 
@@ -342,16 +351,16 @@ function centerItems() {
   const wantHold = narrowSet.has('hold');
   const list = store.all().filter(t => !isDoneItem(t) && (wantHold || !isHoldItem(t)));
   if (!narrowSet.size) return capForSea(list);
-  /* 選んだものは全部かかる（「かつ」）。押すたびに狭くなる。
+  /* 選んだうちの**どれかが付いていれば出す**（「または」）。
      絞ったあとにも上限はかける——絞り込みは「どれを見るか」で、
      一度に出す数の話とは別だから */
   return capForSea(list.filter(t => {
     const tags = tagsOfSafe(t.id);
     for (const k of narrowSet) {
-      if (k === UNSORTED_ONLY) { if (!isUnsorted(t)) return false; }
-      else if (tags.indexOf(k) < 0) return false;
+      if (k === UNSORTED_ONLY) { if (isUnsorted(t)) return true; }
+      else if (tags.indexOf(k) >= 0) return true;
     }
-    return true;
+    return false;
   }));
 }
 
