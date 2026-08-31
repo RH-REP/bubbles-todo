@@ -58,8 +58,11 @@
    選べないときに、選ばずに始めるためのもの。おすすめではないので目立つ色は付けない
    （海の .sea-random と同じ静かな見た目・同じ大きさ）。
    この画面には他のボタンが無いので右上。押せないときは形（点線の縁）でも伝える。 */
+/* 右上は歯車（設定。10..54px）の場所になったので、さいころは1段下へ。
+   海のさいころ（.sea-random）と同じ高さに揃えてある——同じ役目のものが
+   画面ごとに違うところに在ると、探すことになる */
 .today-random {
-  position: absolute; top: 10px; right: 10px; z-index: 8;
+  position: absolute; top: 58px; right: 10px; z-index: 8;
   appearance: none; cursor: pointer; font: inherit;
   display: inline-flex; align-items: center; justify-content: center;
   width: 48px; height: 48px; padding: 0;   /* タップ目標は 44 を下回らない（契約 §15） */
@@ -217,7 +220,8 @@
 .today-dayrow {
   position: absolute; z-index: 8; left: 10px; top: 10px;
   display: flex; align-items: center; gap: 2px;
-  max-width: calc(100% - 20px);
+  /* 右端は歯車（右から 54px）の手前で止める。長い日付でも下へ潜らせない */
+  max-width: calc(100% - 74px);
 }
 /* 44×44（レビューの指摘）。36 で置いていたが、契約 §15 に例外として
    記録していなかった。カレンダーの枡と違って幅の制約は無いので、素直に 44 にする */

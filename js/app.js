@@ -25,6 +25,19 @@ const SCREENS = [sea, today, plan, gap, review, settings];
 /* バブルを受けられるタブ。bubble.js のドロップ判定もこの並びを見る */
 const DROPPABLE = new Set(['sea', 'today', 'plan', 'gap']);
 
+/* 下タブに出す画面（利用者の指示）。
+   **ふりかえりと設定は下タブから外した。**設定は右上の歯車から開き、
+   ふりかえりはその設定の中に置いた。理由は2つ：
+     ・下タブはバブルの落とし先でもある。受けない2本が混ざっていると、
+       掴んだときに「狙っても無駄なタブ」が並ぶ（薄くして断っていた）
+     ・毎日触るのは海・今日・きっかけ・すきまの4つ。設定とふりかえりは
+       その頻度ではない。同じ重みで並べる理由が無い
+   これで下タブは**全部が落とし先**になり、data-drop="no" は出なくなる。 */
+const TABS = ['sea', 'today', 'plan', 'gap'];
+
+/* 歯車から開く画面。ここに居るあいだ、歯車は「閉じる」になる */
+const UNDER_GEAR = new Set(['settings', 'review']);
+
 const panesRoot = document.getElementById('panes');
 const tabbar = document.getElementById('tabbar');
 const mounted = new Set();
@@ -88,8 +101,45 @@ function show(id) {
   });
 
   current = next;
+  if (!UNDER_GEAR.has(next.id)) lastOpen = next.id;   /* 歯車を閉じたときの戻り先 */
+  syncGear();
   if (typeof next.onShow === 'function') next.onShow();
 }
+
+/* ---- 右上の歯車（利用者の指示） ----
+
+   設定は下タブから外して、ここひとつにした。押すと設定へ、
+   設定（とその中のふりかえり）に居るあいだは「閉じる」になって、
+   さっきまで居た画面へ戻る。**戻り先を覚えている**ので、
+   設定を見たあとに海へ落とされる、ということが起きない。
+
+   置き場所はアプリの枠（.app）の右上。画面の中ではないので、
+   どの画面から見ても同じところに在る。 */
+let lastOpen = 'sea';
+const gear = document.createElement('button');
+gear.type = 'button';
+gear.className = 'gearbtn';
+gear.dataset.fk = 'gear';
+const gearIc = document.createElement('span');
+gearIc.className = 'ic';
+gearIc.setAttribute('aria-hidden', 'true');
+gear.appendChild(gearIc);
+gear.addEventListener('click', () => {
+  if (current && UNDER_GEAR.has(current.id)) show(lastOpen || 'sea');
+  else show('settings');
+});
+
+function syncGear() {
+  const open = !!(current && UNDER_GEAR.has(current.id));
+  gearIc.textContent = open ? '✕' : '⚙';
+  gear.classList.toggle('is-open', open);
+  gear.setAttribute('aria-label', open ? '設定を閉じる' : '設定');
+  gear.title = open ? '設定を閉じる' : '設定';
+}
+
+const appRoot = document.querySelector('.app');
+if (appRoot) appRoot.appendChild(gear);
+syncGear();
 
 /* 日付キーを n 日ずらす。正午に寄せてから動かす（夏時間の日でも飛ばない）。
    today.js が同じものを持っているが、あちらは画面の内側なので、
@@ -112,6 +162,7 @@ let todayTabLabel = null;
 
 SCREENS.forEach(s => {
   paneOf(s);
+  if (TABS.indexOf(s.id) < 0) return;      /* 下タブに出さない画面（設定・ふりかえり） */
   const btn = document.createElement('button');
   btn.type = 'button';
   /* bubble.js のドロップ判定はこの2つの属性だけを見る。

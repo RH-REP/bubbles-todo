@@ -261,12 +261,30 @@ function render() {
   const nothing = total === 0 && store.count() === 0;
 
   body.replaceChildren();
+  /* 設定の中へ入った画面（利用者の指示）。下タブには居ないので、
+     帰り道を画面が自分で持つ。右上の歯車（✕）でも出られるが、
+     こちらは「設定へ戻る」＝ひとつ上へ戻る道 */
+  body.appendChild(makeBack());
   if (nothing) { body.appendChild(makeEmpty()); return; }
 
   body.appendChild(makeHero(total));
   body.appendChild(makeDays());
   body.appendChild(makeAnchors());
   body.appendChild(makeCounts());
+}
+
+function makeBack() {
+  const b = el('button', 'rv-back');
+  b.type = 'button';
+  const ar = el('span', 'ar', '‹');
+  ar.setAttribute('aria-hidden', 'true');
+  b.appendChild(ar);
+  b.appendChild(el('span', null, '設定'));
+  b.setAttribute('aria-label', '設定へもどる');
+  b.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'settings' } }));
+  });
+  return b;
 }
 
 /* ---------------- 画面モジュール ---------------- */

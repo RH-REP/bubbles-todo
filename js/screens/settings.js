@@ -74,8 +74,27 @@ export default {
 
   mount(pane) {
     const box = el('div', 'stub');
-    /* 見出しは置かない（レビューの指摘）。ほかの5画面はどれも見出しを持たず、
-       いまどこに居るかは下タブが言う。ここだけ見出しがあると顔が揃わない */
+    /* 見出しは置かない（レビューの指摘）。ほかの画面はどれも見出しを持たない。
+       いまどこに居るかは、右上の歯車が✕に変わっていることが言う */
+
+    /* --- ふりかえりへ（利用者の指示：ふりかえりは設定の中に）---
+       いちばん上に置く。設定の中身（タグ・音・確認用）は「決める」もので、
+       ふりかえりは「見る」もの。混ぜず、先頭に1行だけ置いて別の画面へ渡す。 */
+    const go = el('button', 'gorow');
+    go.type = 'button';
+    const goL = el('span', 'nm', 'ふりかえり');
+    const goS = el('span', 'sub', '記録を眺める');
+    const goT = el('span', 'tx');
+    goT.appendChild(goL);
+    goT.appendChild(goS);
+    go.appendChild(goT);
+    const goA = el('span', 'ar', '›');
+    goA.setAttribute('aria-hidden', 'true');
+    go.appendChild(goA);
+    go.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'review' } }));
+    });
+    box.appendChild(go);
 
     /* --- タグ --- */
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */

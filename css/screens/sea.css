@@ -166,7 +166,7 @@
 /* ---------- いまどの面にいるか ----------
    常に見えていること（追補3 §1）。中央は「ぜんぶ」。 */
 .sea-face-name {
-  position: absolute; top: 10px; left: 10px; z-index: 8;
+  position: absolute; top: 16px; left: 10px; z-index: 8;
   display: inline-flex; align-items: center; gap: 7px;
   max-width: 40%; min-height: 32px; padding: 0 12px;
   border-radius: 999px;
@@ -287,7 +287,7 @@
    押している間ではなく、押したら並ぶ。だから文字が「ならべる」⇄「もどす」に変わる
    ——解除の仕方が画面に見えていること。 */
 .sea-gather {
-  position: absolute; top: 10px; right: 10px; z-index: 8;
+  position: absolute; top: 60px; right: 66px; z-index: 8;
   appearance: none; cursor: pointer; font: inherit;
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 44px; padding: 0 16px;      /* タップ目標は 44 を下回らない */
@@ -313,7 +313,7 @@
    「ならべる」と同じ形・同じ言い方（もどす）にそろえる——押したら戻る、が同じ操作だから。
    右上の「ならべる」とは離して置く。2つのモードのボタンを隣り合わせない。 */
 .sea-narrow {
-  position: absolute; top: 50px; left: 10px; z-index: 8;
+  position: absolute; top: 60px; left: 10px; z-index: 8;
   appearance: none; cursor: pointer; font: inherit;
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 44px; padding: 0 16px;      /* タップ目標は 44 を下回らない */
@@ -389,7 +389,7 @@
    おすすめではないので、目立つ色は付けない（「ならべる」と同じ静かな見た目）。
    「ならべる」の下。押せないときは形（点線）でも伝える。 */
 .sea-random {
-  position: absolute; top: 62px; right: 10px; z-index: 8;
+  position: absolute; top: 58px; right: 10px; z-index: 8;
   appearance: none; cursor: pointer; font: inherit;
   display: inline-flex; align-items: center; justify-content: center;
   width: 48px; height: 48px; padding: 0;   /* タップ目標は 44 を下回らない */
@@ -728,41 +728,16 @@
 
 /* 置き場所。上は左上の名札・右上の「ならべる」を避けて、そのぶん下げる。
    下は入力欄の上（--sea-floor が面の底）。左右は辺に貼り付ける。 */
-/* 上の看板は、右上の2段（ならべる／引いて見る・さいころ）の下まで下げる。
+/* 上の看板は、右上の2段目（ならべる・さいころ）の下まで下げる。
    あれらは面の外（.sea-stage の子）で、看板より手前に描かれるため、
-   重ねると看板が隠れる。さいころの下端が 110px なので 118px。 */
-.sea-sign[data-dir="up"]    { top: 118px; left: 50%; transform: translateX(-50%); }
+   重ねると看板が隠れる。さいころの下端が 104px なので 112px。 */
+.sea-sign[data-dir="up"]    { top: 112px; left: 50%; transform: translateX(-50%); }
 .sea-sign[data-dir="down"]  { bottom: 14px; left: 50%; transform: translateX(-50%); }
 /* 左右は上下の真ん中ではなく、やや上に置く。理由は2つ：
      ・真ん中だと、空のときの案内文（.sea-hint。上下中央に置く）と重なる
      ・重力でバブルは下に溜まるので、上のほうが隠れにくい */
 .sea-sign[data-dir="left"]  { left: 10px; top: 34%; transform: translateY(-50%); }
 .sea-sign[data-dir="right"] { right: 10px; top: 34%; transform: translateY(-50%); }
-
-/* ---------- 引いて見る（ズームアウト。A-1） ----------
-   「ならべる」の下、右上に置く。押すたびに 1.00 → 0.80 → 0.60 → 1.00。
-   見た目は「ならべる」に合わせる（同じ列に並ぶ、同じ種類の切り替えなので）。 */
-/* 置き場所：右上の2段目、さいころ（.sea-random は right:10px / 48px幅）の左どなり。
-   同じ段に並べるのは、どちらも「海の見え方に効く」操作だから。
-   375px 幅でも、左上の「しぼる」（左から 100px まで）とは重ならない。 */
-.sea-zoom {
-  position: absolute; z-index: 8; right: 66px; top: 62px;
-  appearance: none; -webkit-appearance: none;
-  cursor: pointer; font: inherit;
-  display: inline-flex; align-items: center; gap: 7px;
-  min-height: 44px; min-width: 44px; padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
-  color: var(--text); font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
-  box-shadow: 0 2px 10px rgba(0,0,0,.10);
-  transition: transform .1s, border-color .12s, background-color .12s;
-}
-.sea-zoom .ic { flex: none; font-size: 14px; line-height: 1; }
-.sea-zoom:hover { border-color: var(--bub-edge); }
-.sea-zoom:active { transform: scale(.97); }
-.sea-zoom:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
-.sea-zoom.is-on { border-color: var(--bub-edge); background: var(--surface); }
 
 /* 文字を縮める上書きはもう要らない。面ごと scale が掛かるので、
    文字もバブルも枠も同じ率で小さくなる（それがズームという言葉の意味）。

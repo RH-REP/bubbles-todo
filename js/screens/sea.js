@@ -188,13 +188,16 @@ let gathering = false;
 
    段は 0.4〜2.4。0.4 まで引くと 78px のバブルが 31px になり、タップ目標 44 を割る。
    割ってよいことにしたのは、引いた状態が「眺める」状態だから——押すなら近づく。
-   ボタンは 1 → 0.7 → 0.45 の3段だけを回す（片手で戻せるように）。
-   ホイールとつまむ指は連続。
+
+   **段送りのボタン（「引いて見る」）は削除した**（利用者の指示）。
+   動かす口はホイール（Mac の2本指スワイプ）とつまむ指の2つだけになる。
+   海の上に浮いていた札が1枚減って、水が広く見えるのが狙い。
+   **代わりに失うもの**：指1本しか使えない場面と、鍵盤だけで操作する人に、
+   倍率を動かす道が無い（前はボタンがその道だった）。ここは申し送りに残す。
 
    ズームは画面を離れると 1.0 に戻す。小さいまま・寄せたまま開くと
    「なぜ端が見えないのか」が分からなくなるため。 */
 const Z_MIN = 0.4, Z_MAX = 2.4;
-const Z_STOPS = [1, 0.7, 0.45];
 const Z_WHEEL = 0.0022;      /* ホイール1px ぶんの指数。100px で約 1.25 倍 */
 
 /* **2つ持つ理由。**ホイールは掛け算で効くので、引いて戻すと 0.99996 のような
@@ -206,8 +209,6 @@ const Z_SNAP = 0.02;
 let zRaw = 1;
 let zLevel = 1;
 let panX = 0, panY = 0;      /* 画面 px。倍率が 1 以下なら必ず 0（世界は真ん中） */
-let zoomBtn = null;
-let zoomLabel = null;
 const zoom = () => zLevel;
 const r3 = v => Math.round(v * 1000) / 1000;
 
@@ -270,7 +271,7 @@ function applyView() {
   stage.style.setProperty('--sea-zoom', String(r3(zLevel)));
 
 }
-function applyZoom() { applyView(); syncZoomBtn(); }
+function applyZoom() { applyView(); }
 
 /* 画面の点 (px,py) の下にあるものを動かさずに倍率を変える。
    ホイールならポインタの下、つまむ指なら2本の真ん中が動かない。
@@ -296,35 +297,6 @@ function zoomTo(nz, px, py) {
 function resetZoom() {
   zRaw = 1; zLevel = 1; panX = 0; panY = 0;
   applyZoom();
-}
-
-/* ボタンは3段を回る。段の外（ホイールで 1.6 など）に居るときは、まず 1.0 へ戻す */
-let zsmoothTimer = 0;
-function cycleZoom() {
-  const ix = Z_STOPS.findIndex(v => Math.abs(v - zLevel) < 0.02);
-  const nz = ix < 0 ? 1 : Z_STOPS[(ix + 1) % Z_STOPS.length];
-  /* ボタンで飛ぶときだけ滑らせる。ホイールとつまむ指は指に貼り付いていてほしいので、
-     あちらには掛けない（掛けると、指を止めたあとも動き続けて酔う） */
-  stage.classList.add('is-zsmooth');
-  clearTimeout(zsmoothTimer);
-  zsmoothTimer = setTimeout(() => stage.classList.remove('is-zsmooth'), 260);
-  panX = 0; panY = 0;
-  zoomTo(nz, null, null);
-  applyZoom();                    /* 段が同じで zoomTo が素通りしたときのため */
-}
-
-function syncZoomBtn() {
-  if (!zoomBtn || !zoomLabel) return;
-  const at = v => Math.abs(v - zLevel) < 0.02;
-  /* 「いまどれだけ引いているか」ではなく「押すとどうなるか」を出す。
-     ならべる／しぼるが「もどす」に変わるのと同じ言い方 */
-  zoomLabel.textContent = at(1) ? '引いて見る' : (at(0.7) ? 'もっと引く' : 'もどす');
-  zoomBtn.classList.toggle('is-on', !at(1));
-  zoomBtn.setAttribute('aria-label',
-    at(1) ? '引いて見る（海ごと小さくして、全体を眺める）'
-      : (at(0.7) ? 'もっと引いて見る' : 'もとの大きさへもどす'));
-  /* 整列中は面が丸ごと隠れるので、引く対象が無い */
-  zoomBtn.hidden = gathering;
 }
 
 /* 中央（ぜんぶ）の海の絞り込み（利用者の指示。タグごと → **複数選べる**）。
@@ -1047,7 +1019,7 @@ function beginBubbleDrag(id) {
   window.addEventListener('pointerup', onBubblePointer, true);
   stage.classList.add('is-bubdrag');
   clearOff();
-  renderEdges(); renderSigns(); syncZoomBtn(); renderOff();
+  renderEdges(); renderSigns(); renderOff();
 }
 
 function endBubbleDrag() {
@@ -1062,7 +1034,7 @@ function endBubbleDrag() {
   const offT = (offArmed && offHitAt(pt.x, pt.y)) ? offTag() : null;
   markEdge(null);
   clearOff();
-  renderEdges(); renderSigns(); syncZoomBtn(); renderOff();
+  renderEdges(); renderSigns(); renderOff();
   if (!d) return;
   /* onDropToTab と onDragEnd のどちらが先に来るかは決まっていないので、
      マイクロタスク1つぶん待ってから見る（plan.js と同じ間合い） */
@@ -2217,7 +2189,7 @@ function renderChrome() {
   syncMore();
   syncNarrowBtn();
   syncRandomBtn();
-  renderEdges(); renderSigns(); syncZoomBtn(); renderOff();
+  renderEdges(); renderSigns(); renderOff();
   syncComposer();
 }
 
@@ -2437,19 +2409,6 @@ export default {
     offLabel = el('span', 'lb');
     dropOff.appendChild(offLabel);
     stage.appendChild(dropOff);
-
-    /* --- 引いて見る（ズームアウト。A-1） ---
-       押すたびに 1.00 → 0.80 → 0.60 → 1.00 と回る。段は3つしかないので
-       スライダにはしない（片手で押せるほうが、この画面には合う）。 */
-    zoomBtn = el('button', 'sea-zoom');
-    zoomBtn.type = 'button';
-    const zic = el('span', 'ic', '⊖');
-    zic.setAttribute('aria-hidden', 'true');
-    zoomLabel = el('span', 'lb');
-    zoomBtn.appendChild(zic);
-    zoomBtn.appendChild(zoomLabel);
-    zoomBtn.addEventListener('click', ev => { ev.preventDefault(); cycleZoom(); });
-    stage.appendChild(zoomBtn);
 
     /* --- ならべる（トグル） --- */
     gatherBtn = el('button', 'sea-gather');

@@ -29,7 +29,8 @@
   --rv-plain: color-mix(in srgb, var(--text-2) 62%, transparent);
 
   flex: 1; min-height: 0; overflow-y: auto;
-  padding: 20px 16px calc(20px + var(--safe-b));
+  /* 上は 20 ではなく 62。右上の歯車（10..54px）の下から始めるため */
+  padding: 62px 16px calc(20px + var(--safe-b));
   display: flex; flex-direction: column; gap: 20px;
 }
 
@@ -171,3 +172,18 @@
 
 /* 完了の海への道。数字の下に1つだけ置く控えめなボタン */
 .rv-go { display: block; margin: 14px auto 0; }
+
+/* ---------- 設定へもどる（ふりかえりは設定の中に入ったので）----------
+   右上の歯車（✕）でも出られるが、あちらは「設定ごと閉じる」。
+   こちらは「ひとつ上へもどる」＝設定へ。2つは行き先が違う。 */
+.rv-back {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 44px; padding: 0 12px 0 8px; margin: 0 0 6px -8px;
+  border: 0; background: transparent;
+  color: var(--text-2); font-size: 13px; font-weight: 600; letter-spacing: .03em;
+  border-radius: 10px;
+}
+.rv-back:hover { color: var(--text); }
+.rv-back:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.rv-back .ar { font-size: 17px; line-height: 1; }

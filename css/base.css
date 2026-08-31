@@ -130,6 +130,7 @@ body {
 /* ---------- アプリの骨格 ---------- */
 .app {
   display: flex; flex-direction: column;
+  position: relative;                        /* 右上の歯車の位置の基準 */
   height: 100dvh; max-width: 430px; margin: 0 auto;
   background: var(--bg);
   box-shadow: 0 0 0 1px var(--line);
@@ -137,6 +138,36 @@ body {
 .panes { flex: 1; min-height: 0; position: relative; }
 .pane { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
 .pane.is-active { display: flex; }
+
+/* ---------- 右上の歯車（設定。利用者の指示） ----------
+   下タブから外した設定への入口。**アプリの枠の子**なので、どの画面から見ても
+   同じところに在る。設定（とその中のふりかえり）に居るあいだは ✕ に変わり、
+   さっきまで居た画面へ戻る。
+
+   ドラッグ層（60）より下、下タブ（70）より下に置く。掴んだバブルは
+   この上を通る＝歯車が的に見えない（落とし先は下タブだけ、という決まりを崩さない）。
+
+   画面の中身がこの下へ潜らないよう、下の各画面に上の余白を入れてある
+   （海だけは自分で位置を決めているので、そちらで避けている）。 */
+.gearbtn {
+  position: absolute; z-index: 30; top: 10px; right: 10px;
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  width: 44px; height: 44px; padding: 0;      /* タップ目標は 44 を下回らない */
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  transition: transform .1s, color .12s, border-color .12s, background-color .12s;
+}
+.gearbtn .ic { font-size: 16px; line-height: 1; }
+.gearbtn:hover { color: var(--text); }
+.gearbtn:active { transform: scale(.95); }
+.gearbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.gearbtn.is-open { color: var(--text); border-color: var(--bub-edge); background: var(--surface); }
+/* バブルを掴んでいる間は薄くする。落とし先ではないので、狙わせない */
+body.is-dragging .gearbtn { opacity: .25; pointer-events: none; }
 
 /* ---------- 下タブ ---------- */
 /* タブはナビゲーションであると同時に、バブルの落下先でもある。
