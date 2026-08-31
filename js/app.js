@@ -14,7 +14,7 @@ import { toast } from './ui.js';
 import { setCaptureHandler, setWorklogHandler } from './focus.js';
 import { setCenterHandler } from './bubble.js';
 import sea from './screens/sea.js';
-import today, { openDayPicker, dayBadge, viewingDay } from './screens/today.js';
+import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
@@ -244,20 +244,14 @@ setCenterHandler({
 
   /* --- 日を移す（利用者の指示）---
 
-     「今日」の画面に居るときだけ出す。あそこは**日を1つ映している**画面なので、
-     「この日から次の日へ」が何を指すか迷いようが無い。
-     海やきっかけの盤にも出すと、どの日のことか読めない（1件が複数の日に置ける）。
+     カレンダーで日を入り切りする（利用者の指示）。
+     **どの画面の盤からでも使える**——カレンダーは日そのものを見せるので、
+     「この日」がどの日かを画面の文脈に頼らない（前の [次の日へ] はそこが弱かった）。
 
-     渡すのは「いま映している日」と、その日に置かれているかどうか。
-     移すのは その日から外して、隣の日へ入れる——**移動であって追加ではない**。 */
-  viewDay:      () => (current && current.id === 'today' ? viewingDay() : null),
-  onDay:        (id, key) => (has('daysOf') ? store.daysOf(id).indexOf(key) >= 0 : false),
-  moveDay:      (id, from, to) => {
-    if (!has('setDay')) return false;
-    store.setDay(id, from, false);
-    store.setDay(id, to, true);
-    return true;
-  },
+     1件は複数の日に置ける（days は配列）。カレンダーはそれをそのまま入り切りする。 */
+  /* その項目が置かれている日（古い順）。盤のカレンダーが読む */
+  days:         (id) => (has('daysOf') ? store.daysOf(id) : []),
+  setDay:       (id, key, on) => { if (has('setDay')) store.setDay(id, key, on); },
   shiftDay:     (key, n) => shiftDayKey(key, n),
 
   /* 盤の [OK] が積む1件（利用者の指示）。

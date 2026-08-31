@@ -161,10 +161,6 @@ function announceDay() {
   } catch (_) { /* 古い環境。札が出ないだけ */ }
 }
 
-/* いま映している日そのもの（過去でも返す）。盤の「日を移す」が読む。
-   dropDay() と違って過去も返す——移すのは書き換えではなく置き直しなので */
-export function viewingDay() { return curDay(); }
-
 export function dropDay() {
   const k = curDay();
   return (k < todayKey()) ? null : k;

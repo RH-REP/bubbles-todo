@@ -75,6 +75,13 @@ const CENTER_TOP_BAND = 0;
 const CLICK_EAT_MS = 400;   /* 看板の押し分け（signSuppress）と同じ間合いにそろえた */
 const CLICK_EAT_R = 12;     /* 離した点からの許容。指のぶれ（AXIS_LOCK 10）より少し広い */
 
+/* その日付キーの曜日（0=日）。カレンダーの列をそろえるのに使う */
+function todayDow(key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return 0;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0).getDay();
+}
+
 function eatOpeningClick(pt) {
   if (!pt || !(pt.x >= 0)) return;
   const t0 = Date.now();
@@ -670,6 +677,11 @@ function closeAsk(restoreFocus) {
 function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let saveTags = null;          /* タグの付け外しは閉じるときにまとめて書く */
   let saveHoldUntil = null;     /* 長期保留の「戻ってくる日」も同じく閉じるとき */
+  /* 「今日」の札と、カレンダーの今日の枡は同じものを指す。
+     二重に書かないよう、書き込みはカレンダー側が持ち、札は見た目だけ合わせる */
+  let todayCell = null;
+  let saveDays = null;          /* 日の入り切りも閉じるときにまとめて書く */
+  let syncTodayChip = null;     /* カレンダーが「今日」の札の見た目を合わせる */
   const root = el('div', 'bub-center');
   root.setAttribute('role', 'group');
   root.setAttribute('aria-label', (ariaLabel.split('（')[0] || '') + ' の操作');
@@ -747,53 +759,110 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       chip.appendChild(tx);
       chip.addEventListener('click', ev => {
         ev.preventDefault();
+        /* 「今日」はカレンダーの今日の枡と同じもの。書き込みはあちらが持つ */
+        if (t.id === 'today' && todayCell) { todayCell.toggle(); return; }
         const on = !want.has(t.id);
         if (on) want.add(t.id); else want.delete(t.id);
         chip.setAttribute('aria-pressed', on ? 'true' : 'false');
         if (t.id === 'hold' && syncHoldRow) syncHoldRow(true);
       });
+      if (t.id === 'today') syncTodayChip = on => chip.setAttribute('aria-pressed', on ? 'true' : 'false');
       tags.appendChild(chip);
     });
     fields.appendChild(tags);
 
-    /* ---- 日を移す（利用者の指示）----
+    /* ---- いつの日（カレンダー。利用者の指示）----
 
-       > タスクも次の日に移せるようにしたい
+       > todayタグのもののdaysをカレンダーでタップしてON/OFF出来るようにしたい
+       > （今日はできなそうなので、9/3,4に移す、みたいな）
 
-       **「今日」の画面に居るときだけ出す。**あそこは日を1つ映している画面なので、
-       「この日から次の日へ」が何を指すか迷いようが無い。
-       海やきっかけの盤に出すと、どの日のことか読めない——1件は複数の日に置けるので、
-       「次の日」と言われても、どの日の次なのかが決まらない。
+       1件は**複数の日に置ける**（days は配列）。ここはそれをそのまま入り切りする。
+       前は「この日から [前の日へ][次の日へ]」だったが、
+       **どの日の話かを画面の文脈に頼っていた**（今日の画面でしか出せなかった）。
+       カレンダーは日そのものを見せるので、どの画面の盤からでも使える。
 
-       **移動であって追加ではない。**いま映している日から外して、隣の日へ入れる。
-       押した先は口で言う（トーストは画面側が出す。ここは店を呼ぶだけ）。 */
-    const vDay = ask(a, 'viewDay');
-    const canMoveDay = !!vDay && typeof (a || {}).moveDay === 'function'
-      && ask(a, 'onDay', id, vDay);
-    if (canMoveDay) {
-      const box = el('div', 'bc-day');
-      const lb = el('span', 'bc-day-lb', 'この日から');
+       ■ 出す範囲は3週間（今週の日曜から）
+         過去は1週間ぶんだけ見える。遠い過去を一覧にすると、それ自体が
+         「やらなかった日」を数える装置になる（§0。日を選ぶ札と同じ考え）。
+
+       ■ 過去の日は押せない
+         過去はその日の記録なので、あとから足させない・消させない
+         （入力欄を過去の日に出さないのと同じ規則）。**印は出す**——
+         そこに置いた事実は読めたほうがいい。
+
+       ■ 書くのは閉じるとき
+         タグの札と同じ。押した瞬間に書くと店が emit して盤が組み直され、
+         1日入れたところで盤が閉じる。 */
+    const canDays = typeof (a || {}).setDay === 'function' && typeof (a || {}).shiftDay === 'function';
+    if (canDays) {
+      const today = ask(a, 'todayKey') || '';
+      const days0 = new Set(ask(a, 'days', id) || []);
+      const want = new Set(days0);
+
+      const box = el('div', 'bc-cal');
+      const lb = el('span', 'bc-cal-lb', 'いつの日');
       box.appendChild(lb);
-      const row = el('div', 'bc-day-picks');
-      [
-        { tx: '‹ 前の日へ', n: -1 },
-        { tx: '次の日へ ›', n: +1 },
-      ].forEach(p => {
-        const b = el('button', 'bc-day-pick');
+
+      const grid = el('div', 'bc-cal-grid');
+      ['日', '月', '火', '水', '木', '金', '土'].forEach(d => {
+        const h = el('span', 'bc-cal-h', d);
+        h.setAttribute('aria-hidden', 'true');
+        grid.appendChild(h);
+      });
+
+      /* 今週の日曜から3週間ぶん。曜日の列がそろうので、数えなくても位置で読める */
+      const dow = todayDow(today);
+      const first = ask(a, 'shiftDay', today, -dow);
+      const cells = [];
+      for (let i = 0; i < 21; i++) {
+        const key = ask(a, 'shiftDay', first, i);
+        if (!key) continue;
+        const past = key < today;
+        const b = el('button', 'bc-cal-d');
         b.type = 'button';
-        b.textContent = p.tx;
+        b.textContent = String(Number(key.slice(8, 10)));
+        b.dataset.key = key;
+        if (key === today) b.classList.add('is-today');
+        if (past) { b.classList.add('is-past'); b.disabled = true; }
+        b.setAttribute('aria-label', key.slice(5).replace('-', '月') + '日'
+          + (key === today ? '（今日）' : '') + (past ? '。過ぎた日は変えられない' : ''));
         b.addEventListener('click', ev => {
           ev.preventDefault();
-          const to = ask(a, 'shiftDay', vDay, p.n);
-          if (!to) return;
-          ask(a, 'moveDay', id, vDay, to);
-          /* 移した先は別の日なので、この盤はもう「この日」の話ではない。
-             store が emit して画面が組み直す＝盤は閉じる */
+          if (want.has(key)) want.delete(key); else want.add(key);
+          paint();
         });
-        row.appendChild(b);
-      });
-      box.appendChild(row);
+        grid.appendChild(b);
+        cells.push({ key, b });
+      }
+      box.appendChild(grid);
       fields.appendChild(box);
+
+      function paint() {
+        cells.forEach(c => {
+          const on = want.has(c.key);
+          c.b.classList.toggle('is-on', on);
+          c.b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        if (syncTodayChip) syncTodayChip(want.has(today));
+      }
+      paint();
+
+      /* 「今日」の札は、このカレンダーの今日の枡と同じものを指す。
+         二重に書かないよう、札のほうは見た目だけ合わせて、書き込みはここが持つ */
+      todayCell = {
+        has: () => want.has(today),
+        toggle: () => { if (want.has(today)) want.delete(today); else want.add(today); paint(); },
+      };
+
+      saveDays = () => {
+        cells.forEach(c => {
+          const now = want.has(c.key);
+          if (now === days0.has(c.key)) return;
+          ask(a, 'setDay', id, c.key, now);
+        });
+        days0.clear();
+        want.forEach(v => days0.add(v));      /* 二重に書かない */
+      };
     }
 
     /* ---- 長期保留の「戻ってくる日」（利用者の指示）----
@@ -889,6 +958,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
     saveTags = () => {
       list.forEach(t => {
+        if (t.id === 'today' && todayCell) return;   /* カレンダーが書く */
         const now = want.has(t.id);
         if (now !== has0.has(t.id)) ask(a, 'setTag', id, t.id, now);
       });
@@ -1302,7 +1372,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        先に書くと 次の一手・リンクの保存先が消えることがある */
     /* 順番に意味がある。長期保留の札を先に書いてから日を足す
        （外れているものに日は付かない＝ store が弾く） */
-    flush() { saveStep(); saveUrl(); if (saveTags) saveTags(); if (saveHoldUntil) saveHoldUntil(); },
+    flush() {
+      saveStep(); saveUrl();
+      if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
+      if (saveTags) saveTags();
+      if (saveHoldUntil) saveHoldUntil();
+    },
     /* 盤の先頭の的。[タスク開始] は盤の中へ移ったので、そこを探す
        （無い版もある——操作が1つも渡っていないとき） */
     focusFirst() {
