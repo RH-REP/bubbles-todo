@@ -85,6 +85,37 @@ const REST_PAD = 10;    /* 着地の高さのばらつき px */
    運動エネルギーで数えると減り方は 1-0.9² ＝ 19% で、10% ではない。
    （運動エネルギーで 10% にしたいなら HIT_E は √0.9 ≒ 0.9487。ここは指示どおり 0.9） */
 const HIT_E = 0.9;      /* 反発係数。離れる速さ ÷ 近づく速さ */
+
+/* --- ぶつかったときのへこみ（利用者の指示）---
+
+   壁やほかのバブルに当たった瞬間、**当たった向きに少しつぶれて、すぐ戻る**。
+   膜でできているものらしさは、跳ね返る速さよりこちらで出る。
+
+   ■ どこに書くか
+     つぶれは `transform` の **rotate → scale → rotate**（＝当たった向きに沿った
+     つぶし）で作り、drift が毎コマ書いている translate の後ろに足す。
+     `.wob`（呼吸のゆらぎ）には**書けない**——あそこは CSS アニメーションが
+     transform を持っていて、JS から書いても上書きされる。
+     `.bub` の transform は drift の持ち物なので、ここに足すのが唯一の空き channel。
+
+   ■ 強さ
+     s = SQ_MAX × √(当たった速さ / SQ_V)（1 で頭打ち）。
+     √にしたのは、漂っているだけの当たり（相対 20〜30px/s）でも
+     ほんの少しは動いてほしいから。線形だと 1% 未満になって見えない。
+       30px/s  → 3.1% ／ 100px/s → 5.6% ／ 260px/s 以上 → 9%
+
+   ■ 戻り
+     時定数 SQ_TAU の指数で戻す。フレーム数ではなく dt で減らすので、
+     コマ落ちしても戻る速さは変わらない。
+     0.13 秒で 1/e、0.4 秒でほぼ 0（4.6%）。
+
+   ■ reduce のときは何もしない
+     tick そのものが回らないので、つぶれる機会がない（下の RM.matches）。 */
+const SQ_MAX = 0.09;    /* いちばんつぶれたときの割合。9% は「膜が凹んだ」に見える上限。
+                           これ以上だと、丸いものが楕円に化けて別のものに見える */
+const SQ_V = 260;       /* この速さ px/s で頭打ち。放り投げの初速はこれを超える */
+const SQ_TAU = 0.13;    /* 戻りの時定数 秒 */
+const SQ_MIN = 0.004;   /* これ以下は書かない（transform を短く保つ） */
 const HIT_GAP = 4;      /* ぶつかったとみなす間合い px。REST_GAP=3 より広いこと。
                            底に載ったものへ必ず押し離しが届くので、積み上がらず横へ散る */
 const HIT_PUSH = 0.32;  /* めり込みを 1コマで解く割合（2つぶんの合計）。従来と同じ強さ。
@@ -261,8 +292,27 @@ export function createField(host, opts = {}) {
 
   function place(b) {
     if (b.held) return;
-    const t = `translate(${(b.cx - b.d / 2).toFixed(1)}px, ${(b.cy - b.d / 2).toFixed(1)}px)`;
+    let t = `translate(${(b.cx - b.d / 2).toFixed(1)}px, ${(b.cy - b.d / 2).toFixed(1)}px)`;
+    /* ぶつかったぶんのへこみ。当たった向き（b.sqa）に沿ってつぶす。
+       ふだんは 0 なので、文字列は今までと1バイトも変わらない */
+    if (b.sq > SQ_MIN) {
+      const a = (b.sqa * 180 / Math.PI).toFixed(1);
+      t += ` rotate(${a}deg) scale(${(1 - b.sq).toFixed(3)}, ${(1 + b.sq).toFixed(3)}) rotate(${-a}deg)`;
+    }
     b.el.style.transform = t;
+  }
+
+  /* ぶつかった。向き（nx,ny）と、その向きに近づいていた速さから、へこみを決める。
+     すでにへこんでいるときは**深いほうを採る**——同じコマに2つ当たっても、
+     足し合わせて潰れ切らないように */
+  function squash(b, nx, ny, speed) {
+    if (!b || b.held || RM.matches) return;
+    const v = Math.abs(speed);
+    if (v <= 0) return;
+    const s = SQ_MAX * Math.min(1, Math.sqrt(v / SQ_V));
+    if (s <= (b.sq || 0)) return;
+    b.sq = s;
+    b.sqa = Math.atan2(ny, nx);
   }
 
   function posOf(id) {
@@ -777,10 +827,17 @@ export function createField(host, opts = {}) {
          下げても見た目はほとんど変わらない */
       const bounce = sp > vmax ? 0.72 : 1;
       const r = b.d / 2;
-      if (b.cx < r)     { b.cx = r;     b.vx = Math.abs(b.vx) * bounce;  b.vy *= bounce; }
-      if (b.cx > w - r) { b.cx = w - r; b.vx = -Math.abs(b.vx) * bounce; b.vy *= bounce; }
-      if (b.cy < r)     { b.cy = r;     b.vy = Math.abs(b.vy) * bounce;  b.vx *= bounce; }
-      if (b.cy > h - r) { b.cy = h - r; if (b.vy > 0) b.vy = 0; b.vx *= 0.90; }
+      /* 壁に当たったら、その壁の向きにへこむ（利用者の指示）。
+         強さは「壁へ向かっていた速さ」——擦っただけならへこまない */
+      if (b.cx < r)     { squash(b, 1, 0, b.vx); b.cx = r;     b.vx = Math.abs(b.vx) * bounce;  b.vy *= bounce; }
+      if (b.cx > w - r) { squash(b, 1, 0, b.vx); b.cx = w - r; b.vx = -Math.abs(b.vx) * bounce; b.vy *= bounce; }
+      if (b.cy < r)     { squash(b, 0, 1, b.vy); b.cy = r;     b.vy = Math.abs(b.vy) * bounce;  b.vx *= bounce; }
+      if (b.cy > h - r) {
+        /* 底は跳ね返さない。ゆっくり着いたぶんは markRest が先に拾うので、
+           ここへ来るのは底へ投げつけたときだけ＝へこんで然るべき場面 */
+        squash(b, 0, 1, b.vy);
+        b.cy = h - r; if (b.vy > 0) b.vy = 0; b.vx *= 0.90;
+      }
     });
 
     /* ぶつかり。数が少ない前提の総当たり。
@@ -819,6 +876,11 @@ export function createField(host, opts = {}) {
             const J = -(1 + HIT_E) * vn / isum;     /* 2つが受け取る大きさは互いに等しい */
             a.vx -= J * nx * ia; a.vy -= J * ny * ia;
             c.vx += J * nx * ic; c.vy += J * ny * ic;
+            /* 両方が、中心を結ぶ線の向きにへこむ（利用者の指示）。
+               強さは「近づいていた速さ」= -vn。掴まれているほうはへこまない
+               （指が位置を持っていて、place も書かないため） */
+            squash(a, nx, ny, -vn);
+            squash(c, nx, ny, -vn);
           }
 
           /* めり込みの押し戻し。合計の動く量は従来と同じ。重いほうを動かさない */
@@ -838,6 +900,12 @@ export function createField(host, opts = {}) {
          位置は時間が決めている（＝はまり方が読める）。相手のほうは正しく押される。
          セルが1つも無い面では b.lock は常に null なので、ここは素通りする */
       if (b.lock) { b.cx = b.lock.x; b.cy = b.lock.y; b.lock = null; }
+      /* へこみは指数で戻す。フレーム数ではなく dt で減らすので、
+         コマ落ちしても戻る速さは変わらない */
+      if (b.sq > 0) {
+        b.sq *= Math.exp(-dt / SQ_TAU);
+        if (b.sq < SQ_MIN) b.sq = 0;
+      }
       if (!b.held) {
         const r = b.d / 2;
         b.cx = clamp(b.cx, r, Math.max(r, w - r));
@@ -965,6 +1033,7 @@ export function createField(host, opts = {}) {
       cx: 0, cy: 0,
       vx: (Math.random() * 2 - 1) * SPEED,
       vy: (Math.random() * 2 - 1) * SPEED,
+      sq: 0, sqa: 0,        /* ぶつかったときのへこみ（強さ・向き。上の SQ_* を見よ） */
       held: false,
       /* mount 時点ではペインがまだ display:none で寸法が 0 になる。
          そのとき置いた座標は当てにならないので、後で置き直す目印を残す */
