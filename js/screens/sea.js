@@ -26,6 +26,7 @@ import { store } from '../store.js';
 import { el, toast, clamp } from '../ui.js';
 import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor } from '../bubble.js';
 import { createField } from '../drift.js';
+import { openSeaMap, closeSeaMap, isOpen as seaMapOpen } from '../seamap.js';
 import { playComplete } from '../sound.js';
 /* 「今日」タブの落とし先は、今日の画面がいま映している日（利用者の指示）。
    today.js は sea.js を読まないので、循環にはならない。 */
@@ -1293,10 +1294,51 @@ function isBackground(target) {
   return !target.closest('.bub, button:not(.sea-sign), a, input, textarea, select, .sea-grid, .sea-sheet');
 }
 
+/* ---- 海の長押しで引き（利用者の指示） ----
+   背景を押したまま HOLD_MS 動かさなければ、全部の海の一覧が開く。
+   指が HOLD_PX 以上動いたら、それはなぞり（面の移動／寄せ）なので取り消す。
+   バブルの上から始めた指はここへ来ない（isBackground が弾く）。 */
+const HOLD_MS = 480;
+const HOLD_PX = 8;
+let holdTimer = 0;
+let holdPt = null;
+
+function cancelHold() {
+  if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
+  holdPt = null;
+}
+
+function startHold(ev) {
+  cancelHold();
+  holdPt = { x: ev.clientX, y: ev.clientY };
+  holdTimer = setTimeout(() => {
+    holdTimer = 0;
+    if (!holdPt || gathering || bubbleDrag) return;
+    cancelSwipe(); closePan();
+    signSuppress = Date.now();     /* 離したときの click を看板に拾わせない */
+    openMap();
+  }, HOLD_MS);
+}
+
+function openMap() {
+  openSeaMap({
+    current: curFace,
+    was: stage,
+    onGo: face => {
+      if (!face) return;
+      if (face === curFace) return;
+      if (gathering) setGathering(false);
+      cancelSwipe();
+      goFace(face);
+    },
+  });
+}
+
 function onStageDown(ev) {
   if (gathering || bubbleDrag || swipe || panning || pinch) return;
   if (ev.button != null && ev.button !== 0) return;
   if (!isBackground(ev.target)) return;
+  startHold(ev);
   /* 近づいているとき（倍率 1 超）は、背景の指は**寄せ**。
      面の移動はここでは受けない——世界が画面より広いあいだ、
      同じ指の動きに「まだ見えていないところへ寄る」と「隣の面へ移る」の
@@ -1322,6 +1364,7 @@ function startPan(ev) {
 function onPanMove(ev) {
   if (!panning || ev.pointerId !== panning.pid) return;
   const dx = ev.clientX - panning.x0, dy = ev.clientY - panning.y0;
+  if (holdPt && Math.hypot(dx, dy) > HOLD_PX) cancelHold();
   panning.moved = Math.max(panning.moved, Math.hypot(dx, dy));
   /* 寄せは scale の**外**の口（translate）なので、値は画面の px のまま。
      指と1対1で付いてくる（世界の px へ直すと、近づくほど速く滑ってしまう） */
@@ -1335,6 +1378,7 @@ function endPan(ev) {
   closePan();
 }
 function closePan() {
+  cancelHold();
   panning = null;
   window.removeEventListener('pointermove', onPanMove, true);
   window.removeEventListener('pointerup', endPan, true);
@@ -1367,6 +1411,7 @@ function trackDown(ev) {
   if (ev.pointerType === 'mouse') return;
   if (gathering || bubbleDrag) return;
   if (!isBackground(ev.target)) return;
+  cancelHold();
   pinchPts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
   if (pinchPts.size === 2 && !pinch) {
     cancelSwipe(); closePan();
@@ -1424,6 +1469,7 @@ function setWorldFace(face) {
 function onSwipeMove(ev) {
   if (!swipe || ev.pointerId !== swipe.pid) return;
   const dx = ev.clientX - swipe.x0, dy = ev.clientY - swipe.y0;
+  if (holdPt && Math.hypot(dx, dy) > HOLD_PX) cancelHold();
   if (!swipe.axis) {
     if (Math.abs(dx) < AXIS_LOCK && Math.abs(dy) < AXIS_LOCK) return;
     swipe.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
@@ -1478,6 +1524,7 @@ function onSwipeCancel(ev) {
 }
 
 function closeSwipe() {
+  cancelHold();
   swipe = null;
   stage.classList.remove('is-swiping');
   window.removeEventListener('pointermove', onSwipeMove, true);
@@ -2825,6 +2872,8 @@ export default {
 
   onHide() {
     shown = false;
+    cancelHold();
+    if (seaMapOpen()) closeSeaMap(false);
     cancelSwipe();
     closePan(); pinchPts.clear(); pinch = null;
     resetZoom();              /* 小さいまま・寄せたまま開き直すと、端が無いように見える */
