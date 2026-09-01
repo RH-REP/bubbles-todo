@@ -1012,14 +1012,140 @@ function closeDetail() {
 
 /* ---------------- ジェスチャの配線（契約 §12） ---------------- */
 
+/* ---------------- バブルを左右の端へ運ぶと、日が変わる（利用者の指示） ----------------
+
+   > 今日の海でバブルを左右にしたら、日付をその日に変更する機能
+
+   掴んでいる間だけ、左右に帯を出す。そこで離すと、**いま映している日から外して
+   隣の日に置き直す**（足すのではなく、動かす＝「変更」）。
+
+   向きは画面に出ている ‹ › とそろえた。**左＝前の日／右＝次の日**。
+   背景を右へなぞると前の日へ行く（紙をめくる向き）のと矛盾しないのは、
+   なぞりは「面を動かす」、こちらは「バブルを置く」で、動かす対象が違うため
+   ——‹ › が同じところに出ているので、目で見える手がかりのほうに合わせた。
+
+   出さない場面が2つある：
+     ・過去を映しているとき … 過去はその日の記録。あとから書き換えない（is-readonly と同じ理由）
+     ・行き先が今日より前になるとき … カレンダーで過去の枡を押させないのと同じ規則
+
+   海の端の帯（.sea-edge）と同じ作り方にしてある：帯は指を透かし、
+   判定は指先の座標でやる（バブルの外形は広すぎる。契約 §14）。 */
+let dayEdges = null;        /* { left: {el, lb}, right: {...} } */
+let bubDrag = null;
+let bubPt = { x: -1, y: -1 };
+let overEdge = null;
+let tabDropped = false;
+
+/* その向きの行き先。動かしてよくなければ null */
+function edgeDayFor(dir) {
+  if (isPast()) return null;
+  const k = shiftDay(curDay(), dir === 'left' ? -1 : 1);
+  if (!k || k < todayKey()) return null;
+  return k;
+}
+
+function renderDayEdges() {
+  if (!dayEdges) return;
+  const on = !!bubDrag;
+  ['left', 'right'].forEach(dir => {
+    const e = dayEdges[dir];
+    const k = on ? edgeDayFor(dir) : null;
+    e.el.hidden = !k;
+    e.el.classList.toggle('is-over', overEdge === dir);
+    if (!k) return;
+    const d = dayToDate(k);
+    /* 帯は細いので、日と曜日を2行に分ける（横書きのまま読める）。
+       縦書きにすると、掴んでいるバブルが真ん中を隠したときに読めなくなる */
+    e.md.textContent = (d.getMonth() + 1) + '/' + d.getDate();
+    e.dw.textContent = DOW[d.getDay()];
+  });
+}
+
+function dayEdgeAt(x, y) {
+  if (!dayEdges || !bubDrag) return null;
+  if (!Number.isFinite(x) || x < 0 || !Number.isFinite(y) || y < 0) return null;
+  for (const dir of ['left', 'right']) {
+    const e = dayEdges[dir];
+    if (e.el.hidden) continue;
+    const r = e.el.getBoundingClientRect();
+    if (!r.width) continue;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return dir;
+  }
+  return null;
+}
+
+function markDayEdge(dir) {
+  if (overEdge === dir) return;
+  overEdge = dir;
+  renderDayEdges();
+}
+
+function onBubPointer(ev) {
+  bubPt = { x: ev.clientX, y: ev.clientY };
+  markDayEdge(dayEdgeAt(bubPt.x, bubPt.y));
+}
+
+function beginBubDrag(id) {
+  closeMenu();
+  bubDrag = { id };
+  tabDropped = false;
+  bubPt = { x: -1, y: -1 };
+  overEdge = null;
+  window.addEventListener('pointermove', onBubPointer, true);
+  window.addEventListener('pointerup', onBubPointer, true);
+  if (stage) stage.classList.add('is-bubdrag');
+  renderDayEdges();
+}
+
+function endBubDrag() {
+  const d = bubDrag;
+  const pt = bubPt;
+  const dir = (d && !tabDropped) ? dayEdgeAt(pt.x, pt.y) : null;
+  const to = dir ? edgeDayFor(dir) : null;
+  bubDrag = null;
+  overEdge = null;
+  window.removeEventListener('pointermove', onBubPointer, true);
+  window.removeEventListener('pointerup', onBubPointer, true);
+  if (stage) stage.classList.remove('is-bubdrag');
+  renderDayEdges();
+  if (!d || !to) return;
+  /* onDropToTab と onDragEnd のどちらが先に来るかは決まっていないので、
+     マイクロタスク1つぶん待ってから見る（海・きっかけと同じ間合い） */
+  Promise.resolve().then(() => {
+    if (tabDropped) return;
+    moveDay(d.id, curDay(), to);
+  });
+}
+
+/* いま映している日から外して、行き先の日に置く。取り消せる */
+function moveDay(id, from, to) {
+  const t = store.get(id);
+  if (!t || typeof store.setDay !== 'function') return;
+  const had = (typeof store.daysOf === 'function' ? store.daysOf(id) : []) || [];
+  const added = store.setDay(id, to, true);
+  const removed = (from && from !== to) ? store.setDay(id, from, false) : false;
+  if (!added && !removed) return;
+  const d = dayToDate(to);
+  const md = (d.getMonth() + 1) + '/' + d.getDate();
+  toast('「' + trim(t.text) + '」を ' + md + ' へ', {
+    label: '元に戻す',
+    on: () => {
+      /* 掴む前の日をそのまま書き戻す。足し引きを逆にたどるより確か */
+      const now = (typeof store.daysOf === 'function' ? store.daysOf(id) : []) || [];
+      now.forEach(k => { if (had.indexOf(k) < 0) store.setDay(id, k, false); });
+      had.forEach(k => { if (now.indexOf(k) < 0) store.setDay(id, k, true); });
+    },
+  });
+}
+
 const handlers = {
   onFocusRequest: id => openFive(id),
   onMenu: (id, node) => onMenu(id, node),
   /* 中央の盤に出す操作。これを渡すと bubble.js は onMenu を横取りしない */
   onActions: (id) => actionsFor(id),
-  onDropToTab: (id, tabId) => onDropToTab(id, tabId),
-  onDragStart: () => { closeMenu(); },
-  onDragEnd: () => {},
+  onDropToTab: (id, tabId) => { tabDropped = true; onDropToTab(id, tabId); },
+  onDragStart: (id) => beginBubDrag(id),
+  onDragEnd: () => endBubDrag(),
   getHost: () => stage,
 };
 
@@ -1039,6 +1165,27 @@ export default {
     /* 何も無いときのことば。
        未達を名指ししない・件数を出さない・命令形にしない（契約 §0）。
        5時に空になることも書かない。ここが何の面で、どうすれば浮かぶかだけ言う。 */
+    /* --- 左右の帯（掴んでいる間だけ出る。離すと日が変わる）---
+       面の子。指は透かす（判定は指先の座標でやるので当たり判定は要らず、
+       持たせると帯の下のバブルを掴めなくなる） */
+    dayEdges = {};
+    ['left', 'right'].forEach(dir => {
+      const box = el('div', 'today-edge');
+      box.dataset.dir = dir;
+      box.hidden = true;
+      box.setAttribute('aria-hidden', 'true');
+      const ar = el('span', 'ar', dir === 'left' ? '‹' : '›');
+      const lb = el('span', 'lb');
+      const md = el('span', 'md');
+      const dw = el('span', 'dw');
+      lb.appendChild(md);
+      lb.appendChild(dw);
+      box.appendChild(ar);
+      box.appendChild(lb);
+      stage.appendChild(box);
+      dayEdges[dir] = { el: box, md, dw };
+    });
+
     emptyNote = el('p', 'today-empty');
     emptyNote.appendChild(el('span', 'l1', ''));
     emptyNote.appendChild(el('span', 'l2', ''));
