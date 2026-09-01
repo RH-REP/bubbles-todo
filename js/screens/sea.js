@@ -698,15 +698,6 @@ function isStarted(t) {
   return as.some(a => store.isStarted(t.id, a));
 }
 
-/* 「はじめた」をどのアンカーに付けるか。
-   アンカーにぶら下がっていればそのアンカー、そうでなければ null（アンカー無しの記録）。
-   海・すきま・きっかけ未分類でも記録できる（追補3 §6 で store の制限を外した）。 */
-function startTarget(t) {
-  if (!t) return undefined;
-  const as = Array.isArray(t.anchors) ? t.anchors : [];
-  return as.length ? as[0] : null;
-}
-
 function itemOf(t) {
   return { id: t.id, text: t.text, started: isStarted(t) };
 }
@@ -762,14 +753,33 @@ function openFive(id) {
   }).catch(err => { console.error(err); toast('集中の画面をいま開けない。'); });
 }
 
-/* 記録できたら true。できないときは黙って落とさず、理由を出す
-   （押しても何も起きない、が画面に残るのはいちばん困る） */
+/* 「はじめた」の記録。**宛先はいつも「きっかけ無し」**（レビューを受けて直した）。
+
+   前は `startTarget(t)` ＝ `t.anchors[0]` を宛先にしていた。つまり
+   **海が「どのきっかけで着手したか」を勝手に決めていた**——2つにぶら下がっていても、
+   いつも最初の1つ。海はきっかけを1つも見せない面なので、そこで押した指は
+   「歯を磨いたら、の流れで」とは言っていない。決めていないことを決めない
+   （cardlist.js の「勝手にアンカーを選ばない」と同じ立て方）。
+
+   宛先が今日の画面（null）と揃うので、**同じ項目を海と今日で押しても2件積まれない**
+   （store.start は同じ宛先には二度積まない）。前は宛先が違うぶん番人が効かず、
+   ふりかえりの累計が 2 と数えていた。
+
+   きっかけごとの記録が要るのは「きっかけ」の画面で、あそこは押した札が
+   どのきっかけかを自分で知っている（startPerCard）。 */
 function markStarted(id) {
   if (!has('start')) return false;
   const t = store.get(id);
-  const target = startTarget(t);
-  if (target === undefined) return false;      /* 項目が見つからないときだけ */
-  return store.start(id, target) !== false;
+  if (!t) return false;
+  if (has('isStarted') && store.isStarted(id, null)) return false;   /* もう記録がある */
+  if (store.start(id, null) === false) return false;
+  /* 押した手応えと、戻る道。**今日の画面には前からあったのに、海には無かった**
+     ——同じボタンなのに、押しても何も言わない面がある、という状態だった */
+  toast('「' + trim(t.text) + '」を ' + DONE_LB + ' にした', {
+    label: '取り消す',
+    on: () => { if (has('unstart')) store.unstart(id, null); },
+  });
+  return true;
 }
 
 /* ---------------- 入力欄から足す ----------------
@@ -1985,9 +1995,10 @@ function makeDetail(id) {
   doneWhy.hidden = true;
   function syncDone() {
     const cur = store.get(id);
-    const target = startTarget(cur);
-    const can = target !== undefined;
-    const on = can && has('isStarted') && !!store.isStarted(id, target);
+    const can = !!cur;
+    /* 押す側（markStarted）と同じ宛先を見る。片方だけ anchors[0] を見ていると、
+       きっかけの画面で付けた記録がここでは「まだ」に見える（キーが違うため） */
+    const on = can && has('isStarted') && !!store.isStarted(id, null);
     doneBtn.disabled = !can;
     doneWhy.hidden = true;
     doneBtn.classList.toggle('on', on);
@@ -2000,9 +2011,10 @@ function makeDetail(id) {
   syncDone();
   doneBtn.addEventListener('click', ev => {
     ev.stopPropagation();
-    const target = startTarget(store.get(id));
-    if (target !== undefined && has('isStarted') && store.isStarted(id, target)) {
-      if (has('unstart')) store.unstart(id, target);
+    /* 宛先は markStarted と同じ「きっかけ無し」。片方だけ anchors[0] を見ていると、
+       付けたものが外せない（キーが違うので見つからない）ことが起きる */
+    if (has('isStarted') && store.isStarted(id, null)) {
+      if (has('unstart')) store.unstart(id, null);
     } else {
       markStarted(id);
     }
