@@ -23,7 +23,7 @@
    この画面はその2つに「何を出すか」を渡し、返ってきた合図を store の操作へつなぐだけ。 */
 
 import { store } from '../store.js';
-import { el, toast, clamp } from '../ui.js';
+import { el, toast, clamp, holdRing } from '../ui.js';
 import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor } from '../bubble.js';
 import { createField } from '../drift.js';
 import { openSeaMap, closeSeaMap, isOpen as seaMapOpen } from '../seamap.js';
@@ -1302,21 +1302,27 @@ const HOLD_MS = 480;
 const HOLD_PX = 8;
 let holdTimer = 0;
 let holdPt = null;
+let holdFx = null;      /* 指の下で貯まる輪（利用者の指示） */
 
 function cancelHold() {
   if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
+  if (holdFx) { holdFx.cancel(); holdFx = null; }
   holdPt = null;
 }
 
 function startHold(ev) {
   cancelHold();
   holdPt = { x: ev.clientX, y: ev.clientY };
+  /* 押している間、指の下に輪が貯まる。貯まりきると開く＝
+     途中で離せば何も起きないことも、同じ絵で分かる */
+  holdFx = holdRing(ev.clientX, ev.clientY, HOLD_MS);
   holdTimer = setTimeout(() => {
     holdTimer = 0;
-    if (!holdPt || gathering || bubbleDrag) return;
+    if (!holdPt || gathering || bubbleDrag) { cancelHold(); return; }
     cancelSwipe(); closePan();
     signSuppress = Date.now();     /* 離したときの click を看板に拾わせない */
     openMap();
+    cancelHold();                  /* 輪は役目を終えた（開いたので） */
   }, HOLD_MS);
 }
 
@@ -2054,6 +2060,9 @@ function closeDetail() {
    整列中は面の移動を止める（世界ごと隠れるので、動かしても見えない）。 */
 
 function setGathering(on) {
+  /* 整列を畳んだら、さがした文字も片づける。
+     次に開いたときに前の結果が残っていると、「全部あるはず」が裏切られる */
+  if (!on && gridQ) { gridQ = ''; if (gridFind) gridFind.value = ''; }
   if (gathering === on) return;
   cancelShuffle();          /* 整列に入る／戻るときは、混ぜかけを畳む */
   gathering = on;
@@ -2361,14 +2370,57 @@ function clearGrid() {
 /* 並びは古い順＝放置しているものが先頭。分類済みには行き先の点が付く。
    完了したものは出さない（追補3 §3。complete() は項目を消さなくなったので、
    store.all() をそのまま並べると完了の海の中身がここへ混ざる）。 */
+/* さがす（レビューの指摘）。
+
+   > 海は新しい20件まで、唯一の全件「ならべる」は古い順で絞り込みも文字検索も効かない。
+   > 書き出す人ほど、書いたものに二度と会えません
+
+   そのとおりだった。書くことを勧めておいて、書いたものへ戻る道が
+   目で追うことしか無いのは、**書く**という中核の約束のほうを裏切る。
+
+   置き場所は「ならべる」の中。あそこが「ぜんぶ読む場所」なので、
+   さがすのもそこにあるのが素直（新しい画面もタブも増やさない）。
+
+   **さがしている間は、ふだん外しているものも出す。**長期保留も完了も出す——
+   さがすのは「どこへ行ったか分からないもの」を見つけるためで、
+   そのときに「いまは見ないと決めたから隠す」を続けると、探し物が見つからない。
+   代わりに、その行が**いまどこに居るか**を右端に出す（長期保留 / 完了）。
+
+   件数は出さない（§0。分母のある数字を作らない）。無いときは「見つからない」とだけ。 */
+let gridQ = '';
+let gridFind = null;
+
+function normQ(v) { return String(v || '').trim().toLowerCase(); }
+
+/* さがす対象は本文・次の一手・リンク・積んだ記録。
+   「あれ、なんて書いたっけ」は本文以外に書いてあることも多い */
+function hay(t) {
+  const parts = [t.text || ''];
+  if (has('firstStepOf')) { try { parts.push(store.firstStepOf(t.id) || ''); } catch (err) { /* 無ければ空 */ } }
+  if (has('urlOf')) { try { parts.push(store.urlOf(t.id) || ''); } catch (err) { /* 同上 */ } }
+  if (has('stepsOf')) {
+    try { (store.stepsOf(t.id) || []).forEach(x => { parts.push(x.did || ''); parts.push(x.next || ''); }); }
+    catch (err) { /* 同上 */ }
+  }
+  return parts.join('\n').toLowerCase();
+}
+
 function renderGrid() {
+  const q = normQ(gridQ);
   /* 契約 §7 は「ならべるは全件が並ぶ」だが、長期保留はここにも出さない。
      長期保留＝**自分で「いまは見ない」と決めたもの**なので、
-     全部を読む場所にも出さない（完了を外しているのと同じ理由）。出したいときは上の海へ。 */
-  const list = store.all().filter(t => !isDoneItem(t) && !isHoldItem(t))
-    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+     全部を読む場所にも出さない（完了を外しているのと同じ理由）。出したいときは上の海へ。
+     **ただし、さがしている間は別**（上の注記を見よ）。 */
+  const base = q
+    ? store.all().filter(t => hay(t).indexOf(q) >= 0)
+    : store.all().filter(t => !isDoneItem(t) && !isHoldItem(t));
+  const list = base.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
   gridEmpty.hidden = list.length > 0;
+  gridEmpty.textContent = q
+    ? '「' + gridQ.trim() + '」は見つからない。'
+    : 'まだ何も無い。下に書くと、ここに並ぶ。';
+  if (gridCap) gridCap.textContent = q ? 'さがした結果（古い順）' : '古い順';
 
   /* 行はバブルを組まずに作り直す。**海が新しいほうしか出さなくなったので、
      ここが「ぜんぶ読む場所」になった**——読む場所は、絵ではなく文字のほうが速い。
@@ -2411,6 +2463,17 @@ function renderGrid() {
     if (isStarted(t)) {
       const st = el('span', 'sea-row-st', DONE_LB);
       row.appendChild(st);
+    }
+
+    /* さがしている間は、ふだん出さないものも出す。
+       出す以上、**いまどこに居るか**を言わないと「なぜここに」になる */
+    if (normQ(gridQ)) {
+      const where = isDoneItem(t) ? nameOf(fixedTag('down'))
+        : isHoldItem(t) ? nameOf(fixedTag('up')) : '';
+      if (where) {
+        const w = el('span', 'sea-row-where', where);
+        row.appendChild(w);
+      }
     }
 
     const names = namesOf(t);
@@ -2732,6 +2795,25 @@ export default {
        **ここの先頭が「海から隠れたもの」**になる＝探しに来た人が最初に見る場所。
        ただし「放置しているものが先頭」という言い方はやめた——
        出す範囲が広がったぶん、その札は未達の名指しに寄りすぎる（§0）。 */
+    /* --- さがす（レビューの指摘）---
+       「ぜんぶ読む場所」の先頭に置く。新しい画面もタブも増やさない。 */
+    const findBox = el('div', 'sea-find');
+    gridFind = el('input', 'in');
+    gridFind.type = 'search';
+    gridFind.placeholder = 'さがす';
+    gridFind.autocomplete = 'off';
+    gridFind.setAttribute('aria-label', '書いたものをさがす');
+    gridFind.addEventListener('input', () => { gridQ = gridFind.value; renderGrid(); });
+    gridFind.addEventListener('keydown', ev => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopPropagation();          /* 整列そのものは畳まない。文字だけ消す */
+      if (!gridQ) return;
+      gridQ = ''; gridFind.value = ''; renderGrid();
+    });
+    findBox.appendChild(gridFind);
+    grid.appendChild(findBox);
+
     gridCap = el('p', 'sea-grid-cap', '古い順');
     grid.appendChild(gridCap);
     gridEmpty = el('p', 'sea-grid-empty', 'まだ何も無い。下に書くと、ここに並ぶ。');

@@ -304,3 +304,36 @@ body.is-dragging .tabbar button.is-over {
   position: relative; top: .5px;
 }
 .tabbar button.is-active .hold { color: var(--text-2); }
+
+/* ---------- 長押しの手応え（利用者の指示） ----------
+   長押しは触って初めて存在が分かる操作で、押している間ずっと何も起きない。
+   指の下に輪を出して、貯まりきると開く——貯まる途中で離せば何も起きない、も同時に伝わる。
+
+   ドラッグ層（z-index 60・pointer-events:none）に置くので、指は透ける。
+   海の引き（z-index 90）より下なので、開いた瞬間に輪は隠れる（そのあと消す）。 */
+@property --hold-p { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+
+.holdring {
+  position: fixed; z-index: 61; pointer-events: none;
+  width: 54px; height: 54px; margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  /* 貯まっていく扇と、その下の薄い輪 */
+  background:
+    conic-gradient(var(--bub-edge) var(--hold-p), transparent 0),
+    radial-gradient(circle, transparent 0 66%, color-mix(in srgb, var(--text) 14%, transparent) 67%);
+  /* 真ん中は抜く。指の下が見えないと、どこを押しているのか分からなくなる */
+  -webkit-mask: radial-gradient(circle, transparent 0 66%, #000 67%);
+  mask: radial-gradient(circle, transparent 0 66%, #000 67%);
+  animation: hold-fill var(--hold-ms, 480ms) linear forwards;
+}
+@keyframes hold-fill { from { --hold-p: 0%; } to { --hold-p: 100%; } }
+
+/* 「演出を減らす」設定。貯まる動きは出さず、輪郭だけ置く
+   ——動かないが、押しっぱなしを受け取っていることは伝わる */
+.holdring.is-still {
+  animation: none;
+  background: radial-gradient(circle, transparent 0 66%, color-mix(in srgb, var(--text) 26%, transparent) 67%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .holdring { animation: none; }
+}

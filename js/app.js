@@ -9,7 +9,7 @@
    判定に使うのは指先の座標で、バブルの外形ではない（外形はタブ6本ぶんを覆うため）。 */
 
 import { store } from './store.js';
-import { toast } from './ui.js';
+import { toast, holdRing } from './ui.js';
 
 import { setCaptureHandler, setWorklogHandler } from './focus.js';
 import { setCenterHandler } from './bubble.js';
@@ -273,14 +273,21 @@ window.addEventListener('bubbles:dayview', ev => {
    「選ぼうとしただけ」なのに面が変わる */
 function attachDayHold(btn) {
   const HOLD = 450;
-  let timer = 0, x0 = 0, y0 = 0, fired = false;
-  const clear = () => { if (timer) { clearTimeout(timer); timer = 0; } };
+  let timer = 0, x0 = 0, y0 = 0, fired = false, fx = null;
+  /* 押している間、指の下に輪が貯まる（利用者の指示）。海の長押しと同じ絵にしてある
+     ——同じ操作は同じ手応え、でないと2つの別の仕掛けに見える */
+  const clear = () => {
+    if (timer) { clearTimeout(timer); timer = 0; }
+    if (fx) { fx.cancel(); fx = null; }
+  };
   btn.addEventListener('pointerdown', ev => {
     if (ev.button != null && ev.button !== 0) return;
     fired = false; x0 = ev.clientX; y0 = ev.clientY;
     clear();
+    fx = holdRing(ev.clientX, ev.clientY, HOLD);
     timer = setTimeout(() => {
       timer = 0; fired = true;
+      clear();
       try { openDayPicker(btn); } catch (_) { /* 開けないだけ */ }
     }, HOLD);
   });

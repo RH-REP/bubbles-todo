@@ -483,7 +483,10 @@
   position: absolute; inset: 0; z-index: 6;
   overflow-y: auto; overscroll-behavior: contain;
   touch-action: pan-y;                    /* 余白を縦になぞればスクロールできる */
-  padding: 60px 14px 88px;                /* 上はボタン、下は入力欄のぶんを空ける */
+  /* 上は 60 → 112。右上のボタン（「もどす」は 60〜104px）の下から始める。
+     さがす欄をいちばん上に置いたので、60 のままだとボタンの下に潜って重なる。
+     下は入力欄のぶん。 */
+  padding: 112px 14px 88px;
   display: flex; flex-direction: column; gap: 2px;
   background-color: var(--bg);
   background-image: linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
@@ -918,3 +921,29 @@
   border: 1px solid var(--line-strong); background: transparent; color: var(--text);
 }
 .seamap-sheet .ok { border-color: var(--bub-edge); background: var(--surface); }
+
+/* ---------- さがす（レビューの指摘） ----------
+   「ならべる」＝ぜんぶ読む場所の先頭に置く。新しい画面もタブも増やさない。
+   さがしている間は長期保留も完了も出す（探し物が見つからないほうが困る）。 */
+/* 上に貼り付く。地は透かさない（下の行が透けて読めなくなる）。
+   .sea-grid の padding-top が 112px なので、貼り付く先は -112px ではなく 0
+   ——グリッドの内容の先頭で止まる。 */
+.sea-find {
+  position: sticky; top: 0; z-index: 2; padding: 0 0 8px;
+  background: linear-gradient(180deg, var(--sea-1) 70%, transparent);
+}
+.sea-find .in {
+  appearance: none; -webkit-appearance: none; font: inherit; font-size: 14px;
+  width: 100%; box-sizing: border-box;
+  min-height: 44px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--text);
+}
+.sea-find .in::placeholder { color: var(--text-2); }
+.sea-find .in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+/* さがした行の右端に出る「いまどこに居るか」。長期保留・完了だけ付く */
+.sea-row-where {
+  flex: none; margin-left: 6px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--text-2);
+  font-size: 11px; white-space: nowrap;
+}
