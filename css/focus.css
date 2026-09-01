@@ -104,51 +104,13 @@
 .focus-link:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
 
 /* ---------- 残り時間 ---------- */
-.focus-timer {
-  flex: none;
-  display: flex; flex-direction: column; align-items: stretch;
-  margin-top: auto;                     /* 下の余白と分け合う */
-}
 /* 作業ログが無いときは、上下の余白を等分して真ん中あたりに置く（従来の見た目） */
 .focus:not(.is-log) .focus-timer { margin-bottom: auto; }
 
 /* 作業ログのときは上に貼り付ける。下まで書いてもタイマーが見えていること */
-.focus.is-log .focus-timer {
-  position: sticky; top: 0; z-index: 2;
-  margin-top: 0; padding: 4px 0 10px;
-  background: var(--bg);
-  box-shadow: 0 6px 10px -9px rgba(0,0,0,.5);
-}
 
-.focus-dial {
-  flex: none; position: relative;
-  width: 208px; height: 208px;
-  margin: 26px auto 0;
-  display: flex; align-items: center; justify-content: center;
-}
-.focus.is-log .focus-dial { width: 128px; height: 128px; margin-top: 6px; }
 
-.focus-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-.focus-ring .track {
-  fill: none; stroke: var(--line); stroke-width: 6;
-}
-.focus-ring .arc {
-  fill: none; stroke: var(--focus-accent); stroke-width: 6; stroke-linecap: round;
-  transform: rotate(-90deg); transform-origin: 50% 50%;
-  transition: stroke-dashoffset .25s linear, stroke .35s;
-}
-.focus.is-over .focus-ring .arc { stroke: var(--focus-over); }
 
-.focus-time {
-  font-size: clamp(42px, 12vw, 54px); line-height: 1;
-  font-weight: 500; letter-spacing: .01em;
-  font-variant-numeric: tabular-nums;   /* 桁がガタつかないように */
-  font-feature-settings: 'tnum' 1;
-  color: var(--text);
-  transition: color .35s;
-}
-.focus.is-log .focus-time { font-size: 33px; }
-.focus.is-over .focus-time { color: var(--focus-over); }
 
 /* ---------- 状態の一言。淡々と ---------- */
 .focus-note {
@@ -421,8 +383,6 @@
 /* ---------- 動きを止める経路 ----------
    base.css の全体指定に加えて、JS が付ける .is-still でも止まるようにしておく
    （matchMedia を見て付ける。メディアクエリが効かない経路の保険） */
-.focus.is-still .focus-ring .arc,
-.focus.is-still .focus-time,
 .focus.is-still .focus-commit,
 .focus.is-still .focus-send,
 .focus.is-still .focus-ask-yes,
@@ -439,16 +399,11 @@
 .focus.is-still .focus-send:active { transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .focus-ring .arc, .focus-time,
   .focus-commit, .focus-send, .focus-ask-yes { transition: none !important; animation: none !important; }
   .focus-commit:active, .focus-send:active, .focus-ask-yes:active { transform: none; }
 }
 
 /* 画面が低いとき（横向きなど）はリングを縮める */
 @media (max-height: 620px) {
-  .focus-dial { width: 152px; height: 152px; margin-top: 18px; }
-  .focus-time { font-size: 38px; }
-  .focus.is-log .focus-dial { width: 104px; height: 104px; margin-top: 4px; }
-  .focus.is-log .focus-time { font-size: 28px; }
   .focus-head { padding-top: 18px; }
 }
