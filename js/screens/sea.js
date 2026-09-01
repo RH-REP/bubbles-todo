@@ -1462,8 +1462,18 @@ function setWorldPx(x, y) {
 
 /* 落ち着いた位置は割合で置く。幅が変わっても付いてくる（px だと測り直しが要る） */
 function setWorldFace(face) {
-  const p = { center: '0,0', up: '0,100%', down: '0,-100%', left: '100%,0', right: '-100%,0' }[face] || '0,0';
-  world.style.transform = 'translate(' + p + ')';
+  /* 落ち着いた位置は**割合**で置く。世界（.sea-world）の幅はちょうど1列ぶんなので、
+     -100% × 列番号 でその列がぴったり画面に来る。px で置くと、
+     ズームや画面の回転で世界の大きさが変わるたびに測り直しが要る。
+
+     **ここは横一列にしたときに直し忘れていた。**古い版は
+     center/up/down/left/right の対応表を引いていて、'sea:<id>' は表に無いので
+     既定の '0,0' に落ちていた——つまり curFace と名札だけが変わって、
+     **世界は中央に居座ったまま**だった（隣の海へ移れていなかった）。 */
+  if (face === 'up') { world.style.transform = 'translate(0,100%)'; return; }
+  if (face === 'down') { world.style.transform = 'translate(0,-100%)'; return; }
+  const c = colOf(face);
+  world.style.transform = 'translate(' + (c ? (-c * 100) + '%' : '0') + ',0)';
 }
 
 function onSwipeMove(ev) {
