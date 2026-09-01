@@ -8,13 +8,10 @@ import { el, toast, escapeHtml } from '../ui.js';
 import { store } from '../store.js';
 import { isOn, setOn } from '../sound.js';
 
-/* ユーザーが選べる向きは左右だけ。中央は「ぜんぶ」なので割り当てない。
-   上（長期保留）と下（完了）は固有枠なのでここに出さない
-   ——出しても store.setTagDir が受け付けない */
-const DIRS = [
-  { id: 'left',  label: '左' },
-  { id: 'right', label: '右' },
-];
+/* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
+   前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
+   ここは「海にするか、しないか」だけを持つ。**並べ替えは海の引き**（長押し）にある
+   ——順番はその場で見えているところで触るのが素直なので。 */
 
 /* 固有枠に入っているタグの、向きの見出し。選び欄の代わりにこれを出す */
 const FIXED_LABEL = { up: '上', down: '下', left: '左', right: '右' };
@@ -103,7 +100,8 @@ export default {
       tagBox.appendChild(el('h3', null, 'タグ'));
       tagBox.appendChild(el(
         'p', 'note',
-        '海の左と右に置けるのは1つずつ。上（長期保留）と下（完了）は動かせない。'
+        'タグは海にできる（横一列に並ぶ。10個まで）。並べ替えは海を長押しして引きから。'
+        + '上（長期保留）と下（完了）は動かせない。'
         + '中央の海には、どのタグのものも浮かぶ。'
       ));
       const list = el('div', 'taglist');
@@ -234,29 +232,28 @@ function renderTags(list) {
       const fx = el('span', 'tagdir is-fixed', FIXED_LABEL[fixed] || fixed);
       fx.setAttribute('aria-label', tag.name + ' は ' + (FIXED_LABEL[fixed] || fixed) + ' の海（動かせない）');
       row.appendChild(fx);
-    } else {
-      /* 置く向き。1向き1タグなので、選ぶと先客は外れる */
-      const sel = document.createElement('select');
-      sel.className = 'tagdir';
-      sel.setAttribute('aria-label', tag.name + ' を置く向き');
-      const none = document.createElement('option');
-      none.value = '';
-      none.textContent = '置かない';
-      sel.appendChild(none);
-      DIRS.forEach(d => {
-        const o = document.createElement('option');
-        o.value = d.id;
-        o.textContent = d.label;
-        sel.appendChild(o);
+    } else if (typeof store.isSea === 'function') {
+      /* 海にするか、しないか。並べ替えは海の引き（長押し）にある */
+      const isSea = store.isSea(tag.id);
+      const full = !isSea && typeof store.canBeSea === 'function' && !store.canBeSea(tag.id);
+      const b = el('button', 'tagdir is-sea', isSea ? '海にしている' : (full ? 'いっぱい' : '海にする'));
+      b.type = 'button';
+      b.disabled = full;
+      b.classList.toggle('is-on', isSea);
+      b.setAttribute('aria-pressed', isSea ? 'true' : 'false');
+      b.setAttribute('aria-label', tag.name + (isSea ? ' を海から降ろす' : ' を海にする'));
+      b.addEventListener('click', () => {
+        if (isSea) {
+          store.removeSea(tag.id);
+          toast('「' + tag.name + '」を海から降ろした（タグは残る）', {
+            label: '元に戻す', on: () => store.addSea(tag.id),
+          });
+        } else if (!store.addSea(tag.id)) {
+          toast('海は ' + (store.MAX_SEAS || 10) + ' 個まで');
+        }
+        renderTags(list);
       });
-      sel.value = tag.dir || '';
-      sel.addEventListener('change', () => {
-        const taken = sel.value ? store.tagDir(sel.value) : null;
-        store.setTagDir(tag.id, sel.value || null);
-        if (taken && taken.id !== tag.id) toast('「' + taken.name + '」は置かないことにした');
-        renderTags(list);                            /* 押し出された行も描き直す */
-      });
-      row.appendChild(sel);
+      row.appendChild(b);
     }
 
     /* 消す。特別なタグは消せないのでボタンごと出さない */

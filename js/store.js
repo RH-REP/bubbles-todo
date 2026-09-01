@@ -122,9 +122,14 @@ const MAX_GAP_SLOTS = 12;
    （完了だけは向きも固有枠に固定。下の FIXED_DIRS） */
 const TAG_SPECIAL = ['today', 'plan', 'gap', 'hold', 'done'];
 
-/* 海の向き。**ユーザーが選べるのは左右だけ**。1向きに置けるタグは1つだけ。
-   上下は固有枠なのでここに入れない（次の FIXED_DIRS） */
+/* 海の向き。**左右は「並び」に置き換わった**（利用者の指示：タグ付き海を10個まで）。
+   横一列に並べるので、左右という2つの枠ではなく**順番**を持つ（下の seaList）。
+   この定数は、古い保存データ（dir: 'left' / 'right'）を読むときにだけ使う。 */
 const TAG_DIRS = ['left', 'right'];
+
+/* 海にできるタグの数（利用者の指示）。中央（タグ無し）と上下の固有枠は数に入れない。
+   10 は「一列に並べて、引きで一望できる」上限として利用者が決めた数。 */
+const MAX_SEAS = 10;
 
 /* 固有枠（利用者の指示）。**上＝長期保留 / 下＝完了**。
    ここはタグの取り合いに出さない：この2つは枠から動かせず、ほかのタグも入れない。
@@ -287,6 +292,7 @@ let items = [];
 let anchorList = [];  /* アンカー。配列の並びがそのままユーザーの並び順 */
 let gapList = [];     /* すきま時間の枠。同じく並びがユーザーの並び順 */
 let tagList = [];     /* タグ。先頭4件は必ず特別なタグ（TAG_DEFAULTS の順） */
+let seaList = [];     /* 横一列に並ぶ海（タグの id。左から順）。中央と上下は入らない */
 /* 最初から置いてあるタグ（TAG_STARTERS）のうち、ユーザーが消したもの。
    これを覚えておかないと、消しても読み込みのたびによみがえる */
 let removedStarters = [];
@@ -729,6 +735,29 @@ function normalizeTags(v) {
   return out;
 }
 
+/* 横一列に並ぶ海（タグの id。左から順）。
+   中央（タグ無し）は列の左端で、この配列には入らない。上下の固有枠も入らない。
+
+   **古い保存データからの引き継ぎ**：前は tag.dir が 'left' / 'right' の2枠だった。
+   seas が保存されていなければ、左→右の順でこの配列に移す（見え方が変わらない）。 */
+function normalizeSeas(raw, tags) {
+  const known = new Set(tags.filter(t => !FIXED_DIRS[t.id]).map(t => t.id));
+  const out = [];
+  const add = id => {
+    if (typeof id !== 'string' || !known.has(id)) return;
+    if (out.indexOf(id) >= 0) return;
+    if (out.length >= MAX_SEAS) return;
+    out.push(id);
+  };
+  if (Array.isArray(raw)) { raw.forEach(add); return out; }
+  /* 旧データ。dir から拾う（左→右） */
+  TAG_DIRS.forEach(d => {
+    const t = tags.find(x => x.dir === d);
+    if (t) add(t.id);
+  });
+  return out;
+}
+
 /* 保存済みのタグに、いまのパレットの色を配り直す。
    ・特別な4つ … TAG_DEFAULTS の色をそのまま
    ・ユーザーのタグ … 作られた順に TAG_PALETTE を頭から（余ったら先頭へ戻る）
@@ -1003,8 +1032,10 @@ function normalizeTodayLog(arr) {
 }
 
 function blank() {
+  const tags = normalizeTags(null);
   return {
-    anchors: [], gapSlots: normalizeGapSlots(null), tags: normalizeTags(null),
+    anchors: [], gapSlots: normalizeGapSlots(null), tags,
+    seas: normalizeSeas(null, tags),
     todos: [], logs: [], todayLogs: [], lastDay: null,
   };
 }
@@ -1019,7 +1050,8 @@ function load() {
       const tags = normalizeTags(null);
       const gaps = normalizeGapSlots(null);
       return {
-        anchors: [], gapSlots: gaps, tags, todos: normalizeTodos(parsed, [], tags, gaps),
+        anchors: [], gapSlots: gaps, tags, seas: normalizeSeas(null, tags),
+        todos: normalizeTodos(parsed, [], tags, gaps),
         logs: [], todayLogs: [], lastDay: null,
       };
     }
@@ -1043,6 +1075,8 @@ function load() {
       anchors,
       gapSlots,
       tags,
+      /* 海の並び。無い保存データ（この版より前）は tag.dir から移す */
+      seas: normalizeSeas(parsed.seas, tags),
       /* 移行用の日付＝保存されていた lastDay。過去なら読み込んだ瞬間に today が外れる */
       todos: Array.isArray(parsed.todos)
         ? normalizeTodos(parsed.todos, anchors, tags, gapSlots,
@@ -1066,7 +1100,8 @@ let lastSaveError = null;
 function persist() {
   try {
     localStorage.setItem(KEY, JSON.stringify({
-      v: 2, palVer: PAL_VER, anchors: anchorList, gapSlots: gapList, tags: tagList, todos: items,
+      v: 2, palVer: PAL_VER, anchors: anchorList, gapSlots: gapList, tags: tagList,
+      seas: seaList, todos: items,
       removedStarters,
       log: logs, todayLog: todayLogs, lastDay,
     }));
@@ -1146,6 +1181,7 @@ function rollover() {
   anchorList = data.anchors;
   gapList = data.gapSlots;
   tagList = data.tags;
+  seaList = data.seas;
   items = data.todos;
   logs = data.logs;
   todayLogs = data.todayLogs;
@@ -2089,6 +2125,9 @@ export const store = {
     const i = tagList.findIndex(t => t.id === id);
     if (i < 0 || tagList[i].special) return false;
     tagList.splice(i, 1);
+    /* 海になっていたなら、列からも降ろす（消えたタグの列が残らないように） */
+    const si = seaList.indexOf(id);
+    if (si >= 0) seaList.splice(si, 1);
     /* 最初から置いてあったタグなら、消したことを覚える（読み込みでよみがえらせない） */
     if (TAG_STARTERS.some(d => d.id === id) && removedStarters.indexOf(id) < 0) {
       removedStarters.push(id);
@@ -2108,6 +2147,60 @@ export const store = {
   /* 固有枠に入っているタグなら、その向き。ふつうのタグなら null。
      画面はこれを見て「向き」の選び欄を出すかどうかを決める */
   tagDirFixed(id) { return FIXED_DIRS[id] || null; },
+
+  /* ---- 横一列に並ぶ海（利用者の指示：タグ付き海を10個まで） ----
+
+     前は左右の2枠の取り合いだった。10個になると「向き」では足りないので、
+     **並び**を持つ。中央（タグ無し）は列の左端で、この配列には入らない。
+     上下の固有枠（長期保留・完了）も入らない——あれは列とは別の軸。 */
+  MAX_SEAS,
+
+  /* 左から順のタグ。中身はコピー */
+  seas() {
+    return seaList.map(id => findTag(id)).filter(Boolean).map(tagCopy);
+  },
+
+  /* 左から何番目か。海になっていなければ -1 */
+  seaIndex(id) { return seaList.indexOf(id); },
+
+  isSea(id) { return seaList.indexOf(id) >= 0; },
+
+  /* 海にできるか。固有枠と、もう海になっているものは受けない */
+  canBeSea(id) {
+    const t = findTag(id);
+    if (!t || FIXED_DIRS[id]) return false;
+    return seaList.indexOf(id) < 0 && seaList.length < MAX_SEAS;
+  },
+
+  /* 列のいちばん右に足す -> 足せたか */
+  addSea(id) {
+    if (!store.canBeSea(id)) return false;
+    seaList.push(id);
+    persist(); emit();
+    return true;
+  },
+
+  /* 列から降ろす。**タグも中身も消えない**——しぼるから見えるまま -> 降ろせたか */
+  removeSea(id) {
+    const i = seaList.indexOf(id);
+    if (i < 0) return false;
+    seaList.splice(i, 1);
+    persist(); emit();
+    return true;
+  },
+
+  /* 並べ替え。delta は ±1 が基本。端では動かない -> 動いたか */
+  moveSea(id, delta) {
+    const i = seaList.indexOf(id);
+    const d = Math.trunc(Number(delta) || 0);
+    if (i < 0 || !d) return false;
+    const j = Math.max(0, Math.min(seaList.length - 1, i + d));
+    if (j === i) return false;
+    seaList.splice(i, 1);
+    seaList.splice(j, 0, id);
+    persist(); emit();
+    return true;
+  },
 
   setTagDir(id, dir) {
     const tag = findTag(id);
@@ -2290,6 +2383,7 @@ export const store = {
      プロトタイプの確認用（空の画面を見るため）で、本番のUIには出さない */
   wipe() {
     items = []; anchorList = []; gapList = normalizeGapSlots(null); tagList = normalizeTags(null);
+    seaList = normalizeSeas(null, tagList);
     logs = []; todayLogs = []; lastDay = dayOf(Date.now());
     persist(); emit();
   },

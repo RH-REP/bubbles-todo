@@ -1,19 +1,20 @@
-/* 画面1「海」— 5つの面（追補3 §1、下は利用者の指示で追加）
+/* 画面1「海」— 横一列に並ぶ面（利用者の指示：タグ付き海を10個まで）
 
      　　　　  ┌────────┐
-     　　　　  │ 長期保留 │
-     ┌───────┼────────┼───────┐
-     │ 左の海 │ 中央の海 │ 右の海 │
-     └───────┼────────┼───────┘
+     　　　　  │ 長期保留 │        ← 上下は**中央の列にだけ**付く固有枠
+     ┌────────┼────────┬────────┬─────┐
+     │ タグ無し │  海1   │  海2   │ …  │  ← 横一列（海は10個まで）
+     └────────┼────────┴────────┴─────┘
      　　　　  │  完了   │
      　　　　  └────────┘
 
-   ・中央 = すべての海（完了と、静かな3つ＝きっかけ・すきま・長期保留は出さない）
+   ・中央（列の左端）= タグの付いていないものだけ（既定。しぼるで広げられる）
    ・上・下 = **固有枠**。上=長期保留 / 下=完了。ユーザーは動かせない
-   ・左・右 = タグの海。どのタグをどの向きに置くかは store.tagDir(dir) が決める
-   ・背景をドラッグ／スワイプ = 隣の面へ移る（隣どうしは直接つながらない。必ず中央を通る）
-   ・バブルをドラッグして端へ = そのタグが付く。面は移らない
+   ・海の列 = store.seas() の順（引きで並べ替える）。面の名前は 'sea:<タグid>'
+   ・背景をドラッグ／スワイプ = 隣の列へ移る（上下は中央の列からだけ）
+   ・バブルをドラッグして端へ = **隣の海のタグ**が付く。面は移らない
      この2つは混ぜない。指を置いた場所（バブルの上か、背景か）で分かれる
+   ・海を長押し = 引き（全部の海の一覧）。並べ替え・名前と色・海をやめる・＋で足す
 
    store のタグ API がまだ無い版でも落ちないこと。
    その場合は面が中央1つだけになり、従来どおり store.floating() が漂う。
@@ -81,10 +82,57 @@ const SHUF_WIN = 200;   /* 選ばれた玉が大きくなるまで */
 const SHUF_MAX = 10;    /* 盤に出す玉の数の上限。これ以上は重なって粒に見える */
 const SHUF_D = 46;      /* 玉の直径 px。CSS の .sea-shuffle .rnd-b と同じ値。片方だけ変えないこと */
 
-/* --- 面 --- */
-const FACES = ['center', 'up', 'left', 'right', 'down'];
-const DIRS = ['up', 'left', 'right', 'down'];       /* タグの海がある向き */
+/* --- 面（利用者の指示：タグ付き海を10個まで／横一列に並べる） ---
+
+   前は十字（中央の上下左右）に4つまでだった。10個は十字に収まらないので、
+   **横一列**にした（利用者が Android のホームを例に挙げたとおり）：
+
+     上：長期保留
+     中央（タグ無し） ↔ 海1 ↔ 海2 ↔ … ↔ 海10
+     下：完了
+
+   ・列は左端が中央。海は store.seas() の順（＝引きで並べ替えた順）
+   ・**上下は列とは別の軸**で、中央の列にだけ付く（固有枠。store の FIXED_DIRS）
+   ・面の名前は 'center' / 'up' / 'down' / 'sea:<タグid>'
+
+   なぜ面をタグの数だけ作るか。3枚（前・いま・次）を使い回す作りも試せるが、
+   滑らせ終わったあとに中身を入れ替えることになり、drift はノードを id で使い回す
+   ので、**入れ替えた瞬間にバブルが並び直る**（毎回ちらつく）。
+   器は数だけ作り、**中身（drift の field）は今いる列とその両隣にだけ持たせる**。
+   器は空の div なので安い。 */
 const EDGE_DIRS = ['up', 'left', 'right', 'down'];  /* 端の手がかりを出す場所 */
+const SEA_PREFIX = 'sea:';
+
+/* いまの海の並び（タグのコピー。左から順）。1回の描画のあいだは覚えておく */
+let seaCache = null;
+function forgetSeas() { seaCache = null; }
+function seaTags() {
+  if (seaCache) return seaCache;
+  let list = [];
+  if (has('seas')) { try { list = store.seas() || []; } catch (err) { list = []; } }
+  seaCache = list;
+  return seaCache;
+}
+
+const faceOfTag = id => SEA_PREFIX + id;
+const tagIdOfFace = f => (typeof f === 'string' && f.indexOf(SEA_PREFIX) === 0) ? f.slice(SEA_PREFIX.length) : '';
+
+/* いま在る面の一覧。中央・上下・海の列 */
+function liveFaces() {
+  const out = ['center'];
+  if (fixedTag('up')) out.push('up');
+  if (fixedTag('down')) out.push('down');
+  seaTags().forEach(t => out.push(faceOfTag(t.id)));
+  return out;
+}
+
+/* 面の列番号。中央と上下は 0、海は 1 から */
+function colOf(face) {
+  const id = tagIdOfFace(face);
+  if (!id) return 0;
+  const i = seaTags().findIndex(t => t.id === id);
+  return i < 0 ? 0 : i + 1;
+}
 
 /* **バブルを落とすとタグが付く端**。下（完了）は入れない。
 
@@ -101,13 +149,11 @@ const DROP_DIRS = ['up', 'left', 'right'];
 
 /* 看板の矢印。向きは「その海がある方角」を指す */
 const SIGN_ARROW = { up: '↑', down: '↓', left: '←', right: '→' };
-/* その面から見て「中央がどちらにあるか」。中央へ戻る手がかりはこの端に出す */
-const BACK_OF = { up: 'down', left: 'right', right: 'left', down: 'up' };
-/* タグに色が入っていないときの控え。無彩色は「タグ無し」の意味なので使わない（追補3 §1） */
-const FALLBACK_COLOR = {
-  up: 'var(--slot-morning)', left: 'var(--today-edge)',
-  right: 'var(--slot-noon)', down: 'var(--slot-night)',
-};
+/* タグに色が入っていないときの控え。無彩色は「タグ無し」の意味なので使わない（追補3 §1）。
+   列は10本あるので、順に配る（同じ色が隣に来ない並び） */
+const FALLBACK_COLORS = [
+  'var(--today-edge)', 'var(--slot-noon)', 'var(--slot-morning)', 'var(--slot-night)',
+];
 const CENTER_NAME = 'ぜんぶ';
 /* 中央の海の**行き先としての名前**は「ぜんぶ」のまま（ならべる／しぼるで
    ぜんぶに届く場所なので）。**いま何が映っているか**の名前はこちら。
@@ -256,7 +302,7 @@ function applyView() {
     /* 広さが変わったことを、その場で drift へ伝える。
        drift 自身も ResizeObserver で見ているが、あれは「次の描画の前」なので、
        描画が来ない状況では遅れる。遅れると中身が古い広さのまま隅に残る。 */
-    FACES.forEach(f => {
+    liveFaces().forEach(f => {
       const fl = faces[f] && faces[f].field;
       if (fl && fl.syncBounds) { try { fl.syncBounds(); } catch (err) { /* 測れないだけ */ } }
     });
@@ -358,11 +404,41 @@ function has(name) { return typeof store[name] === 'function'; }
 
 function hasTags() { return has('tagDir') && has('inTag'); }
 
-/* その向きに置かれているタグ。無ければ null */
-function dirTag(dir) {
-  if (!hasTags() || DIRS.indexOf(dir) < 0) return null;
+/* 固有枠（上＝長期保留 / 下＝完了）のタグ。無ければ null */
+function fixedTag(dir) {
+  if (!hasTags() || (dir !== 'up' && dir !== 'down')) return null;
   try { return store.tagDir(dir) || null; } catch (err) { return null; }
 }
+
+/* その**面**のタグ。中央は null（タグ無しの海なので） */
+function faceTag(face) {
+  if (!face || face === 'center') return null;
+  if (face === 'up' || face === 'down') return fixedTag(face);
+  const id = tagIdOfFace(face);
+  if (!id) return null;
+  return seaTags().find(t => t.id === id) || null;
+}
+
+/* いま居る面から見て、その**画面の向き**にある面。無ければ null。
+     ・列の中     … 左＝1つ前の列 / 右＝1つ次の列
+     ・中央だけ   … 上下の固有枠へも行ける（上下は列とは別の軸で、中央にだけ付く）
+     ・上下から   … 下／上（＝中央）へ戻る */
+function faceAt(dir, from) {
+  const cur = from || curFace;
+  if (cur === 'up') return dir === 'down' ? 'center' : null;
+  if (cur === 'down') return dir === 'up' ? 'center' : null;
+  const order = ['center'].concat(seaTags().map(t => faceOfTag(t.id)));
+  const i = order.indexOf(cur);
+  if (i < 0) return null;
+  if (dir === 'left') return i > 0 ? order[i - 1] : null;
+  if (dir === 'right') return i + 1 < order.length ? order[i + 1] : null;
+  /* 上下は中央の列にだけ付く */
+  if (cur !== 'center') return null;
+  return fixedTag(dir) ? dir : null;
+}
+
+/* その向きの面のタグ */
+function dirTagAt(dir, from) { return faceTag(faceAt(dir, from)); }
 
 function daysOfSafe(id) {
   if (!has('daysOf')) return [];
@@ -397,7 +473,9 @@ const COLOR_OK = /^(#[0-9a-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([-0-9.,%\s/]+\)|var\(--
 function colorOf(tag, dir) {
   const c = tag && typeof tag.color === 'string' ? tag.color.trim() : '';
   if (c && COLOR_OK.test(c)) return c;
-  return FALLBACK_COLOR[dir] || 'var(--bub-edge)';
+  /* 控えは列の順に配る。dir には面の名前が来ることもある（'sea:xx'） */
+  const i = colOf(dir);
+  return FALLBACK_COLORS[(i + FALLBACK_COLORS.length) % FALLBACK_COLORS.length] || 'var(--bub-edge)';
 }
 
 function nameOf(tag) {
@@ -598,7 +676,7 @@ function narrowName() {
 
 function faceItems(face) {
   if (face === 'center') return centerItems();
-  const tag = dirTag(face);
+  const tag = faceTag(face);
   if (!tag) return [];
   if (tag.id === 'done') {
     if (has('doneItems')) { try { return capForSea(store.doneItems() || []); } catch (err) { return []; } }
@@ -709,7 +787,7 @@ function addFromComposer() {
   /* 書いたものには、いまいる面のタグが付く。
      中央（ぜんぶ）では何も付かない。完了の海では付けない
      （書いた瞬間に完了になるのは筋が通らない）。 */
-  const tag = curFace === 'center' ? null : dirTag(curFace);
+  const tag = faceTag(curFace);
   if (id && tag && tag.id !== 'done' && has('setTag')) store.setTag(id, tag.id, true);
   else if (tag && tag.id === 'done') toast('『' + nameOf(tag) + '』には書けないので、ぜんぶの海に入れた');
   input.value = '';
@@ -1001,7 +1079,7 @@ let offTimer = 0, offArmed = false, offIn = false;
 
 /* いまの海のタグ。ぜんぶの海なら null＝枠を出さない */
 function offTag() {
-  return curFace === 'center' ? null : dirTag(curFace);
+  return faceTag(curFace);
 }
 
 /* 当たり判定は、出ている枠の矩形そのもの（見えている範囲＝当たる範囲）。
@@ -1146,7 +1224,7 @@ function edgeHitAt(x, y, force) {
   near.sort((a, b) => a.d - b.d);
   for (let i = 0; i < near.length; i++) {
     const d = near[i].dir;
-    if (DROP_DIRS.indexOf(d) >= 0 && dirTag(d)) return d;
+    if (DROP_DIRS.indexOf(d) >= 0 && dirTagAt(d)) return d;
   }
   return null;
 }
@@ -1160,7 +1238,7 @@ function overTabbar(pt) {
 }
 
 function tagFromEdge(id, dir) {
-  const tag = dirTag(dir);
+  const tag = dirTagAt(dir);
   const t = store.get(id);
   if (!tag || !t) return;
   if (!has('setTag')) { toast('いまはタグを付けられない'); return; }
@@ -1321,21 +1399,16 @@ function wayOf(axis, dx, dy) {
 }
 
 /* いまの面から way の向きへ行けるか。行き先の面名、行けなければ null。
-   隣どうし（上⇄左 など）は直接つながらない。必ず中央を通る。 */
-function neighbor(face, way) {
-  if (face === 'center') return (DIRS.indexOf(way) >= 0 && dirTag(way)) ? way : null;
-  return way === BACK_OF[face] ? 'center' : null;
-}
+   列の中は左右で1つずつ。上下は中央の列にだけ付く（faceAt を見よ）。 */
+function neighbor(face, way) { return faceAt(way, face); }
 
 function faceBase(face) {
-  /* 面は世界の大きさで並んでいる（±100% ＝ ±世界1つぶん）。
+  /* 面は世界の大きさで並んでいる（1列＝世界1つぶん）。
      ステージの大きさで測ると、引いたときだけ隣の面が半端な位置で止まる */
   const w = (world && world.clientWidth) || 0, h = (world && world.clientHeight) || 0;
   if (face === 'up') return { x: 0, y: h };
   if (face === 'down') return { x: 0, y: -h };
-  if (face === 'left') return { x: w, y: 0 };
-  if (face === 'right') return { x: -w, y: 0 };
-  return { x: 0, y: 0 };
+  return { x: -colOf(face) * w, y: 0 };
 }
 
 function setWorldPx(x, y) {
@@ -1426,7 +1499,7 @@ function settle() {
 function goFace(face) {
   if (!faces[face]) return;
   closeNarrowPop(false);
-  if (face !== 'center' && !dirTag(face)) face = 'center';
+  if (face !== 'center' && !faceTag(face)) face = 'center';
   /* 面が変われば候補の集合も変わる。混ぜている途中なら畳む
      （別の海へ移ったのに、前の海のものが開くのは筋が通らない） */
   if (face !== curFace) cancelShuffle();
@@ -1448,7 +1521,7 @@ function scheduleStop() {
 }
 
 function startCurrent() {
-  FACES.forEach(f => {
+  liveFaces().forEach(f => {
     const fl = faces[f].field;
     if (!fl) return;
     const live = shown && !gathering && (f === curFace || (swipe && swipe.to === f) || stopTimer);
@@ -1472,6 +1545,75 @@ function makeHandlers(hostFn) {
 }
 
 /* 必要になってから作る。タグが1つも置かれていない版では中央だけが作られる。 */
+/* 面ごとの矢印看板。面を作るときに1回だけ張る（syncFaceEls から呼ぶ） */
+function makeSignsFor(f) {
+  const rec = {};
+  EDGE_DIRS.forEach(dir => {
+    const b = el('button', 'sea-sign');
+    b.type = 'button';
+    b.dataset.dir = dir;
+    b.hidden = true;
+    const ar = el('span', 'ar');
+    ar.setAttribute('aria-hidden', 'true');
+    ar.textContent = SIGN_ARROW[dir] || '';
+    const nm = el('span', 'nm');
+    b.appendChild(ar);
+    b.appendChild(nm);
+    b.addEventListener('click', ev => {
+      ev.preventDefault();
+      /* 指が滑ったなら、それはなぞり。押したことにしない */
+      if (Date.now() - signSuppress < 400) return;
+      const to = b.dataset.to;
+      if (to) goFace(to);
+    });
+    /* いちばん先に足す＝いちばん後ろに描かれる（バブルより後ろ） */
+    faces[f].el.insertBefore(b, faces[f].el.firstChild);
+    rec[dir] = { btn: b, nm };
+  });
+  faces[f].signs = rec;
+}
+
+/* 面の器（div）を、いまの海の並びに合わせて作る／片づける。
+   海が増えたり並べ替えられたりするたびに呼ぶ。
+   **器は空の div なので安い**——中身（drift の field）は syncFaces が、
+   いま居る列とその両隣にだけ持たせる。 */
+function syncFaceEls() {
+  if (!world) return;
+  const want = liveFaces();
+  const wantSet = new Set(want);
+  /* 要らなくなった面を畳む */
+  Object.keys(faces).forEach(f => {
+    if (wantSet.has(f)) return;
+    const rec = faces[f];
+    detachGestures(f);
+    if (rec.field && rec.field.destroy) { try { rec.field.destroy(); } catch (err) { /* 畳むだけ */ } }
+    rec.el.remove();
+    delete faces[f];
+  });
+  /* 足りない面を作る。並び順は DOM でも列の順にしておく（読み上げの順に効く） */
+  want.forEach(f => {
+    let rec = faces[f];
+    if (!rec) {
+      const fe = el('div', 'sea-face');
+      fe.dataset.face = f;
+      fe.setAttribute('role', 'group');
+      rec = { el: fe, field: null, gestures: new Map(), empty: null };
+      faces[f] = rec;
+      /* 面ごとの空のときの言葉。中央だけは別（centerEmpty） */
+      if (f !== 'center') {
+        const q = el('p', 'sea-face-empty');
+        q.hidden = true;
+        rec.empty = q;
+        fe.appendChild(q);
+      }
+      makeSignsFor(f);
+    }
+    /* 列の位置は CSS 変数で渡す（上下は列とは別の軸なので 0 のまま） */
+    rec.el.style.setProperty('--col', String(colOf(f)));
+    world.appendChild(rec.el);
+  });
+}
+
 function ensureField(face) {
   const f = faces[face];
   if (!f || f.field) return f && f.field;
@@ -1492,11 +1634,20 @@ function detachGestures(face) {
   g.clear();
 }
 
+/* 中身（drift の field）を持たせるのは、いま居る面とその隣まで。
+   10列ぶんのバブルを同時に持つと DOM が重い（1個で5ノード・7層）。
+   隣まで持つのは、なぞっている最中に出てくる面が空だと「無い海」に見えるため。 */
+function nearCur(face) {
+  if (face === curFace) return true;
+  return !!(faceAt('left', curFace) === face || faceAt('right', curFace) === face
+    || faceAt('up', curFace) === face || faceAt('down', curFace) === face);
+}
+
 function syncFaces() {
-  FACES.forEach(face => {
-    const want = face === 'center' || !!dirTag(face);
+  liveFaces().forEach(face => {
+    const want = (face === 'center' || !!faceTag(face)) && nearCur(face);
     if (!want) {
-      /* 向きからタグが外れた面。中身だけ降ろして器は残す */
+      /* 遠い面・タグが外れた面。中身だけ降ろして器は残す */
       if (faces[face].field) { detachGestures(face); setFaceItems(face, []); }
       return;
     }
@@ -1602,7 +1753,7 @@ function syncFloor() {
    両方出ると「行ける」と「付く」が同時に見えて読めなくなる。 */
 function renderSigns() {
   const quiet = !!bubbleDrag || gathering;
-  FACES.forEach(f => {
+  liveFaces().forEach(f => {
     const rec = faces[f] && faces[f].signs;
     if (!rec) return;
     EDGE_DIRS.forEach(dir => {
@@ -1614,7 +1765,7 @@ function renderSigns() {
         s.btn.removeAttribute('data-to');
         return;
       }
-      const tag = to === 'center' ? null : dirTag(to);
+      const tag = faceTag(to);
       const name = to === 'center' ? CENTER_NAME : nameOf(tag);
       s.nm.textContent = name;                       /* タグ名はユーザーの文字 */
       s.btn.dataset.to = to;
@@ -1632,7 +1783,7 @@ function renderEdges() {
 
   EDGE_DIRS.forEach(dir => {
     const e = edges[dir];
-    const tag = dirTag(dir);
+    const tag = dirTagAt(dir);
     let show = false, label = '', aria = '', color = '', target = null;
 
     if (dragging) {
@@ -1863,7 +2014,7 @@ function setGathering(on) {
      「整列中の .bub は全件ちょうど」という数え方が成立しないため。 */
   if (on) {
     cancelSwipe();
-    FACES.forEach(f => {
+    liveFaces().forEach(f => {
       const fl = faces[f].field;
       if (!fl) return;
       try { if (fl.setGathering) fl.setGathering(false); } catch (err) { /* 無い版もある */ }
@@ -1875,7 +2026,7 @@ function setGathering(on) {
   } else {
     clearGrid();
     syncFaces();
-    FACES.forEach(f => {
+    liveFaces().forEach(f => {
       const fl = faces[f].field;
       if (fl && fl.relayout) { try { fl.relayout(); } catch (err) { /* 測れないだけ */ } }
     });
@@ -2012,7 +2163,7 @@ function syncNarrowBtn() {
 function pickFace() {
   if (gathering) return [];
   if (curFace !== 'center') {
-    const tag = dirTag(curFace);
+    const tag = faceTag(curFace);
     if (!tag) return [];
     /* 完了の海では選ばない。終わったものを「はじめる」のは筋が通らない */
     if (tag.id === 'done') return [];
@@ -2133,7 +2284,7 @@ function randomStart() {
 
 function syncRandomBtn() {
   if (!randomBtn) return;
-  const doneFace = curFace !== 'center' && (dirTag(curFace) || {}).id === 'done';
+  const doneFace = (faceTag(curFace) || {}).id === 'done';
   const n = pickFace().length;
   randomBtn.disabled = n === 0 || !!shuffle;
   randomBtn.title = doneFace
@@ -2217,14 +2368,14 @@ function renderGrid() {
 /* ---------------- 画面まわりの表示 ---------------- */
 
 function renderChrome() {
-  const tag = curFace === 'center' ? null : dirTag(curFace);
+  const tag = faceTag(curFace);
   /* 絞っている間は面の名前が変わる。これが「いま絞っている」の常時の合図（追補4 §2） */
   const narrow = curFace === 'center' && narrowOn();
   const name = curFace !== 'center' ? nameOf(tag) : (narrow ? (narrowName() || NARROW_NAME) : CENTER_VIEW_NAME);
 
   /* 面が中央ひとつしか無いなら、名前を出さない（選びようがないものに名札は要らない）。
      ただし絞っている間は、名前そのものが合図なので必ず出す */
-  const many = DIRS.some(d => !!dirTag(d));
+  const many = liveFaces().length > 1;
   faceName.hidden = (!many && !narrow) || gathering;
   faceLabel.textContent = name;
   faceName.classList.toggle('is-narrow', narrow);
@@ -2232,9 +2383,9 @@ function renderChrome() {
   if (tag) faceDot.style.setProperty('--edge-c', colorOf(tag, curFace));
   faceName.setAttribute('aria-label', name + 'の海');
 
-  FACES.forEach(f => {
+  liveFaces().forEach(f => {
     const fe = faces[f].el;
-    const t = f === 'center' ? null : dirTag(f);
+    const t = faceTag(f);
     const n = f === 'center' ? CENTER_NAME : nameOf(t);
     fe.setAttribute('aria-label', n + 'の海');
     /* 面ごとにうっすら色を敷く。名札だけだと、滑っている最中に
@@ -2246,10 +2397,10 @@ function renderChrome() {
   });
 
   /* 面ごとの空のときの言葉 */
-  DIRS.forEach(d => {
+  liveFaces().forEach(d => {
     const f = faces[d];
-    if (!f.empty) return;
-    const t = dirTag(d);
+    if (!f || !f.empty) return;
+    const t = faceTag(d);
     const show = !!t && faceItems(d).length === 0;
     f.empty.hidden = !show;
     if (!show) return;
@@ -2316,7 +2467,7 @@ function syncHint() {
 /* 書いたものには、いまいる面のタグが付く（下の form の submit を参照）。
    入力欄にそう書いておかないと、書いた先が分からない。 */
 function syncComposer() {
-  const tag = curFace === 'center' ? null : dirTag(curFace);
+  const tag = faceTag(curFace);
   const taggable = tag && tag.id !== 'done' && has('setTag');
   const base = '思いついたことを書く';
   input.placeholder = taggable ? '『' + nameOf(tag) + '』に書く' : base;
@@ -2327,9 +2478,11 @@ function syncComposer() {
 
 function render() {
   forgetTagColors();   /* タグの色や名前が変わっているかもしれない。引き直す */
+  forgetSeas();        /* 海が増減・並べ替えされているかもしれない */
+  syncFaceEls();       /* 器を並びに合わせる（作る／畳む／列番号を配り直す） */
 
-  /* 向きからタグが外れた／タグ API がまだ無い面に立っていたら、中央へ戻す */
-  if (curFace !== 'center' && !dirTag(curFace)) {
+  /* 海から降ろされた面に立っていたら、中央へ戻す */
+  if (curFace !== 'center' && !faceTag(curFace)) {
     curFace = 'center';
     setWorldFace('center');
     startCurrent();
@@ -2377,13 +2530,7 @@ export default {
 
     /* --- 4つの面。世界ごと動かして切り替える --- */
     world = el('div', 'sea-world');
-    FACES.forEach(f => {
-      const fe = el('div', 'sea-face');
-      fe.dataset.face = f;
-      fe.setAttribute('role', 'group');
-      world.appendChild(fe);
-      faces[f] = { el: fe, field: null, gestures: new Map(), empty: null };
-    });
+    syncFaceEls();
     setWorldFace('center');
 
     /* 空のときの案内。**書いてあることが本当に起きること**。
@@ -2406,12 +2553,7 @@ export default {
     centerEmpty.hidden = true;
     faces.center.el.appendChild(centerEmpty);
 
-    DIRS.forEach(d => {
-      const p = el('p', 'sea-face-empty');
-      p.hidden = true;
-      faces[d].empty = p;
-      faces[d].el.appendChild(p);
-    });
+
 
     /* --- 矢印看板（利用者の指示。A-9 / A-8 / A-10）---
 
@@ -2426,32 +2568,6 @@ export default {
 
        ふだんはこれ。バブルを掴んでいる間は、代わりに端の札（.sea-edge、
        バブルより前）が「{タグ名} が付く」を出す——持っている指の下に隠れては困るため。 */
-    FACES.forEach(f => {
-      const rec = {};
-      EDGE_DIRS.forEach(dir => {
-        const b = el('button', 'sea-sign');
-        b.type = 'button';
-        b.dataset.dir = dir;
-        b.hidden = true;
-        const ar = el('span', 'ar');
-        ar.setAttribute('aria-hidden', 'true');
-        ar.textContent = SIGN_ARROW[dir] || '';
-        const nm = el('span', 'nm');
-        b.appendChild(ar);
-        b.appendChild(nm);
-        b.addEventListener('click', ev => {
-          ev.preventDefault();
-          /* 指が滑ったなら、それはなぞり。押したことにしない */
-          if (Date.now() - signSuppress < 400) return;
-          const to = b.dataset.to;
-          if (to) goFace(to);
-        });
-        /* いちばん先に足す＝いちばん後ろに描かれる（バブルより後ろ） */
-        faces[f].el.insertBefore(b, faces[f].el.firstChild);
-        rec[dir] = { btn: b, nm };
-      });
-      faces[f].signs = rec;
-    });
 
     view.appendChild(world);
     stage.appendChild(view);
@@ -2676,7 +2792,7 @@ export default {
       ro = new ResizeObserver(() => {
         syncFloor();                   /* 入力欄の高さが変わることもある */
         if (!stage.clientWidth || !stage.clientHeight) return;
-        FACES.forEach(f => {
+        liveFaces().forEach(f => {
           const fl = faces[f].field;
           if (fl && fl.relayout) { try { fl.relayout(); } catch (err) { /* 測れないだけ */ } }
         });
@@ -2697,7 +2813,7 @@ export default {
     shown = true;
     /* ここで初めてペインが display:flex になる。寸法が取れるのはこの時点から */
     syncFloor();                       /* 面の高さが決まってから relayout する */
-    FACES.forEach(f => {
+    liveFaces().forEach(f => {
       const fl = faces[f].field;
       if (fl && fl.relayout) { try { fl.relayout(); } catch (err) { /* 測れないだけ */ } }
     });
@@ -2716,7 +2832,7 @@ export default {
     setGathering(false);      /* タブを離れたら整列は解除（契約 §7） */
     closeDetail();
     clearTimeout(stopTimer); stopTimer = 0;
-    FACES.forEach(f => {
+    liveFaces().forEach(f => {
       const fl = faces[f].field;
       if (fl && fl.stop) { try { fl.stop(); } catch (err) { /* 止め損ねで転ばない */ } }
     });
@@ -2735,10 +2851,15 @@ export default {
      ここは「もうその面が開いている」状態で見えるのが素直。 */
   openFace(face) {
     if (typeof face !== 'string' || !face) return false;
+    forgetSeas();
     let dir = null;
     if (face === 'center') dir = 'center';
-    else if (FACES.indexOf(face) >= 0) dir = dirTag(face) ? face : null;
-    else dir = DIRS.find(d => { const t = dirTag(d); return !!t && t.id === face; }) || null;
+    else if (liveFaces().indexOf(face) >= 0) dir = faceTag(face) ? face : null;
+    else {
+      /* タグの id で来た。その海があればそこへ */
+      const f = (face === 'hold') ? 'up' : (face === 'done') ? 'down' : faceOfTag(face);
+      dir = (liveFaces().indexOf(f) >= 0 && faceTag(f)) ? f : null;
+    }
     if (!dir) return false;                 /* 割り当てが無い＝開けない */
     if (gathering) setGathering(false);     /* 整列中なら解いてから移る */
     cancelSwipe();

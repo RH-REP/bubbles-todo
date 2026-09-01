@@ -106,3 +106,16 @@
 .stub .gorow .nm { font-size: 14px; font-weight: 600; }
 .stub .gorow .sub { font-size: 12.5px; color: var(--text-2); }
 .stub .gorow .ar { flex: none; font-size: 16px; color: var(--text-2); }
+
+/* 「海にする／している」。前は左右の選び欄だったところ（海が横一列になった） */
+.stub .tagdir.is-sea {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  min-height: 44px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: transparent; color: var(--text-2);
+  font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  transition: border-color .12s, color .12s, background-color .12s;
+}
+.stub .tagdir.is-sea:hover:not(:disabled) { color: var(--text); border-color: var(--bub-edge); }
+.stub .tagdir.is-sea:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.stub .tagdir.is-sea.is-on { color: var(--text); border-color: var(--bub-edge); background: var(--surface); }
+.stub .tagdir.is-sea:disabled { cursor: default; opacity: .5; }
