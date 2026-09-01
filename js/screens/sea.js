@@ -114,10 +114,10 @@ const CENTER_NAME = 'ぜんぶ';
    既定はタグ無しだけを映すので、「ぜんぶ」と名乗ると嘘になる。 */
 const CENTER_VIEW_NAME = 'タグ無し';
 /* 絞っている間の面の名前。名前が変わることが「いま絞っている」の合図（追補4 §2） */
-const NARROW_NAME = 'まだどこにも';
+/* 絞っているのに名前が引けなかったときの逃げ（ふつうは通らない） */
+const NARROW_NAME = 'しぼりこみ中';
 /* 絞り込みが見るタグ。ユーザーの作ったタグは条件に入れない（追補4 §2）。
    完了はそもそも中央に出ないので入れない */
-const NARROW_MARKS = ['today', 'anchor', 'gap'];
 
 const AXIS_LOCK = 10;   /* この距離を超えた時点で縦か横かを決める */
 const EDGE_BAND = 21;   /* 帯の厚み px。利用者の指示で 64 の 1/3。
@@ -306,10 +306,14 @@ function resetZoom() {
 /* 中央（ぜんぶ）の海の絞り込み（利用者の指示。タグごと → **複数選べる**）。
 
    選べるのは：
-     UNSORTED_ONLY … まだ 今日・きっかけ・すきま のどれにも入れていないもの
-     タグの id     … そのタグが付いているもの
+     PAST_ONLY / FUTURE_ONLY … 今日より前・今日より後の日が付いているもの
+     タグの id               … そのタグが付いているもの
 
-   **重ねると「または」**（選んだ種類のどれかが付いているもの）。
+   **重ねると「または」**（選んだ種類のどれかが当てはまるもの）。
+
+   **「まだどこにも」の行は外した**（利用者の指示）。既定の眺めが
+   「タグ無しだけ」になった時点で、あの行はほとんど同じものを指していて、
+   並んでいると「どちらを押せばいいのか」が生まれるだけだった。
 
    最初は「かつ」で組んだ。「絞る」という言葉から素直に考えたが、**言葉から考えて、
    データを見ていなかった。**このアプリでは1件が持つ置き場所のタグはふつう1つなので、
@@ -326,9 +330,8 @@ function resetZoom() {
    **タグごとの絞り込みが要る理由**：向きは左右の2つしか無く、上下は固有枠なので、
    ユーザーのタグは3つ目から「海が無い」状態になる。絞り込みがその見に行く道になる。
    長期保留も、ふだんはどの海にも出ないが、ここから呼べば出る。 */
-const UNSORTED_ONLY = '\u0000unsorted';
 /* 日付での絞り込み（利用者の指示）。タグではないので、タグと同じ入れものに
-   混ぜるための擬似 id を持たせる（まだどこにも と同じやり方） */
+   混ぜるための擬似 id を持たせる */
 const PAST_ONLY = '\u0000past';
 const FUTURE_ONLY = '\u0000future';
 const PAST_NAME = '今日より前';
@@ -506,17 +509,6 @@ function isDoneItem(t) {
    絞っても何も変わらない。そういう版では切り替え自体を出さない。 */
 function narrowOn() { return narrowSet.size > 0 && hasTags(); }
 
-/* まだ 今日／きっかけ／すきま のどれにも入れていないもの。
-   ユーザーが作ったタグは数に入れない（追補4 §2）。
-   marksOf は「きっかけの未分類」も「アンカーにぶら下げたもの」も拾うので、
-   store.tagsOf（t.plan しか見ない）より、画面の見た目と食い違わない。 */
-function isUnsorted(t) {
-  return !marksOf(t).some(m => NARROW_MARKS.indexOf(m) >= 0);
-}
-
-/* 中央 = すべての海。完了したものだけ出さない（追補3 §1・§3）。
-   タグ API が無い版では従来どおり「どこにも属していないもの」だけ。
-   絞っている間は、まだどこにも入れていないものだけ（追補4 §2）。 */
 /* 新しいほうから SEA_MAX 件だけ残す。**並びは元のまま**——
    drift はノードを id で使い回すので、並べ替えると使い回しが崩れる。
    どれを残すかだけを決めて、順番には触らない。 */
@@ -564,8 +556,7 @@ function centerItems() {
   return capForSea(live.filter(t => {
     const tags = tagsOfSafe(t.id);
     for (const k of narrowSet) {
-      if (k === UNSORTED_ONLY) { if (isUnsorted(t)) return true; }
-      else if (k === PAST_ONLY) { if (hasPastDay(t, key)) return true; }
+      if (k === PAST_ONLY) { if (hasPastDay(t, key)) return true; }
       else if (k === FUTURE_ONLY) { if (hasFutureDay(t, key)) return true; }
       else if (tags.indexOf(k) >= 0) return true;
     }
@@ -580,7 +571,6 @@ function narrowChoices() {
      「ぜんぶ」ではなくその眺めの名前を出す（押した先に在るものを名乗る） */
   const out = [
     { id: null, name: CENTER_VIEW_NAME },
-    { id: UNSORTED_ONLY, name: NARROW_NAME },
     { id: PAST_ONLY, name: PAST_NAME },
     { id: FUTURE_ONLY, name: FUTURE_NAME },
   ];
@@ -629,21 +619,6 @@ function isStarted(t) {
   return as.some(a => store.isStarted(t.id, a));
 }
 
-function isPlan(t) {
-  if (Array.isArray(t.anchors) && t.anchors.length) return true;
-  /* きっかけ画面の「未分類」に入っているものも、行き先は「きっかけ」 */
-  if (has('isPlan')) return !!store.isPlan(t.id);
-  return !!t.plan;
-}
-
-function marksOf(t) {
-  const m = [];
-  if (t.today) m.push('today');
-  if (isPlan(t)) m.push('anchor');
-  if (t.gap) m.push('gap');
-  return m;
-}
-
 /* 「はじめた」をどのアンカーに付けるか。
    アンカーにぶら下がっていればそのアンカー、そうでなければ null（アンカー無しの記録）。
    海・すきま・きっかけ未分類でも記録できる（追補3 §6 で store の制限を外した）。 */
@@ -661,7 +636,8 @@ function itemOf(t) {
    marks / anchorHue は渡すのをやめた（追補4 §1 が「消しても構わない」としている）。
    残したままにすると、点を描く側のコードが消えかけている間に落ちる——実際に落ちた
    （bubble.js の marks を描く枝が markColor を参照したまま消えていた）。
-   marksOf() は絞り込みの判定にまだ使うので残す。 */
+   点を組み立てていた marksOf() も、絞り込みが「まだどこにも」を持たなくなって
+   使い道が無くなったので落とした（A-48）。 */
 function optsOf(t, size) {
   return { size, colors: colorsOf(t), tagNames: namesOf(t) };
 }
