@@ -109,6 +109,10 @@ const FALLBACK_COLOR = {
   right: 'var(--slot-noon)', down: 'var(--slot-night)',
 };
 const CENTER_NAME = 'ぜんぶ';
+/* 中央の海の**行き先としての名前**は「ぜんぶ」のまま（ならべる／しぼるで
+   ぜんぶに届く場所なので）。**いま何が映っているか**の名前はこちら。
+   既定はタグ無しだけを映すので、「ぜんぶ」と名乗ると嘘になる。 */
+const CENTER_VIEW_NAME = 'タグ無し';
 /* 絞っている間の面の名前。名前が変わることが「いま絞っている」の合図（追補4 §2） */
 const NARROW_NAME = 'まだどこにも';
 /* 絞り込みが見るタグ。ユーザーの作ったタグは条件に入れない（追補4 §2）。
@@ -323,6 +327,12 @@ function resetZoom() {
    ユーザーのタグは3つ目から「海が無い」状態になる。絞り込みがその見に行く道になる。
    長期保留も、ふだんはどの海にも出ないが、ここから呼べば出る。 */
 const UNSORTED_ONLY = '\u0000unsorted';
+/* 日付での絞り込み（利用者の指示）。タグではないので、タグと同じ入れものに
+   混ぜるための擬似 id を持たせる（まだどこにも と同じやり方） */
+const PAST_ONLY = '\u0000past';
+const FUTURE_ONLY = '\u0000future';
+const PAST_NAME = '今日より前';
+const FUTURE_NAME = '今日より後';
 const narrowSet = new Set();
 let shown = false;
 let unsubscribe = null;
@@ -349,6 +359,27 @@ function hasTags() { return has('tagDir') && has('inTag'); }
 function dirTag(dir) {
   if (!hasTags() || DIRS.indexOf(dir) < 0) return null;
   try { return store.tagDir(dir) || null; } catch (err) { return null; }
+}
+
+function daysOfSafe(id) {
+  if (!has('daysOf')) return [];
+  try { const r = store.daysOf(id); return Array.isArray(r) ? r : []; } catch (err) { return []; }
+}
+
+function todayKeySafe() {
+  if (!has('todayKey')) return '';
+  try { return String(store.todayKey() || ''); } catch (err) { return ''; }
+}
+
+/* 日付キーは YYYY-MM-DD なので、**文字列の大小がそのまま日の前後**になる
+   （0 詰めの固定長。数に直す必要が無い） */
+function hasFutureDay(t, key) {
+  const k = key || todayKeySafe();
+  return !!k && daysOfSafe(t.id).some(d => d > k);
+}
+function hasPastDay(t, key) {
+  const k = key || todayKeySafe();
+  return !!k && daysOfSafe(t.id).some(d => d < k);
 }
 
 function tagsOfSafe(id) {
@@ -449,7 +480,11 @@ function quietOf(t, except) {
   return QUIET_TAGS.filter(k => k !== except && ids.indexOf(k) >= 0);
 }
 
-function isQuietItem(t, except) { return quietOf(t, except).length > 0; }
+function isQuietItem(t, except, key) {
+  if (quietOf(t, except).length) return true;
+  /* 今日より後に置いてあるものも、その日になったら出てくる。いまは出さない */
+  return hasFutureDay(t, key);
+}
 
 /* 長期保留。上の海（と、絞り込みで名指ししたとき）だけに出る。
    完了と同じ扱い方だが、意味は別もの——
@@ -497,27 +532,41 @@ function capForSea(list) {
   return list.filter(t => keep.has(t.id));
 }
 
+/* 中央の海の既定＝**タグが1つも付いておらず、今日より後の日も付いていないもの**
+   （利用者の指示）。
+
+   前は「今日・未整理・仕事・プライベートは出す／きっかけ・すきま・長期保留は出さない」
+   という数え上げだったが、それでもまだ違和感が残ると言われた。いまは規則が1つになる：
+
+     **既定 … タグの付いていないものだけ**
+     **絞ると … 選んだタグのどれかが付いているもの（または）**
+
+   タグを持つものは、そのタグの置き場所（今日の画面・きっかけ・すきま・上の海・
+   左右の海）に必ず出る。だから中央から外しても、どこにも出ないものは生まれない。
+   中央は**まだ行き先の決まっていないものが漂うところ**になる。
+
+   **日付だけは特別にもう一段いる。**「今日より後」に置いたものはタグを持たない
+   ことがある（days に未来の日が入っているだけ）。あれは「その日になったら出てくる」
+   ものなので、いま漂わせない（利用者の言葉：いつか見るので）。
+   「今日より前」は外さない——やろうとして、やらなかったもの。海に居るのが正しい。
+
+   完了はどの場面でも出さない（下の海とふりかえりに専用の道がある）。 */
 function centerItems() {
   if (!hasTags()) return capForSea(store.floating());
-  /* 静かなタグ（きっかけ・すきま・長期保留）はふだん出さない。
-     **ただし、そのタグを名指しで絞ったときだけ出す**
-     ——「いまは見ない」と決めたものを、自分から見に行く道は残す。
-     名指ししたタグ以外の静かなタグが付いていても、それは邪魔しない
-     （「きっかけを見せて」と言ったなら、きっかけのものは全部出る） */
-  const called = QUIET_TAGS.filter(k => narrowSet.has(k));
-  const list = store.all().filter(t => {
-    if (isDoneItem(t)) return false;
-    const q = quietOf(t, null);
-    return !q.length || q.some(k => called.indexOf(k) >= 0);
-  });
-  if (!narrowSet.size) return capForSea(list);
-  /* 選んだうちの**どれかが付いていれば出す**（「または」）。
+  const key = todayKeySafe();
+  const live = store.all().filter(t => !isDoneItem(t));
+  if (!narrowSet.size) {
+    return capForSea(live.filter(t => !tagsOfSafe(t.id).length && !hasFutureDay(t, key)));
+  }
+  /* 選んだうちの**どれかが当てはまれば出す**（「または」）。
      絞ったあとにも上限はかける——絞り込みは「どれを見るか」で、
      一度に出す数の話とは別だから */
-  return capForSea(list.filter(t => {
+  return capForSea(live.filter(t => {
     const tags = tagsOfSafe(t.id);
     for (const k of narrowSet) {
       if (k === UNSORTED_ONLY) { if (isUnsorted(t)) return true; }
+      else if (k === PAST_ONLY) { if (hasPastDay(t, key)) return true; }
+      else if (k === FUTURE_ONLY) { if (hasFutureDay(t, key)) return true; }
       else if (tags.indexOf(k) >= 0) return true;
     }
     return false;
@@ -527,7 +576,14 @@ function centerItems() {
 /* 絞り込みに出す一覧。**完了は出さない**（下の海とふりかえりに専用の道がある）。
    先頭の「ぜんぶ」は選択の取り消しで、重ねる対象ではない（id が null） */
 function narrowChoices() {
-  const out = [{ id: null, name: CENTER_NAME }, { id: UNSORTED_ONLY, name: NARROW_NAME }];
+  /* 先頭は選択の取り消し。**押すと既定の眺め（タグ無しだけ）に戻る**ので、
+     「ぜんぶ」ではなくその眺めの名前を出す（押した先に在るものを名乗る） */
+  const out = [
+    { id: null, name: CENTER_VIEW_NAME },
+    { id: UNSORTED_ONLY, name: NARROW_NAME },
+    { id: PAST_ONLY, name: PAST_NAME },
+    { id: FUTURE_ONLY, name: FUTURE_NAME },
+  ];
   if (!has('tags')) return out;
   try {
     (store.tags() || []).forEach(t => {
@@ -562,7 +618,8 @@ function faceItems(face) {
   try { list = store.inTag(tag.id) || []; } catch (err) { return []; }
   /* タグの海も同じ規則。**その海そのもののタグだけは数えない**ので、
      長期保留の海は長期保留を出すし、きっかけを左右へ置いた人の海も空にならない */
-  return capForSea(list.filter(t => !isQuietItem(t, tag.id)));
+  const key = todayKeySafe();
+  return capForSea(list.filter(t => !isQuietItem(t, tag.id, key)));
 }
 
 function isStarted(t) {
@@ -2187,7 +2244,7 @@ function renderChrome() {
   const tag = curFace === 'center' ? null : dirTag(curFace);
   /* 絞っている間は面の名前が変わる。これが「いま絞っている」の常時の合図（追補4 §2） */
   const narrow = curFace === 'center' && narrowOn();
-  const name = curFace !== 'center' ? nameOf(tag) : (narrow ? (narrowName() || NARROW_NAME) : CENTER_NAME);
+  const name = curFace !== 'center' ? nameOf(tag) : (narrow ? (narrowName() || NARROW_NAME) : CENTER_VIEW_NAME);
 
   /* 面が中央ひとつしか無いなら、名前を出さない（選びようがないものに名札は要らない）。
      ただし絞っている間は、名前そのものが合図なので必ず出す */
@@ -2254,12 +2311,30 @@ function syncMore() {
    絞っていないとき … 従来のヒント（書き方の案内）
    絞っていて0件 … 未達を名指ししない。「ここには何も無い」だけ言って、戻し方を添える
    （「全部片付いています」も「まだ0件です」も、どちらも数の話になってしまう／追補4 §2） */
+/* 中央が空のとき、言うことは3つに分かれる。
+   ・まだ何も書いていない        … はじめの案内
+   ・絞った先に無い              … 戻り方
+   ・書いたものが全部タグを持つ  … **既定はタグ無しだけ**なので、それを言う
+     （ここを言わないと「書いたのに消えた」に見える。既定を絞った以上、要る） */
 function syncHint() {
   const onCenter = !gathering && curFace === 'center';
   const empty = onCenter && centerItems().length === 0;
   const narrow = narrowOn();
-  hint.hidden = !(empty && !narrow);
-  if (centerEmpty) centerEmpty.hidden = !(empty && narrow);
+  let anything = false;
+  if (empty && !narrow) {
+    try { anything = store.all().some(t => !isDoneItem(t)); } catch (err) { anything = false; }
+  }
+  hint.hidden = !(empty && !narrow && !anything);
+  if (centerEmpty) {
+    const show = empty && (narrow || anything);
+    centerEmpty.hidden = !show;
+    if (show) {
+      centerEmpty.innerHTML = narrow
+        ? 'しぼった先には何も無い。<br>しぼりこみで「' + CENTER_VIEW_NAME + '」を選ぶと、もとの眺め。'
+        : 'ここに漂うのは、タグの付いていないものだけ。<br>'
+          + 'タグの付いたものは「▽しぼる」から、<br>ぜんぶは「⇅ならべる」から見える。';
+    }
+  }
 }
 
 /* 書いたものには、いまいる面のタグが付く（下の form の submit を参照）。
@@ -2349,8 +2424,9 @@ export default {
     /* 絞った結果が0件のときの言葉。未達を名指ししない（追補4 §2）。
        戻し方は「もどす」から「しぼりこみの一覧の先頭」へ変わったので、そう書く
        ——画面に無いボタンの名前を書かない */
+    /* 文は syncHint が場面ごとに入れ替える（作るときの文は初期値） */
     centerEmpty = el('p', 'sea-face-empty',
-      'ここには何も無い。<br>しぼりこみで「ぜんぶ」を選ぶと、ぜんぶの海。');
+      'しぼった先には何も無い。');
     centerEmpty.hidden = true;
     faces.center.el.appendChild(centerEmpty);
 
