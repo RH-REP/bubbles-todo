@@ -27,6 +27,7 @@ import { el, toast, clamp, holdRing } from '../ui.js';
 import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor } from '../bubble.js';
 import { createField } from '../drift.js';
 import { openSeaMap, closeSeaMap, isOpen as seaMapOpen } from '../seamap.js';
+import { openCalendar, closeCalendar, isOpen as calOpen } from '../calendar.js';
 import { playComplete } from '../sound.js';
 /* 「今日」タブの落とし先は、今日の画面がいま映している日（利用者の指示）。
    today.js は sea.js を読まないので、循環にはならない。 */
@@ -178,6 +179,7 @@ let faceName, faceDot, faceLabel;
 let gatherBtn, gatherLabel;
 let narrowBtn, narrowLabel, centerEmpty;
 let randomBtn;
+let calBtn = null;      /* はじめた日のカレンダー（利用者の指示） */
 let shuffle = null;         /* 混ぜている最中だけ { node, timer } が入る */
 let sheet, sheetTitle, sheetBody;
 let input, sendBtn, quickBtn, composer;
@@ -348,6 +350,39 @@ function zoomTo(nz, px, py) {
 function resetZoom() {
   zRaw = 1; zLevel = 1; panX = 0; panY = 0;
   applyZoom();
+}
+
+/* カレンダーの絵。文字（📅）ではなく線で描く——絵文字は端末で顔が変わるうえ、
+   ほかのボタン（⇅ ▽ ⚙）が線の記号なので、そこに絵文字が1つ混ざると浮く */
+function calIcon() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const rect = document.createElementNS(NS, 'rect');
+  rect.setAttribute('x', '3.5'); rect.setAttribute('y', '5');
+  rect.setAttribute('width', '17'); rect.setAttribute('height', '15');
+  rect.setAttribute('rx', '2.5');
+  svg.appendChild(rect);
+  const line = document.createElementNS(NS, 'path');
+  line.setAttribute('d', 'M3.5 9.5 H20.5');
+  svg.appendChild(line);
+  [8, 16].forEach(x => {
+    const p = document.createElementNS(NS, 'path');
+    p.setAttribute('d', 'M' + x + ' 3.5 V6.5');
+    svg.appendChild(p);
+  });
+  /* 濃淡の粒を置く（中身が「日ごとの濃さ」だと絵で分かる） */
+  [[7, 13, 'a'], [11.5, 13, 'b'], [16, 13, 'c'], [7, 16.5, 'b'], [11.5, 16.5, 'c']].forEach(g => {
+    const d = document.createElementNS(NS, 'rect');
+    d.setAttribute('x', String(g[0] - 1.4)); d.setAttribute('y', String(g[1] - 1.4));
+    d.setAttribute('width', '2.8'); d.setAttribute('height', '2.8');
+    d.setAttribute('rx', '0.7');
+    d.setAttribute('class', 'dot ' + g[2]);
+    svg.appendChild(d);
+  });
+  return svg;
 }
 
 /* 中央（ぜんぶ）の海の絞り込み（利用者の指示。タグごと → **複数選べる**）。
@@ -2782,6 +2817,20 @@ export default {
     dropOff.appendChild(offLabel);
     stage.appendChild(dropOff);
 
+    /* --- はじめた日のカレンダー（利用者の指示）---
+       1段目の右、歯車の左。**海に置く**のが肝で、
+       積み上がったものが日々使う面から見えるようにするため（レビューの指摘）。 */
+    calBtn = el('button', 'sea-cal');
+    calBtn.type = 'button';
+    calBtn.setAttribute('aria-label', 'はじめた日のカレンダー');
+    calBtn.title = 'はじめた日';
+    calBtn.appendChild(calIcon());
+    calBtn.addEventListener('click', ev => {
+      ev.preventDefault();
+      openCalendar({ was: calBtn });
+    });
+    stage.appendChild(calBtn);
+
     /* --- ならべる（トグル） --- */
     gatherBtn = el('button', 'sea-gather');
     gatherBtn.type = 'button';
@@ -3004,9 +3053,24 @@ export default {
     startCurrent();
   },
 
+  /* 戻る（Android の戻るボタン。利用者の指示）。
+     **開いているものを1つずつ畳んで、最後にホームの海（中央）へ。**
+     まだ畳むものがあれば true を返す＝アプリを出ない。
+     何も無く、中央にも居るなら false ＝ここから先は app.js が外へ渡す。 */
+  onBack() {
+    if (calOpen()) { closeCalendar(true); return true; }
+    if (seaMapOpen()) { closeSeaMap(true); return true; }
+    if (narrowPop) { closeNarrowPop(true); return true; }
+    if (openDetailId) { closeDetail(); return true; }
+    if (gathering) { setGathering(false); return true; }
+    if (curFace !== 'center') { cancelSwipe(); goFace('center'); return true; }
+    return false;
+  },
+
   onHide() {
     shown = false;
     cancelHold();
+    if (calOpen()) closeCalendar(false);
     if (seaMapOpen()) closeSeaMap(false);
     cancelSwipe();
     closePan(); pinchPts.clear(); pinch = null;

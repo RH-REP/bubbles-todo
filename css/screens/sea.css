@@ -947,3 +947,85 @@
   border: 1px solid var(--line); color: var(--text-2);
   font-size: 11px; white-space: nowrap;
 }
+
+/* ---------- はじめた日のカレンダー（利用者の指示） ----------
+   1段目の右、歯車（right:10px）の左どなり。**海に置く**のが肝で、
+   積み上がったものが日々使う面から見えるようにするため。 */
+.sea-cal {
+  position: absolute; z-index: 8; top: 10px; right: 62px;
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  width: 44px; height: 44px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--text-2);
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  transition: transform .1s, color .12s, border-color .12s;
+}
+.sea-cal svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+/* 濃淡の粒は塗り。中身が「日ごとの濃さ」だと絵で分かる */
+.sea-cal svg .dot { stroke: none; fill: currentColor; }
+.sea-cal svg .dot.a { opacity: .30; }
+.sea-cal svg .dot.b { opacity: .58; }
+.sea-cal svg .dot.c { opacity: .88; }
+.sea-cal:hover { color: var(--text); border-color: var(--bub-edge); }
+.sea-cal:active { transform: scale(.95); }
+.sea-cal:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* 掴んでいる間は薄くする。落とし先ではないので狙わせない */
+body.is-dragging .sea-cal { opacity: .25; pointer-events: none; }
+
+/* 開いた板。濃さは1色の濃度だけで作る（ふりかえりの直近7日と同じ約束）。
+   0件の日は無彩色。赤は使わない。 */
+.cal-back {
+  position: fixed; inset: 0; z-index: 92;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: color-mix(in srgb, var(--text) 34%, transparent);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.cal {
+  --cal-ink: #2b87a6;
+  --cal-zero: rgba(128,128,128,.10);
+  --cal-l1: color-mix(in srgb, var(--cal-ink) 22%, transparent);
+  --cal-l2: color-mix(in srgb, var(--cal-ink) 42%, transparent);
+  --cal-l3: color-mix(in srgb, var(--cal-ink) 66%, transparent);
+  --cal-l4: color-mix(in srgb, var(--cal-ink) 90%, transparent);
+  width: min(400px, 100%); max-height: 100%; overflow-y: auto;
+  background: var(--surface); color: var(--text);
+  border-radius: 18px; padding: 14px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.28);
+}
+@media (prefers-color-scheme: dark) {
+  .cal { --cal-ink: #7cc4e2; --cal-zero: rgba(255,255,255,.08); }
+}
+.cal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cal-head .tt { flex: 1; font-size: 15px; font-weight: 600; }
+.cal-head .cl {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  min-height: 44px; padding: 0 12px; border: 0; background: transparent;
+  color: var(--text-2); font-size: 12.5px; font-weight: 600; border-radius: 10px;
+}
+.cal-head .cl:hover { color: var(--text); }
+
+/* 横に長いので、外側だけがスクロールする */
+.cal-scroll { overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; }
+.cal-grid { display: flex; gap: 4px; width: max-content; }
+.cal-dows {
+  display: grid; grid-template-rows: 12px repeat(7, 14px); gap: 3px;
+  padding-top: 15px;                       /* 月名の行ぶん下げる */
+}
+.cal-dow { font-size: 9.5px; line-height: 14px; color: var(--text-2); }
+.cal-cols { display: flex; gap: 3px; }
+.cal-col { display: grid; grid-template-rows: 12px repeat(7, 14px); gap: 3px; }
+.cal-mon { font-size: 9.5px; line-height: 12px; color: var(--text-2); white-space: nowrap; }
+.cal-cell {
+  width: 14px; height: 14px; border-radius: 3px;
+  background: var(--cal-zero);
+}
+.cal-cell.is-pad { background: transparent; }
+.cal-cell[data-lv="1"] { background: var(--cal-l1); }
+.cal-cell[data-lv="2"] { background: var(--cal-l2); }
+.cal-cell[data-lv="3"] { background: var(--cal-l3); }
+.cal-cell[data-lv="4"] { background: var(--cal-l4); }
+.cal-empty { margin: 8px 2px; font-size: 13px; color: var(--text-2); line-height: 1.8; }
+.cal-foot { margin: 10px 2px 0; font-size: 12.5px; color: var(--text-2); }

@@ -1305,6 +1305,15 @@ export default {
     render();
   },
 
+  /* 戻る（Android の戻るボタン）。開いているものを畳む。
+     日を移していたら今日へ戻す——「最終的にホームへ」の途中の1段。 */
+  onBack() {
+    if (dayPop) { closeDayPop(); return true; }
+    if (detail) { closeDetail(); return true; }
+    if (viewDay) { goDay(todayKey()); return true; }
+    return false;
+  },
+
   onHide() {
     shown = false;
     closeMenu();

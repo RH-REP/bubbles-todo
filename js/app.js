@@ -11,8 +11,9 @@
 import { store } from './store.js';
 import { toast, holdRing } from './ui.js';
 
-import { setCaptureHandler, setWorklogHandler } from './focus.js';
+import { setCaptureHandler, setWorklogHandler, closeFocus } from './focus.js';
 import { setCenterHandler } from './bubble.js';
+import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import sea from './screens/sea.js';
 import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
@@ -423,6 +424,73 @@ window.addEventListener('bubbles:goto', (ev) => {
 });
 
 show(SCREENS[0].id);
+
+/* ---------------- 戻る（Android の戻るボタン。利用者の指示） ----------------
+
+   > 戻るボタンは最終的にホームの海に行く様に直して
+
+   前は `history` を一切使っていなかったので、**戻るを押すとアプリごと終わっていた**
+   （README にも「未対応」と書いてあった）。モバイルで前提の操作なのに、
+   いちばん頻繁な誤操作がいちばん高くつく状態だった。
+
+   やり方は素朴に：**入り口で1つ積んでおいて、戻るが来たら1つ畳んで、また積む。**
+   畳むものが無くなったときだけ積み直さない＝その次の戻るで外へ出る。
+
+   畳む順番（上から見て、いちばん手前のものから）：
+     1. 記録を直す板 → 海の引き → 海の名前の板 → 集中画面 → 中央の盤
+     2. いまの画面が自分で畳めるもの（onBack。海なら 絞り／整列／詳細／面）
+     3. 海の画面でなければ、海へ
+     4. 何も無ければ外へ（積み直さない）
+
+   ホームは**海の中央**。3 と、海の onBack の最後（中央へ戻す）で、
+   どこから押しても最後は必ずそこへ着く。 */
+const BACK_MARK = 'bubbles-back';
+
+function pushBack() {
+  try { history.pushState({ [BACK_MARK]: 1 }, ''); } catch (err) { /* 使えない環境では何もしない */ }
+}
+
+/* いちばん手前の覆いを1つ畳む。畳んだら true */
+function closeTopOverlay() {
+  /* 記録を直す板（bubble.js が作る素の要素。閉じるのは外すだけ） */
+  const stepEdit = document.querySelector('.bh-edit-back');
+  if (stepEdit) { stepEdit.remove(); return true; }
+  /* 海の名前の板 → 海の引き */
+  const mapSheet = document.querySelector('.seamap-sheet-back');
+  if (mapSheet) { mapSheet.remove(); return true; }
+  if (seaMapOpen()) { closeSeaMap(true); return true; }
+  /* 集中画面 */
+  if (document.querySelector('.focus')) { closeFocus({ reason: 'back' }); return true; }
+  /* 中央の盤。覆い（.bub-veil）の pointerup が畳む道なので、そこへ渡す */
+  const veil = document.querySelector('.bub-veil');
+  if (veil) {
+    veil.dispatchEvent(new PointerEvent('pointerup', {
+      pointerId: -1, bubbles: true, cancelable: true, clientX: 0, clientY: 0,
+    }));
+    return true;
+  }
+  /* 今日の日の一覧 */
+  const dayPop = document.querySelector('.today-daypop-back');
+  if (dayPop) {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return true;
+  }
+  return false;
+}
+
+function handleBack() {
+  if (closeTopOverlay()) return true;
+  if (current && typeof current.onBack === 'function') {
+    try { if (current.onBack()) return true; } catch (err) { /* 畳めないだけ */ }
+  }
+  if (current && current.id !== 'sea') { show('sea'); return true; }
+  return false;                       /* もう畳むものが無い＝外へ */
+}
+
+window.addEventListener('popstate', () => {
+  if (handleBack()) pushBack();       /* まだ中に居る。次の戻るも受け取れるように積み直す */
+});
+pushBack();
 
 /* 開いたまま朝を跨いだとき用。裏から表に戻った一度だけ見る */
 document.addEventListener('visibilitychange', () => {
