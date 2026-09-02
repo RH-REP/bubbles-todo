@@ -4,7 +4,8 @@
    todo = {
      id:        string     一意
      text:      string     本文
-     today:     boolean    「今日する」枠に入っているか
+     today:     boolean    「今日する」枠に入っているか。**days から出す読み取り専用の値**
+                           （defineToday）。書き替えるのは days のほう（setDay）
      createdAt: number     epoch ms
      fx, fy:    number     漂う位置。ステージに対する中心の割合 0..1
      slots:     string[]   時間帯タグ。朝/昼/夜の固定3値。複数可。
@@ -284,9 +285,15 @@ const NO_ANCHOR_NAME = 'きっかけ無し';
 /* started / log で「アンカー無し」を表すキー。log 側では null で持つ */
 const NO_ANCHOR_KEY = '';
 
-/* 夜の枠が 17時〜翌5時 なので、日付の境も 5時に合わせる。
-   深夜1時に着手したものは「前日ぶん」として数える。 */
-const DAY_CUTOFF_HOUR = 5;
+/* 日付の境目。**0時＝壁の時計の日付そのまま**（利用者の判断。A-60）。
+
+   前は 5時だった。理由は「夜の枠が 17時〜翌5時 だから境も合わせる」——
+   だがその朝／昼／夜の枠は **UI から撤去済み**（today.js の頭）で、
+   いま `setSlot` を呼ぶのは使われていない `screens/todo.js` だけ。根拠のほうが先に消えていた。
+
+   **0 にすると引き算が消える**ので、dayOf() は素の日付になる。
+   代償：深夜0時を回って書いたものは、その時点で翌日ぶんとして数える。 */
+const DAY_CUTOFF_HOUR = 0;
 
 let items = [];
 let anchorList = [];  /* アンカー。配列の並びがそのままユーザーの並び順 */
@@ -355,7 +362,7 @@ function ymd(d) {
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
 }
 
-/* epoch ms が「どの日のぶん」か。5時までは前日 */
+/* epoch ms が「どの日のぶん」か。境目は DAY_CUTOFF_HOUR（いまは0時＝素の日付） */
 function dayOf(ms) {
   return ymd(new Date(ms - DAY_CUTOFF_HOUR * 3600 * 1000));
 }
@@ -378,9 +385,9 @@ function dayOf(ms) {
    ■ 空＝毎日
    days が空なら、いつでもその日。既定はこれ（今までのきっかけは全部これになる）。
 
-   ■ 日の境目は 5時（DAY_CUTOFF_HOUR）
-   ここだけ別の境目にすると、深夜1時に「昨日の曜日」と「今日の曜日」が食い違う。
-   dayOf() と同じ引き算を通してから曜日を読む。
+   ■ 日の境目は DAY_CUTOFF_HOUR（いまは0時）
+   ここだけ別の境目にすると、境目のまたぎ方が曜日と日付で食い違う。
+   dayOf() と同じ引き算を通してから曜日を読む（0時なら引き算は0になる）。
 
    ■ **過ぎた日のことは何も持たない**
    「予定の日だったのに着手しなかった」を表す状態を、どこにも作っていない。
@@ -413,7 +420,7 @@ function scheduleHits(sch, at) {
   const s = normalizeSchedule(sch);
   if (!s.days.length) return true;                       /* 毎日 */
   const ms = Number.isFinite(Number(at)) ? Number(at) : Date.now();
-  /* 5時までは前日として読む（dayOf と同じ引き算） */
+  /* dayOf と同じ引き算を通す（0時なら何も引かない） */
   const d = new Date(ms - DAY_CUTOFF_HOUR * 3600 * 1000);
   if (s.days.indexOf(d.getDay()) < 0) return false;
   if (!s.weeks.length) return true;                      /* 毎週その曜日 */
@@ -443,11 +450,20 @@ function scheduleHits(sch, at) {
    **持ち越さない、は保たれている。**明日の海が空なのは、
    明日のキーを持つものがまだ無いからで、勝手に運ばれることはない。
 
-   `t.today` は**残してあるが、days から作り直す控え**。
+   `t.today` は**残してあるが、days から出す派生値**。
    画面（30か所）は今までどおり `t.today` を読めばよい。
-   書き換えてよいのは syncTodayFlags() と setDay() だけ。 */
 
-/* epoch ms を日付キーに。dayOf と同じ（5時までは前日） */
+   **控えとして持たない**（利用者の指示。前はここで間違えた）。
+   前は `syncTodayFlags()` が全項目に真偽値を書き込んで持っていて、それを呼ぶのは
+   `rollover()` だけだった。`rollover()` は起動時と一部の画面からしか走らないので、
+   **ページを開いたまま日付の境目をまたぐと、todayKey() だけが進んで控えが昨日のまま残った**——
+   今日の水面に昨日ぶんが出る／昨日ぶんが「今日」タグを付けたまま海に戻らない、が起きる。
+
+   いまは `defineToday()` が読むたびに days から出す（getter）。古くなりようがない。
+   代わりに **`t.today` へは代入できない**（strict モードなので TypeError になる）。
+   置く／外すのは `setDay()`（＝ days を書く）だけ。 */
+
+/* epoch ms を日付キーに。dayOf と同じ（境目は DAY_CUTOFF_HOUR） */
 function dayKey(ms) { return dayOf(ms); }
 function todayKey() { return dayOf(Date.now()); }
 
@@ -489,15 +505,20 @@ function normalizeDays(v) {
   return [...seen].sort();
 }
 
-/* days から t.today を作り直す。変わったものがあれば true */
-function syncTodayFlags() {
-  const k = todayKey();
-  let changed = false;
-  items.forEach(t => {
-    const on = t.days.indexOf(k) >= 0;
-    if (t.today !== on) { t.today = on; changed = true; }
+/* t.today を days から出す口を項目に付ける。**値は持たない。**
+   項目を作るところ（normalizeTodo / add / seed）で必ず通す。
+
+   enumerable にしてあるのは、保存の形を変えないため——JSON.stringify にも
+   今までどおり today が出るので、旧い版で開いても、書き出した控えを読み直しても壊れない。
+   configurable にしてあるのは、同じ項目に二度掛かっても落ちないようにするため。 */
+function defineToday(t) {
+  Object.defineProperty(t, 'today', {
+    enumerable: true,
+    configurable: true,
+    /* days が無い形（外で作られた snapshot を restore された場合）でも落ちない */
+    get() { return Array.isArray(t.days) && t.days.indexOf(todayKey()) >= 0; },
   });
-  return changed;
+  return t;
 }
 
 /* 今日を含む直近 n 日ぶんの日付キー。古い順。ちょうど n 件 */
@@ -871,12 +892,11 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
       if (Number.isFinite(n)) gapAt[id] = n;
     });
   }
-  return {
+  return defineToday({
     id: typeof t.id === 'string' ? t.id : uid(),
     text: t.text,
-    /* days が本体。today はそこから作った控え（画面はこちらを読む） */
+    /* days が本体。today は defineToday() が days から出す（値は持たない） */
     days,
-    today,
     hold,
     holdUntil,
     createdAt: Number(t.createdAt) || Date.now(),
@@ -917,7 +937,7 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
     doneAt: (done && Number.isFinite(Number(t.doneAt))) ? Number(t.doneAt) : null,
     trashed,
     trashedAt: (trashed && Number.isFinite(Number(t.trashedAt))) ? Number(t.trashedAt) : null,
-  };
+  });
 }
 
 
@@ -1147,7 +1167,6 @@ function rollover() {
      この一回だけは戻さずに今日として引き継ぐ（勝手に消さないことを優先） */
   const first = lastDay === null;
   let n = 0;
-  let changed = false;
   if (!first) {
     items.forEach(t => {
       if (t.trashed) return;                 /* 墓石には触らない */
@@ -1156,20 +1175,20 @@ function rollover() {
          明日のキーを持つものがまだ無いからで、勝手に運ばれることはない。
          昨日ぶんが n（海へ戻した件数）に数えられていたが、
          もう戻さないので数えるものが無い（n は 0 のまま） */
-      if (t.slots.length) { t.slots = []; changed = true; }   /* 時間帯は today の中の軸 */
+      if (t.slots.length) t.slots = [];                       /* 時間帯は today の中の軸 */
       /* 今日する枠の外でも、アンカーからは始められる。
          そのぶんの記録もここで落とす */
-      if (Object.keys(startedOf(t)).length) {
-        t.started = {};
-        changed = true;
-      }
+      if (Object.keys(startedOf(t)).length) t.started = {};
     });
   }
-  /* today は days から作り直す（日が変わったので、昨日ぶんは自然に外れる） */
-  if (syncTodayFlags()) changed = true;
+  /* today は days から出る派生値なので、作り直す仕事はもう無い
+     （日が変わった時点で、昨日ぶんは読むだけで外れている） */
   lastDay = day;
   persist();
-  if (changed) emit();
+  /* **日が変わったこと自体を知らせる。**中身を書き替えていなくても、
+     today / タグ / その日の水面の見え方はもう変わっている。
+     ここで黙ると、開きっぱなしの画面が昨日の絵のまま残る（それが今回の穴だった） */
+  emit();
   /* 戻り値は「海へ戻した件数」だった。日付ごとに持つようになって
      **戻す動作そのものが無くなった**ので、いつでも 0。
      呼んでいるのは review.js / plan.js の2か所だけで、どちらも戻り値を見ていない。 */
@@ -1243,12 +1262,12 @@ export const store = {
     const body = String(text).trim();
     if (!body) return null;
     const o = opts || {};
-    const t = {
+    const t = defineToday({
       id: uid(),
       text: body,
-      /* days が本体。today:true で作るときは今日のキーを1つ入れる */
+      /* days が本体。today:true で作るときは今日のキーを1つ入れる
+         （today そのものは defineToday() が days から出す） */
       days: o.today ? [todayKey()] : [],
-      today: !!o.today,
       hold: false,
       holdUntil: null,
       createdAt: Date.now(),
@@ -1271,7 +1290,7 @@ export const store = {
       doneAt: null,
       trashed: false,
       trashedAt: null,
-    };
+    });
     items.push(t);
     /* 「今日する」枠に直接書いた場合も「入れた」記録に残す（setToday を通らない経路） */
     if (t.today) todayLogs.push({ id: t.id, text: t.text, at: t.createdAt });
@@ -1441,7 +1460,9 @@ export const store = {
     /* 同じ id の別の項目が既に居るなら、二重には入れない */
     if (findAny(t.id)) return false;
     const at = Math.min(Math.max(0, snapshot.index | 0), items.length);
-    items.splice(at, 0, t);
+    /* 外で作られた snapshot は today を**ただの値**として持っていることがある。
+       一覧に入れる前に days から出す口へ差し替える（控えを混ぜない） */
+    items.splice(at, 0, defineToday(t));
     persist(); emit();
     return true;
   },
@@ -1450,7 +1471,7 @@ export const store = {
 
   /* 今日の日付キー。画面はこれを起点に前後の日を作る */
   todayKey,
-  /* epoch ms の日付キー（5時までは前日） */
+  /* epoch ms の日付キー（境目は DAY_CUTOFF_HOUR） */
   dayKey,
 
   /* その項目が置かれている日（古い順）。コピーを返す */
@@ -1474,9 +1495,10 @@ export const store = {
     if (!t || typeof key !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
     const has = t.days.indexOf(key) >= 0;
     if (has === !!on) return false;
-    t.days = on ? normalizeDays(t.days.concat(key)) : t.days.filter(d => d !== key);
+    /* today は days から出す派生値なので、**days を書き替える前に**読む
+       （書き替えたあとに読むと、もう新しい値になっている） */
     const wasToday = t.today;
-    t.today = t.days.indexOf(todayKey()) >= 0;
+    t.days = on ? normalizeDays(t.days.concat(key)) : t.days.filter(d => d !== key);
     /* 今日から外れたときだけ、時間帯タグを落とす（あれは today の中の軸） */
     if (wasToday && !t.today) t.slots = [];
     /* ログには「いつ決めたか（at）」と「どの日のぶんか（day）」の両方を残す。
@@ -1533,7 +1555,7 @@ export const store = {
   },
 
   /* 今日から n 日後の日付キー。画面が「1週間」「1か月」を日付に直すのに使う。
-     日付の作り方を画面ごとに書かないための1か所（5時の境目もここに入っている） */
+     日付の作り方を画面ごとに書かないための1か所（日付の境目もここに入っている） */
   dayAfter(n) { return addDays(todayKey(), n); },
 
   /* 今日から n か月後。月末はつぶれる（1/31 の1か月後は 2/28） */
@@ -1544,8 +1566,8 @@ export const store = {
      **静かに戻す。**「期限切れ」も「◯日放置」も出さない（README の禁止事項）。
      戻ってきたという事実だけを、呼び手がひとこと言えるように配列で返す。
 
-     日の境目は 5時（DAY_CUTOFF_HOUR）で、todayKey() と同じ。
-     「9月15日に戻る」なら、9月15日の5時を回った時点で戻る。
+     日の境目は DAY_CUTOFF_HOUR（いまは0時）で、todayKey() と同じ。
+     「9月15日に戻る」なら、9月15日になった時点で戻る。
      過ぎた日（アプリを開いていなかった間に来た日）も同じ判定で拾える。
 
      -> 戻した項目の配列（古い順ではなく、items の並び順）。1件も無ければ [] */
@@ -2424,14 +2446,14 @@ export const store = {
 
   seed(texts) {
     texts.forEach(text => {
-      items.push({
-        id: uid(), text, days: [], today: false, hold: false, holdUntil: null, createdAt: Date.now(),
+      items.push(defineToday({
+        id: uid(), text, days: [], hold: false, holdUntil: null, createdAt: Date.now(),
         fx: 0.15 + Math.random() * 0.7, fy: 0.15 + Math.random() * 0.6,
         slots: [], anchors: [], anchorAt: {}, started: {},
         firstStep: '', url: '', gap: false, gapSlots: [], gapAt: {}, plan: false,
         steps: [], draft: { did: '', next: '' },
         tags: [], done: false, doneAt: null, trashed: false, trashedAt: null,
-      });
+      }));
     });
     persist(); emit();
   },

@@ -80,8 +80,23 @@ function sweepHolds() {
     : '「' + head + '」ほか' + (back.length - 1) + '件が海にもどった');
 }
 
-function show(id) {
+/* 日をまたいだぶんの追いつき。**時計では起こさない**（A-21 と同じ考え方——
+   裏に回ると setTimeout は間引かれて当てにならず、見ていない画面が
+   独りでに動いても誰も得をしない）。人が見る直前の3か所だけで走る：
+   起動（store.js が読み込み時に1回）・画面の切り替え・表に戻ったとき。
+
+   rollover() を先に呼ぶ。これが無いと、開いたまま日付の境目をまたいだとき
+   「はじめた」印と時間帯タグが昨日のまま残り、画面も描き直されない。
+   同じ日に何度呼んでも中では素通りする（lastDay を見て早々に返る）。 */
+function catchUpDay() {
+  if (typeof store.rollover === 'function') {
+    try { store.rollover(); } catch (err) { /* ここで落として画面を止めない */ }
+  }
   sweepHolds();
+}
+
+function show(id) {
+  catchUpDay();
   if (current && current.id === id) return;
 
   if (current && typeof current.onHide === 'function') current.onHide();
@@ -382,7 +397,7 @@ setCenterHandler({
   setTag:       (id, tagId, on) => (has('setTag') ? store.setTag(id, tagId, on) : false),
 
   /* 長期保留の「戻ってくる日」（利用者の指示）。
-     盤は日付キーの文字列しか触らない。5時の境目も月末のつぶし方も store 側にある */
+     盤は日付キーの文字列しか触らない。日付の境目も月末のつぶし方も store 側にある */
   holdUntil:    (id) => (has('holdUntil') ? store.holdUntil(id) : null),
   setHoldUntil: (id, key) => (has('setHoldUntil') ? store.setHoldUntil(id, key) : false),
   todayKey:     () => (has('todayKey') ? store.todayKey() : null),
@@ -494,7 +509,7 @@ pushBack();
 
 /* 開いたまま朝を跨いだとき用。裏から表に戻った一度だけ見る */
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') sweepHolds();
+  if (document.visibilityState === 'visible') catchUpDay();
 });
 
 /* 「タブへ落とした」の処理は各画面が持つ（取り消し付きのトーストを出したいため）。

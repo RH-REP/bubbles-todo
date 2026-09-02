@@ -298,7 +298,7 @@ const AGG = {
     { id: 'b', text: 'い', slot: 'A', slotName: '歯を磨いたら', at: ms(2026, 8, 14, 6, 0) },      /* 窓のいちばん古い日 */
     { id: 'b', text: 'い', slot: 'A', slotName: '歯を磨いたら', at: ms(2026, 8, 18, 9, 0) },
     { id: 'b', text: 'い', slot: 'C', slotName: '駅に着いたら', at: ms(2026, 8, 18, 20, 0) },
-    { id: 'b', text: 'い', slot: 'C', slotName: '駅に着いたら', at: ms(2026, 8, 19, 3, 0) },      /* 5時前なので 08-18 ぶん */
+    { id: 'b', text: 'い', slot: 'C', slotName: '駅に着いたら', at: ms(2026, 8, 19, 3, 0) },      /* 深夜3時。0時を回っているので 08-19 ぶん（A-60 より前は 08-18 ぶんだった） */
     { id: 'a', text: 'あ', slot: 'B', slotName: '風呂から出たら', at: ms(2026, 8, 20, 10, 0) },
   ],
   lastDay: '2026-08-20',
@@ -313,9 +313,9 @@ await test('startedByDay(7) はちょうど7件・古い順・0の日も含む',
     '2026-08-14', '2026-08-15', '2026-08-16', '2026-08-17',
     '2026-08-18', '2026-08-19', '2026-08-20',
   ]);
-  assert.deepEqual(by.map(x => x.n), [1, 0, 0, 0, 3, 0, 1]);
+  assert.deepEqual(by.map(x => x.n), [1, 0, 0, 0, 2, 1, 1]);
   assert.equal(by[by.length - 1].day, store.today());     /* 最後が今日 */
-  assert.equal(store.startedDays(7), 3);                  /* 1件以上あった日は3日 */
+  assert.equal(store.startedDays(7), 4);                  /* 1件以上あった日は4日 */
   assert.equal(store.startedByDay(1).length, 1);
   assert.deepEqual(store.startedByDay(1), [{ day: '2026-08-20', n: 1 }]);
 });
@@ -415,20 +415,20 @@ await test('壊れた保存データでも例外を投げずに空で立ち上�
   assert.deepEqual(mixed.log().map(e => e.slotName), ['歯を磨いたら', '']);
 });
 
-/* 9. 日付の境。5時までは前日 */
-await test('today() は午前5時までを前日として扱う', async () => {
+/* 9. 日付の境。0時＝壁の時計の日付そのまま（A-60 で 5時から変えた） */
+await test('today() は0時で切り替わる（壁の時計の日付そのまま）', async () => {
   const store = await open({ raw: null });
-  assert.equal(store.DAY_CUTOFF_HOUR, 5);
+  assert.equal(store.DAY_CUTOFF_HOUR, 0);
 
   const cases = [
-    [ms(2026, 8, 20, 0, 0), '2026-08-19'],
-    [ms(2026, 8, 20, 4, 59), '2026-08-19'],
+    [ms(2026, 8, 20, 0, 0), '2026-08-20'],      /* 0時ちょうどで、もう新しい日 */
+    [ms(2026, 8, 20, 4, 59), '2026-08-20'],     /* 前は 8/19 ぶんだった */
     [ms(2026, 8, 20, 5, 0), '2026-08-20'],
     [ms(2026, 8, 20, 12, 0), '2026-08-20'],
     [ms(2026, 8, 20, 23, 59), '2026-08-20'],
-    [ms(2026, 8, 21, 1, 0), '2026-08-20'],
-    [ms(2026, 1, 1, 3, 0), '2025-12-31'],       /* 年をまたぐ */
-    [ms(2026, 3, 1, 6, 0), '2026-03-01'],       /* 月をまたぐ手前 */
+    [ms(2026, 8, 21, 1, 0), '2026-08-21'],      /* 深夜1時は、もう 8/21 ぶん */
+    [ms(2026, 1, 1, 3, 0), '2026-01-01'],       /* 年をまたいだ直後 */
+    [ms(2026, 3, 1, 6, 0), '2026-03-01'],
   ];
   cases.forEach(([now, want]) => {
     setNow(now);
@@ -517,7 +517,10 @@ await test('todayedCount は「今日するに入れた」件数を期間で数�
   store.setToday(c.id, false);
   store.setToday(c.id, true);
   assert.equal(store.todayedCount(1), 2);
-  assert.equal(store.todays().length, 3, 'todays() は現在値なので3のまま');
+  /* todays() は現在値（出来事の数ではない）。
+     8/18 に入れた2件は days が '2026-08-18' のままなので、8/20 の今日には出ない
+     ——today は days から出す派生値で、日が動けばそのまま付いてくる */
+  assert.equal(store.todays().length, 1, 'todays() は現在値。いま今日なのは c だけ');
 
   /* 期間外は数えない */
   setNow(ms(2026, 8, 30, 10));
@@ -1165,9 +1168,10 @@ await test('rollover は毎日リセット。setToday はアンカーの記録�
   assert.deepEqual(store.anchorsOf(t.id), [A.id], 'アンカーは日をまたいでも消えない');
   assert.deepEqual(store.inAnchor(A.id).map(x => x.id), [t.id]);
   assert.equal(store.totalStarted(), 1, 'ログは残る');
-  setNow(NOW);
 
-  /* 今日する枠の外でも、アンカーからは始められる（そして翌日リセットされる） */
+  /* 今日する枠の外でも、アンカーからは始められる（そして翌日リセットされる）。
+     **時計は 8/21 のまま進める。**today は days から出す派生値なので、
+     ここで 8/20 へ戻すと「今日の海に居る」が正しい答えに戻ってしまう */
   assert.equal(store.get(t.id).today, false);
   assert.equal(store.start(t.id, A.id), true, 'アンカーは today とは無関係');
   setNow(ms(2026, 8, 22, 10, 0));
@@ -2613,11 +2617,12 @@ await test('きっかけの日にち：受け取らない値・境目・保存',
   assert.equal(store.setAnchorSchedule('nosuch', { days: [1] }), false);
   assert.equal(store.anchorDue('nosuch'), true, '知らない id は隠さない');
 
-  /* 日の境目は 5時。月曜の午前1時は「日曜のぶん」 */
+  /* 日の境目は0時。曜日も日付と同じところで替わる（A-60 より前は5時だった） */
   store.setAnchorSchedule(a.id, { days: [0] });                 /* 日曜 */
   assert.equal(new Date(2026, 8, 6).getDay(), 0, '前提：9/6 は日曜');
-  assert.equal(store.anchorDue(a.id, ms(2026, 9, 7, 1, 0)), true, '月曜1時は日曜のぶん');
-  assert.equal(store.anchorDue(a.id, ms(2026, 9, 7, 6, 0)), false, '月曜6時はもう月曜');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 6, 23, 59)), true, '日曜の23:59はまだ日曜');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 7, 1, 0)), false, '月曜1時は、もう月曜');
+  assert.equal(store.anchorDue(a.id, ms(2026, 9, 7, 6, 0)), false, '月曜6時ももちろん月曜');
 
   /* dueAnchors は並びを保ったまま、その日のものだけ返す */
   const b = store.addAnchor('コーヒーを淹れたら');            /* 日にち無し＝毎日 */
@@ -3268,14 +3273,14 @@ await test('もどってくる日が来たら、静かに海へ戻る（sweepHol
   assert.equal(d25.holds().length, 2, '日を決めていないものは残る');
   assert.deepEqual(d25.sweepHolds(), [], '二度目は何も戻さない');
 
-  /* 5時の境目。8/25 の 4:00 は「8/24 のぶん」なので、まだ戻らない */
+  /* 0時の境目。8/25 に入った時点で戻る（A-60 より前は5時まで前日あつかいだった） */
   const early = await open({ raw: null, now: NOW });
   const x = early.add('朝の一件');
   early.setHold(x.id, true, '2026-08-25');
+  const before = await open({ now: ms(2026, 8, 24, 23, 59) });
+  assert.deepEqual(before.sweepHolds(), [], '24日のうちは、まだ戻らない');
   const at4 = await open({ now: ms(2026, 8, 25, 4, 0) });
-  assert.deepEqual(at4.sweepHolds(), [], '5時までは前日のあつかい');
-  const at6 = await open({ now: ms(2026, 8, 25, 6, 0) });
-  assert.deepEqual(at6.sweepHolds().map(t => t.text), ['朝の一件']);
+  assert.deepEqual(at4.sweepHolds().map(t => t.text), ['朝の一件'], '深夜4時でも、もう25日');
 
   /* 開いていなかった間に過ぎた日も、開いた時点で拾う（何日過ぎたかは数えない） */
   const late = await open({ raw: null, now: NOW });
@@ -3714,7 +3719,8 @@ await test('rollover は墓石に触らない', async () => {
 
   setNow(ms(2026, 8, 21, 10, 0));
   assert.equal(store.rollover(), 0, 'もう戻さない（墓石にも触らない）');
-  setNow(NOW);
+  /* **時計は 8/21 のままで見る。**today は days から出す派生値なので、
+     ここで 8/20 へ戻すと「8/20 の海に居る」が正しい答えになってしまう */
 
   const row = store.allIncludingTrashed().find(x => x.id === t.id);
   assert.equal(row.trashed, true, '掘り起こされない');
@@ -3729,6 +3735,7 @@ await test('rollover は墓石に触らない', async () => {
 
   /* 生きているほうは従来どおり海へ戻る */
   assert.equal(store.get(keep.id).today, false);
+  setNow(NOW);
 });
 
 await test('clear() / wipe() の意味は変わらない。墓石ごと本当に消す', async () => {
@@ -3783,6 +3790,61 @@ await test('墓石は枠に居座らない。生きている項目とは取り�
   assert.equal(s2.restore(snap), true);
   assert.deepEqual(s2.inGapSlot('screen').map(x => x.id), [a.id, b.id],
     '戻したほうも同じ枠へ。ぶら下げた順に並ぶ');
+});
+
+/* ============================================================ */
+
+/* 開いたまま日付の境目（0時）をまたぐ。**store を読み直さない**のがこのテストの肝で、
+   前はここで t.today という控えが昨日のまま残り、
+   ・今日の水面に昨日ぶんが出る（today.js は todayKey() と一致する日だけ todays() を読む）
+   ・昨日ぶんが「今日」タグを付けたままで、中央の海に戻ってこない
+   ・「はじめた」印が朝に消えない
+   が起きていた。today は days から出す派生値になったので、控えは無い。 */
+await test('ページを開いたまま0時をまたいでも、today は days から出た値のまま', async () => {
+  /* 9/1 の 23:50 に開く */
+  const store = await open({ raw: null, now: ms(2026, 9, 1, 23, 50) });
+  assert.equal(store.todayKey(), '2026-09-01', 'まだ 9/1 のぶん');
+
+  const yday = store.add('昨日ぶんのメモ');
+  store.setDay(yday.id, '2026-09-01', true);
+  store.start(yday.id, null);                       /* 「はじめた」を1件つける */
+
+  const tmrw = store.add('明日ぶんのメモ');
+  store.setDay(tmrw.id, store.dayAfter(1), true);   /* 画面の「明日」＝ 9/2 */
+  assert.deepEqual(store.todays().map(x => x.text), ['昨日ぶんのメモ']);
+
+  /* 0時をまたぐ。store は読み直さない（タブは開いたまま） */
+  setNow(ms(2026, 9, 2, 0, 10));
+  assert.equal(store.todayKey(), '2026-09-02', '日付が変わって 9/2 のぶんになった');
+
+  assert.deepEqual(store.todays().map(x => x.text), ['明日ぶんのメモ'],
+    '今日の水面は 9/2 に置いたもの。昨日ぶんは出ない');
+  assert.deepEqual(store.itemsOnDay('2026-09-02').map(x => x.text), ['明日ぶんのメモ'],
+    'todays() と itemsOnDay(今日) が食い違わない');
+  assert.equal(store.get(yday.id).today, false, '9/1 のものは、もう今日ではない');
+  assert.deepEqual(store.tagsOf(yday.id), [],
+    '「今日」タグも外れている（外れないと中央の海に戻ってこない）');
+  assert.deepEqual(store.daysOf(yday.id), ['2026-09-01'], '置いた日そのものは残る');
+
+  /* はじめた印は派生値にできない（記録なので）。rollover() が落とす */
+  assert.equal(store.isStarted(yday.id, null), true, 'rollover 前はまだ残っている');
+  store.rollover();
+  assert.equal(store.isStarted(yday.id, null), false, 'rollover で日ごとにまっさらへ戻る');
+  assert.equal(store.totalStarted(), 1, 'ログのほうは残る');
+  setNow(NOW);
+});
+
+await test('t.today へは代入できない。置く／外すのは days のほう', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('あ', { today: true });
+  assert.equal(t.today, true);
+  assert.throws(() => { t.today = false; }, TypeError,
+    '控えを持たないので、書き込む口も無い（strict モードで TypeError）');
+  assert.equal(store.setDay(t.id, store.todayKey(), false), true, '外すのは setDay');
+  assert.equal(t.today, false);
+  /* 保存の形は変えていない。JSON にも今までどおり today が出る */
+  assert.equal(Object.prototype.hasOwnProperty.call(saved().todos[0], 'today'), true,
+    '保存データの形は前のまま（旧い版で開いても壊れない）');
 });
 
 /* ============================================================ */

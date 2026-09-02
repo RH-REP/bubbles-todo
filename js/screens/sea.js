@@ -67,7 +67,7 @@ const SEA_MAX = 20;
 /* 着手（store.start）の印を、画面で何と呼ぶか（利用者の指示）。
    「はじめた」「開始した」と別々に呼んでいたが、同じ印を指している。
    実際にしていることは「今日ぶんはここまで」——押すとバブルが薄くなり、
-   5時に戻る（契約 §5）。だから名前もそう呼ぶ。
+   日が変わると戻る（契約 §5）。だから名前もそう呼ぶ。
    **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
    （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
 const DONE_LB = '今日は終わり';
@@ -1094,7 +1094,7 @@ function clearAll(id, t) {
    画面の端で離したかどうかは、指先の座標を自分で見て決める（plan.js / gap.js と同じ）。 */
 
 let bubbleDrag = null;              /* { id } */
-let lastPt = { x: -1, y: -1 };
+let lastPt = { x: NaN, y: NaN };
 let tabDropped = false;             /* このドラッグをタブが受けたか。端の判定と二重にしない */
 let overEdge = null;
 
@@ -1132,7 +1132,7 @@ function offTag() {
    ドロップ判定は指先の座標で（契約 §14。バブルの外形は広すぎる） */
 function offHitAt(x, y) {
   if (!dropOff || dropOff.hidden) return false;
-  if (!Number.isFinite(x) || x < 0 || !Number.isFinite(y) || y < 0) return false;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
   const q = dropOff.getBoundingClientRect();
   if (!q.width || !q.height) return false;
   return x >= q.left && x <= q.right && y >= q.top && y <= q.bottom;
@@ -1213,7 +1213,9 @@ function beginBubbleDrag(id) {
   cancelSwipe();
   bubbleDrag = { id };
   tabDropped = false;
-  lastPt = { x: -1, y: -1 };       /* 1度も動かなかったら判定しない */
+  /* 1度も動かなかったら判定しない。**印は NaN**——帯を通り抜けると
+     座標そのものが負になりうるので、-1 では「動いていない」と見分けが付かない */
+  lastPt = { x: NaN, y: NaN };
   window.addEventListener('pointermove', onBubblePointer, true);
   window.addEventListener('pointerup', onBubblePointer, true);
   stage.classList.add('is-bubdrag');
@@ -1249,24 +1251,51 @@ function endBubbleDrag() {
 /* 指先の下にある端。タグが置かれていない向きは端として扱わない
    （行けない・付かない向きは、そもそも反応しない）。
 
-   帯は辺の全長ではなく、辺の中央 1/3 だけ（利用者の指示）。
-   重力で底に溜まったバブルを少し横へ動かしただけでタグが付いてしまうのを避ける。
-   ここの範囲は CSS の .sea-edge とそろえること（見えている範囲＝当たる範囲）。 */
+   ■ **帯を通り抜けても、その向きのまま**（利用者の指示）
+
+   > 上にスワイプするとき、狭いエリアでとめないといけない。
+   > スワイプで上を通り抜けたらタグが着く様にしたい（エリアを抜けてしまっても）
+
+   前は帯（21px）＋その外側 40px の、**61px の窓で止める**必要があった。
+   面の上には見出しの帯があるので、勢いよく上へ払うと窓を越えてしまい、何も起きない。
+
+   いまは **帯より外は、どこまで行っても同じ向き**として扱う。上へ抜けた指が
+   画面の外（y が負）まで出ても「上」のまま。窓ではなく**半平面**になる。
+
+   **取り消す道は残っている**——帯より内側（面の中）へ戻せば、その時点で消える。
+   帯が光っているかどうかがそのまま「いま離すとどうなるか」なので、
+   通り抜けている間はずっと光ったままになる。
+
+   下（面より下）だけは今までどおり外す。あそこはタブバーで、
+   「今日」タブへ運ぶ指が必ず通るところだから（DROP_DIRS の注記）。
+
+   帯は辺の全長（EDGE_SPAN=1）。狭めるのは長さではなく厚みのほう。
+
+   **「見えている範囲＝当たる範囲」から外れる、唯一の場所**になった。
+   当たる範囲は帯より**外側だけ**広い（内側は 21px のまま）。外側にあるのは
+   面の外＝ほかに当たるものが何も無いところで、しかも抜けている間は帯が光り続けるので、
+   「いま離すとどうなるか」の答えは画面に出たままになる。内側を広げるのは別の話——
+   あれは水面を削るので、CSS の .sea-edge とそろえること。 */
+const EDGE_OVER = 40;   /* 辺に沿った向きの許し幅 px。角で取りこぼさないためだけの数 */
+
 function edgeHitAt(x, y, force) {
   if (!force && !bubbleDrag) return null;
-  if (!Number.isFinite(x) || x < 0 || !Number.isFinite(y) || y < 0) return null;
+  /* 1度も動かなかったドラッグは NaN が来る（beginBubbleDrag を見よ） */
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   const r = stage.getBoundingClientRect();
   if (!r.width || !r.height) return null;
-  /* 画面から大きく外れたところで離したなら、どの端でもない */
-  if (x < r.left - 40 || x > r.right + 40 || y < r.top - 40 || y > r.bottom + 40) return null;
+  /* 面より下で離したなら、どの端でもない（タブバーの上を指が通るため） */
+  if (y > r.bottom + EDGE_OVER) return null;
   const band = Math.min(EDGE_BAND, r.width * 0.24, r.height * 0.24);
-  /* 辺に沿った向きは、中央 1/3 の内側だけ */
-  const inMidX = Math.abs(x - (r.left + r.width / 2)) <= r.width * EDGE_SPAN / 2;
-  const inMidY = Math.abs(y - (r.top + r.height / 2)) <= r.height * EDGE_SPAN / 2;
+  /* 辺に沿った向き（上の帯なら横方向）は、辺の長さぶん＋角のぶんだけ許す */
+  const alongX = Math.abs(x - (r.left + r.width / 2)) <= r.width * EDGE_SPAN / 2 + EDGE_OVER;
+  const alongY = Math.abs(y - (r.top + r.height / 2)) <= r.height * EDGE_SPAN / 2 + EDGE_OVER;
+  /* d は帯の内側からの深さ。**負なら帯を通り抜けた**ぶんで、
+     角で2つ当たったときは「より深く抜けたほう」が勝つ */
   const near = [];
-  if (inMidX && y - r.top <= band) near.push({ dir: 'up', d: y - r.top });
-  if (inMidY && x - r.left <= band) near.push({ dir: 'left', d: x - r.left });
-  if (inMidY && r.right - x <= band) near.push({ dir: 'right', d: r.right - x });
+  if (alongX && y - r.top <= band) near.push({ dir: 'up', d: y - r.top });
+  if (alongY && x - r.left <= band) near.push({ dir: 'left', d: x - r.left });
+  if (alongY && r.right - x <= band) near.push({ dir: 'right', d: r.right - x });
   near.sort((a, b) => a.d - b.d);
   for (let i = 0; i < near.length; i++) {
     const d = near[i].dir;
@@ -1278,7 +1307,7 @@ function edgeHitAt(x, y, force) {
 /* ドロップ判定は指先の座標で（契約 §14）。バブルの外形はタブ6本ぶんを覆うため */
 function overTabbar(pt) {
   const bar = document.getElementById('tabbar');
-  if (!bar || !(pt.x >= 0)) return false;
+  if (!bar || !Number.isFinite(pt.x)) return false;
   const r = bar.getBoundingClientRect();
   return pt.x >= r.left && pt.x <= r.right && pt.y >= r.top && pt.y <= r.bottom;
 }
