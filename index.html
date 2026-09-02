@@ -5,6 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Bubbles — 気づいたら書く</title>
+
+<!-- ホーム画面に追加したときの姿（PWA）。
+     ・manifest … 名前・アイコン・standalone（ブラウザの枠を出さない）
+     ・theme-color … 上のステータスバーの色。明暗で bg に合わせる
+     ・apple- … iOS はまだ manifest を全部は見ない。同じことを別の口で言う
+     status-bar-style は default。black-translucent にすると水がステータスバーの
+     下まで回り込むが、そのぶん上の帯（長期保留）が文字の裏に潜る。
+     安全領域（safe-t）の手当ては入れてあるので、変えるならそこも見ること。 -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#f4f4f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15151a" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Bubbles">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/base.css">
 <!-- bubble.css は base.css のあと。タブバーの持ち上げなど、骨格の上書きが入るため -->
 <link rel="stylesheet" href="css/bubble.css">
@@ -30,5 +48,20 @@
 <div class="drag-layer" id="drag-layer"></div>
 
 <script type="module" src="js/app.js"></script>
+
+<!-- オフラインで開けるようにする（sw.js を見よ）。
+     ・失敗しても黙って進む。service worker はあくまで足し物で、
+       無くてもアプリはそのまま動く（file:// で開いたときは登録できない）
+     ・updateViaCache:'none' … sw.js 自身を HTTP キャッシュから読ませない。
+       ここを既定のままにすると、直しても最大24時間気づかれないことがある
+     ・新しい版が効くのは**次に開いたとき**。走っている module を差し替えないため -->
+<script>
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+      .catch(() => { /* 登録できなくても、アプリは網から動く */ });
+  });
+}
+</script>
 </body>
 </html>

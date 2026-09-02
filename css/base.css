@@ -65,6 +65,11 @@
 
   --radius: 12px;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  /* 上の安全領域。ブラウザで開いている間は 0。
+     ホーム画面に追加して standalone で開いたとき（とくに iOS を
+     black-translucent にしたとき）だけ、ステータスバーのぶんが入る。
+     ここを見ていないと、海の上の帯（長期保留）が時計の裏に潜る。 */
+  --safe-t: env(safe-area-inset-top, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -132,6 +137,9 @@ body {
   display: flex; flex-direction: column;
   position: relative;                        /* 右上の歯車の位置の基準 */
   height: 100dvh; max-width: 430px; margin: 0 auto;
+  /* 中身をぜんぶ安全領域の下から始める。海の水も帯もここから下に入るので、
+     どの画面でも「ステータスバーに隠れているところ」が生まれない */
+  padding-top: var(--safe-t);
   background: var(--bg);
   box-shadow: 0 0 0 1px var(--line);
 }
@@ -150,7 +158,9 @@ body {
    画面の中身がこの下へ潜らないよう、下の各画面に上の余白を入れてある
    （海だけは自分で位置を決めているので、そちらで避けている）。 */
 .gearbtn {
-  position: absolute; z-index: 30; top: 10px; right: 10px;
+  /* 絶対配置の基準は .app の**パディングの外側**なので、
+     .app に padding-top を入れても歯車は動かない。自分で足す */
+  position: absolute; z-index: 30; top: calc(10px + var(--safe-t)); right: 10px;
   appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
   width: 44px; height: 44px; padding: 0;      /* タップ目標は 44 を下回らない */
   display: inline-flex; align-items: center; justify-content: center;
