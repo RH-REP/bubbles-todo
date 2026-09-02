@@ -1346,7 +1346,20 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   }
 
   function renderHist(rows) {
-    fillStepList(histList, rows);
+    /* 直せる版のときだけ「直す」を出す（口が無ければボタンも出さない） */
+    const can = !!(a && typeof a.editStep === 'function');
+    /* 直したら、その場で引き直す。いちばん新しい記録を直すと
+       「次の一手」も付いていくので、盤の欄も入れ直す */
+    const onEdit = (at, entry) => {
+      if (ask(a, 'editStep', id, at, entry) === false) return false;
+      renderHist(ask(a, 'steps', id) || []);
+      if (stepIn) {
+        const v = ask(a, 'firstStep', id);
+        if (typeof v === 'string') stepIn.value = v;
+      }
+      return true;
+    };
+    fillStepList(histList, rows, can ? onEdit : null);
   }
 
   /* ---- 作業メモの面（利用者の指示）----
@@ -1604,7 +1617,10 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
    スタイルは css/bubble.css の .bh-* が持つ。あれは全画面で読み込まれるので、
    集中画面から使っても CSS を足す必要は無い。
    数え方（「◯件目」「◯回目」）は出さない——§0。 */
-export function fillStepList(ul, rows) {
+/* 記録を直す口（利用者の指示：記録の履歴に編集ボタンを用意して、修正を許可して）。
+   差してもらう形にしてあるのは、bubble.js が store を知らないため。
+     onEdit(at, { did, next }) -> 直せたか */
+export function fillStepList(ul, rows, onEdit) {
   ul.textContent = '';                       /* innerHTML には入れない */
   (Array.isArray(rows) ? rows : []).forEach(s => {
     const li = el('li', 'bh-item');
@@ -1613,6 +1629,19 @@ export function fillStepList(ul, rows) {
       const p = el('p', 'bh-at');
       p.textContent = at;
       li.appendChild(p);
+    }
+    /* 直す。**時刻は直せない**——「いつ手をつけたか」は起きた事実で、
+       書き直せるのは書いた文だけ（store.editStep も at を変えない） */
+    if (typeof onEdit === 'function' && s && Number.isFinite(Number(s.at))) {
+      const ed = el('button', 'bh-edit', '直す');
+      ed.type = 'button';
+      ed.setAttribute('aria-label', (at ? at + ' の' : '') + '記録を直す');
+      ed.addEventListener('click', ev => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openStepEdit(s, onEdit);
+      });
+      li.appendChild(ed);
     }
     const line = (label, raw) => {
       const t = String(raw == null ? '' : raw).trim();
@@ -1634,8 +1663,85 @@ export function fillStepList(ul, rows) {
 }
 
 /* 印は出さない ul（番号を振ると「◯件目」を数えることになる／§0） */
-export function stepList(rows) {
-  return fillStepList(el('ul', 'bh-list'), rows);
+export function stepList(rows, onEdit) {
+  return fillStepList(el('ul', 'bh-list'), rows, onEdit);
+}
+
+/* 記録を1件直す小さな板。作業メモと次の一手を出して、書き直して閉じる。
+   **次の一手は空にできない**（記録は必ず「次はここから」を持つ／store と同じ決まり）。
+   板の形は海の引き（seamap）の入力板とそろえてある——覚えることを増やさない。 */
+function openStepEdit(step, onEdit) {
+  const back = el('div', 'bh-edit-back');
+  const box = el('div', 'bh-edit-box');
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+  box.setAttribute('aria-label', '記録を直す');
+
+  const at = fmtAt(step && step.at);
+  /* 時刻はこちらが作った文字だが、el の第3引数は innerHTML なので、
+     文字を入れるときは textContent を使う（ユーザーの文字が混ざる道を作らない） */
+  const tt = el('p', 'tt');
+  tt.textContent = at ? '記録を直す（' + at + '）' : '記録を直す';
+  box.appendChild(tt);
+
+  const mk = (label, value, ph) => {
+    const w = el('label', 'fld');
+    w.appendChild(el('span', 'k', label));
+    const ta = el('textarea', 'v');
+    ta.rows = label === '作業メモ' ? 4 : 2;
+    ta.value = String(value == null ? '' : value);
+    ta.placeholder = ph;
+    w.appendChild(ta);
+    box.appendChild(w);
+    return ta;
+  };
+  const didIn = mk('作業メモ', step && step.did, '書いていなくてもよい');
+  const nextIn = mk('次の一手', step && step.next, '次にどこから始めるか');
+
+  const why = el('p', 'why', '');
+  why.hidden = true;
+  box.appendChild(why);
+
+  const row = el('div', 'row');
+  const cancel = el('button', 'ca', 'やめる');
+  cancel.type = 'button';
+  cancel.addEventListener('click', ev => { ev.preventDefault(); close(); });
+  const ok = el('button', 'ok', '直す');
+  ok.type = 'button';
+  ok.addEventListener('click', ev => {
+    ev.preventDefault();
+    const next = nextIn.value.trim();
+    if (!next) {
+      /* 断らずに理由を出す。命令形にはしない（§0） */
+      why.textContent = '記録には次の一手が要る';
+      why.hidden = false;
+      nextIn.focus({ preventScroll: true });
+      return;
+    }
+    if (onEdit(step.at, { did: didIn.value, next }) === false) {
+      why.textContent = 'いまは直せない';
+      why.hidden = false;
+      return;
+    }
+    close();
+  });
+  row.appendChild(cancel);
+  row.appendChild(ok);
+  box.appendChild(row);
+
+  const onKey = ev => {
+    if (ev.key !== 'Escape') return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    close();
+  };
+  box.addEventListener('keydown', onKey);
+  back.addEventListener('pointerdown', ev => { if (ev.target === back) close(); });
+  function close() { back.remove(); }
+
+  back.appendChild(box);
+  (document.getElementById('drag-layer') || document.body).appendChild(back);
+  didIn.focus({ preventScroll: true });
 }
 
 /* いまドラッグ中のノード。body の is-dragging を、別のバブルの detach で

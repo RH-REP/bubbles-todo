@@ -2319,6 +2319,40 @@ export const store = {
     return stepCopy(step);
   },
 
+  /* **積んだ記録を直す**（利用者の指示：記録の履歴に編集ボタンを用意して、修正を許可して）。
+
+     git に喩えてきたので言い方を揃えると、これは commit --amend にあたる操作を
+     直近1件だけでなく**どの記録にも許す**もの。積み直しではないので `at` は変えない
+     ——「いつ手をつけたか」は起きた事実で、書き直せるのは**書いた文だけ**。
+
+     ・at で1件を指す（同じ項目の中では重ならない）
+     ・did / next の両方を直せる
+     ・**next は空にできない。**記録は必ず「次はここから」を持つ（commitStep と同じ決まり）
+     ・直したのが**いちばん新しい記録**なら、firstStep も一緒に付いていく
+       ——あれは「次に開いたときの開始の１手」で、いちばん新しい next のことだから
+     -> 直せたか（項目・記録が無い／next が空なら false） */
+  editStep(id, at, entry) {
+    const t = store.get(id);
+    if (!t) return false;
+    const key = Number(at);
+    if (!Number.isFinite(key)) return false;
+    const list = stepListOf(t);
+    const i = list.findIndex(x => x && Number(x.at) === key);
+    if (i < 0) return false;
+    const o = entry || {};
+    const did = stepText(o.did);
+    const next = stepText(o.next);
+    if (!next) return false;                 /* 記録は必ず次を指す */
+    const row = list[i];
+    if (row.did === did && row.next === next) return true;   /* 同じなら書かない */
+    row.did = did;
+    row.next = next;
+    /* いちばん新しい記録を直したなら、開始の１手も付いていく */
+    if (i === list.length - 1) t.firstStep = next;
+    persist(); emit();
+    return true;
+  },
+
   /* 直近1件の did だけを直す。書き損じ用。
      ・新しい記録は増やさない。at も next も変えない（firstStep にも触らない）
      ・同じ値を入れ直したときは書き込まずに true（renameAnchor と同じ扱い）

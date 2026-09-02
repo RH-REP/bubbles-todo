@@ -549,13 +549,25 @@ function buildWorklog(id, a) {
     return Array.isArray(rows) ? rows : [];
   }
 
+  /* 記録を直す（利用者の指示）。口が無い版では「直す」を出さない。
+     直したら組み直す——いちばん新しい記録を直すと「次の一手」も付いていくので、
+     この画面の欄も読み直す */
+  const onEditStep = (a && typeof a.editStep === 'function')
+    ? ((at, entry) => {
+      if (ask(a, 'editStep', id, at, entry) === false) return false;
+      syncHist();
+      loadLast();
+      return true;
+    })
+    : null;
+
   /* 開いていれば中身を組み直す。ボタンの出し入れもここでやる */
   function syncHist() {
     const rows = stepsNow();
     histBtn.hidden = rows.length === 0;
     if (histBtn.hidden) { histBox.hidden = true; histBtn.setAttribute('aria-expanded', 'false'); }
     if (histBox.hidden) return;
-    histBox.replaceChildren(stepList(rows));
+    histBox.replaceChildren(stepList(rows, onEditStep));
   }
 
   histBtn.addEventListener('click', ev => {
@@ -563,7 +575,7 @@ function buildWorklog(id, a) {
     const open = histBox.hidden;
     histBox.hidden = !open;
     histBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (open) histBox.replaceChildren(stepList(stepsNow()));
+    if (open) histBox.replaceChildren(stepList(stepsNow(), onEditStep));
   });
 
 

@@ -162,7 +162,7 @@ const CENTER_NAME = 'ぜんぶ';
 const CENTER_VIEW_NAME = 'タグ無し';
 /* 絞っている間の面の名前。名前が変わることが「いま絞っている」の合図（追補4 §2） */
 /* 絞っているのに名前が引けなかったときの逃げ（ふつうは通らない） */
-const NARROW_NAME = 'しぼりこみ中';
+const NARROW_NAME = 'フィルター中';
 /* 絞り込みが見るタグ。ユーザーの作ったタグは条件に入れない（追補4 §2）。
    完了はそもそも中央に出ないので入れない */
 
@@ -2134,7 +2134,11 @@ function setNarrow(tagId) {
   } else {
     narrowSet.add(tagId);
   }
-  syncFaces();          /* 中央の顔ぶれが変わる */
+  /* 整列中はグリッドのほう、ふだんは海のほうを組み直す。
+     **ここで renderGrid を呼ばないと、ならべるの上でフィルターを触っても
+     一覧が変わらない**（ボタンの札だけ変わって、中身が古いまま残る）。 */
+  if (gathering) renderGrid();
+  else syncFaces();     /* 中央の顔ぶれが変わる */
   renderChrome();
 }
 
@@ -2166,7 +2170,7 @@ function openNarrowPop() {
   if (closeNarrowPop(true)) return;
   const pop = el('div', 'sea-narrow-pop');
   pop.setAttribute('role', 'menu');
-  pop.setAttribute('aria-label', 'しぼりこみ');
+  pop.setAttribute('aria-label', 'フィルター');
   const rows = [];
   narrowChoices().forEach(c => {
     const b = el('button', 'sea-narrow-row');
@@ -2217,19 +2221,21 @@ function openNarrowPop() {
 function syncNarrowBtn() {
   if (!narrowBtn) return;
   if (pruneNarrow()) syncFaces();          /* 消えたタグを選んだままにしない */
-  /* 中央（ぜんぶ）の海にだけ置く。タグの海には出さない（絞る意味が無い） */
-  const show = curFace === 'center' && hasTags() && !gathering;
+  /* 中央（ぜんぶ）の海にだけ置く。タグの海には出さない（絞る意味が無い）。
+     **ならべる（一覧）の上でも出す**——あちらにもフィルターが効くようになったので、
+     切り替える口が要る（利用者の指示） */
+  const show = curFace === 'center' && hasTags();
   narrowBtn.hidden = !show;
   if (!show) closeNarrowPop(false);
   const nm = narrowName();
   /* 絞っている間はボタンにその名前を出す。何で絞っているかが、
      面の名前とボタンの2か所に出ることになるが、面の名前は滑ると隠れるので残す */
-  narrowLabel.textContent = nm || 'しぼる';
+  narrowLabel.textContent = nm || 'フィルター';
   narrowBtn.setAttribute('aria-pressed', nm ? 'true' : 'false');
   narrowBtn.classList.toggle('is-on', !!nm);
   narrowBtn.setAttribute('aria-label', nm
-    ? '「' + nm + '」でしぼっている。押すと選び直す'
-    : 'しぼりこみを選ぶ');
+    ? '「' + nm + '」でフィルターしている。押すと選び直す'
+    : 'フィルターを選ぶ');
 }
 
 /* ---------------- ランダムスタート ----------------
@@ -2423,16 +2429,40 @@ function renderGrid() {
      長期保留＝**自分で「いまは見ない」と決めたもの**なので、
      全部を読む場所にも出さない（完了を外しているのと同じ理由）。出したいときは上の海へ。
      **ただし、さがしている間は別**（上の注記を見よ）。 */
-  const base = q
+  /* **名指しで選んだものは、ふだん外していても出す。**
+     海の側で「いまは見ないと決めたものを、自分から見に行く道は残す」と決めたのと同じ。
+     名指ししていなければ、これまでどおり長期保留と完了は外す。 */
+  let base = q
     ? store.all().filter(t => hay(t).indexOf(q) >= 0)
-    : store.all().filter(t => !isDoneItem(t) && !isHoldItem(t));
+    : store.all().filter(t =>
+      (!isDoneItem(t) || narrowSet.has('done'))
+      && (!isHoldItem(t) || narrowSet.has('hold')));
+  /* **フィルターはここにも効く**（利用者の指示）。
+     前は「あそこは全部を読む場所だから」と継がせていなかったが、
+     全部を読む場所こそ絞れないと困る——件数が増えるほど、絞りたいのはここになる。
+     さがす文字と重ねたときは**両方に当てはまるもの**（さがすは絞り込みの上に乗る）。 */
+  if (narrowSet.size) {
+    const key = todayKeySafe();
+    base = base.filter(t => {
+      const tags = tagsOfSafe(t.id);
+      for (const k of narrowSet) {
+        if (k === PAST_ONLY) { if (hasPastDay(t, key)) return true; }
+        else if (k === FUTURE_ONLY) { if (hasFutureDay(t, key)) return true; }
+        else if (tags.indexOf(k) >= 0) return true;
+      }
+      return false;
+    });
+  }
   const list = base.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
   gridEmpty.hidden = list.length > 0;
+  const nm = narrowName();
   gridEmpty.textContent = q
     ? '「' + gridQ.trim() + '」は見つからない。'
-    : 'まだ何も無い。下に書くと、ここに並ぶ。';
-  if (gridCap) gridCap.textContent = q ? 'さがした結果（古い順）' : '古い順';
+    : (nm ? '「' + nm + '」に当てはまるものは無い。' : 'まだ何も無い。下に書くと、ここに並ぶ。');
+  if (gridCap) {
+    gridCap.textContent = (q ? 'さがした結果' : (nm ? '「' + nm + '」' : '')) + (q || nm ? '（古い順）' : '古い順');
+  }
 
   /* 行はバブルを組まずに作り直す。**海が新しいほうしか出さなくなったので、
      ここが「ぜんぶ読む場所」になった**——読む場所は、絵ではなく文字のほうが速い。
@@ -2589,9 +2619,9 @@ function syncHint() {
     centerEmpty.hidden = !show;
     if (show) {
       centerEmpty.innerHTML = narrow
-        ? 'しぼった先には何も無い。<br>しぼりこみで「' + CENTER_VIEW_NAME + '」を選ぶと、もとの眺め。'
+        ? 'フィルターの先には何も無い。<br>フィルターで「' + CENTER_VIEW_NAME + '」を選ぶと、もとの眺め。'
         : 'ここに漂うのは、タグの付いていないものだけ。<br>'
-          + 'タグの付いたものは「▽しぼる」から、<br>ぜんぶは「⇅ならべる」から見える。';
+          + 'タグの付いたものは「▽フィルター」から、<br>ぜんぶは「⇅ならべる」から見える。';
     }
   }
 }

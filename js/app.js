@@ -338,6 +338,8 @@ setWorklogHandler({
   amendLast: (id, v) => (has('amendLastStep') ? store.amendLastStep(id, v) : false),
   /* 一手の記録（古い順）。集中画面の [履歴] が読む。無ければボタンを出さない */
   steps:     (id) => (has('stepsOf') ? store.stepsOf(id) : []),
+  /* 積んだ記録を直す（利用者の指示）。at で1件を指す。無ければ「直す」を出さない */
+  editStep:  (id, at, v) => (has('editStep') ? store.editStep(id, at, v) : false),
 });
 
 /* 中央に寄せたバブルに出る「次の一手」と「リンク」の出し入れ。
@@ -350,6 +352,8 @@ setCenterHandler({
   setUrl:       (id, v) => { if (has('setUrl')) store.setUrl(id, v); },
   /* 一手の記録（古い順）。無ければ盤に「履歴」のボタンを出さない */
   steps:        (id) => (has('stepsOf') ? store.stepsOf(id) : []),
+  /* 積んだ記録を直す（利用者の指示）。at で1件を指す。無ければ「直す」を出さない */
+  editStep:     (id, at, v) => (has('editStep') ? store.editStep(id, at, v) : false),
 
   /* --- 日を移す（利用者の指示）---
 
