@@ -4,3 +4,11 @@
 # 3タブ時代の記述のまま残っている申し送り。書き換えるまでは公開しない
 # （中身が古い＝読んだ人を誤らせるため。ローカルには残してある）
 HANDOFF.md
+
+# Capacitor。どれも生成物なので追わない。
+# www/     … tools/build-www.mjs が作る、アプリ本体の写し
+# android/ ios/ … `npx cap add` で作り直せる
+node_modules/
+www/
+android/
+ios/

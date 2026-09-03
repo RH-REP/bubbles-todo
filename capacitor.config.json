@@ -1,0 +1,11 @@
+{
+  "appId": "com.rh.bubbles",
+  "appName": "Bubbles",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "ios": {
+    "contentInset": "always"
+  }
+}

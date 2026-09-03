@@ -28,7 +28,7 @@
    ファイルを足したときは ASSETS にも足す（足し忘れたものは、
    網が無いときだけ取れない——ふだんは動いてしまうので気づきにくい）。 */
 
-const VERSION = '2026-09-03a';
+const VERSION = '2026-09-03b';
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [

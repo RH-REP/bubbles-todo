@@ -136,7 +136,13 @@ body {
 .app {
   display: flex; flex-direction: column;
   position: relative;                        /* 右上の歯車の位置の基準 */
-  height: 100dvh; max-width: 430px; margin: 0 auto;
+  /* 高さは2行で書く。**上の行が控え。**dvh を知らない描画エンジン
+     （Android WebView 103 など）は下の行を捨てるので、上が残って高さが立つ。
+     1行しか書いていなかったとき、古い WebView で .app の高さが auto になり、
+     panes が潰れて**下タブだけが画面の上に出て、中身が真っ白**になった（A-63）。 */
+  height: 100vh;
+  height: 100dvh;
+  max-width: 430px; margin: 0 auto;
   /* 中身をぜんぶ安全領域の下から始める。海の水も帯もここから下に入るので、
      どの画面でも「ステータスバーに隠れているところ」が生まれない */
   padding-top: var(--safe-t);

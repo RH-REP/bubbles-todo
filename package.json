@@ -1,0 +1,24 @@
+{
+  "name": "bubbles-todo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "思いついたことを書き出して、漂わせておくための todo アプリ。ここは Capacitor（ネイティブに包む）ぶんの設定だけで、アプリ本体は素の HTML/CSS/JS のままリポジトリ直下にある。",
+  "scripts": {
+    "dev": "python3 serve.py 8931",
+    "test": "node --test tests/store.test.mjs",
+    "www": "node tools/build-www.mjs",
+    "sync": "npm run www && cap sync",
+    "android": "npm run sync && cap open android",
+    "android:build": "npm run sync && cd android && ./gradlew assembleDebug",
+    "android:install": "adb install -r android/app/build/outputs/apk/debug/app-debug.apk",
+    "ios": "npm run sync && cap open ios",
+    "cap:add:android": "npm run www && cap add android",
+    "cap:add:ios": "npm run www && cap add ios"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/ios": "^6.2.0"
+  }
+}

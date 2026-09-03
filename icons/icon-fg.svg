@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Android の「適応アイコン」の前景。**泡だけ。地は描かない**（透過）。
+     地の色は android/app/src/main/res/values/ic_launcher_background.xml が持つ。
+
+     canvas 432（xxxhdpi の実寸）に対して、Android が必ず残すのは中央の
+     直径 72/108 = 66.7%。泡はその内側に収める（半径 138 = 直径 276 = 63.9%）。
+     はみ出すと、端末の形（丸・角丸・雫）によって切られる。
+
+     色と重ね順は icons/icon.svg と同じ。片方だけ直さないこと。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432 432" width="432" height="432">
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <!-- 地は sea-1..3 の並びのまま。ただし上端だけ一段深くしてある
+           （96px まで縮めると泡と地の差が消えて、白い壁紙の上で見失うため）。 -->
+      <stop offset="0"    stop-color="#c8e6f2"/>
+      <stop offset="0.46" stop-color="#e2e9f7"/>
+      <stop offset="0.82" stop-color="#f5efe8"/>
+      <stop offset="1"    stop-color="#f4f4f1"/>
+    </linearGradient>
+
+    <!-- 膜の充填。中心は薄く、縁へ寄るほど濃い（.skin の最後の radial と同じ） -->
+    <radialGradient id="fill" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.58" stop-color="#94cde9" stop-opacity="0.14"/>
+      <stop offset="0.82" stop-color="#94cde9" stop-opacity="0.30"/>
+      <stop offset="1"    stop-color="#94cde9" stop-opacity="0.34"/>
+    </radialGradient>
+    <!-- 虹色3色。桃・水・藤 -->
+    <radialGradient id="iridA" cx="0.72" cy="0.80" r="0.48">
+      <stop offset="0" stop-color="#ff94d0" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#ff94d0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="iridB" cx="0.18" cy="0.68" r="0.46">
+      <stop offset="0" stop-color="#6ee2ff" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#6ee2ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="iridC" cx="0.82" cy="0.26" r="0.42">
+      <stop offset="0" stop-color="#ba9eff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ba9eff" stop-opacity="0"/>
+    </radialGradient>
+    <!-- ななめの照り（125deg のシーン） -->
+    <linearGradient id="sheen" x1="0.18" y1="0.9" x2="0.82" y2="0.1">
+      <stop offset="0.32" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.46" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.58" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- 左上の照り -->
+    <radialGradient id="glow" cx="0.31" cy="0.24" r="0.42">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <!-- 影。box-shadow のぼかしの代わり（フィルタを使わずに済ませる） -->
+    <radialGradient id="shade" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.55" stop-color="#26506e" stop-opacity="0.20"/>
+      <stop offset="1"    stop-color="#26506e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+
+  <!-- 泡。中心 (256, 248)、半径 152 = 直径 304（512 の 59%） -->
+  <g>
+    <circle cx="216" cy="216" r="138" fill="url(#fill)"/>
+    <circle cx="216" cy="216" r="138" fill="url(#sheen)"/>
+    <circle cx="216" cy="216" r="138" fill="url(#iridC)"/>
+    <circle cx="216" cy="216" r="138" fill="url(#iridB)"/>
+    <circle cx="216" cy="216" r="138" fill="url(#iridA)"/>
+    <circle cx="216" cy="216" r="138" fill="url(#glow)"/>
+    <circle cx="216" cy="216" r="137" fill="none" stroke="#ffffff" stroke-opacity="0.70" stroke-width="2"/>
+    <circle cx="216" cy="216" r="138" fill="none" stroke="#3c8cb0" stroke-opacity="0.60" stroke-width="2.5"/>
+  </g>
+</svg>
