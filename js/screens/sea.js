@@ -8,7 +8,7 @@
      　　　　  │  完了   │
      　　　　  └────────┘
 
-   ・中央（列の左端）= タグの付いていないものだけ（既定。しぼるで広げられる）
+   ・中央（列の左端）= タグの付いていないものだけ（既定。フィルターで広げられる）
    ・上・下 = **固有枠**。上=長期保留 / 下=完了。ユーザーは動かせない
    ・海の列 = store.seas() の順（引きで並べ替える）。面の名前は 'sea:<タグid>'
    ・背景をドラッグ／スワイプ = 隣の列へ移る（上下は中央の列からだけ）
@@ -24,7 +24,7 @@
 
 import { store } from '../store.js';
 import { el, toast, clamp, holdRing } from '../ui.js';
-import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor } from '../bubble.js';
+import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor, DROPPABLE } from '../bubble.js';
 import { createField } from '../drift.js';
 import { openSeaMap, closeSeaMap, isOpen as seaMapOpen } from '../seamap.js';
 import { openCalendar, closeCalendar, isOpen as calOpen } from '../calendar.js';
@@ -36,7 +36,7 @@ import { dropDay } from './today.js';
 /* --- 海に出すバブルの上限（利用者の指示）---
 
    海は増える一方なので、**新しいほうから数えて この数まで**しか出さない。
-   隠れたぶんは「ならべる」（文字の一覧）で全部読める。
+   隠れたぶんは「リスト表示」（文字の一覧）で全部読める。
 
    隠すのは**古いほう**。古くて手つかずのものこそ「やっていないことの山」になるので、
    漂わせ続けないほうが憲章に合う（README の禁止事項）。
@@ -149,6 +149,9 @@ function colOf(face) {
    ここは「その方針を名前にした」定数。両方を同じ並びから引く。 */
 const DROP_DIRS = ['up', 'left', 'right'];
 
+/* 行を落とせる下タブは、バブルと同じ顔ぶれ（bubble.js の DROPPABLE をそのまま使う。
+   ここで並べ直すと「バブルでは落とせるのにリストでは落とせない」が生まれる） */
+
 /* 看板の矢印。向きは「その海がある方角」を指す */
 const SIGN_ARROW = { up: '↑', down: '↓', left: '←', right: '→' };
 /* タグに色が入っていないときの控え。無彩色は「タグ無し」の意味なので使わない（追補3 §1）。
@@ -157,7 +160,7 @@ const FALLBACK_COLORS = [
   'var(--today-edge)', 'var(--slot-noon)', 'var(--slot-morning)', 'var(--slot-night)',
 ];
 const CENTER_NAME = 'ぜんぶ';
-/* 中央の海の**行き先としての名前**は「ぜんぶ」のまま（ならべる／しぼるで
+/* 中央の海の**行き先としての名前**は「ぜんぶ」のまま（リスト表示／フィルターで
    ぜんぶに届く場所なので）。**いま何が映っているか**の名前はこちら。
    既定はタグ無しだけを映すので、「ぜんぶ」と名乗ると嘘になる。 */
 const CENTER_VIEW_NAME = 'タグ無し';
@@ -580,11 +583,11 @@ function colorsOf(t) {
    だから海から外しても、行き場を失うものは無い。
 
    **UI は1つも増やしていない**（指示：UIを複雑化せずに）。
-   絞り込み（▽しぼる）の一覧にはもともと全部のタグが並んでいるので、
+   絞り込み（▽フィルター）の一覧にはもともと全部のタグが並んでいるので、
    **そこでそのタグを選べば出る**。「または」の絞り込みはそのまま、
    既定で出さないものの数が 1つ（長期保留）から 3つに増えただけ。
 
-   ならべる（一覧）はこの規則を継がない。あそこは「ぜんぶ読む場所」で、
+   リスト表示（一覧）はこの規則を継がない。あそこは「ぜんぶ読む場所」で、
    既定の眺めではないため（長期保留だけは前から外している——
    あれは自分で「見ない」と決めたものなので）。 */
 const QUIET_TAGS = ['hold', 'plan', 'gap'];
@@ -628,7 +631,13 @@ function narrowOn() { return narrowSet.size > 0 && hasTags(); }
    どれを残すかだけを決めて、順番には触らない。 */
 let seaClipped = false;
 
+/* リスト表示のあいだだけ立てる。海は新しい20件までしか浮かべないが、
+   一覧は**その海のぜんぶ**を出す（読む場所なので、数で切る理由が無い）。
+   seaClipped（「出し切れていない」の合図）には触らない——あれは海の話。 */
+let capOff = false;
+
 function capForSea(list) {
+  if (capOff) return list;
   seaClipped = list.length > SEA_MAX;      /* 直後に読むこと（syncMore を参照） */
   if (!seaClipped) return list;
   const newest = list.slice()
@@ -1174,7 +1183,8 @@ function clearOff() {
 function renderOff() {
   if (!dropOff) return;
   const tag = bubbleDrag ? offTag() : null;
-  dropOff.hidden = !tag || gathering;
+  /* リスト表示でも出す。行をつまんだときの落とし先は海とまったく同じ（A-65） */
+  dropOff.hidden = !tag;
   if (!tag) return;
   syncOffLabel();
 }
@@ -1365,6 +1375,12 @@ function isBackground(target) {
      **矢印看板だけは例外**（.sea-sign）。あれは景色で、しかも端の広いところに居る。
      押す的でもあるが、そこから指を滑らせたら面が動いてほしい。
      滑らせたときに click まで走らないよう、下の signSuppress で押さえる。 */
+  /* リスト表示のあいだは、一覧の**地**を背景として数える（面を移れるように）。
+     行は button なので、この closest で自然に外れる——行から始めた指は
+     「その項目を運ぶ」ほうへ回す（下の onRowDown）。 */
+  if (gathering) {
+    return !target.closest('.bub, button, a, input, textarea, select, .sea-sheet, .sea-narrow-pop');
+  }
   return !target.closest('.bub, button:not(.sea-sign), a, input, textarea, select, .sea-grid, .sea-sheet');
 }
 
@@ -1415,9 +1431,20 @@ function openMap() {
 }
 
 function onStageDown(ev) {
-  if (gathering || bubbleDrag || swipe || panning || pinch) return;
+  if (bubbleDrag || rowDrag || swipe || panning || pinch) return;
   if (ev.button != null && ev.button !== 0) return;
   if (!isBackground(ev.target)) return;
+  /* リスト表示のあいだも、地を横へなぞれば面が移る（A-65。見え方だけの違いにする）。
+     ただし長押しの引きと寄せは受けない——一覧に水は無いので、寄せる世界も無い。
+     縦のなぞりは onSwipeMove の軸ロックが 'y' と判ずるが、上下に面は無いので
+     neighbor が null になり、そのまま一覧のスクロールに任される */
+  if (gathering) {
+    swipe = { pid: ev.pointerId, x0: ev.clientX, y0: ev.clientY, axis: null, dx: 0, dy: 0, to: null };
+    window.addEventListener('pointermove', onSwipeMove, true);
+    window.addEventListener('pointerup', onSwipeEnd, true);
+    window.addEventListener('pointercancel', onSwipeCancel, true);
+    return;
+  }
   startHold(ev);
   /* 近づいているとき（倍率 1 超）は、背景の指は**寄せ**。
      面の移動はここでは受けない——世界が画面より広いあいだ、
@@ -1573,8 +1600,9 @@ function onSwipeMove(ev) {
     ensureField(to);       /* 出てくる面も動いていてほしい */
     startCurrent();
   }
-  /* reduce-motion のときは追従させない（面は最後に切り替わるだけ） */
-  if (reduceMotion()) return;
+  /* reduce-motion のときは追従させない（面は最後に切り替わるだけ）。
+     リスト表示のあいだも同じ——水は見えていないので、滑らせるものが無い */
+  if (reduceMotion() || gathering) return;
 
   /* ここから先は**世界の px**。指の動き（画面の px）を倍率で割って移す。
      割らないと、引いているときだけ面が指の倍の速さで滑る。
@@ -1644,6 +1672,9 @@ function goFace(face) {
   ensureField(face);
   setWorldFace(face);
   syncFaces();
+  /* リスト表示は「いまの海の見え方」なので、面が変われば中身も変わる（A-65）。
+     先頭へ戻すのは、前の海の途中の位置に居ると「移った」が分からないため */
+  if (gathering) { renderGrid(); if (grid) grid.scrollTop = 0; }
   renderChrome();
   scheduleStop();     /* 滑っている間は出ていく面も動かしておく */
   startCurrent();
@@ -1885,7 +1916,7 @@ function syncFloor() {
    ——出ていないこと自体が「その向きには海が無い」の合図になる。
    中央からは、タグの置かれている向きすべて。タグの海からは、中央へ戻る1つ。
 
-   バブルを掴んでいる間と「ならべる」の間は引っ込める。
+   バブルを掴んでいる間と「リスト表示」の間は引っ込める。
    掴んでいる間は端の札（.sea-edge）が同じ場所で別のことを言うので、
    両方出ると「行ける」と「付く」が同時に見えて読めなくなる。 */
 function renderSigns() {
@@ -1930,13 +1961,26 @@ function renderEdges() {
       if (tag && DROP_DIRS.indexOf(dir) >= 0) {
         show = true; label = nameOf(tag) + ' が付く'; aria = label; color = colorOf(tag, dir);
       }
+    } else if (gathering && (dir === 'left' || dir === 'right')) {
+      /* リスト表示のあいだは、ここが**行き先の口**になる（A-65）。
+         矢印看板（.sea-sign）は面の中に居て、一覧に覆われて見えないため。
+         指でなぞる道（背景のスワイプ）と、押す道の両方を残す
+         ——指だけの経路にしない、は海と同じ決めごと。 */
+      const to = faceAt(dir);
+      if (to) {
+        const t2 = faceTag(to);
+        const nm2 = to === 'center' ? CENTER_NAME : nameOf(t2);
+        show = true; label = nm2; aria = nm2 + 'の海へ';
+        color = t2 ? colorOf(t2, to) : '';
+        target = to;
+      }
     }
     /* **ふだんは出さない。**行き先の案内は矢印看板（.sea-sign）が持つ。
        あちらは面の中の、バブルより後ろにある＝真下のバブルを掴めなくしない（A-8）。
        ここに残すのは「掴んでいる間だけ、指の上に出る落とし先の名前」だけ。
        この2つは役目が違う：看板は「どこへ行けるか」、札は「いま離すとどうなるか」。 */
 
-    e.el.hidden = !show || gathering;
+    e.el.hidden = !show;
     e.el.classList.toggle('is-drop', dragging);
     if (!show) { e.el.classList.remove('is-over'); return; }
     /* 掴んでいる間も名前は出したままにする。
@@ -2131,7 +2175,7 @@ function closeDetail() {
   if (d) d.flush();     /* 書きかけを取りこぼさない */
 }
 
-/* ---------------- 整列（ならべる） ----------------
+/* ---------------- 整列（リスト表示） ----------------
    全件をスクロールするグリッドに並べる。面をまたいだ一覧なので、
    整列中は面の移動を止める（世界ごと隠れるので、動かしても見えない）。 */
 
@@ -2143,7 +2187,7 @@ function setGathering(on) {
   cancelShuffle();          /* 整列に入る／戻るときは、混ぜかけを畳む */
   gathering = on;
   forgetTagColors();
-  gatherLabel.textContent = on ? 'もどす' : 'ならべる';
+  gatherLabel.textContent = on ? 'もどす' : 'リスト表示';
   gatherBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
   gatherBtn.title = on ? '押すと海へもどる' : '押すと全部が並ぶ';
   gatherBtn.classList.toggle('is-on', on);
@@ -2177,16 +2221,23 @@ function setGathering(on) {
   renderChrome();
 }
 
-/* ---------------- 絞り込み（中央の海だけ／追補4 §2） ----------------
+/* ---------------- フィルター（中央の海だけ／追補4 §2） ----------------
    「今日に追加したいものを、既に登録したものを消して探しやすく」。
-   切り替え。押したら絞り、もう一度押したら戻る。
-   戻し方が画面に見えていること＝ボタンの文字が「しぼる」⇄「もどす」に変わる
-   （「ならべる」⇄「もどす」と同じ言い方にそろえている）。
+   一覧から選ぶ。選んだタグの**どれかが当てはまるもの**を出す（「または」）。
 
-   「ならべる」との関係：**絞り込みは漂う海だけに効く。**
-   ならべるは契約 §7 で「全件が並ぶ」と決まっているので、こちらへは掛けない。
-   ならべている間はボタンごと引っ込め（面が丸ごと隠れるので絞る対象が無い）、
-   もどしたときに元の絞り込みへ戻る。同時に2つのモードを重ねない。 */
+   ■ **リスト表示とフィルターは重なる**（A-57 で変えた。この段落は当時の書き換え漏れ）
+
+   前はここに「絞り込みは漂う海だけに効く／リスト表示は全件が並ぶので掛けない／
+   並べている間はボタンごと引っ込める」と書いてあったが、**いまはどちらも違う**。
+   件数が増えるほど絞りたいのは一覧のほうだ、という理由で A-57 で掛けるようにした。
+
+     ・リスト表示の上でもフィルターのボタンを出す（syncNarrowBtn）
+     ・触ったら一覧を組み直す（setNarrow が gathering を見て renderGrid）
+     ・文字の「さがす」とも重なる。両方に当てはまるものだけが出る
+     ・名指しで選んだものは、ふだん外していても出す（長期保留を選べば長期保留が出る）
+
+   契約 §7 の「リスト表示は全件が並ぶ」は、**既定の話**として残っている——
+   何も選んでいなければ全件。選んだぶんだけ狭まる。 */
 
 /* id が null なら全部やめる。それ以外は入れ／外しの切り替え */
 function setNarrow(tagId) {
@@ -2199,7 +2250,7 @@ function setNarrow(tagId) {
     narrowSet.add(tagId);
   }
   /* 整列中はグリッドのほう、ふだんは海のほうを組み直す。
-     **ここで renderGrid を呼ばないと、ならべるの上でフィルターを触っても
+     **ここで renderGrid を呼ばないと、リスト表示の上でフィルターを触っても
      一覧が変わらない**（ボタンの札だけ変わって、中身が古いまま残る）。 */
   if (gathering) renderGrid();
   else syncFaces();     /* 中央の顔ぶれが変わる */
@@ -2286,7 +2337,7 @@ function syncNarrowBtn() {
   if (!narrowBtn) return;
   if (pruneNarrow()) syncFaces();          /* 消えたタグを選んだままにしない */
   /* 中央（ぜんぶ）の海にだけ置く。タグの海には出さない（絞る意味が無い）。
-     **ならべる（一覧）の上でも出す**——あちらにもフィルターが効くようになったので、
+     **リスト表示（一覧）の上でも出す**——あちらにもフィルターが効くようになったので、
      切り替える口が要る（利用者の指示） */
   const show = curFace === 'center' && hasTags();
   narrowBtn.hidden = !show;
@@ -2309,7 +2360,12 @@ function syncNarrowBtn() {
    （centerItems() が既に絞られているので、faceItems をそのまま使えばよい）。 */
 
 function pickFace() {
-  if (gathering) return [];
+  /* リスト表示のあいだは、**画面に出ている一覧そのもの**から引く（A-65）。
+     さがしている最中なら、その結果から引く——見えているものと引く対象を食い違わせない */
+  if (gathering) {
+    if ((faceTag(curFace) || {}).id === 'done') return [];
+    return listItems();
+  }
   if (curFace !== 'center') {
     const tag = faceTag(curFace);
     if (!tag) return [];
@@ -2454,13 +2510,13 @@ function clearGrid() {
    store.all() をそのまま並べると完了の海の中身がここへ混ざる）。 */
 /* さがす（レビューの指摘）。
 
-   > 海は新しい20件まで、唯一の全件「ならべる」は古い順で絞り込みも文字検索も効かない。
+   > 海は新しい20件まで、唯一の全件「リスト表示」は古い順で絞り込みも文字検索も効かない。
    > 書き出す人ほど、書いたものに二度と会えません
 
    そのとおりだった。書くことを勧めておいて、書いたものへ戻る道が
    目で追うことしか無いのは、**書く**という中核の約束のほうを裏切る。
 
-   置き場所は「ならべる」の中。あそこが「ぜんぶ読む場所」なので、
+   置き場所は「リスト表示」の中。あそこが「ぜんぶ読む場所」なので、
    さがすのもそこにあるのが素直（新しい画面もタブも増やさない）。
 
    **さがしている間は、ふだん外しているものも出す。**長期保留も完了も出す——
@@ -2487,45 +2543,194 @@ function hay(t) {
   return parts.join('\n').toLowerCase();
 }
 
+/* 一覧に出すもの。**いまの海のものだけ**（A-65。利用者の指示「見え方だけの違いに」）。
+
+   前はここが `store.all()` で、海とは別に「全件を読む場所」だった。いまは
+   **海の見え方が2つある**という形にした——漂わせて読むか、文字で読むか。
+   面を移れば中身も移る。海の20件までの上限だけは外す（読む場所なので数で切らない）。
+
+   **さがす（文字検索）だけは全件のまま。**あれは「どこへ行ったか分からないものを
+   見つける」ための道で、海を跨いで探せないと役に立たない。
+   一覧が海に閉じたぶん、全件へ届く道はここ1本になった。 */
+function listItems() {
+  const q = normQ(gridQ);
+  const byAge = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
+  if (q) return store.all().filter(t => hay(t).indexOf(q) >= 0).sort(byAge);
+  capOff = true;
+  let base;
+  try { base = faceItems(curFace) || []; } finally { capOff = false; }
+  return base.slice().sort(byAge);
+}
+
+/* ---------------- 行をつまむ（A-65。利用者の指示） ----------------
+
+   > リストアイテムをつまんで今日や隣のページ飛ばせれる様に
+
+   落とし先は**海とまったく同じ**——下タブ4本と、左右の端（隣の海）、上の端（長期保留）。
+   下（完了）だけは海と同じ理由で外す（DROP_DIRS の注記）。判定も海のものを使い回す
+   （edgeHitAt / dropToTab / tagFromEdge）。**一覧のために別の規則を作らない。**
+
+   バブルの掴みは bubble.js が持っているが、行はバブルではない（3ノードで済ませてある）。
+   なので最小限のドラッグだけをここに置く。むずかしいのは**縦スクロールとの喧嘩**で、
+   2つの入口に分けて避けている：
+
+     ・横へ 10px 動いたら掴む … 一覧は縦に流れるので、横は空いている
+     ・その場で 320ms 押したら掴む … 下タブへ運びたいときは真下へ動かしたい
+
+   掴んだあとは幽霊（.sea-ghost）が指に付いてくる。行そのものは動かさない
+   ——動かすと、その下の行がずれて「どこから持ってきたか」が読めなくなる。 */
+const ROW_DRAG_PX = 10;     /* 横へこれだけ動いたら掴む */
+const ROW_HOLD_MS = 320;    /* その場でこれだけ押していたら掴む */
+
+let rowDrag = null;         /* { id, node, ghost, pid, x0, y0, tabs, hot, moved } */
+let rowHoldTimer = 0;
+let rowClickBlock = 0;      /* 掴んだ直後の click を捨てる時刻 */
+
+function rowTabs() {
+  const bar = document.getElementById('tabbar');
+  if (!bar) return [];
+  return [...bar.querySelectorAll('button')].map(btn => ({
+    btn,
+    id: btn.dataset.screen || btn.dataset.id || '',
+    rect: btn.getBoundingClientRect(),
+  })).filter(t => DROPPABLE.indexOf(t.id) >= 0);
+}
+
+/* tabs を引数で受け取る。**離したあとにも呼ぶ**ので、rowDrag を見てはいけない
+   （endRowDrag は先に rowDrag を空にする。ここで見ると必ず null が返り、
+   下タブへ落としても何も起きない——実際にそうなっていた） */
+function rowTabAt(x, y, tabs) {
+  for (const t of (tabs || [])) {
+    const r = t.rect;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return t;
+  }
+  return null;
+}
+
+function markRowTab(t) {
+  if (!rowDrag || rowDrag.hot === t) return;
+  if (rowDrag.hot) rowDrag.hot.btn.classList.remove('is-drop');
+  rowDrag.hot = t;
+  if (t) t.btn.classList.add('is-drop');
+}
+
+function beginRowDrag(ev, row, id) {
+  clearTimeout(rowHoldTimer); rowHoldTimer = 0;
+  const r = row.getBoundingClientRect();
+  const ghost = el('div', 'sea-ghost');
+  ghost.textContent = row.querySelector('.sea-row-tx').textContent;
+  ghost.style.width = Math.round(r.width) + 'px';
+  document.body.appendChild(ghost);
+  rowDrag = {
+    id, node: row, ghost, pid: ev.pointerId,
+    dx: r.left - ev.clientX, dy: r.top - ev.clientY,
+    tabs: rowTabs(), hot: null,
+  };
+  row.classList.add('is-lifted');
+  moveGhost(ev.clientX, ev.clientY);
+  beginBubbleDrag(id);        /* 端の光り・タグを外す枠は、海と同じものが動く */
+}
+
+function moveGhost(x, y) {
+  if (!rowDrag) return;
+  rowDrag.ghost.style.transform = 'translate(' + Math.round(x + rowDrag.dx) + 'px,'
+    + Math.round(y + rowDrag.dy) + 'px)';
+}
+
+function endRowDrag(ev, canceled) {
+  clearTimeout(rowHoldTimer); rowHoldTimer = 0;
+  window.removeEventListener('pointermove', onRowMove, true);
+  window.removeEventListener('pointerup', onRowUp, true);
+  window.removeEventListener('pointercancel', onRowUp, true);
+  const d = rowDrag;
+  rowDrag = null;
+  if (!d) return;
+  if (d.hot) d.hot.btn.classList.remove('is-drop');
+  d.ghost.remove();
+  d.node.classList.remove('is-lifted');
+  rowClickBlock = Date.now();      /* 離した直後の click（メニュー）は捨てる */
+  if (!canceled && ev) {
+    const t = rowTabAt(ev.clientX, ev.clientY, d.tabs);
+    /* 下タブが受けたなら、端の判定はしない（海と同じ順番） */
+    if (t) { tabDropped = true; dropToTab(d.id, t.id); }
+  }
+  endBubbleDrag();                 /* 端・タグを外す枠の判定はこちらが持つ */
+}
+
+function onRowMove(ev) {
+  if (!rowDrag || ev.pointerId !== rowDrag.pid) return;
+  ev.preventDefault();
+  moveGhost(ev.clientX, ev.clientY);
+  markRowTab(rowTabAt(ev.clientX, ev.clientY, rowDrag.tabs));
+}
+
+function onRowUp(ev) {
+  if (rowDrag && ev.pointerId !== rowDrag.pid) return;
+  endRowDrag(ev, ev.type === 'pointercancel');
+}
+
+function onRowDown(ev, row, id) {
+  if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+  if (rowDrag || bubbleDrag) return;
+  const x0 = ev.clientX, y0 = ev.clientY;
+  const pid = ev.pointerId;
+
+  /* その場で押し続けたら掴む（下タブへ真っ直ぐ運びたいとき用） */
+  clearTimeout(rowHoldTimer);
+  rowHoldTimer = setTimeout(() => {
+    rowHoldTimer = 0;
+    if (rowDrag || bubbleDrag) return;
+    beginRowDrag({ pointerId: pid, clientX: x0, clientY: y0 }, row, id);
+  }, ROW_HOLD_MS);
+
+  const watch = (e) => {
+    if (e.pointerId !== pid) return;
+    if (rowDrag) return;                       /* もう掴んでいる */
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    /* 縦に動いたなら、それは一覧のスクロール。掴まない（長押しの窓も閉じる） */
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 6) { stop(); return; }
+    if (Math.abs(dx) > ROW_DRAG_PX) {
+      stop();
+      beginRowDrag(e, row, id);
+      window.addEventListener('pointermove', onRowMove, true);
+      window.addEventListener('pointerup', onRowUp, true);
+      window.addEventListener('pointercancel', onRowUp, true);
+    }
+  };
+  const stop = () => {
+    clearTimeout(rowHoldTimer); rowHoldTimer = 0;
+    window.removeEventListener('pointermove', watch, true);
+    window.removeEventListener('pointerup', stop, true);
+    window.removeEventListener('pointercancel', stop, true);
+  };
+  window.addEventListener('pointermove', watch, true);
+  window.addEventListener('pointerup', stop, true);
+  window.addEventListener('pointercancel', stop, true);
+
+  /* 長押しで掴んだときも、そのあとの指を受け取れるようにしておく */
+  window.addEventListener('pointermove', onRowMove, true);
+  window.addEventListener('pointerup', onRowUp, true);
+  window.addEventListener('pointercancel', onRowUp, true);
+}
+
 function renderGrid() {
   const q = normQ(gridQ);
-  /* 契約 §7 は「ならべるは全件が並ぶ」だが、長期保留はここにも出さない。
-     長期保留＝**自分で「いまは見ない」と決めたもの**なので、
-     全部を読む場所にも出さない（完了を外しているのと同じ理由）。出したいときは上の海へ。
-     **ただし、さがしている間は別**（上の注記を見よ）。 */
-  /* **名指しで選んだものは、ふだん外していても出す。**
-     海の側で「いまは見ないと決めたものを、自分から見に行く道は残す」と決めたのと同じ。
-     名指ししていなければ、これまでどおり長期保留と完了は外す。 */
-  let base = q
-    ? store.all().filter(t => hay(t).indexOf(q) >= 0)
-    : store.all().filter(t =>
-      (!isDoneItem(t) || narrowSet.has('done'))
-      && (!isHoldItem(t) || narrowSet.has('hold')));
-  /* **フィルターはここにも効く**（利用者の指示）。
-     前は「あそこは全部を読む場所だから」と継がせていなかったが、
-     全部を読む場所こそ絞れないと困る——件数が増えるほど、絞りたいのはここになる。
-     さがす文字と重ねたときは**両方に当てはまるもの**（さがすは絞り込みの上に乗る）。 */
-  if (narrowSet.size) {
-    const key = todayKeySafe();
-    base = base.filter(t => {
-      const tags = tagsOfSafe(t.id);
-      for (const k of narrowSet) {
-        if (k === PAST_ONLY) { if (hasPastDay(t, key)) return true; }
-        else if (k === FUTURE_ONLY) { if (hasFutureDay(t, key)) return true; }
-        else if (tags.indexOf(k) >= 0) return true;
-      }
-      return false;
-    });
-  }
-  const list = base.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  /* 中身は listItems() が決める。**フィルターも長期保留・完了の扱いも、
+     海の側（centerItems / faceItems）が持っている規則をそのまま使う**——
+     同じ規則を2か所に書かない。ここは「その並びを行にする」だけ。 */
+  const list = listItems();
 
   gridEmpty.hidden = list.length > 0;
   const nm = narrowName();
+  /* いま何を映しているかの名前。優先は さがす > フィルター > 海の名前。
+     中央の海のときは名前を出さない（面の名札が「ぜんぶ」を出しているので重ねない） */
+  const seaNm = curFace === 'center' ? '' : nameOf(faceTag(curFace));
+  const what = nm || seaNm;
   gridEmpty.textContent = q
     ? '「' + gridQ.trim() + '」は見つからない。'
-    : (nm ? '「' + nm + '」に当てはまるものは無い。' : 'まだ何も無い。下に書くと、ここに並ぶ。');
+    : (what ? '「' + what + '」には何も無い。' : 'まだ何も無い。下に書くと、ここに並ぶ。');
   if (gridCap) {
-    gridCap.textContent = (q ? 'さがした結果' : (nm ? '「' + nm + '」' : '')) + (q || nm ? '（古い順）' : '古い順');
+    gridCap.textContent = (q ? 'さがした結果' : (what ? '「' + what + '」' : '')) + (q || what ? '（古い順）' : '古い順');
   }
 
   /* 行はバブルを組まずに作り直す。**海が新しいほうしか出さなくなったので、
@@ -2584,7 +2789,13 @@ function renderGrid() {
 
     const names = namesOf(t);
     row.setAttribute('aria-label', t.text + (names.length ? '（' + names.join('、') + '）' : ''));
-    row.addEventListener('click', ev => { ev.preventDefault(); menuFor(t.id, row); });
+    row.addEventListener('click', ev => {
+      ev.preventDefault();
+      /* つまんで運んだ直後の click は捨てる（運んだ先で盤が開いてしまう） */
+      if (Date.now() - rowClickBlock < 400) return;
+      menuFor(t.id, row);
+    });
+    row.addEventListener('pointerdown', ev => onRowDown(ev, row, t.id));
 
     gridNodes.set(t.id, { node: row, detach: null });
     grid.appendChild(row);
@@ -2602,7 +2813,9 @@ function renderChrome() {
   /* 面が中央ひとつしか無いなら、名前を出さない（選びようがないものに名札は要らない）。
      ただし絞っている間は、名前そのものが合図なので必ず出す */
   const many = liveFaces().length > 1;
-  faceName.hidden = (!many && !narrow) || gathering;
+  /* リスト表示のあいだも出す。**いまどの海を見ているか**が分からないと、
+     移動できても移った先が読めない（A-65） */
+  faceName.hidden = (!many && !narrow);
   faceLabel.textContent = name;
   faceName.classList.toggle('is-narrow', narrow);
   faceDot.hidden = !tag;
@@ -2685,7 +2898,7 @@ function syncHint() {
       centerEmpty.innerHTML = narrow
         ? 'フィルターの先には何も無い。<br>フィルターで「' + CENTER_VIEW_NAME + '」を選ぶと、もとの眺め。'
         : 'ここに漂うのは、タグの付いていないものだけ。<br>'
-          + 'タグの付いたものは「▽フィルター」から、<br>ぜんぶは「⇅ならべる」から見える。';
+          + 'タグの付いたものは「▽フィルター」から、<br>ぜんぶは「⇅リスト表示」から見える。';
     }
   }
 }
@@ -2831,7 +3044,7 @@ export default {
     });
 
     /* --- 出し切れていないときの1行（利用者の指示）--- */
-    moreLine = el('p', 'sea-more', '新しいほうから出している。<br>「ならべる」で、ぜんぶ。');
+    moreLine = el('p', 'sea-more', '新しいほうから出している。<br>「リスト表示」で、ぜんぶ。');
     moreLine.hidden = true;
     stage.appendChild(moreLine);
 
@@ -2860,12 +3073,12 @@ export default {
     });
     stage.appendChild(calBtn);
 
-    /* --- ならべる（トグル） --- */
+    /* --- リスト表示（トグル） --- */
     gatherBtn = el('button', 'sea-gather');
     gatherBtn.type = 'button';
     const ic = el('span', 'ic', '⇅');
     ic.setAttribute('aria-hidden', 'true');
-    gatherLabel = el('span', 'lb', 'ならべる');
+    gatherLabel = el('span', 'lb', 'リスト表示');
     gatherBtn.appendChild(ic);
     gatherBtn.appendChild(gatherLabel);
     gatherBtn.setAttribute('aria-pressed', 'false');
@@ -2876,15 +3089,15 @@ export default {
     });
     stage.appendChild(gatherBtn);
 
-    /* --- しぼる（中央の海だけ／トグル） ---
+    /* --- フィルター（中央の海だけ／トグル） ---
        面の名前のすぐ下に置く。名前（いま何が浮かんでいるか）と
        その切り替えが縦に並ぶので、対で読める。
-       「ならべる」は右上のまま。2つのモードのボタンを隣り合わせない。 */
+       「リスト表示」は右上のまま。2つのモードのボタンを隣り合わせない。 */
     narrowBtn = el('button', 'sea-narrow');
     narrowBtn.type = 'button';
     const nic = el('span', 'ic', '▽');
     nic.setAttribute('aria-hidden', 'true');
-    narrowLabel = el('span', 'lb', 'しぼる');
+    narrowLabel = el('span', 'lb', 'フィルター');
     narrowBtn.appendChild(nic);
     narrowBtn.appendChild(narrowLabel);
     narrowBtn.hidden = true;
@@ -3139,7 +3352,7 @@ export default {
     if (!dir) return false;                 /* 割り当てが無い＝開けない */
     if (gathering) setGathering(false);     /* 整列中なら解いてから移る */
     cancelSwipe();
-    /* 絞り込み（しぼる）はそのままにする。指でなぞって面を移ったときも解けないので、
+    /* 絞り込み（フィルター）はそのままにする。指でなぞって面を移ったときも解けないので、
        ここだけ解くと戻ってきたときの見え方が食い違う */
     goFace(dir);
     return true;

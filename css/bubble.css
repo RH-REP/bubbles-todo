@@ -1045,7 +1045,7 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
 .bub-field { position: relative; }
 .bub-spacer { position: relative; width: 1px; height: 0; pointer-events: none; }
 
-/* 「ならべる」中。全件が並ぶので、縮めずに縦へスクロールさせる */
+/* 「リスト表示」中。全件が並ぶので、縮めずに縦へスクロールさせる */
 .bub-field.is-gathering { overflow-y: auto; touch-action: pan-y; }
 .bub-field.is-gathering .bub .wob { animation: none; }   /* 並んでいる間は呼吸を止める */
 

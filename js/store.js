@@ -1211,7 +1211,7 @@ function rollover() {
 /* 生きている項目か。消した項目（墓石 trashed:true）は、
    「いま生きているもの」を返す問い合わせから全部外れる。
    完了（done）と違って all() にも count() にも出ない——
-   画面が all() を並べる場所（海の「ならべる」など）に墓石を混ぜないため */
+   画面が all() を並べる場所（海の「リスト表示」など）に墓石を混ぜないため */
 function isLive(t) { return !!t && !t.trashed; }
 
 /* 墓石も含めた全件から id で引く。remove / untrash / restore の内部だけが使う。
@@ -2202,7 +2202,7 @@ export const store = {
     return true;
   },
 
-  /* 列から降ろす。**タグも中身も消えない**——しぼるから見えるまま -> 降ろせたか */
+  /* 列から降ろす。**タグも中身も消えない**——フィルターから見えるまま -> 降ろせたか */
   removeSea(id) {
     const i = seaList.indexOf(id);
     if (i < 0) return false;

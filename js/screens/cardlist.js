@@ -1077,7 +1077,7 @@ function openSchedule(a) {
   if (first) first.focus({ preventScroll: true });
 }
 
-/* 「ぜんぶ見る」の切り替え。戻し方が画面に見えていること（海の「しぼる」と同じ言い方） */
+/* 「ぜんぶ見る」の切り替え。戻し方が画面に見えていること（海の「フィルター」と同じ言い方） */
 function setShowAll(on) {
   const next = !!on;
   if (showAllAnchors === next) return;
@@ -1835,7 +1835,7 @@ return {
     /* 「ぜんぶ見る」。日にちを決めたきっかけが1つも無ければ出さない
        （切り替える意味が無いものを画面に置かない）。
        戻し方が見えていること＝押すと文字が「今日のぶんだけ」に変わる
-       （海の「しぼる」⇄「もどす」と同じ言い方） */
+       （海の「フィルター」⇄「もどす」と同じ言い方） */
     allBtn = el('button', 'plan-all');
     allBtn.type = 'button';
     allBtn.hidden = true;
