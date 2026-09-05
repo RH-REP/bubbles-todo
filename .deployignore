@@ -1,0 +1,9 @@
+# 利用側の README（app/ 側で書く。app_dev の README で上書きしない）
+/README.md
+# 実行（serve.py が自フォルダを静的配信）に不要な生成物・開発専用物
+node_modules/
+android/
+ios/
+www/
+# 実値の環境変数は app/ 側に置く
+.env

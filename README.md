@@ -97,6 +97,9 @@ python3 serve.py
 `http://localhost:8931/` が開く（このサーバは開発補助で、アプリ本体には含まれない。
 ES モジュールが強くキャッシュされるので `Cache-Control: no-store` を返している）。
 
+ダブルクリックで起動するなら `app/self_management/bubble_todo/start.command`（空きポートを探して同じ `serve.py` を起動する）。
+利用データは `app/self_management/bubble_todo/`（記録はブラウザの localStorage に入るので、そこに置くのは起動口と実値の `.env` だけ）。
+
 ### テスト
 
 ```bash

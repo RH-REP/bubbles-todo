@@ -12,3 +12,6 @@ node_modules/
 www/
 android/
 ios/
+
+# 実値の環境変数（.env.example の写し）は app/self_management/bubble_todo/ に置く
+.env
