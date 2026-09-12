@@ -5,15 +5,25 @@
 
    決めごと（変えないこと）:
    - 5分が過ぎても「あと5分？」と聞かない。聞いた瞬間に5分の約束が嘘になる。
+   - 過ぎたらカウントダウンをやめ、経過時間のカウントアップに切り替える。
+     続けるなら手を止めなければいいだけ、という態度にする。
+   - タイマーは止まらない。記録しても、書いても、止まらない。停止ボタンは作らない。
    - 命令形にしない。淡々と。
    - 件数・回数・「何回目」を出さない。
 
-   **時計は出さない**（利用者の指示）。前はカウントダウンの数字と輪を出し、
-   5分に届いたかどうかを**時計が判定して**「はじめた」を立てていた。
-   これだと4分でやめた人には何も残らない——分母を書かないだけの達成条件だった。
-   いまは**押したボタンが判定**する。時間は数え続けているが、出るのは
-   記録するボタンの**呼び名が変わる**ことだけ（5分まで「早く終わった」→
-   5分から「今日は終わり」）。数字も輪も無い。
+   **時計は出す**（利用者の指示 2026-09-11）。01dd00f で外した数字と輪を戻した。
+   ポモドーロとして使う以上、残りが見えないと時間を区切る道具にならない、という判断。
+
+   **ただし判定は時計に戻さない。**01dd00f が時計と記録を切り離したのは、
+   `reachedGoal = elapsedMs >= totalMs` だと4分でやめた人に何も残らない
+   ——分母を書かないだけの達成条件になるためで、その理屈はいまも生きている。
+   時計は**見せるだけ**。「はじめた」を立てるのは押したボタンで、
+   closeFocus の reachedGoal の既定は false のまま。ここを時計に戻すと同じ穴が開く。
+
+   ポモドーロの回数は**内部にだけ残す**（利用者の指示：方向転換に備える）。
+   預け先は setSessionHandler() で外から差してもらい、ここでも store は触らない。
+   画面には出さない——出す口を作るときは、上の「件数・回数・何回目を出さない」と
+   突き合わせること。
 
    抜ける道は3つ。どれも onClose(info) の中身だけで伝える:
    - [早く終わった] / [今日は終わり] … 同じ1つのボタン。呼び名だけが5分で変わる。
@@ -60,6 +70,15 @@ export function setWorklogHandler(a) {
   worklogAdapter = (a && typeof a === 'object') ? a : null;
 }
 
+/* 1回ぶんの集中の控え（＝ポモドーロの回数）の預け先。app.js が起動時に1回差す。
+   closeFocus が閉じぎわに1回だけ呼ぶ。**画面には出さない**（利用者の指示：
+   内部にだけ残して方向転換に備える）。差されていなければ何も起きない——
+   控えが取れないことで集中画面の動きが変わってはいけない。 */
+let sessionHandler = null;
+export function setSessionHandler(fn) {
+  sessionHandler = typeof fn === 'function' ? fn : null;
+}
+
 /* 開始時刻からの実時間で数える。setInterval の回数では数えない。
    タブが裏に回ると setInterval は1秒単位に間引かれ、回数で数えると狂うため。 */
 const TICK_MS = 250;
@@ -71,6 +90,9 @@ const SAVE_MS = 400;
 /* 記録には「次の一手」が要る（git のように、記録は必ず「次はここから」を持つ）。
    押せない理由を出すときの言い方。命令形にしない＝「入れてください」とは言わない。 */
 const NEXT_REQUIRED = '記録には次の一手が要る';
+
+const RING_R = 54;                          // css/focus.css の viewBox に合わせてある
+const RING_C = 2 * Math.PI * RING_R;
 
 /* ---------- 公開API ---------- */
 
@@ -142,9 +164,18 @@ export function openFocus(opts) {
   }
   scroll.appendChild(head);
 
-  /* 約束の一言。数字も輪も出さない（利用者の指示で時計を削除した）。
-     ここは静かに置いたままにする——「5分だけ」という枠そのものは残っているので。 */
+  /* 残り時間とリング。作業ログがあるときは上に貼り付く（下までスクロールしても見える） */
   const timer = el('div', 'focus-timer');
+  const dial = el('div', 'focus-dial');
+  const { svg, arc } = buildRing();
+  dial.appendChild(svg);
+
+  const timeNode = el('div', 'focus-time');
+  timeNode.setAttribute('aria-hidden', 'true');   // 毎秒の読み上げを避ける
+  dial.appendChild(timeNode);
+  timer.appendChild(dial);
+
+  /* 状態の一言。読み上げはここだけ（切り替わりは2回しか起きない） */
   const noteNode = el('div', 'focus-note');
   noteNode.setAttribute('role', 'status');
   noteNode.textContent = promiseLabel(minutes);
@@ -192,7 +223,8 @@ export function openFocus(opts) {
   root.appendChild(card);
 
   state = {
-    root, noteNode, enough, stop,
+    root, timeNode, noteNode, arc, enough, stop,
+    id,                                     // 控え（ポモドーロの回数）の宛先。表示には使わない
     startedAt: Date.now(),
     totalMs, minutes,
     onClose,
@@ -303,6 +335,12 @@ export function closeFocus(overrides) {
     if (typeof o.reason === 'string' && o.reason) info.reason = o.reason;
   }
 
+  /* 1回ぶんの控え。**onClose より先に、閉じぎわに1回だけ。**
+     `full` は時計が見た事実（約束の長さに届いたか）で、`reachedGoal`（押したボタンが
+     立てた記録）とは別物。ここで両者を混ぜないのが 01dd00f の要点なので、
+     控えのほうにも両方そのまま入れて、読む側が選べるようにしてある。 */
+  reportSession(s, info);
+
   if (s.prevFocus && typeof s.prevFocus.focus === 'function' &&
       document.contains(s.prevFocus)) {
     try { s.prevFocus.focus(); } catch (_) { /* 消えていたら何もしない */ }
@@ -312,6 +350,26 @@ export function closeFocus(overrides) {
 
 export function isFocusOpen() {
   return state !== null;
+}
+
+/* 控えを預ける。**画面には出さない**（利用者の指示：内部にだけ残す）。
+   預け先が無くても、投げた先が壊れても、集中画面の閉じ方は変わらない。 */
+function reportSession(s, info) {
+  if (!sessionHandler) return;
+  try {
+    sessionHandler({
+      id: s.id,                              // 無いこともある（todo.js は id を渡さない）
+      at: s.startedAt,
+      ms: info.elapsedMs,
+      minutes: s.minutes,
+      full: info.elapsedMs >= s.totalMs,     // 時計が見た事実。記録の判定ではない
+      reachedGoal: info.reachedGoal === true,
+      completed: info.completed === true,
+      reason: typeof info.reason === 'string' ? info.reason : '',
+    });
+  } catch (err) {
+    console.error(err);                      // 控えが取れないだけ。閉じるのは続ける
+  }
 }
 
 /* ---------- 抜けるとき ---------- */
@@ -380,15 +438,33 @@ function openAsk(info) {
 /* ---------- 中身 ---------- */
 
 /* 1回分の更新。時刻は必ず Date.now() の差分から出す。
-   出すのは**記録するボタンの呼び名**だけ（数字も輪も無い）。 */
+   出すのは**残り時間・輪・状態の一言・記録するボタンの呼び名**。
+   どれも見せるだけで、記録が増えるかどうかには触らない（判定は押したボタン）。 */
 function tick() {
   if (!state) return;
   const elapsed = Date.now() - state.startedAt;
-  if (elapsed < state.totalMs || state.over) return;
-  /* 5分を越えた。呼び名が「早く終わった」から「今日は終わり」へ変わる——
-     これが、数字を出さずに越えたことを伝える唯一の合図 */
+  const remain = state.totalMs - elapsed;
+
+  if (remain > 0) {
+    state.timeNode.textContent = mmss(Math.ceil(remain / 1000));
+    if (state.arc) {
+      state.arc.setAttribute('stroke-dashoffset',
+        String(RING_C * (1 - remain / state.totalMs)));
+    }
+    return;
+  }
+
+  // 5分を過ぎたら経過時間のカウントアップへ。選択肢は出さない
+  state.timeNode.textContent = '+' + mmss(Math.floor(elapsed / 1000));
+  if (state.arc) state.arc.setAttribute('stroke-dashoffset', '0');
+  if (state.over) return;
+
+  /* 越えたときだけ1回。見た目と呼び名が変わる。
+     呼び名の入れ替えは 01dd00f が入れたもので、時計を戻しても残す——
+     押す前に**そのボタンが何を意味するか**が変わるのは、数字とは別の情報なので。 */
   state.over = true;
   state.root.classList.add('is-over');
+  state.noteNode.textContent = passedLabel(state.minutes);
   if (state.enough) state.enough.textContent = OVER_LB;
 }
 
@@ -404,12 +480,18 @@ function isTextField(node) {
   return tag === 'TEXTAREA' || tag === 'INPUT';
 }
 
+function mmss(totalSec) {
+  const sec = Math.max(0, Math.floor(totalSec));
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+
 /* 「5分だけ」。分が整数でなければ秒で言い換える */
 function durationLabel(minutes) {
   if (Number.isInteger(minutes)) return minutes + '分';
   return Math.max(1, Math.round(minutes * 60)) + '秒';
 }
 const promiseLabel = (m) => durationLabel(m) + 'だけ';
+const passedLabel = (m) => durationLabel(m) + 'は過ぎました';
 
 /* 記録するボタンの呼び名。5分で入れ替わる（利用者の指示）。
    どちらを押しても記録は同じ——違うのは、そのとき自分がどこに居たかの言い方だけ。 */
@@ -426,6 +508,32 @@ function safeUrl(raw) {
 function prefersReducedMotion() {
   return typeof matchMedia === 'function' &&
     matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/* 進捗のリング。装飾なので、作れなくても本体は動く */
+function buildRing() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'focus-ring');
+  svg.setAttribute('viewBox', '0 0 120 120');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+
+  const track = document.createElementNS(NS, 'circle');
+  track.setAttribute('class', 'track');
+  track.setAttribute('cx', '60'); track.setAttribute('cy', '60');
+  track.setAttribute('r', String(RING_R));
+
+  const arc = document.createElementNS(NS, 'circle');
+  arc.setAttribute('class', 'arc');
+  arc.setAttribute('cx', '60'); arc.setAttribute('cy', '60');
+  arc.setAttribute('r', String(RING_R));
+  arc.setAttribute('stroke-dasharray', String(RING_C));
+  arc.setAttribute('stroke-dashoffset', '0');
+
+  svg.appendChild(track);
+  svg.appendChild(arc);
+  return { svg, arc };
 }
 
 /* ---------- 作業ログ（前回からの続き） ---------- */

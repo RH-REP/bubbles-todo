@@ -3849,6 +3849,122 @@ await test('t.today へは代入できない。置く／外すのは days のほ
 
 /* ============================================================ */
 
+/* --- 集中1回ぶんの控え（ポモドーロの回数）。内部にだけ残す --- */
+
+await test('logFocus は控えを積み、保存に残り、開き直しても読める', async () => {
+  let store = await open({ raw: null, now: NOW });
+  const t = store.add('原稿を書く');
+  assert.equal(store.focusCount(), 0, '最初は空');
+
+  assert.equal(store.logFocus({
+    id: t.id, at: NOW, ms: 5 * 60 * 1000, minutes: 5,
+    full: true, reachedGoal: true, completed: false, reason: 'enough',
+  }), true);
+
+  assert.equal(store.focusCount(), 1);
+  assert.equal(saved().focusLog.length, 1, '保存データに focusLog として残る');
+
+  store = await open({ now: NOW });          /* 同じ保存データで開き直す */
+  const [e] = store.focusSessions();
+  assert.equal(e.id, t.id);
+  assert.equal(e.ms, 5 * 60 * 1000);
+  assert.equal(e.full, true);
+  assert.equal(e.reason, 'enough');
+});
+
+await test('focusCount({full:true}) は約束の長さに届いた回だけ数える', async () => {
+  const store = await open({ raw: null, now: NOW });
+  /* 途中でやめた回も控えには残る。着手（logs）と別勘定だからこそ残せる */
+  store.logFocus({ at: NOW, ms: 4 * 60 * 1000, minutes: 5, full: false, reason: 'stop' });
+  store.logFocus({ at: NOW, ms: 5 * 60 * 1000, minutes: 5, full: true, reason: 'enough' });
+  store.logFocus({ at: NOW, ms: 9 * 60 * 1000, minutes: 5, full: true, reason: 'enough' });
+
+  assert.equal(store.focusCount(), 3, '開いて閉じた回数はぜんぶ残る');
+  assert.equal(store.focusCount({ full: true }), 2, '完走したのは2回');
+  assert.equal(store.focusMs(), 18 * 60 * 1000, '実時間の合計は途中でやめたぶんも入る');
+  assert.equal(store.focusMs({ full: true }), 14 * 60 * 1000);
+});
+
+await test('focusCount({days:N}) は日で絞る', async () => {
+  const store = await open({ raw: null, now: NOW });
+  store.logFocus({ at: ms(2026, 8, 20, 9, 0), ms: 60, minutes: 5, full: true });   /* 今日 */
+  store.logFocus({ at: ms(2026, 8, 19, 9, 0), ms: 60, minutes: 5, full: true });   /* 昨日 */
+  store.logFocus({ at: ms(2026, 8, 10, 9, 0), ms: 60, minutes: 5, full: true });   /* 10日前 */
+
+  assert.equal(store.focusCount({ days: 1 }), 1, '今日ぶんだけ');
+  assert.equal(store.focusCount({ days: 2 }), 2, '今日と昨日');
+  assert.equal(store.focusCount(), 3, '指定が無ければ全部');
+});
+
+await test('控えは「はじめた」を増やさない（着手ログとは別勘定）', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('原稿を書く');
+  store.logFocus({ id: t.id, at: NOW, ms: 5 * 60 * 1000, minutes: 5, full: true, reachedGoal: true });
+
+  assert.equal(store.totalStarted(), 0,
+    '控えを積んでも着手ログは0件。「はじめた」を立てるのは store.start だけ');
+  assert.equal(store.isStarted(t.id, null), false, 'はじめた印も付かない');
+  assert.equal(store.startedCount(7), 0, 'ふりかえりが読む数も動かない');
+});
+
+await test('壊れた控えは積まないし、読むときも落とす', async () => {
+  let store = await open({ raw: null, now: NOW });
+  assert.equal(store.logFocus(null), false);
+  assert.equal(store.logFocus({}), false, 'at も ms も無い');
+  assert.equal(store.logFocus({ at: NOW }), false, 'ms が無い');
+  assert.equal(store.logFocus({ at: 'いつか', ms: 100 }), false, 'at が数でない');
+  assert.equal(store.focusCount(), 0, '1件も積まれていない');
+
+  store = await open({ raw: {
+    v: 2, todos: [], log: [], todayLog: [], lastDay: '2026-08-20',
+    focusLog: [
+      { at: NOW, ms: 1000, minutes: 5, full: true },
+      { at: NOW },                       /* ms が無い */
+      null,
+      { ms: 1000 },                      /* at が無い */
+    ],
+  }, now: NOW });
+  assert.equal(store.focusCount(), 1, '読めるものだけ残る');
+});
+
+await test('この版より前の保存データ（focusLog 無し）でも壊れない', async () => {
+  const store = await open({ raw: {
+    v: 2, todos: [], log: [], todayLog: [], lastDay: '2026-08-20',
+  }, now: NOW });
+  assert.deepEqual(store.focusSessions(), [], '無ければ空で始まる');
+  assert.equal(store.focusCount(), 0);
+  assert.equal(store.logFocus({ at: NOW, ms: 100, minutes: 5 }), true, 'そのまま積める');
+});
+
+await test('wipe() は控えも消す', async () => {
+  const store = await open({ raw: null, now: NOW });
+  store.logFocus({ at: NOW, ms: 100, minutes: 5, full: true });
+  assert.equal(store.focusCount(), 1);
+  store.wipe();
+  assert.equal(store.focusCount(), 0, '初期状態に戻すので控えも消える');
+});
+
+await test('clear() は todo だけ消し、控えは残す（記録を残すのと同じ扱い）', async () => {
+  const store = await open({ raw: null, now: NOW });
+  store.add('あ');
+  store.logFocus({ at: NOW, ms: 100, minutes: 5, full: true });
+  store.clear();
+  assert.equal(store.count(), 0);
+  assert.equal(store.focusCount(), 1, '控えは記録側なので残る');
+});
+
+await test('focusSessions() の写しを書き換えても、控えは変わらない', async () => {
+  const store = await open({ raw: null, now: NOW });
+  store.logFocus({ at: NOW, ms: 100, minutes: 5, full: false });
+  const list = store.focusSessions();
+  list[0].full = true;
+  list.push({ at: NOW, ms: 1 });
+  assert.equal(store.focusCount({ full: true }), 0, '中を書き換えられていない');
+  assert.equal(store.focusCount(), 1, '件数も増えていない');
+});
+
+/* ============================================================ */
+
 Date.now = REAL_NOW;
 console.log('');
 console.log(`${pass} passed, ${failed.length} failed`);

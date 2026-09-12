@@ -305,6 +305,17 @@ let seaList = [];     /* 横一列に並ぶ海（タグの id。左から順）�
 let removedStarters = [];
 let logs = [];
 let todayLogs = [];   /* 「今日する」に入れた記録。着手ログとは別に持つ */
+
+/* 集中1回ぶんの控え（＝ポモドーロの回数）。**画面はここを読まない**（利用者の指示：
+   内部にだけ残して方向転換に備える）。着手ログ（logs）とは別物で、宛先も意味も違う：
+
+     logs       … 「はじめた」。押したボタンが立てる。ふりかえりが読む
+     focusLogs  … 集中画面を開いて閉じるまでの控え。時計が見た事実だけ
+
+   だから [やめる] で閉じた回も、約束の長さに届かなかった回もここには残る。
+   ここを読んで画面に数を出す口はまだ無い。作るときは README の
+   「達成率・パーセント・分母のある数字」「連続日数」を作らない、と突き合わせること。 */
+let focusLogs = [];
 let lastDay = null;
 const listeners = new Set();
 
@@ -984,6 +995,24 @@ function normalizeLog(arr) {
     .sort((a, b) => a.at - b.at);
 }
 
+/* 集中の控え。壊れた保存データで起動不能にしないのは他のログと同じで、
+   読めない要素は落とす。id は無いこともある（呼び出し側が渡さない画面がある）。 */
+function normalizeFocusLog(arr) {
+  return arr
+    .filter(e => e && Number.isFinite(Number(e.at)) && Number.isFinite(Number(e.ms)))
+    .map(e => ({
+      id: typeof e.id === 'string' ? e.id : null,
+      at: Number(e.at),
+      ms: Math.max(0, Number(e.ms)),
+      minutes: Number.isFinite(Number(e.minutes)) ? Number(e.minutes) : 0,
+      full: e.full === true,
+      reachedGoal: e.reachedGoal === true,
+      completed: e.completed === true,
+      reason: typeof e.reason === 'string' ? e.reason : '',
+    }))
+    .sort((a, b) => a.at - b.at);
+}
+
 /* started は必ずあるはずだが、外から作った snapshot を restore() された場合などに
    備えて、読むときは空扱いにしておく */
 function startedOf(t) {
@@ -1056,7 +1085,7 @@ function blank() {
   return {
     anchors: [], gapSlots: normalizeGapSlots(null), tags,
     seas: normalizeSeas(null, tags),
-    todos: [], logs: [], todayLogs: [], lastDay: null,
+    todos: [], logs: [], todayLogs: [], focusLogs: [], lastDay: null,
   };
 }
 
@@ -1072,7 +1101,7 @@ function load() {
       return {
         anchors: [], gapSlots: gaps, tags, seas: normalizeSeas(null, tags),
         todos: normalizeTodos(parsed, [], tags, gaps),
-        logs: [], todayLogs: [], lastDay: null,
+        logs: [], todayLogs: [], focusLogs: [], lastDay: null,
       };
     }
     if (!parsed || typeof parsed !== 'object') return blank();
@@ -1104,6 +1133,8 @@ function load() {
         : [],
       logs: Array.isArray(parsed.log) ? normalizeLog(parsed.log) : [],
       todayLogs: Array.isArray(parsed.todayLog) ? normalizeTodayLog(parsed.todayLog) : [],
+      /* この版より前の保存データには無い。無ければ空で始める（数え直しはしない） */
+      focusLogs: Array.isArray(parsed.focusLog) ? normalizeFocusLog(parsed.focusLog) : [],
       lastDay: /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDay) ? parsed.lastDay : null,
     };
   } catch (e) {
@@ -1123,7 +1154,7 @@ function persist() {
       v: 2, palVer: PAL_VER, anchors: anchorList, gapSlots: gapList, tags: tagList,
       seas: seaList, todos: items,
       removedStarters,
-      log: logs, todayLog: todayLogs, lastDay,
+      log: logs, todayLog: todayLogs, focusLog: focusLogs, lastDay,
     }));
     lastSaveError = null;
   } catch (e) {
@@ -1204,6 +1235,7 @@ function rollover() {
   items = data.todos;
   logs = data.logs;
   todayLogs = data.todayLogs;
+  focusLogs = data.focusLogs;
   lastDay = data.lastDay;
   rollover();
 }
@@ -2440,7 +2472,7 @@ export const store = {
   wipe() {
     items = []; anchorList = []; gapList = normalizeGapSlots(null); tagList = normalizeTags(null);
     seaList = normalizeSeas(null, tagList);
-    logs = []; todayLogs = []; lastDay = dayOf(Date.now());
+    logs = []; todayLogs = []; focusLogs = []; lastDay = dayOf(Date.now());
     persist(); emit();
   },
 
@@ -2559,6 +2591,66 @@ export const store = {
 
   /* 全期間の着手件数 */
   totalStarted() { return logs.length; },
+
+  /* --- 集中1回ぶんの控え（ポモドーロの回数）。**画面はまだ読まない** ---
+     利用者の指示で「内部では記録し、表示しない」。方向転換したときに
+     数え直せなくならないよう、いまのうちから残しておくためだけの口。
+
+     **着手（start / logs）とは別勘定。**こちらは時計が見た事実だけを持ち、
+     「はじめた」を立てるかどうかには一切触らない。[やめる] で閉じた回も残る。 */
+
+  /* 1回ぶんを積む。focus.js からは app.js 経由で来る（store を直に触らせない）。
+     壊れた値では積まない——控えのために本体が落ちる、が無いように。 */
+  logFocus(entry) {
+    const e = entry && typeof entry === 'object' ? entry : null;
+    if (!e) return false;
+    const at = Number(e.at);
+    const ms = Number(e.ms);
+    if (!Number.isFinite(at) || !Number.isFinite(ms)) return false;
+    focusLogs.push({
+      id: typeof e.id === 'string' ? e.id : null,
+      at,
+      ms: Math.max(0, ms),
+      minutes: Number.isFinite(Number(e.minutes)) ? Number(e.minutes) : 0,
+      full: e.full === true,
+      reachedGoal: e.reachedGoal === true,
+      completed: e.completed === true,
+      reason: typeof e.reason === 'string' ? e.reason : '',
+    });
+    persist();
+    /* emit() は呼ばない。**控えが増えても画面は引き直さない**——
+       出さないと決めたものが、再描画のちらつきとして漏れないように。 */
+    return true;
+  },
+
+  /* 控えの読み。古い順の写しを返す（中を書き換えられても控えは変わらない）。
+     いまの呼び出し元はテストだけ。画面から呼ぶ前に README の決めごとを読むこと。 */
+  focusSessions() { return focusLogs.map(e => ({ ...e })); },
+
+  /* 何回ぶん積んだか。full:true だけ数えると「約束の長さに届いた回」＝
+     ポモドーロの完走数になる。opts = { full:true, days:N } */
+  focusCount(opts) {
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const set = Number.isFinite(Number(o.days)) && Number(o.days) > 0
+      ? new Set(recentDays(Number(o.days))) : null;
+    return focusLogs.reduce((n, e) => {
+      if (o.full === true && !e.full) return n;
+      if (set && !set.has(dayOf(e.at))) return n;
+      return n + 1;
+    }, 0);
+  },
+
+  /* 集中に費やした実時間の合計（ミリ秒）。opts は focusCount と同じ */
+  focusMs(opts) {
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const set = Number.isFinite(Number(o.days)) && Number(o.days) > 0
+      ? new Set(recentDays(Number(o.days))) : null;
+    return focusLogs.reduce((n, e) => {
+      if (o.full === true && !e.full) return n;
+      if (set && !set.has(dayOf(e.at))) return n;
+      return n + e.ms;
+    }, 0);
+  },
 
   /* 直近 days 日（今日を含む）の着手件数 */
   startedCount(days) {

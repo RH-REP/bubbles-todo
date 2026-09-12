@@ -11,7 +11,7 @@
 import { store } from './store.js';
 import { toast, holdRing } from './ui.js';
 
-import { setCaptureHandler, setWorklogHandler, closeFocus } from './focus.js';
+import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus } from './focus.js';
 import { setCenterHandler } from './bubble.js';
 import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import sea from './screens/sea.js';
@@ -357,6 +357,12 @@ setWorklogHandler({
   /* 積んだ記録を直す（利用者の指示）。at で1件を指す。無ければ「直す」を出さない */
   editStep:  (id, at, v) => (has('editStep') ? store.editStep(id, at, v) : false),
 });
+
+/* 集中1回ぶんの控え（＝ポモドーロの回数）。閉じるたびに1回呼ばれる。
+   **画面には出さない**（利用者の指示：内部にだけ残して方向転換に備える）。
+   ここも focus.js を store から切り離すための差し込み口で、形は上の2つと同じ。
+   店側にまだ口が無い版でも落ちないよう、has() で見てから呼ぶ。 */
+setSessionHandler((s) => { if (has('logFocus')) store.logFocus(s); });
 
 /* 中央に寄せたバブルに出る「次の一手」と「リンク」の出し入れ。
    bubble.js を store から切り離すための差し込み口（focus.js と同じ形）。 */
