@@ -3357,6 +3357,19 @@ export default {
     goFace(dir);
     return true;
   },
+
+  /* 中央の海を、このタグだけに絞る（左のメニューの名前タップ用。利用者の指示 2026-09-25）。
+     海になっていないタグ（買い物など）の項目は、どの面にも出ない——
+     中央は既定でタグ無しだけなので。絞れば中央に出るので、そこで盤を開ける。
+     setNarrow はトグルなので、いったん全部やめてから1つ入れる。
+     絞りは利用者が「ぜんぶ」を押すまで残る（なぞって面を移っても解けないのと同じ扱い） */
+  narrowTo(tagId) {
+    if (typeof tagId !== 'string' || !tagId) return false;
+    if (!narrowChoices().some(c => c.id === tagId)) return false;
+    setNarrow(null);
+    setNarrow(tagId);
+    return true;
+  },
 };
 
 function flushAll() {

@@ -12,7 +12,7 @@ import { store } from './store.js';
 import { toast, holdRing } from './ui.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
-import { setCenterHandler } from './bubble.js';
+import { setCenterHandler, centerBubble } from './bubble.js';
 import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import sea from './screens/sea.js';
 import today, { openDayPicker, dayBadge } from './screens/today.js';
@@ -211,25 +211,109 @@ function putToday(t) {
   });
 }
 
+/* 開いている区分。**既定は「最近つかった」だけ**（利用者の指示 2026-09-25）。
+   アプリを開いている間は覚え、読み込み直すと既定に戻る。件数は見出しに出さない */
+const openSecs = new Set(['recent']);
+
+/* 利用者のタグごとの区分（利用者の指示 2026-09-25：買い物などタグ付きもここに）。
+   特別なタグ（今日・きっかけ・すきま・長期保留・完了）は区分にしない——それぞれ自分の場所がある。
+   完了は出さない。長期保留中のものは**出す**（「◯/◯ にもどる」付き。取り出せる場所なので）。
+   並びは設定のタグの並び。中は新しい順 */
+function tagSections() {
+  if (!has('tags') || !has('all')) return [];
+  const live = store.all().filter(t => !t.done)
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return store.tags().filter(tag => tag && tag.id && !tag.special).map(tag => ({
+    key: 'tag:' + tag.id, name: tag.name, color: tag.color,
+    list: live.filter(t => Array.isArray(t.tags) && t.tags.indexOf(tag.id) >= 0),
+  }));
+}
+
+/* 名前をタップ → その泡を、ふだんタップしたときと同じ盤で開く（利用者の指示 2026-09-25）。
+   泡は画面ごとの面に居るので、まず居場所の画面へ移り、そこで泡のノードを探して
+   bubble.js の同じ道（centerBubble）で中央へ寄せる。
+   居場所：今日に置いてあれば今日／きっかけ／すきま／海（長期保留は上の面、タグがあればその海、無ければ中央）。
+   海は新しいほう20件しか出さないので、見つからないこともある。そのときは一言だけ言う */
+function revealItem(t) {
+  let screen = 'sea', face = null, narrow = null;
+  if (t.today) screen = 'today';
+  else if (Array.isArray(t.anchors) && t.anchors.length) screen = 'plan';
+  else if (t.gap) screen = 'gap';
+  else if (t.hold) face = 'hold';
+  else {
+    const seas = has('seas') ? (store.seas() || []) : [];
+    const ids = seas.map(x => (x && typeof x === 'object') ? x.id : x);
+    const tags = Array.isArray(t.tags) ? t.tags : [];
+    const tg = tags.find(x => ids.indexOf(x) >= 0);
+    face = tg || 'center';
+    /* タグはあるが、どのタグも海になっていない（買い物など）。
+       中央は既定でタグ無しだけなので、そのタグに絞って出す（sea.js の narrowTo） */
+    if (!tg && tags.length) narrow = tags[0];
+  }
+  show(screen);
+  const scr = SCREENS.find(x => x.id === screen);
+  if (screen === 'sea' && face && scr && typeof scr.openFace === 'function') scr.openFace(face);
+  if (screen === 'sea' && narrow && scr && typeof scr.narrowTo === 'function') scr.narrowTo(narrow);
+  const esc = (window.CSS && typeof CSS.escape === 'function') ? CSS.escape(t.id) : t.id;
+  let tries = 0;
+  const look = () => {
+    const node = document.querySelector('#pane-' + screen + ' .bub[data-id="' + esc + '"]');
+    if (node && centerBubble(node)) return;
+    if (++tries < 15) { requestAnimationFrame(look); return; }
+    toast('「' + trimText(t.text) + '」は、いまこの面に出ていない');
+  };
+  requestAnimationFrame(look);
+}
+
 function renderDrawer() {
   if (!drawer) return;
   const body = drawer.body;
   body.textContent = '';
   const key = store.todayKey();
   const sections = [
-    { name: '最近つかった', list: has('recentItems') ? store.recentItems(20) : [] },
-    { name: 'お気に入り',   list: has('favItems') ? store.favItems() : [] },
-    { name: '長期保留',     list: has('holds') ? store.holds() : [] },
-  ];
+    { key: 'recent', name: '最近つかった', list: has('recentItems') ? store.recentItems(20) : [] },
+    { key: 'fav',    name: 'お気に入り',   list: has('favItems') ? store.favItems() : [] },
+    { key: 'hold',   name: '長期保留',     list: has('holds') ? store.holds() : [] },
+  ].concat(tagSections());
   sections.forEach(sec => {
-    const h = document.createElement('h3');
-    h.textContent = sec.name;
+    const open = openSecs.has(sec.key);
+    const h = document.createElement('button');
+    h.type = 'button';
+    h.className = 'drawer-sec-h';
+    h.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (sec.color) {
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.setAttribute('aria-hidden', 'true');
+      dot.style.setProperty('--tcd', sec.color);
+      h.appendChild(dot);
+    }
+    const nm = document.createElement('span');
+    nm.className = 'sec-nm';
+    nm.textContent = sec.name;                     /* タグ名は利用者の文字 */
+    h.appendChild(nm);
+    const ch = document.createElement('span');
+    ch.className = 'ch';
+    ch.setAttribute('aria-hidden', 'true');
+    ch.textContent = '›';
+    h.appendChild(ch);
+    h.addEventListener('click', () => {
+      if (openSecs.has(sec.key)) openSecs.delete(sec.key); else openSecs.add(sec.key);
+      renderDrawer();
+    });
     body.appendChild(h);
+
+    const sb = document.createElement('div');
+    sb.className = 'drawer-sec-b';
+    sb.hidden = !open;
+    body.appendChild(sb);
+    if (!open) return;
+
     if (!sec.list.length) {
       const e = document.createElement('p');
       e.className = 'drawer-empty';
       e.textContent = 'まだ無い';
-      body.appendChild(e);
+      sb.appendChild(e);
       return;
     }
     sec.list.slice(0, 20).forEach(t => {
@@ -238,10 +322,14 @@ function renderDrawer() {
       row.className = 'drawer-row' + (inToday ? ' is-today' : '');
       const tx = document.createElement('div');
       tx.className = 'tx';
-      const nm = document.createElement('span');
-      nm.className = 'nm';
-      nm.textContent = trimText(t.text);              /* 利用者の文字。innerHTML には入れない */
-      tx.appendChild(nm);
+      /* 名前は押せる。押すと閉じて、その泡の盤を開く */
+      const nmb = document.createElement('button');
+      nmb.type = 'button';
+      nmb.className = 'nm';
+      nmb.textContent = trimText(t.text);           /* 利用者の文字。innerHTML には入れない */
+      nmb.setAttribute('aria-label', '開く：' + trimText(t.text));
+      nmb.addEventListener('click', () => { closeDrawer(); revealItem(t); });
+      tx.appendChild(nmb);
       if (t.hold && t.holdUntil) {
         const sub = document.createElement('span');
         sub.className = 'sub';
@@ -261,7 +349,7 @@ function renderDrawer() {
         /* 店が emit するので renderDrawer は購読から呼ばれる */
       });
       row.appendChild(go);
-      body.appendChild(row);
+      sb.appendChild(row);
     });
   });
 }

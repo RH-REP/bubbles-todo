@@ -1810,6 +1810,16 @@ function openStepEdit(step, onEdit) {
 /* いまドラッグ中のノード。body の is-dragging を、別のバブルの detach で
    消してしまわないための目印（同時にドラッグできるのは1つ） */
 let activeDrag = null;
+/* 外から「タップしたのと同じ道」で中央へ寄せるための口（左のメニューの名前タップ）。
+   attachGestures がノードごとに startCenter を預け、detach で外す。
+   合成イベントを投げるのではなく、同じ関数を呼ぶ——タップと寸分違わぬ結果にするため。 */
+const centerFns = new WeakMap();
+export function centerBubble(node) {
+  const f = node ? centerFns.get(node) : null;
+  if (typeof f !== 'function') return false;
+  f();
+  return true;
+}
 
 /* ジェスチャ層。
      handlers = {
@@ -2275,7 +2285,10 @@ export function attachGestures(node, handlers = {}) {
   node.addEventListener('keydown', onKey);
   node.addEventListener('contextmenu', onCtx);
 
+  centerFns.set(node, () => startCenter(null));   /* pt 無し＝指で開いたのではない（click は捨てない） */
+
   return function detach() {
+    centerFns.delete(node);
     /* 畳むときは必ず元の場所へ返す。物理側へ座標を投げ返しても受け手が居ない */
     cancelCenter(true, true);
     node.removeEventListener('pointerdown', onDown);

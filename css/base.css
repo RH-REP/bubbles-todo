@@ -240,18 +240,39 @@ body:has(.focus) .menubtn { visibility: hidden; }
 .drawer-close:hover { color: var(--text); }
 .drawer-close:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 44px 0 0; }
-.drawer-body h3 {
-  margin: 14px 16px 6px; font-size: 12px; font-weight: 600; letter-spacing: .06em;
-  color: var(--text-2);
+/* 区分の見出し。押すと開閉（既定は「最近つかった」だけ開く）。件数は出さない */
+.drawer-sec-h {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 44px; margin: 4px 0 0; padding: 0 12px 0 16px;
+  appearance: none; -webkit-appearance: none; border: 0; background: transparent;
+  font: inherit; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-align: left;
+  color: var(--text-2); cursor: pointer;
 }
+.drawer-sec-h:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+.drawer-sec-h .dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--tcd, transparent); box-shadow: inset 0 0 0 1px var(--line);
+}
+.drawer-sec-h .sec-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-sec-h .ch { margin-left: auto; font-size: 14px; line-height: 1; transition: transform .15s; }
+.drawer-sec-h[aria-expanded="true"] .ch { transform: rotate(90deg); }
+.drawer-sec-b[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .drawer-sec-h .ch { transition: none; } }
 .drawer-empty { margin: 0 16px 8px; font-size: 13px; color: var(--text-3); }
 .drawer-row {
   display: flex; align-items: center; gap: 8px;
-  min-height: 48px; padding: 4px 8px 4px 16px;
+  min-height: 48px; padding: 0 8px 0 16px;
 }
-.drawer-row .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.drawer-row .nm { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.drawer-row .sub { font-size: 11.5px; color: var(--text-2); }
+.drawer-row .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+/* 名前は押せる（押すとその泡の盤が開く）。見た目は文字のまま、当たりは 44 */
+.drawer-row .nm {
+  appearance: none; -webkit-appearance: none; border: 0; background: transparent;
+  font: inherit; font-size: 14.5px; color: var(--text); text-align: left; cursor: pointer;
+  width: 100%; min-height: 44px; padding: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.drawer-row .nm:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; border-radius: 6px; }
+.drawer-row .sub { font-size: 11.5px; color: var(--text-2); margin-top: -8px; padding-bottom: 6px; }
 .drawer-row .go {
   flex: none; appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
   min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 999px;

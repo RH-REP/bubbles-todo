@@ -55,7 +55,7 @@
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
 | Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは app_dev 側で |
 | 保存は localStorage のみ | `js/store.js` `KEY = 'bubble_todo_v1'` | **書き出し・読み込みは無い** |
-| **左のメニュー**（最近つかった／お気に入り／長期保留 → 今日に置く） | `js/app.js` `openDrawer`、`js/store.js` `recentItems` / `favItems` / `setFav` | 2026-09-24（元 F7）。お気に入りは盤の ☆ |
+| **左のメニュー**（最近つかった／お気に入り／長期保留／タグごと → 今日に置く。名前で盤が開く） | `js/app.js` `openDrawer` / `revealItem`、`js/store.js` `recentItems` / `favItems` / `setFav`、`js/bubble.js` `centerBubble` | 2026-09-24（元 F7）。9/25 にタグ区分・折り畳み・名前タップを追加。お気に入りは盤の ☆ |
 
 ---
 
