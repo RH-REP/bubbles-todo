@@ -43,6 +43,11 @@ const SAVE_MS = 400;
    **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
    （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
 const DONE_LB = '今日は終わり';
+/* 完了（store の done）。着手の「今日は終わり」とは別のこと。
+   読み上げで両者が同じ言葉になると、達成したのか手を付けただけなのか分からなくなる。
+   **文字列は store の done タグの名前とそろえてある**（あの名前は変えられない）。
+   そろえておくと、タグ名が渡ってきている画面では二重に読まずに済む。 */
+const COMPLETED_LB = '完了';
 
 const CENTER_GAP = 12;   /* バブルと盤のすきま px */
 const CENTER_M = 8;      /* 画面の縁との余白 px */
@@ -257,11 +262,17 @@ function tagNames(raw) {
 
 /* 名前が渡されていればそれを読む。渡されていない画面では、
    旧 marks（today / anchor / gap）のラベルで代用する（配線が済むまでの後ろ盾）。 */
-function ariaFor(item, names, marks, started) {
+function ariaFor(item, names, marks, started, done) {
   const tags = names.length ? names : marks.map(m => MARK_LABEL[m]).filter(Boolean);
   return String(item.text || '')
     + (tags.length ? '・' + tags.join('・') : '')
-    + (started ? '・' + DONE_LB : '')
+    /* 完了を読むのは、タグ名として**まだ読んでいないときだけ**。
+       今日の画面はタグ名を渡してくるので、そこには既に「完了」が入っている
+       ——足すと「完了・完了」になる。渡してこない画面のための後ろ盾。 */
+    + (done && tags.indexOf(COMPLETED_LB) < 0 ? '・' + COMPLETED_LB : '')
+    /* 完了しているなら着手の印は読まない。完了のほうが後の出来事なので、
+       両方読むと「完了・今日は終わり」と、順番まで逆に聞こえる */
+    + (started && !done ? '・' + DONE_LB : '')
     + '（タップで真ん中へ）';
 }
 
@@ -373,6 +384,16 @@ export function updateBubble(node, item, opts = {}) {
   node.classList.toggle('is-started', started);
   node.classList.toggle('is-mark', started && mark);
 
+  /* ---- 完了（利用者の指示 2026-09-18）----
+     完了しても日付の水面からは消さなくなった。消すと「今日なにを達成したか」が
+     残らないため。代わりに**達成したと読める見た目**を付ける。
+     祝祭にはしない（§0）——印を1つ足して、静かに落ち着かせるだけ。
+     見た目は css/bubble.css の .bub.is-done が持つ。
+     item.done を渡さない画面（海・きっかけ・すきま）では false のまま
+     ＝ 何も変わらない。 */
+  const done = !!(item && item.done);
+  node.classList.toggle('is-done', done);
+
   /* ---- タグの名前 ----
      色だけでは、色を見分けられない人にタグが伝わらない（WCAG 1.4.1）。
      バブルは小さく、文字を足すと本文が読めなくなるので、名前は
@@ -383,7 +404,7 @@ export function updateBubble(node, item, opts = {}) {
   tagMeta.set(node, { names, colors });
 
   const marks = Array.isArray(opts.marks) ? opts.marks.slice(0, 3) : [];
-  node.setAttribute('aria-label', ariaFor(item, names, marks, started));
+  node.setAttribute('aria-label', ariaFor(item, names, marks, started, done));
   node.dataset.id = item.id;
   return node;
 }
@@ -692,6 +713,7 @@ function closeAsk(restoreFocus) {
    戻り値 = { root, place(cx,cy,d), flush(), focusFirst(), isTyping(), handleEscape() } */
 function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let saveTags = null;          /* タグの付け外しは閉じるときにまとめて書く */
+  let saveFav = null;           /* お気に入りの印（F7）も同じく閉じるとき */
   let saveHoldUntil = null;     /* 長期保留の「戻ってくる日」も同じく閉じるとき */
   /* 「今日」の札と、カレンダーの今日の枡は同じものを指す。
      二重に書かないよう、書き込みはカレンダー側が持ち、札は見た目だけ合わせる */
@@ -754,6 +776,32 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      ここから同じことを別の顔で二度できるようにすると、どちらが本筋か分からなくなる。
 
      ■ 古い預け先（tags を返さない版）では、いままでどおり読むだけ */
+  /* ---- お気に入りの印（F7・利用者の指示 2026-09-24）----
+     左のメニューの「お気に入り」に出るための印。タグではないので札の列には並べず、
+     その上に1つだけ置く。書くのは閉じるとき（タグと同じ理由：押した瞬間に書くと
+     店が emit して盤ごと作り直される）。預け先に isFav / setFav が無い版では出さない。 */
+  if (fields && typeof (a || {}).setFav === 'function') {
+    const fav0 = ask(a, 'isFav', id) === true;
+    let favWant = fav0;
+    const favBtn = el('button', 'bc-fav');
+    favBtn.type = 'button';
+    const favIc = el('span', 'bc-fav-ic');
+    favIc.setAttribute('aria-hidden', 'true');
+    const favTx = el('span', 'bc-fav-tx', 'お気に入り');
+    favBtn.appendChild(favIc);
+    favBtn.appendChild(favTx);
+    const syncFav = () => {
+      favBtn.setAttribute('aria-pressed', favWant ? 'true' : 'false');
+      favIc.textContent = favWant ? '★' : '☆';
+    };
+    syncFav();
+    favBtn.addEventListener('click', ev => { ev.preventDefault(); favWant = !favWant; syncFav(); });
+    fields.appendChild(favBtn);
+    saveFav = () => {
+      if (favWant !== fav0) ask(a, 'setFav', id, favWant);
+    };
+  }
+
   const allTags = ask(a, 'tags');
   const canEdit = Array.isArray(allTags) && allTags.length
     && typeof (a || {}).setTag === 'function';
@@ -1603,6 +1651,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       saveStep(); saveUrl();
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
+      if (saveFav) saveFav();                 /* 印はタグの後ろ。順に意味は無い */
       if (saveHoldUntil) saveHoldUntil();
     },
     /* 盤の先頭の的。[タスク開始] は盤の中へ移ったので、そこを探す

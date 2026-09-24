@@ -226,10 +226,22 @@ function dayLabel(key) {
    ——置いたのに消えると、置いた事実のほうが失われる。
 
    だから、日付の水面と、そこから引くさいころには、長期保留もそのまま出る。 */
+/* **完了したものも出す**（利用者の指示 2026-09-18）。
+
+   前は今日だけ store.todays() を見ていた。あれは `today && !done` なので、
+   完了した瞬間に今日の水面から消えていた——**その日なにを達成したかが残らない**。
+   ほかの日（itemsOnDay）は前から完了したものも出していたので、今日だけが
+   食い違っていたことになる。両方 itemsOnDay に寄せて、食い違いごと無くす。
+
+   complete() は days に触らない（置いた日そのものは記録なので消えない）ので、
+   itemsOnDay(今日) は todays() に完了したぶんを足しただけのものになる。
+
+   さいころ（pickList）は別で `!isDoneItem(t)` を掛けている——達成したものを
+   もう一度引かせないため。あちらは今までどおり。 */
 function dayItems(key) {
-  const base = (key === todayKey() || typeof store.itemsOnDay !== 'function')
-    ? store.todays()
-    : store.itemsOnDay(key);
+  const base = (typeof store.itemsOnDay === 'function')
+    ? store.itemsOnDay(key)
+    : store.todays();          /* 口が無い版への後ろ盾。今日ぶんしか返せない */
   return base || [];
 }
 
@@ -239,6 +251,8 @@ function itemsForField() {
     id: t.id,
     text: t.text,
     started: isStarted(t.id),
+    /* 達成したことが見て分かるように（利用者の指示）。bubble.js が .is-done を付ける */
+    done: isDoneItem(t),
     marks: [],
     colors: tagColors(t.id),
     tagNames: tagNames(t.id),

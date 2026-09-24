@@ -948,6 +948,8 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
     doneAt: (done && Number.isFinite(Number(t.doneAt))) ? Number(t.doneAt) : null,
     trashed,
     trashedAt: (trashed && Number.isFinite(Number(t.trashedAt))) ? Number(t.trashedAt) : null,
+    /* お気に入りの印（F7）。旧データには無いので false から始まる */
+    fav: t.fav === true,
   });
 }
 
@@ -1322,6 +1324,7 @@ export const store = {
       doneAt: null,
       trashed: false,
       trashedAt: null,
+      fav: false,
     });
     items.push(t);
     /* 「今日する」枠に直接書いた場合も「入れた」記録に残す（setToday を通らない経路） */
@@ -1627,6 +1630,65 @@ export const store = {
       if (!y) return -1;
       return x < y ? -1 : 1;
     });
+  },
+
+  /* --- お気に入りの印（F7・利用者の指示 2026-09-24）---
+     **タグではなく真偽の場**。hold と同じ持ち方。
+     タグにすると (1) バブルを1色染める（色は最大3つ。星が1枠を食う）、
+     (2) 海にできる（canBeSea）、(3) フィルターに並ぶ。印の役目は
+     「左のメニューから取り出せる」ことだけなので、そのどれも要らない。
+     hasTag の分岐にも足していない（タグ一覧に出さないため）。 */
+  setFav(id, on) {
+    const t = store.get(id);
+    if (!t) return false;
+    const want = !!on;
+    if (!!t.fav === want) return false;
+    t.fav = want;
+    persist(); emit();
+    return true;
+  },
+  isFav(id) {
+    const t = store.get(id);
+    return !!(t && t.fav);
+  },
+  /* 印の付いたもの。完了したものは出さない。付けた順は持たないので、書いた順（新しい順） */
+  favItems() {
+    return items.filter(t => isLive(t) && t.fav && !t.done)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  },
+
+  /* --- 最近つかった（F7）---
+     保存しない。**読むたびに記録から出す派生値**。
+     「使った」＝ 書いた／はじめた／一手を記録した／完了した／今日に置いた／集中画面を開いた。
+     anchorAt・gapAt は通し番号で時刻ではないので見ない。
+     長期保留と完了は出さない（あちらは自分の区分に居る）。
+     順番だけを返す。回数も日数も持たない（画面にも出さない）。 */
+  recentItems(n) {
+    const lim = Number.isFinite(Number(n)) && Number(n) > 0 ? Number(n) : 20;
+    /* ログは項目ごとに最後の時刻だけ要る。一度なめて Map に寄せる */
+    const last = new Map();
+    const touch = (id, at) => {
+      const v = Number(at);
+      if (!id || !Number.isFinite(v)) return;
+      if (!last.has(id) || last.get(id) < v) last.set(id, v);
+    };
+    todayLogs.forEach(e => touch(e.id, e.at));
+    focusLogs.forEach(e => touch(e.id, e.at));
+    const stamp = (t) => {
+      let m = Number(t.createdAt) || 0;
+      const st = startedOf(t);
+      Object.keys(st).forEach(k => { const v = Number(st[k]); if (v > m) m = v; });
+      (Array.isArray(t.steps) ? t.steps : []).forEach(e => { const v = Number(e && e.at); if (v > m) m = v; });
+      if (Number(t.doneAt) > m) m = Number(t.doneAt);
+      const l = last.get(t.id);
+      if (l > m) m = l;
+      return m;
+    };
+    return items.filter(t => isLive(t) && !t.done && !t.hold)
+      .map(t => ({ t, at: stamp(t) }))
+      .sort((a, b) => (b.at - a.at) || ((b.t.createdAt || 0) - (a.t.createdAt || 0)))
+      .slice(0, lim)
+      .map(x => x.t);
   },
 
   setToday(id, on) {

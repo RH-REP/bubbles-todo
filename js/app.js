@@ -11,7 +11,7 @@
 import { store } from './store.js';
 import { toast, holdRing } from './ui.js';
 
-import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus } from './focus.js';
+import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
 import { setCenterHandler } from './bubble.js';
 import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import sea from './screens/sea.js';
@@ -156,6 +156,171 @@ function syncGear() {
 const appRoot = document.querySelector('.app');
 if (appRoot) appRoot.appendChild(gear);
 syncGear();
+
+/* ---- 左のメニュー（F7・利用者の指示 2026-09-24）----
+
+   「最近つかった」「お気に入り」「長期保留」を一覧で見て、**1タップで今日の水面に置く**場所。
+   置き場ではなく入口。本体はそれぞれ記録・印・上の海にある。
+
+   開くのは**左上のボタンだけ**。左端スワイプは作らない——海は背景の横なぞりで隣の海へ、
+   今日は前後の日へ移る（sea.js の swipe、today.js の日送り）。左端から始まる指を
+   ここが取ると、左へ移るつもりの操作が毎回メニューを引く。
+
+   置き方は歯車と同じ（.app の左上。画面の中ではないので、どの画面からも同じ所に在る）。
+   メニューの中でできるのは「今日に」と、その取り消しだけ。完了・消す・タグは盤の仕事。
+   置いても閉じない（続けて数件置ける）。数も日数も出さない（順番だけ）。 */
+const menuBtn = document.createElement('button');
+menuBtn.type = 'button';
+menuBtn.className = 'menubtn';
+menuBtn.setAttribute('aria-label', 'メニュー');
+menuBtn.title = 'メニュー';
+const menuIc = document.createElement('span');
+menuIc.className = 'ic';
+menuIc.setAttribute('aria-hidden', 'true');
+menuIc.textContent = '≡';
+menuBtn.appendChild(menuIc);
+if (appRoot) appRoot.appendChild(menuBtn);
+
+let drawer = null;            /* { back, panel, body, off, onKey } 開いている間だけ */
+
+/* 「◯/◯ にもどる」。日付キーから月日だけ。壊れていれば出さない */
+function untilLabel(key) {
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(key || ''));
+  return m ? (Number(m[1]) + '/' + Number(m[2]) + ' にもどる') : '';
+}
+
+function trimText(sv, n = 18) {
+  const t = String(sv == null ? '' : sv);
+  return t.length > n ? t.slice(0, n) + '…' : t;
+}
+
+/* 「今日に」。長期保留なら保留を解いてから置く（利用者の決定）。
+   取り消しは、置いたのを外し、保留だったなら「戻ってくる日」ごと戻す */
+function putToday(t) {
+  const key = store.todayKey();
+  const wasHold = !!t.hold;
+  const until = wasHold ? (has('holdUntil') ? store.holdUntil(t.id) : null) : null;
+  if (wasHold) store.setHold(t.id, false);
+  if (!store.setDay(t.id, key, true)) { if (wasHold) store.setHold(t.id, true, until); return; }
+  toast('「' + trimText(t.text) + '」を今日に置いた', {
+    label: '取り消す',
+    on: () => {
+      store.setDay(t.id, key, false);
+      if (wasHold) store.setHold(t.id, true, until);
+    },
+  });
+}
+
+function renderDrawer() {
+  if (!drawer) return;
+  const body = drawer.body;
+  body.textContent = '';
+  const key = store.todayKey();
+  const sections = [
+    { name: '最近つかった', list: has('recentItems') ? store.recentItems(20) : [] },
+    { name: 'お気に入り',   list: has('favItems') ? store.favItems() : [] },
+    { name: '長期保留',     list: has('holds') ? store.holds() : [] },
+  ];
+  sections.forEach(sec => {
+    const h = document.createElement('h3');
+    h.textContent = sec.name;
+    body.appendChild(h);
+    if (!sec.list.length) {
+      const e = document.createElement('p');
+      e.className = 'drawer-empty';
+      e.textContent = 'まだ無い';
+      body.appendChild(e);
+      return;
+    }
+    sec.list.slice(0, 20).forEach(t => {
+      const inToday = Array.isArray(t.days) && t.days.indexOf(key) >= 0;
+      const row = document.createElement('div');
+      row.className = 'drawer-row' + (inToday ? ' is-today' : '');
+      const tx = document.createElement('div');
+      tx.className = 'tx';
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = trimText(t.text);              /* 利用者の文字。innerHTML には入れない */
+      tx.appendChild(nm);
+      if (t.hold && t.holdUntil) {
+        const sub = document.createElement('span');
+        sub.className = 'sub';
+        sub.textContent = untilLabel(t.holdUntil);
+        tx.appendChild(sub);
+      }
+      row.appendChild(tx);
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'go';
+      go.textContent = inToday ? '今日にある' : '今日に';
+      go.setAttribute('aria-pressed', inToday ? 'true' : 'false');
+      go.setAttribute('aria-label', (inToday ? '今日から外す：' : '今日に置く：') + trimText(t.text));
+      go.addEventListener('click', () => {
+        if (inToday) store.setDay(t.id, key, false);
+        else putToday(t);
+        /* 店が emit するので renderDrawer は購読から呼ばれる */
+      });
+      row.appendChild(go);
+      body.appendChild(row);
+    });
+  });
+}
+
+function openDrawer() {
+  if (drawer) return;
+  if (isFocusOpen()) return;                  /* 集中画面からは外へ出ない */
+  const back = document.createElement('div');
+  back.className = 'drawer-back';
+  const panel = document.createElement('div');
+  panel.className = 'drawer';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-label', 'メニュー');
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    panel.classList.add('is-still');
+  }
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'drawer-close';
+  close.setAttribute('aria-label', 'メニューを閉じる');
+  close.textContent = '✕';
+  close.addEventListener('click', closeDrawer);
+  const body = document.createElement('div');
+  body.className = 'drawer-body';
+  panel.appendChild(close);
+  panel.appendChild(body);
+  back.appendChild(panel);
+  /* 覆いをタップで閉じる。板の中のタップは閉じない */
+  back.addEventListener('click', ev => { if (ev.target === back) closeDrawer(); });
+  panel.addEventListener('click', ev => ev.stopPropagation());
+  const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); closeDrawer(); } };
+  document.addEventListener('keydown', onKey, true);
+  const off = has('on') ? store.on(renderDrawer) : null;
+  drawer = { back, panel, body, off, onKey, prev: document.activeElement };
+  document.body.appendChild(back);
+  requestAnimationFrame(() => back.classList.add('is-open'));
+  renderDrawer();
+  menuBtn.setAttribute('aria-expanded', 'true');
+  close.focus();
+}
+
+function closeDrawer() {
+  if (!drawer) return;
+  const d = drawer;
+  drawer = null;
+  document.removeEventListener('keydown', d.onKey, true);
+  if (d.off) d.off();
+  d.back.remove();
+  menuBtn.setAttribute('aria-expanded', 'false');
+  if (d.prev && typeof d.prev.focus === 'function' && document.contains(d.prev)) {
+    try { d.prev.focus(); } catch (_) { /* 消えていたら何もしない */ }
+  } else {
+    menuBtn.focus();
+  }
+}
+
+menuBtn.setAttribute('aria-expanded', 'false');
+menuBtn.addEventListener('click', () => { if (drawer) closeDrawer(); else openDrawer(); });
 
 /* 日付キーを n 日ずらす。正午に寄せてから動かす（夏時間の日でも飛ばない）。
    today.js が同じものを持っているが、あちらは画面の内側なので、
@@ -406,6 +571,10 @@ setCenterHandler({
      盤は日付キーの文字列しか触らない。日付の境目も月末のつぶし方も store 側にある */
   holdUntil:    (id) => (has('holdUntil') ? store.holdUntil(id) : null),
   setHoldUntil: (id, key) => (has('setHoldUntil') ? store.setHoldUntil(id, key) : false),
+
+  /* お気に入りの印（F7）。盤の ☆ が読み書きする。無ければ盤は ☆ を出さない */
+  isFav:        (id) => (has('isFav') ? store.isFav(id) : false),
+  setFav:       (id, on) => (has('setFav') ? store.setFav(id, on) : false),
   todayKey:     () => (has('todayKey') ? store.todayKey() : null),
   dayAfter:     (n) => (has('dayAfter') ? store.dayAfter(n) : null),
   monthAfter:   (n) => (has('monthAfter') ? store.monthAfter(n) : null),
@@ -473,6 +642,8 @@ function pushBack() {
 
 /* いちばん手前の覆いを1つ畳む。畳んだら true */
 function closeTopOverlay() {
+  /* 左のメニュー（F7）。いちばん手前なので最初に畳む */
+  if (drawer) { closeDrawer(); return true; }
   /* 記録を直す板（bubble.js が作る素の要素。閉じるのは外すだけ） */
   const stepEdit = document.querySelector('.bh-edit-back');
   if (stepEdit) { stepEdit.remove(); return true; }

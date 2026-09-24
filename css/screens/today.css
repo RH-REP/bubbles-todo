@@ -218,10 +218,11 @@
    なぞる操作は前から動いていたが、画面のどこにもそう書いていなかった。
    札としてだけでなく押しても移れる——指だけの経路にしない（海の矢印看板と同じ考え）。 */
 .today-dayrow {
-  position: absolute; z-index: 8; left: 10px; top: 10px;
+  /* 左は ≡（左のメニュー。左から 54px）の右 */
+  position: absolute; z-index: 8; left: 62px; top: 10px;
   display: flex; align-items: center; gap: 2px;
   /* 右端は歯車（右から 54px）の手前で止める。長い日付でも下へ潜らせない */
-  max-width: calc(100% - 74px);
+  max-width: calc(100% - 126px);
 }
 /* 44×44（レビューの指摘）。36 で置いていたが、契約 §15 に例外として
    記録していなかった。カレンダーの枡と違って幅の制約は無いので、素直に 44 にする */

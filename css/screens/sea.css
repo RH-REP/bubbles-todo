@@ -166,7 +166,8 @@
 /* ---------- いまどの面にいるか ----------
    常に見えていること（追補3 §1）。中央は「ぜんぶ」。 */
 .sea-face-name {
-  position: absolute; top: 16px; left: 10px; z-index: 8;
+  /* 左は ≡（左のメニュー、44px＋余白）の右。歯車と同じ理由で画面の中ではなく .app に居る */
+  position: absolute; top: 16px; left: 62px; z-index: 8;
   display: inline-flex; align-items: center; gap: 7px;
   max-width: 40%; min-height: 32px; padding: 0 12px;
   border-radius: 999px;

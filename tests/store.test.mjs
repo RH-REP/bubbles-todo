@@ -3965,6 +3965,156 @@ await test('focusSessions() の写しを書き換えても、控えは変わら�
 
 /* ============================================================ */
 
+/* --- 完了しても、置いた日からは消えない（today.js の水面が寄りかかっている契約） --- */
+
+await test('complete() は days に触らない。itemsOnDay は完了したものも返す', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const a = store.add('原稿を書く', { today: true });
+  const b = store.add('ゴミを出す', { today: true });
+  const key = store.todayKey();
+
+  store.complete(b.id);
+
+  assert.deepEqual(store.daysOf(b.id), [key],
+    '置いた日そのものは残る（完了は「その日やった」を消す操作ではない）');
+  assert.deepEqual(store.itemsOnDay(key).map(t => t.text), ['原稿を書く', 'ゴミを出す'],
+    '日付の水面は完了したものも返す——今日なにを達成したかが残る');
+  assert.deepEqual(store.todays().map(t => t.text), ['原稿を書く'],
+    'todays() のほうは今までどおり完了を外す（ここは変えていない）');
+  assert.equal(store.get(b.id).today, true, 'today は days から出る派生値なので立ったまま');
+});
+
+await test('完了したものは、日付の水面と完了の海の両方に出る', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('ゴミを出す', { today: true });
+  store.complete(t.id);
+
+  assert.deepEqual(store.itemsOnDay(store.todayKey()).map(x => x.text), ['ゴミを出す']);
+  assert.deepEqual(store.doneItems().map(x => x.text), ['ゴミを出す']);
+  assert.deepEqual(store.floating().map(x => x.text), [],
+    '海には出ない（今日に入っているものは前から漂わない）');
+});
+
+await test('uncomplete() で戻しても、置いた日は変わらない', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('ゴミを出す', { today: true });
+  const key = store.todayKey();
+  store.complete(t.id);
+  store.uncomplete(t.id);
+
+  assert.equal(store.isDone(t.id), false);
+  assert.deepEqual(store.daysOf(t.id), [key], '行ったり来たりしても日は動かない');
+  assert.deepEqual(store.itemsOnDay(key).map(x => x.text), ['ゴミを出す']);
+  assert.deepEqual(store.todays().map(x => x.text), ['ゴミを出す'], '戻せば todays にも出る');
+});
+
+await test('過去の日に置いたものを完了しても、その日の水面に残る', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('先週の宿題');
+  store.setDay(t.id, '2026-08-14', true);
+  store.complete(t.id);
+
+  assert.deepEqual(store.itemsOnDay('2026-08-14').map(x => x.text), ['先週の宿題'],
+    '過去の日は記録なので、完了しても消えない');
+  assert.equal(store.get(t.id).today, false, '今日ではない');
+});
+
+/* ============================================================ */
+
+/* --- 左のメニュー（F7）：お気に入りの印・最近つかった・長期保留 --- */
+
+await test('setFav の往復。保存に残り、開き直しても残る。旧データは false', async () => {
+  let store = await open({ raw: null, now: NOW });
+  const t = store.add('原稿を書く');
+  assert.equal(store.isFav(t.id), false, '既定は false');
+  assert.equal(store.setFav(t.id, true), true);
+  assert.equal(store.setFav(t.id, true), false, '同じ値なら変わらない');
+  assert.equal(saved().todos[0].fav, true, '保存に残る');
+
+  store = await open({ now: NOW });
+  assert.equal(store.isFav(t.id), true, '開き直しても残る');
+  assert.equal(store.setFav(t.id, false), true);
+  assert.equal(store.isFav(t.id), false);
+
+  store = await open({ raw: { v: 2, todos: [{ id: 'old', text: '古い', createdAt: NOW }], log: [], todayLog: [], lastDay: '2026-08-20' }, now: NOW });
+  assert.equal(store.isFav('old'), false, 'fav の無い保存データは false');
+  assert.equal(store.setFav('nope', true), false, '無い項目は false');
+});
+
+await test('favItems は完了・消したものを含まない', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const a = store.add('あ'); const b = store.add('い'); const c = store.add('う');
+  [a, b, c].forEach(t => store.setFav(t.id, true));
+  store.complete(b.id);
+  store.remove(c.id);
+  assert.deepEqual(store.favItems().map(t => t.text), ['あ']);
+});
+
+await test('recentItems の順：最後に触ったものが先頭', async () => {
+  const store = await open({ raw: null, now: NOW });
+  setNow(ms(2026, 8, 20, 9, 0));
+  const a = store.add('書いただけ');
+  setNow(ms(2026, 8, 20, 9, 1));
+  const b = store.add('はじめた');
+  setNow(ms(2026, 8, 20, 9, 2));
+  const c = store.add('記録した');
+  setNow(ms(2026, 8, 20, 9, 3));
+  const d = store.add('今日に置いた');
+  /* 触った順に時刻を進める：a は触らない、b → c → d の順ではなく d → c → b で触る */
+  setNow(ms(2026, 8, 20, 10, 0)); store.setDay(d.id, store.todayKey(), true);
+  setNow(ms(2026, 8, 20, 10, 1)); store.commitStep(c.id, { did: '', next: '次' });
+  setNow(ms(2026, 8, 20, 10, 2)); store.start(b.id, null);
+  assert.deepEqual(store.recentItems().map(t => t.text),
+    ['はじめた', '記録した', '今日に置いた', '書いただけ'],
+    '最後に触った順。createdAt しか無いものは末尾');
+  assert.deepEqual(store.recentItems(2).map(t => t.text), ['はじめた', '記録した'], '上限が効く');
+  setNow(NOW);
+});
+
+await test('recentItems は hold と done を含まない。集中画面を開いた記録も「使った」', async () => {
+  const store = await open({ raw: null, now: NOW });
+  setNow(ms(2026, 8, 20, 9, 0));
+  const a = store.add('保留'); const b = store.add('完了'); const c = store.add('集中した'); const dd = store.add('何もしない');
+  store.setHold(a.id, true);
+  store.complete(b.id);
+  setNow(ms(2026, 8, 20, 11, 0));
+  store.logFocus({ id: c.id, at: Date.now(), ms: 1000, minutes: 5, full: false });
+  assert.deepEqual(store.recentItems().map(t => t.text), ['集中した', '何もしない']);
+  setNow(NOW);
+});
+
+await test('holds() の順：戻ってくる日の近い順、日を決めていないものは後ろ', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const a = store.add('遠い'); const b = store.add('近い'); const c = store.add('未定');
+  store.setHold(a.id, true, '2026-09-30');
+  store.setHold(b.id, true, '2026-08-25');
+  store.setHold(c.id, true);
+  assert.deepEqual(store.holds().map(t => t.text), ['近い', '遠い', '未定']);
+});
+
+await test('長期保留を今日に置く手順と、その取り消しで holdUntil が戻る', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('いつかやる');
+  store.setHold(t.id, true, '2026-09-30');
+  const key = store.todayKey();
+  /* app.js の putToday と同じ手順 */
+  const until = store.holdUntil(t.id);
+  assert.equal(store.setHold(t.id, false), true);
+  assert.equal(store.setDay(t.id, key, true), true);
+  assert.equal(store.isHold(t.id), false);
+  assert.deepEqual(store.holds(), [], '長期保留から消える');
+  assert.deepEqual(store.recentItems().map(x => x.text), ['いつかやる'], '最近つかったに現れる');
+  assert.equal(store.get(t.id).today, true);
+  /* 取り消し */
+  store.setDay(t.id, key, false);
+  store.setHold(t.id, true, until);
+  assert.equal(store.isHold(t.id), true);
+  assert.equal(store.holdUntil(t.id), '2026-09-30', '戻ってくる日も戻る');
+  assert.equal(store.get(t.id).today, false);
+});
+
+/* ============================================================ */
+
 Date.now = REAL_NOW;
 console.log('');
 console.log(`${pass} passed, ${failed.length} failed`);
