@@ -217,9 +217,20 @@ const openSecs = new Set(['recent']);
 
 /* 「最近つかった」に出す数（利用者の指示 2026-09-25：5件まで）。
    ほかの区分は SEC_MAX。最近は「さっき触ったもの」を引く場所なので、
-   長く並べると「最近」ではなくなる */
+   長く並べると「最近」ではなくなる。
+   **今日の水面にあるものは出さない**（同日の指示）——引き出しは「今日へ運ぶ」ための入口で、
+   もう今日にあるものは運ぶ先が無い。除いてから5件を数える（除いた分だけ下から繰り上がる）。
+   「今日に」を押すと、その項目はこの区分から消える（今日へ移ったので）。戻すのはトーストから */
 const RECENT_MAX = 5;
 const SEC_MAX = 20;
+
+function recentList(key) {
+  if (!has('recentItems')) return [];
+  /* 除く前の候補は多めに取る。上位5件が全部今日にあっても、その下から繰り上げられるように */
+  return store.recentItems(200)
+    .filter(t => !(Array.isArray(t.days) && t.days.indexOf(key) >= 0))
+    .slice(0, RECENT_MAX);
+}
 
 /* 利用者のタグごとの区分（利用者の指示 2026-09-25：買い物などタグ付きもここに）。
    特別なタグ（今日・きっかけ・すきま・長期保留・完了）は区分にしない——それぞれ自分の場所がある。
@@ -292,7 +303,7 @@ function renderDrawer() {
   body.textContent = '';
   const key = store.todayKey();
   const sections = [
-    { key: 'recent', name: '最近つかった', list: has('recentItems') ? store.recentItems(RECENT_MAX) : [] },
+    { key: 'recent', name: '最近つかった', list: recentList(key) },
     { key: 'fav',    name: 'お気に入り',   list: has('favItems') ? store.favItems() : [] },
     { key: 'hold',   name: '長期保留',     list: has('holds') ? store.holds() : [] },
   ].concat(tagSections());
