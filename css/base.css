@@ -369,10 +369,16 @@ body.is-dragging .tabbar button.is-over {
   box-shadow: 0 6px 24px rgba(0,0,0,.24);
   max-width: min(94vw, 406px);
 }
+/* 「取り消す」の当たりは 44px を切らない（初見レビュー 2026-09-25：押したのに戻らない、の原因）。
+   前は padding:0 で高さ約 13px しか無く、少しずれると文字の側を押して何も起きなかった。
+   見た目の丸い帯（padding 9px）はそのまま——余白ぶんを負の margin で相殺して、
+   当たりだけを帯の外へ広げる */
 .toast button {
   appearance: none; border: 0; background: transparent; cursor: pointer;
   font: inherit; font-size: 13px; font-weight: 600; color: var(--bg);
-  text-decoration: underline; padding: 0; white-space: nowrap;
+  text-decoration: underline; white-space: nowrap;
+  min-height: 44px; min-width: 44px;
+  padding: 0 10px; margin: -9px -15px -9px -4px;
 }
 
 @media (prefers-reduced-motion: reduce) {
