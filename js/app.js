@@ -157,7 +157,7 @@ const appRoot = document.querySelector('.app');
 if (appRoot) appRoot.appendChild(gear);
 syncGear();
 
-/* ---- 左のメニュー（F7・利用者の指示 2026-09-24）----
+/* ---- 引き出し（左上の ≡。F7・利用者の指示 2026-09-24。呼び名は 2026-09-25 に「引き出し」と決めた）----
 
    「最近つかった」「お気に入り」「長期保留」を一覧で見て、**1タップで今日の水面に置く**場所。
    置き場ではなく入口。本体はそれぞれ記録・印・上の海にある。
@@ -172,8 +172,8 @@ syncGear();
 const menuBtn = document.createElement('button');
 menuBtn.type = 'button';
 menuBtn.className = 'menubtn';
-menuBtn.setAttribute('aria-label', 'メニュー');
-menuBtn.title = 'メニュー';
+menuBtn.setAttribute('aria-label', '引き出し');
+menuBtn.title = '引き出し';
 const menuIc = document.createElement('span');
 menuIc.className = 'ic';
 menuIc.setAttribute('aria-hidden', 'true');
@@ -254,15 +254,30 @@ function revealItem(t) {
   const scr = SCREENS.find(x => x.id === screen);
   if (screen === 'sea' && face && scr && typeof scr.openFace === 'function') scr.openFace(face);
   if (screen === 'sea' && narrow && scr && typeof scr.narrowTo === 'function') scr.narrowTo(narrow);
+  /* 今日の画面が別の日を映していたら、今日へ戻してから探す */
+  if (screen === 'today' && scr && typeof scr.showToday === 'function') scr.showToday();
   const esc = (window.CSS && typeof CSS.escape === 'function') ? CSS.escape(t.id) : t.id;
-  let tries = 0;
+
+  /* 泡が**落ち着くまで**待ってから寄せる（2026-09-25 の不具合の直し）。
+     画面を切り替えた直後は泡が生まれる途中（膨らむアニメーション）で、見た目の幅が 0 か
+     変わり続けている。その瞬間に startCenter を呼ぶと黙って抜ける。
+     だから：幅が 0 でなく、2フレーム続けて同じ幅になったときだけ呼ぶ。
+     待つのはフレーム数ではなく時間（遅い端末で数え切れないため）。
+     回すのは requestAnimationFrame ではなく setTimeout——rAF は画面が隠れていると止まり、
+     WebView によっては間引かれる。ここは描画の同期が要る場面ではないので、時計で回す。 */
+  const t0 = Date.now();
+  let lastW = -1;
   const look = () => {
     const node = document.querySelector('#pane-' + screen + ' .bub[data-id="' + esc + '"]');
-    if (node && centerBubble(node)) return;
-    if (++tries < 15) { requestAnimationFrame(look); return; }
+    if (node) {
+      const w = Math.round(node.getBoundingClientRect().width);
+      if (w > 0 && w === lastW && centerBubble(node)) return;
+      lastW = w;
+    }
+    if (Date.now() - t0 < 2500) { setTimeout(look, 40); return; }
     toast('「' + trimText(t.text) + '」は、いまこの面に出ていない');
   };
-  requestAnimationFrame(look);
+  setTimeout(look, 40);
 }
 
 function renderDrawer() {
@@ -363,14 +378,14 @@ function openDrawer() {
   panel.className = 'drawer';
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
-  panel.setAttribute('aria-label', 'メニュー');
+  panel.setAttribute('aria-label', '引き出し');
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     panel.classList.add('is-still');
   }
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'drawer-close';
-  close.setAttribute('aria-label', 'メニューを閉じる');
+  close.setAttribute('aria-label', '引き出しを閉じる');
   close.textContent = '✕';
   close.addEventListener('click', closeDrawer);
   const body = document.createElement('div');
@@ -730,7 +745,7 @@ function pushBack() {
 
 /* いちばん手前の覆いを1つ畳む。畳んだら true */
 function closeTopOverlay() {
-  /* 左のメニュー（F7）。いちばん手前なので最初に畳む */
+  /* 引き出し（F7）。いちばん手前なので最初に畳む */
   if (drawer) { closeDrawer(); return true; }
   /* 記録を直す板（bubble.js が作る素の要素。閉じるのは外すだけ） */
   const stepEdit = document.querySelector('.bh-edit-back');
