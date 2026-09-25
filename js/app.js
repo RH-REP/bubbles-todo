@@ -215,6 +215,12 @@ function putToday(t) {
    アプリを開いている間は覚え、読み込み直すと既定に戻る。件数は見出しに出さない */
 const openSecs = new Set(['recent']);
 
+/* 「最近つかった」に出す数（利用者の指示 2026-09-25：5件まで）。
+   ほかの区分は SEC_MAX。最近は「さっき触ったもの」を引く場所なので、
+   長く並べると「最近」ではなくなる */
+const RECENT_MAX = 5;
+const SEC_MAX = 20;
+
 /* 利用者のタグごとの区分（利用者の指示 2026-09-25：買い物などタグ付きもここに）。
    特別なタグ（今日・きっかけ・すきま・長期保留・完了）は区分にしない——それぞれ自分の場所がある。
    完了は出さない。長期保留中のものは**出す**（「◯/◯ にもどる」付き。取り出せる場所なので）。
@@ -286,7 +292,7 @@ function renderDrawer() {
   body.textContent = '';
   const key = store.todayKey();
   const sections = [
-    { key: 'recent', name: '最近つかった', list: has('recentItems') ? store.recentItems(20) : [] },
+    { key: 'recent', name: '最近つかった', list: has('recentItems') ? store.recentItems(RECENT_MAX) : [] },
     { key: 'fav',    name: 'お気に入り',   list: has('favItems') ? store.favItems() : [] },
     { key: 'hold',   name: '長期保留',     list: has('holds') ? store.holds() : [] },
   ].concat(tagSections());
@@ -331,7 +337,7 @@ function renderDrawer() {
       sb.appendChild(e);
       return;
     }
-    sec.list.slice(0, 20).forEach(t => {
+    sec.list.slice(0, SEC_MAX).forEach(t => {
       const inToday = Array.isArray(t.days) && t.days.indexOf(key) >= 0;
       const row = document.createElement('div');
       row.className = 'drawer-row' + (inToday ? ' is-today' : '');
