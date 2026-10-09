@@ -53,7 +53,7 @@
 | 集中1回ぶんの控え（**内部のみ。表示しない**） | `js/store.js` `focusLog` / `logFocus` / `focusCount` / `focusMs` | 2026-09-11。出しどころは A-67 |
 | 完了音（WebAudio 合成。既定オン、設定で切れる） | `js/sound.js` | 設定は store とは別の localStorage キー |
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
-| Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは app_dev 側で |
+| Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは開発側（この repo）で |
 | 保存は localStorage のみ | `js/store.js` `KEY = 'bubble_todo_v1'` | **書き出し・読み込みは無い** |
 | **引き出し**（左上の ≡。最近つかった／お気に入り／長期保留／タグごと → 今日に置く。名前で盤が開く） | `js/app.js` `openDrawer` / `revealItem`、`js/store.js` `recentItems` / `favItems` / `setFav`、`js/bubble.js` `centerBubble` | 2026-09-24（元 F7）。9/25 にタグ区分・折り畳み・名前タップを追加。お気に入りは盤の ☆ |
 
