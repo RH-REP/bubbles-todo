@@ -119,14 +119,31 @@ python3 serve.py
 `http://localhost:8931/` が開く（このサーバは開発補助で、アプリ本体には含まれない。
 ES モジュールが強くキャッシュされるので `Cache-Control: no-store` を返している）。
 
-ダブルクリックで起動するなら `app/self_management/bubble_todo/start.command`（空きポートを探して同じ `serve.py` を起動する）。
-利用データは `app/self_management/bubble_todo/`（記録はブラウザの localStorage に入るので、そこに置くのは起動口と実値の `.env` だけ）。
+ダブルクリックで起動するなら `start.command`（空きポートを探して同じ `serve.py` を起動する。下の「利用」）。
 
 ### テスト
 
 ```bash
 node tests/store.test.mjs
 ```
+
+## 利用（clone して使う側）
+
+この repo を clone したフォルダで使う。clone 側では直さず、開発側で直してコミットし、clone 側の `update.command`（`git pull --ff-only`）で取り込む。
+
+- 正本: clone のフォルダ（ただし記録はブラウザの localStorage に入り、ファイルには落ちない。ブラウザのサイトデータを消すと記録も消える）。
+- 起動: `start.command` をダブルクリック。空きポート（既定 8931、環境変数 `BUBBLE_TODO_PORT` で変えられる）で clone の `serve.py` を起動してブラウザを開く。ES モジュールなので `file://` では動かない。
+- 置くもの: 起動口のほか、Android ビルド用の実値の `.env`（`.env.example` の写し）があれば clone 側。Android ビルド自体は開発側で行う（`node_modules/` `android/` `www/` は clone 側には作らない）。
+- 公開版は GitHub Pages（上の「動かしてみる」）。そちらの記録はそのブラウザの localStorage に入る。
+
+### 置いてあるもの
+
+| パス | 内容 |
+|---|---|
+| `start.command` | 起動口。この clone の `serve.py` を起動してブラウザを開く |
+| `update.command` | `git pull --ff-only` で開発側のコミットを取り込む |
+| `.env` | Android ビルド用の実値（あれば。`.gitignore` で除外） |
+| `.claude/` | ローカルの Claude Code 設定（あれば。`.gitignore` で除外） |
 
 ## いまの状態
 
