@@ -692,6 +692,10 @@ setCenterHandler({
   holdUntil:    (id) => (has('holdUntil') ? store.holdUntil(id) : null),
   setHoldUntil: (id, key) => (has('setHoldUntil') ? store.setHoldUntil(id, key) : false),
 
+  /* 本文（名前）。盤の「名前」欄が読み書きする。無ければ欄を出さない */
+  text:         (id) => { const t = store.get(id); return t ? t.text : ''; },
+  setText:      (id, v) => (has('setText') ? store.setText(id, v) : false),
+
   /* お気に入りの印（F7）。盤の ☆ が読み書きする。無ければ盤は ☆ を出さない */
   isFav:        (id) => (has('isFav') ? store.isFav(id) : false),
   setFav:       (id, on) => (has('setFav') ? store.setFav(id, on) : false),

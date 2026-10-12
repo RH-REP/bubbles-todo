@@ -1963,6 +1963,20 @@ export const store = {
      海に漂っているうちに最初の一手だけ書いておく、という使い方をするため */
 
   /* 最初の一手のメモ。前後の空白は落とす。空文字で消せる -> 変化したか */
+  /* 本文（名前）を変える（利用者の指示 2026-10-12）。
+     空にはできない（add() が空を弾くのと同じ）。空白だけも同じ。
+     **記録には触らない**——着手ログ（logs.text）も一手の記録も、当時の本文のまま。
+     記録は「そのときどう呼んでいたか」で、名前を直しても過去は書き換えない。 */
+  setText(id, text) {
+    const t = store.get(id);
+    if (!t) return false;
+    const next = String(text == null ? '' : text).trim();
+    if (!next || t.text === next) return false;
+    t.text = next;
+    persist(); emit();
+    return true;
+  },
+
   setFirstStep(id, text) {
     const t = store.get(id);
     if (!t) return false;

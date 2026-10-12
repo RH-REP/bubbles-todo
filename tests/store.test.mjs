@@ -4115,6 +4115,38 @@ await test('長期保留を今日に置く手順と、その取り消しで hold
 
 /* ============================================================ */
 
+/* --- 名前（本文）を変える --- */
+
+await test('setText で本文が変わり、保存に残る。空・同じ・無い項目は false', async () => {
+  let store = await open({ raw: null, now: NOW });
+  const t = store.add('原稿を書く');
+  assert.equal(store.setText(t.id, '論文を書く'), true);
+  assert.equal(store.get(t.id).text, '論文を書く');
+  assert.equal(saved().todos[0].text, '論文を書く', '保存に残る');
+  assert.equal(store.setText(t.id, '論文を書く'), false, '同じなら変わらない');
+  assert.equal(store.setText(t.id, ''), false, '空にはできない');
+  assert.equal(store.setText(t.id, '   '), false, '空白だけも同じ');
+  assert.equal(store.get(t.id).text, '論文を書く', '弾かれたときは元のまま');
+  assert.equal(store.setText('nope', 'x'), false, '無い項目');
+  assert.equal(store.setText(t.id, '  前後の空白  '), true);
+  assert.equal(store.get(t.id).text, '前後の空白', '前後の空白は落とす');
+  store = await open({ now: NOW });
+  assert.equal(store.get(t.id).text, '前後の空白', '開き直しても残る');
+});
+
+await test('名前を変えても、着手ログと一手の記録の本文は当時のまま', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('原稿を書く');
+  store.start(t.id, null);
+  store.commitStep(t.id, { did: '序論', next: '方法' });
+  store.setText(t.id, '論文を書く');
+  assert.equal(store.log()[0].text, '原稿を書く', '着手ログのスナップショットは変わらない');
+  assert.equal(store.get(t.id).text, '論文を書く');
+  assert.equal(store.stepsOf(t.id).length, 1, '記録は増えも減りもしない');
+});
+
+/* ============================================================ */
+
 Date.now = REAL_NOW;
 console.log('');
 console.log(`${pass} passed, ${failed.length} failed`);

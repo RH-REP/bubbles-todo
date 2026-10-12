@@ -727,6 +727,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
   const a = centerAdapter;
   let fields = null, stepIn = null, urlIn = null;
+  let nameIn = null;            /* 名前（本文）。閉じるとき／[書き留める] のときに書く */
   /* 作業メモは盤に入力欄を持たない。入口のボタンと、別の面と、その中身 */
   let memoBtn = null, memoPane = null, memoArea = null, memoSaid = null;
   let memoDraft = '';
@@ -776,6 +777,26 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      ここから同じことを別の顔で二度できるようにすると、どちらが本筋か分からなくなる。
 
      ■ 古い預け先（tags を返さない版）では、いままでどおり読むだけ */
+  /* ---- 名前（本文）を変える（利用者の指示 2026-10-12）----
+     盤の先頭に1行。打っている途中では書かない——書くと店が emit して泡の直径が
+     測り直され、中央の泡が揺れる。閉じるとき（flush）と [書き留める]（applyEdits）で書く。
+     空にして閉じても消えない（store.setText が空を弾く＝元の名前のまま）。
+     預け先に setText が無い版では出さない。 */
+  if (fields && typeof (a || {}).setText === 'function') {
+    const wrap = el('label', 'bc-row');
+    const lb = el('span', 'bc-lb');
+    lb.textContent = '名前';
+    nameIn = el('input', 'bc-in');
+    nameIn.type = 'text';
+    nameIn.autocomplete = 'off';
+    nameIn.enterKeyHint = 'done';
+    nameIn.value = String(ask(a, 'text', id) || '');
+    nameIn.setAttribute('aria-label', '名前');
+    wrap.appendChild(lb);
+    wrap.appendChild(nameIn);
+    fields.appendChild(wrap);
+  }
+
   /* ---- お気に入りの印（F7・利用者の指示 2026-09-24）----
      左のメニューの「お気に入り」に出るための印。タグではないので札の列には並べず、
      その上に1つだけ置く。書くのは閉じるとき（タグと同じ理由：押した瞬間に書くと
@@ -1269,6 +1290,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     let did = false;
     if (saveDays) { saveDays(); did = true; }        /* いつの日 */
     saveUrl();                                       /* リンク */
+    if (saveName()) did = true;                      /* 名前 */
 
     if (!stepIn) return did ? '書き留めた' : null;
     const next = stepIn.value.trim();
@@ -1284,6 +1306,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     draft0 = { did: memoDraft, next: stepIn.value };
     syncHistBtn();
     return '書き留めた';
+  }
+
+  /* 名前。空や同じ名前なら何もしない（store が弾く）-> 変わったか */
+  function saveName() {
+    if (!nameIn) return false;
+    const v = nameIn.value.trim();
+    if (!v) { nameIn.value = String(ask(a, 'text', id) || ''); return false; }   /* 空は戻す */
+    return ask(a, 'setText', id, v) === true;
   }
 
   function saveUrl() {
@@ -1648,7 +1678,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        （外れているものに日は付かない＝ store が弾く） */
     flush() {
       if (memoPane && !memoPane.hidden && memoArea) memoDraft = memoArea.value;
-      saveStep(); saveUrl();
+      saveStep(); saveUrl(); saveName();
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
       if (saveFav) saveFav();                 /* 印はタグの後ろ。順に意味は無い */
