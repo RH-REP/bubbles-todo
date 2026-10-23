@@ -149,6 +149,7 @@ ES モジュールが強くキャッシュされるので `Cache-Control: no-sto
 ```bash
 node tests/store.test.mjs
 node tests/sync.test.mjs
+node tests/space.test.mjs
 python3 -m unittest tests/test_server.py
 ```
 
@@ -186,6 +187,23 @@ python3 -m unittest tests/test_server.py
   そこにも Tailscale を入れて `tailscale serve` する。Mac の `data/state.json` を写せば記録も移る（写さなくても、端末から繋げば合わさる）。
   合言葉は `BUBBLE_TODO_TOKEN` で同じものを渡すか、新しい `token.txt` を各端末に入れ直す。
 
+## 個人と共有の海
+
+いちばん上の帯で「個人 | 共有」を切り替える（2026-10-23。利用者の指示。デザイン案は帯の案）。
+切り替えると画面を読み直し、app 全体（海・今日・きっかけ・すきま・ふりかえり）がその持ち主の記録になる。
+
+- **個人**: 今までの記録。端末に書き、自分の合言葉で繋いでいればサーバーとも合わせる。帯が足されるだけで、見た目は今までどおり
+- **共有**: 共有の合言葉を知っている人どうしの記録。水が夕方の色（杏・藤・若葉）になり、帯の右に「合わせた／15:30」と出る
+  - 書けるのは、サーバーと合わせられている間だけ。繋がっていないときは、最後に見たものを色を抜いて出し、帯の右に「繋がっていない／15:30 に見たもの」。入力欄は点線で「繋がると書ける」。書き込み口は store が断り、短く知らせる
+  - 共有の合言葉がまだ無ければ、海に「共有の海に入る」の札（「設定を開く」）
+  - 件数・人数は出さない（数を出さない決まりと同じ）
+- **サーバー**: 合言葉が置き場を決める。個人は `token.txt`（`BUBBLE_TODO_TOKEN`）で `data/state.json`、共有は `share_token.txt`（`BUBBLE_TODO_SHARE_TOKEN`）で `data/share/state.json`。共有の合言葉だけを知る人は個人の記録を読めない。同じ合言葉を2つに使うと起動しない
+- **取り違えの見張り**: サーバーは合言葉の置き場（`space`）を返す。開いている持ち主と違えば、端末は送らない（共有の合言葉を自分の欄に入れても、個人の記録を共有へ送らない）
+- **端末の箱**: 個人は `bubble_todo_v1`、共有の控えは `bubble_todo_share_v1`、どちらで開くかは `bubble_todo_space`、最後に合わせた時刻は `bubble_todo_sync_seen_<持ち主>`
+- 個人の泡を共有へ移す道は作っていない（間違えて人に見せないため）
+- 共有に人を招くときは、サーバーの住所と共有の合言葉（`share_token.txt`）だけを渡す。自分の合言葉（`token.txt`）は渡さない
+- 作り: `js/space.js`（帯・状態の字・入る札・入力欄の鍵）、`css/space.css`（帯のぶん `--safe-t` を下げる・共有の水の色）、`js/store.js`（`SPACE`・`readOnly`・`WRITE_METHODS`）、`js/sync.js`（合言葉の選び分け・`space` の見張り）
+
 ## 利用（clone して使う側）
 
 この repo を clone したフォルダで使う。clone 側では直さず、開発側で直してコミットし、clone 側の `update.command`（`git pull --ff-only`）で取り込む。
@@ -203,7 +221,7 @@ python3 -m unittest tests/test_server.py
 | パス | 内容 |
 |---|---|
 | `start.command` | 起動口。この clone の `server.py` を起動してブラウザを開く |
-| `data/` | server.py の記録（`state.json`・`backup/`）と合言葉（`token.txt`）。`.gitignore` で除外 |
+| `data/` | server.py の記録（個人 `state.json`・`backup/`、共有 `share/`）と合言葉（`token.txt`・`share_token.txt`）。`.gitignore` で除外 |
 | `update.command` | `git pull --ff-only` で開発側のコミットを取り込む |
 | `.env` | Android ビルド用の実値（あれば。`.gitignore` で除外） |
 | `.claude/` | ローカルの Claude Code 設定（あれば。`.gitignore` で除外） |

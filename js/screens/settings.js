@@ -298,6 +298,7 @@ function serverBox(screen) {
     '自分で立てたサーバーに繋ぐと、ほかの端末と同じ記録を使える。'
     + '食い違ったときは、項目ごとに新しく書き換えたほうが残る。'
     + '届かない間もこの端末には記録され、届いたら合わせる。'
+    + '共有の合言葉も入れると、それを知っている人と共有の海を使える（上の帯で切り替える）。'
   ));
 
   const form = el('form', 'tagadd');
@@ -312,13 +313,22 @@ function serverBox(screen) {
   const tokIn = document.createElement('input');
   tokIn.type = 'password';
   tokIn.autocomplete = 'off';
-  tokIn.placeholder = '合言葉（サーバーの token.txt）';
+  tokIn.placeholder = '自分の合言葉（個人の記録。token.txt）';
   tokIn.setAttribute('aria-label', 'サーバーの合言葉');
+  /* 共有の合言葉（2026-10-23）。空なら共有は使わない。自分の合言葉と取り違えたら、
+     サーバーが返す置き場の名前で sync.js が気づいて送らない */
+  const shareIn = document.createElement('input');
+  shareIn.type = 'password';
+  shareIn.autocomplete = 'off';
+  shareIn.placeholder = '共有の合言葉（空なら共有は使わない。share_token.txt）';
+  shareIn.setAttribute('aria-label', '共有の合言葉');
   urlIn.style.flexBasis = '100%';
+  tokIn.style.flexBasis = '100%';
   const go = el('button', 'btn', '繋ぐ');
   go.type = 'submit';
   form.appendChild(urlIn);
   form.appendChild(tokIn);
+  form.appendChild(shareIn);
   form.appendChild(go);
   wrap.appendChild(form);
 
@@ -339,8 +349,8 @@ function serverBox(screen) {
   const off = el('button', 'btn', '繋がない');
   off.type = 'button';
   off.addEventListener('click', () => {
-    sync.configure('', '');
-    urlIn.value = ''; tokIn.value = '';
+    sync.configure('', '', '');
+    urlIn.value = ''; tokIn.value = ''; shareIn.value = '';
     toast('サーバーに繋がないようにした（記録はこの端末に残っている）');
     paint();
   });
@@ -355,28 +365,34 @@ function serverBox(screen) {
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     if (!urlIn.value.trim()) { toast('住所を入れる'); return; }
-    if (!sync.configure(urlIn.value, tokIn.value)) { toast('住所が読めない（http:// か https:// で始める）'); return; }
+    if (!sync.configure(urlIn.value, tokIn.value, shareIn.value)) { toast('住所が読めない（http:// か https:// で始める）'); return; }
     urlIn.value = sync.config().url;
   });
 
   function paint() {
     const st = sync.status();
     const c = sync.config();
-    now.disabled = !c.url;
+    /* 字は、いま開いている持ち主（帯）のぶん */
+    const who = sync.space() === 'share' ? '共有: ' : '個人: ';
+    now.disabled = !sync.ready();
     off.disabled = !c.url;
-    if (st.state === 'ok') line.textContent = '合わせた（' + hhmm(st.at) + '）: ' + c.url;
-    else if (st.state === 'error') line.textContent = '届かない: ' + st.message + '（' + c.url + '）';
-    else line.textContent = STATE_TEXT[st.state] || '';
+    if (st.state === 'ok') line.textContent = who + '合わせた（' + hhmm(st.at) + '）: ' + c.url;
+    else if (st.state === 'error') line.textContent = who + '届かない: ' + st.message + '（' + c.url + '）';
+    else if (st.state === 'off' && c.url) {
+      line.textContent = who + (sync.space() === 'share' ? '共有の合言葉が無い（共有は読むだけ）' : '自分の合言葉が無い（個人はこの端末の中だけ）');
+    } else line.textContent = who + (STATE_TEXT[st.state] || '');
   }
   const c0 = sync.config();
   urlIn.value = c0.url;
   tokIn.value = c0.token;
+  shareIn.value = c0.shareToken || '';
   sync.on(paint);
   paint();
   screen._server = () => {
     const c = sync.config();
     if (document.activeElement !== urlIn) urlIn.value = c.url;
     if (document.activeElement !== tokIn) tokIn.value = c.token;
+    if (document.activeElement !== shareIn) shareIn.value = c.shareToken || '';
     paint();
   };
   return wrap;

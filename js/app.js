@@ -11,6 +11,8 @@
 import { store } from './store.js';
 /* サーバーと記録を合わせる。設定で住所を入れていなければ何もしない（sync.js） */
 import './sync.js';
+/* 個人と共有の帯（space.js）。持ち主は store が開くときに決まっている */
+import './space.js';
 import { toast, holdRing, fromFeedback } from './ui.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';

@@ -15,14 +15,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import server  # noqa: E402
 
 TOKEN = 'test-token'
+SHARE = 'share-token'
 
 
 class ServerTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.data = Path(self.tmp.name)
-        st = server.Store(self.data)
-        self.httpd = server.Server(('127.0.0.1', 0), server.make_handler(st, TOKEN))
+        spaces = {TOKEN: ('me', server.Store(self.data)), SHARE: ('share', server.Store(self.data / 'share'))}
+        self.httpd = server.Server(('127.0.0.1', 0), server.make_handler(spaces))
         self.base = f'http://127.0.0.1:{self.httpd.server_address[1]}'
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
@@ -56,14 +57,14 @@ class ServerTest(unittest.TestCase):
 
     def test_empty_then_put_then_conflict(self):
         code, body = self.req('GET', '/api/data')
-        self.assertEqual((code, json.loads(body)), (200, {'version': 0, 'data': None}))
+        self.assertEqual((code, json.loads(body)), (200, {'space': 'me', 'version': 0, 'data': None}))
         doc = {'doc': {'todos': [{'id': 'a', 'text': '牛乳'}]}, 'stamps': {'todo:a': [5, 1]}}
         code, body = self.req('PUT', '/api/data', {'base': 0, 'data': doc})
         self.assertEqual((code, json.loads(body)), (200, {'version': 1}))
         # 古い版の上に書こうとすると 409 と今の中身。上書きしない
         code, body = self.req('PUT', '/api/data', {'base': 0, 'data': {'doc': {}, 'stamps': {}}})
         self.assertEqual(code, 409)
-        self.assertEqual(json.loads(body), {'version': 1, 'data': doc})
+        self.assertEqual(json.loads(body), {'space': 'me', 'version': 1, 'data': doc})
         code, body = self.req('GET', '/api/data')
         self.assertEqual(json.loads(body)['data'], doc)
 
@@ -86,6 +87,28 @@ class ServerTest(unittest.TestCase):
         for p in ['/server.py', '/.git/config', '/data/state.json', '/data/token.txt',
                   '/.env', '/DEV_NOTES.md', '/js/../server.py', '/css/../.git/HEAD']:
             self.assertEqual(self.req('GET', p, token=None)[0], 404, p)
+
+    def test_share_token_opens_its_own_space_only(self):
+        mine = {'doc': {'todos': [{'id': 'p', 'text': '個人のもの'}]}, 'stamps': {}}
+        ours = {'doc': {'todos': [{'id': 's', 'text': '共有のもの'}]}, 'stamps': {}}
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 0, 'data': mine})[0], 200)
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 0, 'data': ours}, token=SHARE)[0], 200)
+        code, body = self.req('GET', '/api/data', token=SHARE)
+        got = json.loads(body)
+        self.assertEqual((got['space'], got['data']), ('share', ours), '共有の合言葉では共有だけが見える')
+        self.assertEqual(json.loads(self.req('GET', '/api/data')[1])['data'], mine)
+        self.assertTrue((self.data / 'share' / 'state.json').exists())
+        self.assertNotIn('個人のもの', (self.data / 'share' / 'state.json').read_text())
+
+    def test_open_spaces_makes_two_tokens(self):
+        d = self.data / 'fresh'
+        d.mkdir()
+        sp = server.open_spaces(d)
+        self.assertEqual(sorted(v[0] for v in sp.values()), ['me', 'share'])
+        self.assertTrue((d / 'token.txt').exists() and (d / 'share_token.txt').exists())
+        (d / 'share_token.txt').write_text((d / 'token.txt').read_text())
+        with self.assertRaises(SystemExit):
+            server.open_spaces(d)
 
     def test_cors_preflight(self):
         code, _ = self.req('OPTIONS', '/api/data', token=None)

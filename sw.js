@@ -28,7 +28,7 @@
    ファイルを足したときは ASSETS にも足す（足し忘れたものは、
    網が無いときだけ取れない——ふだんは動いてしまうので気づきにくい）。 */
 
-const VERSION = '2026-10-23c';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
+const VERSION = '2026-10-23d';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [
@@ -46,7 +46,8 @@ const ASSETS = [
   './css/screens/gap.css',
   './css/screens/review.css',
   './css/screens/stub.css',
-  /* 本体（実際に import されている18本＋ feedback.js。todo.js / stub.js は誰も読まない） */
+  './css/space.css',
+  /* 本体（実際に import されている19本＋ feedback.js。todo.js / stub.js は誰も読まない） */
   './js/app.js',
   './js/bubble.js',
   './js/calendar.js',
@@ -63,6 +64,7 @@ const ASSETS = [
   './js/seamap.js',
   './js/merge.js',
   './js/sound.js',
+  './js/space.js',
   './js/store.js',
   './js/sync.js',
   './js/ui.js',

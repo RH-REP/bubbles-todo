@@ -10,13 +10,16 @@
     python3 server.py --port 8931 --host 127.0.0.1 --data-dir ./data
 
 データの場所:  --data-dir → 環境変数 BUBBLE_TODO_DATA → このファイルの隣の data/
-合言葉:        環境変数 BUBBLE_TODO_TOKEN → <データの場所>/token.txt。
-               どちらも無ければ作って token.txt に書き、画面に出す。
-               API（/api/data）は合言葉が合わないと 401 を返す。
+合言葉は2つ。どちらも無ければ作ってファイルに書き、画面に出す（2026-10-23 から共有を足した）。
+    個人: 環境変数 BUBBLE_TODO_TOKEN       → <データの場所>/token.txt        記録は state.json
+    共有: 環境変数 BUBBLE_TODO_SHARE_TOKEN → <データの場所>/share_token.txt  記録は share/state.json
+    合言葉が置き場を決める。共有の合言葉だけを知る人は、個人の記録を読めない。
+    API（/api/data）は合言葉がどちらにも合わないと 401 を返す。
 
 API:
     GET /api/health          → {"ok": true}（合言葉は要らない。届くかを見るだけ）
-    GET /api/data            → {"version": n, "data": {...} | null}
+    GET /api/data            → {"space": "me"|"share", "version": n, "data": {...} | null}
+                               space はその合言葉の置き場（端末が取り違えに気づくため）
     PUT /api/data            ← {"base": n, "data": {...}}
                                base が今の版と違えば 409 と今の版・中身を返す（上書きしない）
                                同じなら書いて {"version": n+1}
@@ -96,11 +99,19 @@ class Store:
             p.unlink(missing_ok=True)
 
 
-def load_token(data_dir: Path) -> str:
-    env = os.environ.get('BUBBLE_TODO_TOKEN', '').strip()
+SPACES = {
+    # 置き場: (合言葉の環境変数, 合言葉のファイル, 記録のフォルダ（データの場所から）, 画面に出す名前)
+    'me': ('BUBBLE_TODO_TOKEN', 'token.txt', '.', '個人'),
+    'share': ('BUBBLE_TODO_SHARE_TOKEN', 'share_token.txt', 'share', '共有'),
+}
+
+
+def load_token(data_dir: Path, space: str = 'me') -> str:
+    env_name, file_name, _, label = SPACES[space]
+    env = os.environ.get(env_name, '').strip()
     if env:
         return env
-    path = data_dir / 'token.txt'
+    path = data_dir / file_name
     if path.exists():
         tok = path.read_text(encoding='utf-8').strip()
         if tok:
@@ -108,11 +119,23 @@ def load_token(data_dir: Path) -> str:
     tok = secrets.token_urlsafe(24)
     path.write_text(tok + '\n', encoding='utf-8')
     os.chmod(path, 0o600)
-    print(f'合言葉を作りました（{path}）: {tok}', flush=True)
+    print(f'{label}の合言葉を作りました（{path}）: {tok}', flush=True)
     return tok
 
 
-def make_handler(store: Store, token: str):
+def open_spaces(data_dir: Path):
+    """{合言葉: (置き場の名前, Store)}。同じ合言葉を2つの置き場に使うのは断る"""
+    out = {}
+    for space, (_, _, sub, _) in SPACES.items():
+        tok = load_token(data_dir, space)
+        if tok in out:
+            raise SystemExit('個人と共有の合言葉が同じです。どちらかを変えてください')
+        out[tok] = (space, Store(data_dir / sub))
+    return out
+
+
+def make_handler(spaces):
+    """spaces = {合言葉: (置き場の名前, Store)}"""
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = 'Bubbles'
 
@@ -137,10 +160,15 @@ def make_handler(store: Store, token: str):
         def send_json(self, code, obj):
             self.send(code, json.dumps(obj, ensure_ascii=False).encode('utf-8'))
 
-        def authorized(self):
-            got = self.headers.get('Authorization', '')
-            want = 'Bearer ' + token
-            return hmac.compare_digest(got.encode('utf-8'), want.encode('utf-8'))
+        def space(self):
+            """合言葉に合う (置き場の名前, Store)。合わなければ None。
+            比べるのは全部の合言葉と（どれに合ったかで時間が変わらないように）"""
+            got = self.headers.get('Authorization', '').encode('utf-8')
+            hit = None
+            for tok, sp in spaces.items():
+                if hmac.compare_digest(got, ('Bearer ' + tok).encode('utf-8')):
+                    hit = sp
+            return hit
 
         # --- 受ける ---
         def do_OPTIONS(self):
@@ -155,10 +183,11 @@ def make_handler(store: Store, token: str):
             if path == '/api/health':
                 return self.send_json(200, {'ok': True})
             if path == '/api/data':
-                if not self.authorized():
+                sp = self.space()
+                if not sp:
                     return self.send_json(401, {'error': 'unauthorized'})
-                cur = store.read()
-                return self.send_json(200, {'version': cur['version'], 'data': cur['data']})
+                cur = sp[1].read()
+                return self.send_json(200, {'space': sp[0], 'version': cur['version'], 'data': cur['data']})
             if path.startswith('/api/'):
                 return self.send_json(404, {'error': 'not found'})
             return self.static(path)
@@ -168,8 +197,10 @@ def make_handler(store: Store, token: str):
         def do_PUT(self):
             if self.path.split('?', 1)[0] != '/api/data':
                 return self.send_json(404, {'error': 'not found'})
-            if not self.authorized():
+            sp = self.space()
+            if not sp:
                 return self.send_json(401, {'error': 'unauthorized'})
+            store = sp[1]
             try:
                 n = int(self.headers.get('Content-Length', '0'))
             except ValueError:
@@ -187,7 +218,7 @@ def make_handler(store: Store, token: str):
             ok, res = store.write(base, data)
             if ok:
                 return self.send_json(200, {'version': res})
-            return self.send_json(409, {'version': res['version'], 'data': res['data']})
+            return self.send_json(409, {'space': sp[0], 'version': res['version'], 'data': res['data']})
 
         def static(self, path):
             rel = path.lstrip('/') or 'index.html'
@@ -217,9 +248,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir).expanduser().resolve()
-    store = Store(data_dir)
-    token = load_token(data_dir)
-    httpd = Server((args.host, args.port), make_handler(store, token))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    httpd = Server((args.host, args.port), make_handler(open_spaces(data_dir)))
     print(f'Bubbles server: http://{args.host}:{args.port}/  data: {data_dir}', flush=True)
     try:
         httpd.serve_forever()

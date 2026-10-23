@@ -105,7 +105,18 @@
 
 import { stampChanges, initialStamps, recordsOf } from './merge.js';
 
-const KEY = 'bubble_todo_v1';
+/* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
+   'me'    … 個人。今までの記録（bubble_todo_v1）。端末に書き、繋いでいればサーバーとも合わせる
+   'share' … 共有。共有の合言葉を知る人どうしの記録の、この端末の控え（最後に見たもの）。
+             サーバーと合わせられている間だけ書ける（それ以外は readOnly。sync.js が切り替える）
+   どちらで開くかは 'bubble_todo_space' に入っている。切り替えるときは space.js が書き換えて
+   画面を読み直す（開いたあとで持ち主を替えない。画面ごとの古い状態を残さないため） */
+export const SPACE_KEY = 'bubble_todo_space';
+function readSpace() {
+  try { return localStorage.getItem(SPACE_KEY) === 'share' ? 'share' : 'me'; } catch (e) { return 'me'; }
+}
+const SPACE = readSpace();
+const KEY = SPACE === 'share' ? 'bubble_todo_share_v1' : 'bubble_todo_v1';
 
 /* 時間帯タグ。ユーザーが増やせない固定の3値。記録は付かない */
 const SLOTS = ['morning', 'noon', 'night'];
@@ -332,6 +343,9 @@ let stamps = {};
 let snap = new Map();
 /* 保存したあとに知りたい人（いまは sync.js だけ。サーバーへ送る合図に使う） */
 const persistListeners = new Set();
+/* 読むだけのとき（共有で、サーバーと合わせられていない間）。書き込み口は何もせずに断る */
+let readOnly = SPACE === 'share';
+const blockedListeners = new Set();
 
 /* ぶら下げた順の通し番号。時刻ではなく連番で持つ。
    同じミリ秒に2件ぶら下げても順が決まるようにするため */
@@ -2889,6 +2903,23 @@ export const store = {
     return true;
   },
 
+  /* --- 持ち主と、読むだけ --- */
+  space() { return SPACE; },
+  readOnly() { return readOnly; },
+  /* sync.js だけが呼ぶ。変わったら画面に知らせる（入力欄の見た目が変わるため） */
+  setReadOnly(on) {
+    const next = !!on;
+    if (next === readOnly) return;
+    readOnly = next;
+    emit();
+  },
+  /* 読むだけのときに書き込み口が呼ばれたら呼ばれる（「繋がると書ける」を出すため） */
+  onBlocked(fn) {
+    if (typeof fn !== 'function') return () => {};
+    blockedListeners.add(fn);
+    return () => blockedListeners.delete(fn);
+  },
+
   /* 保存したあとに呼ばれる。戻り値は解除する関数 */
   onPersist(fn) {
     if (typeof fn !== 'function') return () => {};
@@ -2907,3 +2938,29 @@ export const store = {
   /* 直近の保存が失敗していれば、その例外。成功していれば null */
   saveError() { return lastSaveError; },
 };
+
+/* 読むだけのときに断る書き込み口。persist() を呼ぶ口と、それを呼ぶ setToday。
+   rollover と sweepHolds は断らない——日の切り替えと長期保留の戻りは、誰が開いても同じ結果になる
+   決まった書き換えで、断ると控えが昨日のままになる。
+   口を足したらここにも足す（tests/sync.test.mjs が、persist() を呼ぶ口の漏れを見る） */
+export const WRITE_METHODS = [
+  'add', 'remove', 'untrash', 'complete', 'uncomplete', 'restore', 'setDay', 'setToday', 'setHold', 'setHoldUntil',
+  'setFav', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
+  'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setFirstStep', 'setUrl', 'setGap',
+  'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
+  'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
+  'commitStep', 'editStep', 'amendLastStep', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
+];
+/* 知らせない口（画面が裏で何度も呼ぶもの。断るだけ） */
+const QUIET = new Set(['flush', 'setDraft']);
+WRITE_METHODS.forEach(name => {
+  const orig = store[name];
+  if (typeof orig !== 'function') return;
+  store[name] = function (...args) {
+    if (readOnly) {
+      if (!QUIET.has(name)) blockedListeners.forEach(fn => { try { fn(name); } catch (e) { /* 通知で落とさない */ } });
+      return name === 'add' || name === 'addAnchor' || name === 'addTag' || name === 'addGapSlot' ? null : false;
+    }
+    return orig.apply(this, args);
+  };
+});
