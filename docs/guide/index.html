@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Bubbles の使い方</title>
+<!-- 使い方の記事（2026-10-23）。app の設定の「使い方」から開く。
+     スクリーンショットは試し用の記録で撮ったもの（本物の記録は写していない）。
+     外のファイルを読まない（CSS もここに書く）。画像は img/ -->
+<style>
+:root {
+  --bg: #f4f4f1; --surface: #ffffff; --surface-2: #eceae6; --line: rgba(0,0,0,.10); --line-strong: rgba(0,0,0,.22);
+  --text: #22221e; --text-2: #66655f; --accent: #1d7d9c; --share: #b0604f; --code: #eceae6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15151a; --surface: #202027; --surface-2: #2a2a32; --line: rgba(255,255,255,.12); --line-strong: rgba(255,255,255,.26);
+    --text: #f0efeb; --text-2: #a9a8a2; --accent: #63b6d8; --share: #e39a86; --code: #2a2a32;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.8;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 16px; }
+.top { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border-bottom: 1px solid var(--line); padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 8px; }
+.top a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); text-decoration: none; font-size: 15px; }
+main { max-width: 760px; margin: 0 auto; padding: 16px 16px 80px; }
+h1 { font-size: 24px; margin: 8px 0 4px; }
+h2 { font-size: 20px; margin: 48px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+h3 { font-size: 17px; margin: 28px 0 6px; }
+p, li { color: var(--text); }
+.lead { color: var(--text-2); }
+.note { font-size: 14px; color: var(--text-2); }
+.toc { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 8px 18px; }
+.toc ol { margin: 8px 0; padding-left: 1.4em; }
+.toc a { color: var(--accent); }
+figure { margin: 16px 0 24px; display: flex; gap: 14px; flex-wrap: wrap; }
+figure .shot { flex: 0 1 240px; margin: 0; }
+figure img { width: 100%; height: auto; display: block; border-radius: 18px; border: 1px solid var(--line-strong);
+  box-shadow: 0 4px 16px rgba(0,0,0,.08); background: var(--surface); }
+figure figcaption { font-size: 13.5px; color: var(--text-2); margin-top: 6px; line-height: 1.6; }
+code { font-family: ui-monospace, Menlo, monospace; font-size: 13.5px; background: var(--code); padding: 1px 6px; border-radius: 6px; }
+pre { background: var(--code); border-radius: 12px; padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+pre code { background: none; padding: 0; }
+.box { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 16px; margin: 16px 0; }
+.box.share { border-left-color: var(--share); }
+.steps { counter-reset: s; list-style: none; padding-left: 0; }
+.steps > li { counter-increment: s; position: relative; padding-left: 40px; margin: 12px 0; }
+.steps > li::before { content: counter(s); position: absolute; left: 0; top: 2px; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
+/* スマホでは1枚ずつ（2枚並べると字が読めない小ささになった） */
+@media (max-width: 520px) { figure { justify-content: center; } figure .shot { flex-basis: min(100%, 300px); } }
+/* 目次から飛んだとき、上の「アプリへ戻る」の帯に見出しが隠れないように */
+h2, h3 { scroll-margin-top: 76px; }
+</style>
+</head>
+<body>
+<div class="top"><a href="../../index.html">‹ アプリへ戻る</a></div>
+<main>
+<h1>Bubbles の使い方</h1>
+<p class="lead">思いついたことを書いて、泡として漂わせておく todo アプリです。やっていないことを責めない作りにしてあります（達成率・連続日数・ご褒美の演出は出しません）。</p>
+
+<nav class="toc" aria-label="目次">
+<ol>
+  <li><a href="#screens">画面の見方</a></li>
+  <li><a href="#space">個人と共有</a></li>
+  <li><a href="#connect">サーバーに繋ぐ（自分の端末）</a></li>
+  <li><a href="#invited">共有の海に入る（招かれた人）</a></li>
+  <li><a href="#offline">繋がっていないとき</a></li>
+  <li><a href="#host">サーバーを立てる（持ち主）</a></li>
+  <li><a href="#tokens">合言葉の管理（招く・取り消す）</a></li>
+  <li><a href="#security">安全のための決まり</a></li>
+  <li><a href="#faq">困ったとき</a></li>
+</ol>
+</nav>
+
+<h2 id="screens">1. 画面の見方</h2>
+
+<h3>海に書く</h3>
+<p>下の欄に書いて「送信」を押すと、泡になって海に浮かびます。泡は時間とともにゆっくり漂います。左右の矢印の看板（「仕事」など）か背景をなぞると、となりの海（タグごとの海）へ移ります。上は「長期保留」、下は「完了」の海です。</p>
+<figure>
+  <div class="shot"><img src="img/01_sea.jpg" alt="海の画面。泡がいくつか浮かんでいる" loading="lazy"><figcaption>海。上にあるのは「個人 | 共有」の帯（<a href="#space">2章</a>）</figcaption></div>
+  <div class="shot"><img src="img/02_write.jpg" alt="下の欄に「カーテンを洗う」と書いたところ" loading="lazy"><figcaption>下の欄に書いて「送信」</figcaption></div>
+</figure>
+
+<h3>泡をタップする（盤）</h3>
+<p>泡をタップすると真ん中に来て、下に盤が開きます。名前の書き直し、「今日」「きっかけ」「すきま」などへの付け外し、次の一手、作業メモ、リンクがここにあります。「タスク開始」で5分の集中画面へ。</p>
+<figure>
+  <div class="shot"><img src="img/03_board.jpg" alt="泡の盤。名前・タグ・次の一手・作業メモ・リンク・タスク開始" loading="lazy"><figcaption>泡の盤</figcaption></div>
+  <div class="shot"><img src="img/04_focus.jpg" alt="5分の集中画面。残り時間の輪と、最後にしていたこと・開始の1手" loading="lazy"><figcaption>5分の集中。過ぎても止まらず数え続けます</figcaption></div>
+</figure>
+
+<h3>今日・きっかけ・すきま</h3>
+<p>下のタブで切り替えます。「今日」は今日やると決めたもの、「きっかけ」は「歯を磨いたら」のような行動にぶら下げるもの、「すきま」は「耳だけ空いている」などの状況ごとの枠です。海の泡は、タブへドラッグすると、そこにも置かれます（移動ではなく、増えます）。</p>
+<figure>
+  <div class="shot"><img src="img/05_today.jpg" alt="今日の画面。今日やるものの泡" loading="lazy"><figcaption>今日。‹ › で前後の日へ</figcaption></div>
+  <div class="shot"><img src="img/06_plan.jpg" alt="きっかけの画面。「歯を磨いたら」にストレッチがぶら下がっている" loading="lazy"><figcaption>きっかけ</figcaption></div>
+  <div class="shot"><img src="img/07_gap.jpg" alt="すきまの画面。耳だけの枠にポッドキャストを聴く" loading="lazy"><figcaption>すきま</figcaption></div>
+</figure>
+
+<h3>引き出しと設定</h3>
+<p>左上の ≡ は「引き出し」。最近つかったもの・お気に入り・長期保留・タグごとの一覧から、1タップで今日に置けます。右上の ⚙ は設定です。設定のいちばん上に「ふりかえり」と、この「使い方」があります。</p>
+<figure>
+  <div class="shot"><img src="img/08_drawer.jpg" alt="引き出し。最近つかった泡と「今日に」のボタン" loading="lazy"><figcaption>引き出し（≡）</figcaption></div>
+  <div class="shot"><img src="img/09_settings.jpg" alt="設定の画面。ふりかえり・使い方・タグ" loading="lazy"><figcaption>設定（⚙）</figcaption></div>
+</figure>
+
+<h2 id="space">2. 個人と共有</h2>
+<p>いちばん上の帯で「個人」と「共有」を切り替えます。切り替えると画面を読み直し、app 全体（海・今日・きっかけ・すきま・ふりかえり）がその持ち主の記録になります。</p>
+<ul>
+  <li><b>個人</b>：自分だけの記録。端末に書き、サーバーに繋いでいればサーバーとも合わせます。</li>
+  <li><b>共有</b>：共有の合言葉を知っている人どうしの記録。水が夕方の色になり、帯の右に「合わせた／時刻」と出ます。書けるのは、サーバーと合わせられている間だけです。</li>
+</ul>
+<figure>
+  <div class="shot"><img src="img/01_sea.jpg" alt="個人の海（水色）" loading="lazy"><figcaption>個人（いつもの水の色）</figcaption></div>
+  <div class="shot"><img src="img/13_share.jpg" alt="共有の海（夕方の色）。帯の右に「合わせた 16:34」" loading="lazy"><figcaption>共有（夕方の水。右上に「合わせた」）</figcaption></div>
+</figure>
+<div class="box share">個人の泡を共有へ移す道はありません（間違えて人に見せないため）。共有に置きたいものは、共有に切り替えてから書きます。件数や人数は出しません。</div>
+
+<h2 id="connect">3. サーバーに繋ぐ（自分の端末）</h2>
+<p>複数の端末で同じ記録を使うには、自分で立てたサーバー（<a href="#host">6章</a>）に繋ぎます。サーバーが無くても、今までどおり端末の中だけで使えます。</p>
+<ol class="steps">
+  <li>端末に Tailscale を入れて、サーバーと同じアカウントでログインし、「接続」にする（<a href="#host">6章</a>）。</li>
+  <li>設定（⚙）を開き、「サーバー」の欄までスクロールする。</li>
+  <li>住所に <code>https://&lt;機械名&gt;.&lt;tailnet名&gt;.ts.net</code>、「自分の合言葉」にサーバーの <code>token.txt</code> の中身を入れる。共有も使うなら「共有の合言葉」も入れる。</li>
+  <li>「繋ぐ」を押す。下の字が「個人: 合わせた（時刻）」になれば繋がっています。</li>
+</ol>
+<figure>
+  <div class="shot"><img src="img/10_server_empty.jpg" alt="設定のサーバーの欄。住所・自分の合言葉・共有の合言葉" loading="lazy"><figcaption>サーバーの欄（まだ繋いでいない）</figcaption></div>
+  <div class="shot"><img src="img/12_server_connected.jpg" alt="繋いだあと。「個人: 合わせた（16:32）」" loading="lazy"><figcaption>繋いだあと。画面は手元で試したときのもので、住所は <code>http://127.0.0.1</code>。実際は <code>https://…ts.net</code></figcaption></div>
+  <div class="shot"><img src="img/11_http_refused.jpg" alt="http の住所を入れると「http では繋がない」と出る" loading="lazy"><figcaption><code>http://</code> の住所は断ります（合言葉と記録が暗号化されずに流れるため）</figcaption></div>
+</figure>
+<p class="note">住所の頭を省くと <code>https://</code> を補います。<code>http://</code> で繋げるのは、自分の機械の中（<code>localhost</code>・<code>127.0.0.1</code>）だけです（開発と、Android エミュレーターの <code>adb reverse</code> 用）。</p>
+<p>食い違ったときは、項目ごとに新しく書き換えたほうが残ります。消したものも、消した時刻で比べます。サーバーに届かない間も端末には記録され、届いたら合わせます。</p>
+
+<h2 id="invited">4. 共有の海に入る（招かれた人）</h2>
+<p>持ち主から「住所」と「あなたのぶんの共有の合言葉」を受け取ったら、次のようにします。</p>
+<ol class="steps">
+  <li>Tailscale のアカウントを作り（個人向けは無料）、端末に Tailscale を入れてログインする。</li>
+  <li>持ち主から届いた「機械の共有」の招待を受け入れる。あなたの Tailscale に、このサーバー機だけが現れます（ほかの機械には届きません）。</li>
+  <li>Bubbles で帯の「共有」を押す。「共有の海に入る」の札が出るので、「設定を開く」を押す。</li>
+  <li>住所と「共有の合言葉」だけを入れて「繋ぐ」（「自分の合言葉」は空のまま）。「共有: 合わせた」になれば入れています。</li>
+</ol>
+<figure>
+  <div class="shot"><img src="img/16_share_join.jpg" alt="共有の海に入る札。設定を開くボタン" loading="lazy"><figcaption>共有の合言葉がまだのとき</figcaption></div>
+  <div class="shot"><img src="img/17_invitee_settings.jpg" alt="招かれた人の設定。住所と共有の合言葉だけ。「共有: 合わせた」" loading="lazy"><figcaption>招かれた人の設定（共有の合言葉だけ）</figcaption></div>
+  <div class="shot"><img src="img/13_share.jpg" alt="共有の海に、ほかの人が書いた泡が出ている" loading="lazy"><figcaption>共有の海</figcaption></div>
+</figure>
+<div class="box">Tailscale は「自分の機械どうしだけをつなぐ VPN」です。ほかの Web サイトへの通信は Tailscale を通らず、今までどおり直接届きます。スマホでは VPN の枠を1つ使うので、ほかの VPN とは同時に使えません。</div>
+
+<h2 id="offline">5. 繋がっていないとき</h2>
+<p>共有の海は、サーバーと合わせられていない間は「読むだけ」になります。最後に見たものを色を抜いて出し、帯の右に「繋がっていない／<i>時刻</i> に見たもの」と出ます。入力欄は点線になり、書こうとすると「繋がると書ける」と知らせます。繋がったら自動で新しくなり、色も戻ります。</p>
+<figure>
+  <div class="shot"><img src="img/14_share_offline.jpg" alt="繋がっていない共有の海。色が抜け、「繋がっていない 16:34 に見たもの」" loading="lazy"><figcaption>繋がっていない共有</figcaption></div>
+  <div class="shot"><img src="img/15_share_blocked.jpg" alt="書こうとしたときの知らせ「繋がると書ける」" loading="lazy"><figcaption>書こうとしたとき</figcaption></div>
+</figure>
+<p class="note">個人の海は、繋がっていなくても見た目は変わらず、今までどおり書けます（届いたら合わせます）。</p>
+
+<h2 id="host">6. サーバーを立てる（持ち主）</h2>
+<p>Linux のサーバー（Oracle Cloud の無料枠など）に立てます。サーバーは自分の機械の中（<code>127.0.0.1</code>）だけで待ち受け、外からは Tailscale を通った端末だけが届きます。クラウドのファイアウォールは開けません。</p>
+
+<h3>6-1. サーバーで立ち上げる</h3>
+<ol class="steps">
+  <li>サーバーに ssh で入り、Tailscale を入れてログインする（<code>BUBBLES_INSTALL_TAILSCALE=1</code> を付けると、次の手順の中で公式の手順で入れます）。</li>
+  <li>次を実行する。2回目からは同じコマンドが「更新」として働きます。
+<pre><code>git clone https://github.com/RH-REP/bubbles-todo.git
+BUBBLES_TAILSCALE_SSH=1 bash bubbles-todo/tools/server-setup.sh</code></pre></li>
+  <li>最後に出る「繋ぐ住所」と「合言葉」の場所を控える。自分の合言葉は <code>cat ~/bubbles-data/token.txt</code> で見られます。</li>
+</ol>
+<p>スクリプトがすること：python3 と git の確認 → コードの取り込み → 記録の置き場（<code>~/bubbles-data</code>）づくり → テスト → systemd で常駐（落ちたら起動し直す。書けるのは記録の置き場だけ）→ <code>tailscale serve</code> で HTTPS 化 → 住所と合言葉の場所を出す。</p>
+<table>
+  <tr><th>操作</th><th>コマンド</th></tr>
+  <tr><td>動いているか・住所</td><td><code>bash bubbles-todo/tools/server-setup.sh status</code></td></tr>
+  <tr><td>コードを取り込んで起動し直す</td><td><code>bash bubbles-todo/tools/server-setup.sh update</code></td></tr>
+  <tr><td>常駐をやめる（記録は残す）</td><td><code>bash bubbles-todo/tools/server-setup.sh uninstall</code></td></tr>
+  <tr><td>サーバーの記録（ログ）</td><td><code>sudo journalctl -u bubbles-todo</code></td></tr>
+</table>
+
+<h3>6-2. Tailscale の管理画面ですること（最初の1回）</h3>
+<ol class="steps">
+  <li><b>HTTPS を有効にする</b>：管理画面の DNS で MagicDNS と HTTPS 証明書を有効にする（<code>tailscale serve</code> に要る）。機械名と tailnet 名は証明書の公開ログに載るので、機械名に個人の情報を入れない。</li>
+  <li><b>人を招くときは、機械を「共有」する</b>：管理画面の Machines でサーバー機の「…」→「Share」から招待のリンクを作り、相手に送る。tailnet そのものには招かない（相手から届くのは、このサーバー機だけになる）。</li>
+  <li><b>届くポートを 443 だけにする</b>：アクセスの規則（Access controls）に、共有された人の宛先を絞る規則を書く。例（サーバー機の住所 <code>100.x.y.z</code> は管理画面で確かめる）：
+<pre><code>{
+  "grants": [
+    // 自分の端末は今までどおり
+    { "src": ["autogroup:member"], "dst": ["*"], "ip": ["*"] },
+    // 共有された人は、サーバー機の HTTPS（443）だけ
+    { "src": ["autogroup:shared"], "dst": ["100.x.y.z"], "ip": ["tcp:443"] }
+  ]
+}</code></pre>
+  規則を書き換えると、既定の「全部通す」が置き換わります。自分の端末の規則も一緒に書いてください（保存するときに構文の確かめが走ります）。</li>
+  <li><b>ssh を Tailscale に寄せる</b>：<code>BUBBLES_TAILSCALE_SSH=1</code> で立ち上げると Tailscale SSH が有効になります。tailnet から ssh で入れることを確かめてから、クラウドのファイアウォール（Oracle の Security List）の 22 番を閉じます。</li>
+  <li><b>Funnel（インターネットへの公開）は使わない</b>。</li>
+</ol>
+
+<h2 id="tokens">7. 合言葉の管理（招く・取り消す）</h2>
+<p>共有の合言葉は人ごとに1つ作ります。1人ぶんだけ取り消せます。どれもサーバーを止めずに、次の接続から効きます。</p>
+<pre><code># 招く人のぶんを作る（値はこのときだけ出る。相手には住所とこの値だけを渡す）
+bash bubbles-todo/tools/server-setup.sh share-add 母のスマホ
+
+# 一覧（名前・作った日・末尾4文字。値そのものは出さない）
+bash bubbles-todo/tools/server-setup.sh share-list
+
+# 取り消す（その端末は次の接続から入れない）
+bash bubbles-todo/tools/server-setup.sh share-remove 母のスマホ
+
+# 自分の合言葉を作り直す（自分の端末すべてで入れ直す）
+bash bubbles-todo/tools/server-setup.sh rotate-me</code></pre>
+<div class="box share">自分の合言葉（<code>token.txt</code>）は人に渡さないでください。個人の記録が読めてしまいます。共有の合言葉だけを知る人は、個人の記録を読めません。</div>
+
+<h2 id="security">8. 安全のための決まり</h2>
+<ul>
+  <li>サーバーには、Tailscale を通った端末だけが届く（インターネットには出さない）。</li>
+  <li>端末は <code>https://</code> でだけ繋ぐ（外への <code>http://</code> は断る）。</li>
+  <li>合言葉は人ごと。取り消しは1人ずつ、すぐ効く。</li>
+  <li>サーバーは、合言葉の値をログに書かない（端末で起動したときだけ、作った直後に画面に出す）。</li>
+  <li>合言葉を取り違えて入れても（共有の合言葉を自分の欄に入れるなど）、サーバーが返す置き場の名前で端末が気づき、記録を送らない。</li>
+  <li>記録の控えは、サーバーの <code>~/bubbles-data/backup/</code>（個人）と <code>share/backup/</code>（共有）に、書くたびに新しいほうから50個残る。</li>
+</ul>
+
+<h2 id="faq">9. 困ったとき</h2>
+<table>
+  <tr><th>こうなった</th><th>こうする</th></tr>
+  <tr><td>「届かない: サーバーに届かない」</td><td>端末の Tailscale が「接続」になっているか。サーバーで <code>server-setup.sh status</code>。</td></tr>
+  <tr><td>「合言葉が違う」</td><td>合言葉を入れ直す。取り消された（<code>share-remove</code>）か、作り直された（<code>rotate-me</code>）かもしれない。</td></tr>
+  <tr><td>「これは共有の合言葉ではない」「これは共有の合言葉（自分の合言葉の欄に入っている）」</td><td>欄を取り違えている。自分の合言葉と共有の合言葉を入れ替える。</td></tr>
+  <tr><td>「http では繋がない」</td><td>住所を <code>https://…ts.net</code> にする。</td></tr>
+  <tr><td>共有で書けない（点線）</td><td>サーバーと合わせられるまで読むだけ。右上の字が「合わせた」になれば書ける。</td></tr>
+  <tr><td>ほかの VPN が切れた（スマホ）</td><td>スマホは VPN を1つしか同時に使えない。Bubbles を使う間だけ Tailscale に切り替える。</td></tr>
+</table>
+<p class="note">この記事のスクリーンショットは、試し用の記録で撮ったものです。</p>
+</main>
+</body>
+</html>

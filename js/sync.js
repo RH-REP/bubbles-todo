@@ -35,6 +35,10 @@ const PUSH_DELAY = 1500;      /* 保存してから送るまで。続けて打�
 const POLL_MS = 20000;        /* 開いている間、ほかの端末の書き換えを見に行く間隔 */
 const RETRY_MAX = 60000;      /* 届かないとき、見に行く間隔をここまで延ばす */
 
+/* 自分の機械の中の住所。http でも通す（checkUrl）。**readConf() より前に置く**——
+   保存してある住所を読み込みの時点で確かめるので、後ろに置くと const の手前で読んで落ち、
+   設定ごと捨てていた（2026-10-23。http://127.0.0.1 の住所が、読み直すたびに消えた） */
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
 const SPACE = store.space();
 const SEEN_KEY = 'bubble_todo_sync_seen_' + SPACE;   /* 最後に合わせた時刻（「15:30 に見たもの」） */
 let conf = readConf();
@@ -49,7 +53,9 @@ function readConf() {
   try {
     const o = JSON.parse(localStorage.getItem(CONF_KEY) || 'null');
     if (o && typeof o.url === 'string') {
-      return { url: o.url, token: String(o.token || ''), shareToken: String(o.shareToken || '') };
+      /* 前の版で保存した外への http の住所は、読み込みで捨てる（送らない） */
+      const url = normalizeUrl(o.url) || '';
+      return { url, token: String(o.token || ''), shareToken: String(o.shareToken || '') };
     }
   } catch (e) { /* 読めなければ繋がない */ }
   return { url: '', token: '', shareToken: '' };
@@ -67,16 +73,23 @@ function writeSeen(ms) {
   try { localStorage.setItem(SEEN_KEY, String(ms)); } catch (e) { /* 覚えられなくても動く */ }
 }
 
-/* 住所を整える。末尾の / を落とし、http(s) 以外は受け付けない。
-   「100.64.1.2:8931」のように頭を省いたら http:// を補う */
-export function normalizeUrl(raw) {
+/* 住所を整える。末尾の / を落とす。頭を省いたら https:// を補う。
+   **外への http:// は受け付けない**（2026-10-23。合言葉と記録が暗号化されずに流れるため）。
+   通すのは自分の機械の中（localhost・127.0.0.1・[::1]）だけ——開発と、エミュレーターの adb reverse 用。
+   受け付けないときは null、http だから断ったときは 'http' を返す（画面が言い分けるため） */
+export function checkUrl(raw) {
   let s = String(raw || '').trim();
   if (!s) return '';
-  if (!/^[a-z]+:\/\//i.test(s)) s = 'http://' + s;
+  if (!/^[a-z]+:\/\//i.test(s)) s = 'https://' + s;
   let u;
   try { u = new URL(s); } catch (e) { return null; }
+  if (u.protocol === 'http:' && LOOPBACK.indexOf(u.hostname) < 0) return 'http';
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
   return (u.origin + u.pathname).replace(/\/+$/, '');
+}
+export function normalizeUrl(raw) {
+  const u = checkUrl(raw);
+  return u === 'http' ? null : u;
 }
 
 function setStatus(state, message) {

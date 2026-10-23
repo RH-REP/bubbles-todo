@@ -32,7 +32,8 @@ const tick = (ms = 20) => new Promise(r => setTimeout(r, ms));
 /* 個人の記録を先に置いておく（共有で開いても触られないことを見る） */
 mem.set('bubble_todo_v1', JSON.stringify({ v: 2, todos: [{ id: 'p1', text: '個人のもの', createdAt: 1, fx: .5, fy: .5 }] }));
 mem.set('bubble_todo_space', 'share');
-mem.set('bubble_todo_sync', JSON.stringify({ url: 'http://srv.test', token: 'me-tk', shareToken: 'share-tk' }));
+/* 住所は自分の機械の中の http（start.command の形）。読み込みの時点で住所を確かめる道を通す */
+mem.set('bubble_todo_sync', JSON.stringify({ url: 'http://127.0.0.1:8931', token: 'me-tk', shareToken: 'share-tk' }));
 
 /* 偽のサーバー。合言葉で置き場を分ける */
 const spaces = { 'me-tk': { space: 'me', version: 0, data: null }, 'share-tk': { space: 'share', version: 0, data: null } };
@@ -109,7 +110,7 @@ await test('繋がり直したら、また書ける', async () => {
 
 await test('個人の合言葉を共有の欄に入れたら、送らずに知らせる', async () => {
   const before = JSON.stringify(spaces['me-tk']);
-  sync.configure('http://srv.test', 'me-tk', 'me-tk');
+  sync.configure('https://srv.test', 'me-tk', 'me-tk');
   for (let i = 0; i < 50 && sync.status().state !== 'error'; i++) await tick();
   assert.equal(sync.status().state, 'error');
   assert.match(sync.status().message, /共有の合言葉ではない/);

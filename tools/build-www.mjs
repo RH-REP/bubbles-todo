@@ -19,7 +19,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'www');
 
 /* 起動に要るものだけ。DEV_NOTES・tests・serve.py・.git は入れない */
-const TAKE = ['index.html', 'manifest.json', 'sw.js', 'css', 'js', 'icons'];
+const TAKE = ['index.html', 'manifest.json', 'sw.js', 'css', 'js', 'icons', 'docs'];   /* docs/ は使い方の記事 */
 
 await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });

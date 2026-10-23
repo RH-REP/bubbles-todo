@@ -7,7 +7,7 @@
 import { el, toast, escapeHtml } from '../ui.js';
 import { store } from '../store.js';
 import { isOn, setOn } from '../sound.js';
-import { sync } from '../sync.js';
+import { sync, checkUrl } from '../sync.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -93,6 +93,24 @@ export default {
       window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'review' } }));
     });
     box.appendChild(go);
+
+    /* --- 使い方（2026-10-23。利用者の指示：app の中から使い方の記事へ）---
+       記事は docs/guide/index.html。同じ窓で開き、記事の上の「アプリへ戻る」で戻る
+       （Android 版でも、別の窓を開かずに WebView の中で読める） */
+    const help = el('button', 'gorow');
+    help.type = 'button';
+    const hpT = el('span', 'tx');
+    hpT.appendChild(el('span', 'nm', '使い方'));
+    hpT.appendChild(el('span', 'sub', '画面の見方・サーバーと共有の始め方'));
+    help.appendChild(hpT);
+    const hpA = el('span', 'ar', '›');
+    hpA.setAttribute('aria-hidden', 'true');
+    help.appendChild(hpA);
+    help.addEventListener('click', () => {
+      try { store.flush(); } catch (e) { /* 開くのは止めない */ }
+      location.href = 'docs/guide/index.html';
+    });
+    box.appendChild(help);
 
     /* --- タグ --- */
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */
@@ -308,7 +326,7 @@ function serverBox(screen) {
   urlIn.inputMode = 'url';
   urlIn.autocomplete = 'off';
   urlIn.spellcheck = false;
-  urlIn.placeholder = '住所（例 https://名前.ts.net / 100.64.0.1:8931）';
+  urlIn.placeholder = '住所（例 https://名前.tailxxxx.ts.net）';
   urlIn.setAttribute('aria-label', 'サーバーの住所');
   const tokIn = document.createElement('input');
   tokIn.type = 'password';
@@ -320,7 +338,7 @@ function serverBox(screen) {
   const shareIn = document.createElement('input');
   shareIn.type = 'password';
   shareIn.autocomplete = 'off';
-  shareIn.placeholder = '共有の合言葉（空なら共有は使わない。share_token.txt）';
+  shareIn.placeholder = '共有の合言葉（招かれた人のぶん。空なら使わない）';
   shareIn.setAttribute('aria-label', '共有の合言葉');
   urlIn.style.flexBasis = '100%';
   tokIn.style.flexBasis = '100%';
@@ -365,7 +383,11 @@ function serverBox(screen) {
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     if (!urlIn.value.trim()) { toast('住所を入れる'); return; }
-    if (!sync.configure(urlIn.value, tokIn.value, shareIn.value)) { toast('住所が読めない（http:// か https:// で始める）'); return; }
+    if (checkUrl(urlIn.value) === 'http') {
+      toast('http では繋がない（合言葉と記録が暗号化されずに流れる）。https:// の住所を入れる');
+      return;
+    }
+    if (!sync.configure(urlIn.value, tokIn.value, shareIn.value)) { toast('住所が読めない（https:// で始める）'); return; }
     urlIn.value = sync.config().url;
   });
 

@@ -164,7 +164,7 @@ await test('sync.js: 送る間に別の端末が書いたら（409）、取り�
   /* 手元の端末。住所を入れてから sync.js を読む */
   mem.clear();
   setNow(D1 + 1000);
-  mem.set('bubble_todo_sync', JSON.stringify({ url: 'http://srv.test', token: 'tk' }));
+  mem.set('bubble_todo_sync', JSON.stringify({ url: 'https://srv.test', token: 'tk' }));
   let server = { version: 0, data: null };
   let raced = false;
   const calls = [];
@@ -196,6 +196,19 @@ await test('sync.js: 送る間に別の端末が書いたら（409）、取り�
   assert.deepEqual(store.all().map(t => t.text).sort(), ['ほかの端末', '手元'], '手元にも届く');
   assert.equal(sync.status().state, 'ok');
   sync.configure('', '');              /* 次の合図（タイマー）を止める */
+});
+
+await test('住所: 頭を省くと https。外への http は断り、自分の機械の中の http だけ通す', async () => {
+  const { checkUrl, normalizeUrl } = await import(new URL('../js/sync.js', import.meta.url).href);
+  assert.equal(checkUrl('mac.tail1234.ts.net'), 'https://mac.tail1234.ts.net');
+  assert.equal(checkUrl('https://mac.tail1234.ts.net/'), 'https://mac.tail1234.ts.net');
+  assert.equal(checkUrl('http://100.64.0.1:8931'), 'http');
+  assert.equal(normalizeUrl('http://100.64.0.1:8931'), null);
+  assert.equal(checkUrl('http://192.168.1.5:8931'), 'http');
+  assert.equal(checkUrl('http://localhost:8931'), 'http://localhost:8931');
+  assert.equal(checkUrl('http://127.0.0.1:8931'), 'http://127.0.0.1:8931');
+  assert.equal(checkUrl('ftp://x'), null);
+  assert.equal(checkUrl(''), '');
 });
 
 Date.now = REAL_NOW;

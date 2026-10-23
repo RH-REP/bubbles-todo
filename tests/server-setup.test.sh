@@ -77,10 +77,12 @@ grep -q "^ProtectHome=read-only$" "$u" || fail "unit の ProtectHome"
 pass "unit は 127.0.0.1 で待ち受け、書けるのは記録の置き場だけ"
 
 [[ "$(stat -f %Lp "$T/home/bubbles-data" 2>/dev/null || stat -c %a "$T/home/bubbles-data")" == 700 ]] || fail "置き場が 700 でない"
-for f in token.txt share_token.txt; do
+for f in token.txt share_tokens.json; do
   [[ -f "$T/home/bubbles-data/$f" ]] || fail "$f が無い"
   [[ "$(stat -f %Lp "$T/home/bubbles-data/$f" 2>/dev/null || stat -c %a "$T/home/bubbles-data/$f")" == 600 ]] || fail "$f が 600 でない"
-  if grep -qF "$(cat "$T/home/bubbles-data/$f")" "$T/server.log"; then fail "$f の値がサーバーの出力（journal に入るもの）に出た"; fi
+done
+for tk in "$(cat "$T/home/bubbles-data/token.txt")" "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[0]["token"])' "$T/home/bubbles-data/share_tokens.json")"; do
+  if grep -qF "$tk" "$T/server.log"; then fail "合言葉の値がサーバーの出力（journal に入るもの）に出た"; fi
 done
 pass "合言葉2つを作り（600）、値はサーバーの出力に出さない"
 
@@ -88,7 +90,7 @@ grep -q "tailscale serve --bg $PORT" "$T/calls.log" || fail "tailscale serve を
 grep -q "繋ぐ住所:     https://bubbles.tail1234.ts.net$" <<<"$out" || { echo "$out"; fail "住所が出ない"; }
 pass "tailscale serve を呼び、繋ぐ住所を出した"
 
-tok="$(cat "$T/home/bubbles-data/share_token.txt")"
+tok="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[0]["token"])' "$T/home/bubbles-data/share_tokens.json")"
 space="$(python3 - "$PORT" "$tok" <<'EOF'
 import json, sys, urllib.request
 r = urllib.request.Request(f'http://127.0.0.1:{sys.argv[1]}/api/data', headers={'Authorization': 'Bearer ' + sys.argv[2]})
@@ -97,6 +99,14 @@ EOF
 )"
 [[ "$space" == share ]] || fail "共有の合言葉で共有の置き場が開かない（$space）"
 pass "作った共有の合言葉で、共有の置き場が開く"
+
+# --- 合言葉の操作（止めずに効く） ---
+outa="$(run share-add 母のスマホ 2>&1)" || { echo "$outa"; fail "share-add が止まった"; }
+grep -q "母のスマホ" <<<"$(run share-list 2>&1)" || fail "share-list に出ない"
+run share-remove 母のスマホ >/dev/null 2>&1 || fail "share-remove が止まった"
+if grep -q "母のスマホ" <<<"$(run share-list 2>&1)"; then fail "取り消したのに一覧に残った"; fi
+if run share-add >/dev/null 2>&1; then fail "名前なしの share-add が通った"; fi
+pass "share-add・share-list・share-remove が通る（名前なしは断る）"
 
 # --- 2回目: 実行し直しても壊れない（合言葉は変わらない） ---
 before="$(cat "$T/home/bubbles-data/token.txt")"

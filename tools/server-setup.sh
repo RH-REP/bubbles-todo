@@ -7,6 +7,12 @@
 #   bash bubbles-todo/tools/server-setup.sh status     # 動いているか・住所
 #   bash bubbles-todo/tools/server-setup.sh uninstall  # 常駐をやめる（記録と合言葉は消さない）
 #
+# 合言葉（止めずに効く）:
+#   bash bubbles-todo/tools/server-setup.sh share-add <名前>     共有に招く人ごとに1つ作る（値はこのときだけ出る）
+#   bash bubbles-todo/tools/server-setup.sh share-list           一覧（名前・作った日・末尾4文字）
+#   bash bubbles-todo/tools/server-setup.sh share-remove <名前>  その人の合言葉を取り消す
+#   bash bubbles-todo/tools/server-setup.sh rotate-me            自分の合言葉を作り直す
+#
 # すること（install）:
 #   1. python3（3.8 以上）と git を確かめる。無ければ dnf / apt で入れる
 #   2. このスクリプトの入っている clone を使う（無ければ BUBBLES_REPO から clone）。あれば git pull --ff-only
@@ -24,9 +30,10 @@
 #   BUBBLES_REPO     clone する先（既定 https://github.com/RH-REP/bubbles-todo.git）
 #   BUBBLES_SERVICE  systemd のサービス名（既定 bubbles-todo）
 #   BUBBLES_INSTALL_TAILSCALE=1  Tailscale が無ければ、公式の手順（tailscale.com/install.sh）で入れる
+#   BUBBLES_TAILSCALE_SSH=1      Tailscale SSH を有効にする（tailnet から ssh。そのあとクラウドの 22 番を閉じられる）
 #
-# 合言葉: 個人は <置き場>/token.txt、共有は <置き場>/share_token.txt（初回に作る。chmod 600）。
-#         共有に招く人には、住所と share_token.txt の中身だけを渡す。token.txt は渡さない。
+# 合言葉: 個人は <置き場>/token.txt、共有は <置き場>/share_tokens.json（人ごと。初回に「最初の合言葉」を作る。chmod 600）。
+#         共有に招く人には、住所と、その人のぶんの共有の合言葉だけを渡す。token.txt は渡さない。
 set -euo pipefail
 
 PORT="${BUBBLES_PORT:-8931}"
@@ -180,6 +187,9 @@ tailscale_serve() {
   # HTTPS（MagicDNS と HTTPS 証明書）が管理画面で無効だと、ここで有効にする URL が出る
   sudo tailscale serve --bg "$PORT" || { warn "tailscale serve に失敗しました（管理画面の DNS で MagicDNS と HTTPS を有効にする）"; return 0; }
   ok "tailscale serve --bg $PORT"
+  if [[ "${BUBBLES_TAILSCALE_SSH:-0}" == "1" ]]; then
+    sudo tailscale set --ssh && ok "Tailscale SSH を有効にした（入れたら、クラウドのファイアウォールの 22 番を閉じてよい）"
+  fi
 }
 
 summary() {
@@ -188,14 +198,15 @@ summary() {
   say "7. できあがり"
   printf '   サービス:     %s（sudo systemctl status %s）\n' "$SERVICE" "$SERVICE"
   printf '   記録:         %s/state.json（個人）、%s/share/state.json（共有）\n' "$DATA" "$DATA"
-  printf '   合言葉:       %s/token.txt（個人）、%s/share_token.txt（共有）\n' "$DATA" "$DATA"
-  printf '                 中身を見る: cat %s/token.txt  /  cat %s/share_token.txt\n' "$DATA" "$DATA"
+  printf '   合言葉:       %s/token.txt（個人）、%s/share_tokens.json（共有。人ごと）\n' "$DATA" "$DATA"
+  printf '                 自分の合言葉を見る: cat %s/token.txt\n' "$DATA"
+  printf '                 共有に招く: bash %s/tools/server-setup.sh share-add <名前>（取り消しは share-remove <名前>）\n' "$DIR"
   if [[ -n "$url" ]]; then
     printf '   繋ぐ住所:     %s\n' "$url"
   else
     printf '   繋ぐ住所:     （Tailscale の設定が済むと https://<機械名>.<tailnet名>.ts.net）\n'
   fi
-  printf '   端末では:     設定の「サーバー」に住所と合言葉を入れて「繋ぐ」。共有に招く人には住所と share_token.txt の中身だけを渡す\n'
+  printf '   端末では:     設定の「サーバー」に住所と合言葉を入れて「繋ぐ」。共有に招く人には住所とその人の共有の合言葉だけを渡す\n'
   printf '   更新:         bash %s/tools/server-setup.sh update\n' "$DIR"
 }
 
@@ -217,10 +228,17 @@ cmd_uninstall() {
   warn "tailscale serve を止めるなら: sudo tailscale serve status で確かめてから sudo tailscale serve --https=443 off"
 }
 
+token_cmd() {
+  PY="$(command -v python3)" || die "python3 がありません"
+  "$PY" "$DIR/server.py" --data-dir "$DATA" "$@"
+}
+
 case "${1:-install}" in
+  share-add|share-remove) [[ -n "${2:-}" ]] || die "名前を入れてください（例: $1 母のスマホ）"; token_cmd "$1" "$2" ;;
+  share-list|rotate-me) token_cmd "$1" ;;
   install) cmd_install ;;
   update) cmd_update ;;
   status) cmd_status ;;
   uninstall) cmd_uninstall ;;
-  *) die "使い方: bash $0 [install|update|status|uninstall]" ;;
+  *) die "使い方: bash $0 [install|update|status|uninstall|share-add 名前|share-list|share-remove 名前|rotate-me]" ;;
 esac

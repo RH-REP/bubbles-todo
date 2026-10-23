@@ -119,3 +119,6 @@
 .stub .tagdir.is-sea:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .stub .tagdir.is-sea.is-on { color: var(--text); border-color: var(--bub-edge); background: var(--surface); }
 .stub .tagdir.is-sea:disabled { cursor: default; opacity: .5; }
+
+/* 行が2つ続くとき（ふりかえり・使い方）は、間を詰める */
+.stub .gorow + .gorow { margin-top: -12px; }

@@ -82,7 +82,8 @@ html.is-share.is-off .panes { filter: saturate(.45); opacity: .82; }
 .space-join {
   position: absolute; z-index: 9; left: 34px; right: 34px;
   top: calc(var(--safe-t) + 200px);
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  /* 透かさない。空の海の案内の字が下から透けて読みにくかった */
+  background: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,.10);
   border: 1px solid var(--line-strong); border-radius: 18px; padding: 18px 18px 16px;
 }
 .space-join h4 { margin: 0 0 6px; font-size: 16px; color: var(--text); }

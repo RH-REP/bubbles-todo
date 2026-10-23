@@ -193,10 +193,16 @@ bash tests/server-setup.test.sh
   - python3 と git を確かめ（無ければ dnf / apt）、記録の置き場 `~/bubbles-data`（700）を作り、server.py のテストを通してから、
     systemd のサービス `bubbles-todo` を書いて常駐させる。サーバーは 127.0.0.1 だけで待ち受け、書けるのは記録の置き場だけ（`ProtectSystem=strict`・`ProtectHome=read-only`・`ReadWritePaths`）
   - Tailscale にログインしていれば `tailscale serve --bg 8931` をして、繋ぐ住所（`https://<機械名>.<tailnet名>.ts.net`）を出す。入っていなければ手順を出して止まる（`BUBBLES_INSTALL_TAILSCALE=1` で公式の手順で入れる）。Oracle のファイアウォールは開けない
-  - 合言葉はサーバーが初回に作る（`~/bubbles-data/token.txt`・`share_token.txt`、600）。systemd の記録（journal）には値を出さず、場所だけを出す
+  - 合言葉はサーバーが初回に作る（`~/bubbles-data/token.txt`・`share_tokens.json`、600）。systemd の記録（journal）には値を出さず、場所だけを出す
   - 変えられるもの: `BUBBLES_PORT`・`BUBBLES_DATA`・`BUBBLES_DIR`・`BUBBLES_REPO`・`BUBBLES_SERVICE`
   - Mac の記録を移すなら `data/state.json` と `data/share/state.json` を `~/bubbles-data/` へ写す（写さなくても、端末から繋げば合わさる）。合言葉は新しいものになるので、各端末に入れ直す
   - テスト: `bash tests/server-setup.test.sh`（uname・sudo・systemctl・tailscale を偽物にして手順を最後まで通す。本物の systemd と Tailscale では、まだ確かめていない）
+
+## 使い方の記事
+
+`docs/guide/index.html`（スクリーンショットつき。2026-10-23）。app の設定のいちばん上の「使い方」から開き、記事の上の「アプリへ戻る」で戻る。
+server.py も Android 版（`www/`）も docs/ を配る。service worker の箱には入れていない（記事はオフラインでは開けない。Android 版は APK に入るので開ける）。
+スクリーンショットは試し用の記録で撮る（repo は公開。本物の記録・ローカルの場所を写さない）。画面を直したら撮り直す。
 
 ## 個人と共有の海
 
@@ -208,11 +214,13 @@ bash tests/server-setup.test.sh
   - 書けるのは、サーバーと合わせられている間だけ。繋がっていないときは、最後に見たものを色を抜いて出し、帯の右に「繋がっていない／15:30 に見たもの」。入力欄は点線で「繋がると書ける」。書き込み口は store が断り、短く知らせる
   - 共有の合言葉がまだ無ければ、海に「共有の海に入る」の札（「設定を開く」）
   - 件数・人数は出さない（数を出さない決まりと同じ）
-- **サーバー**: 合言葉が置き場を決める。個人は `token.txt`（`BUBBLE_TODO_TOKEN`）で `data/state.json`、共有は `share_token.txt`（`BUBBLE_TODO_SHARE_TOKEN`）で `data/share/state.json`。共有の合言葉だけを知る人は個人の記録を読めない。同じ合言葉を2つに使うと起動しない
+- **サーバー**: 合言葉が置き場を決める。個人は `token.txt`（`BUBBLE_TODO_TOKEN`）で `data/state.json`、共有は人ごとの `share_tokens.json`（と `BUBBLE_TODO_SHARE_TOKEN`）で `data/share/state.json`。共有の合言葉だけを知る人は個人の記録を読めない。同じ合言葉を2つに使うと起動しない
+- **共有の合言葉は人ごと**（2026-10-23）: `data/share_tokens.json`（名前と合言葉の組。600）。`tools/server-setup.sh share-add <名前>`・`share-list`・`share-remove <名前>`・`rotate-me`（自分の合言葉の作り直し）。止めずに次の接続から効く。前の版の `share_token.txt` は「最初の合言葉」として引き継ぐ
+- **端末は https でだけ繋ぐ**（2026-10-23）: 頭を省いた住所には `https://` を補い、外への `http://` は断る。`localhost`・`127.0.0.1` の http だけ通す（開発・`adb reverse` 用）
 - **取り違えの見張り**: サーバーは合言葉の置き場（`space`）を返す。開いている持ち主と違えば、端末は送らない（共有の合言葉を自分の欄に入れても、個人の記録を共有へ送らない）
 - **端末の箱**: 個人は `bubble_todo_v1`、共有の控えは `bubble_todo_share_v1`、どちらで開くかは `bubble_todo_space`、最後に合わせた時刻は `bubble_todo_sync_seen_<持ち主>`
 - 個人の泡を共有へ移す道は作っていない（間違えて人に見せないため）
-- 共有に人を招くときは、サーバーの住所と共有の合言葉（`share_token.txt`）だけを渡す。自分の合言葉（`token.txt`）は渡さない
+- 共有に人を招くときは、サーバーの住所と、その人のぶんの共有の合言葉（`share-add <名前>` で作る）だけを渡す。自分の合言葉（`token.txt`）は渡さない
 - 作り: `js/space.js`（帯・状態の字・入る札・入力欄の鍵）、`css/space.css`（帯のぶん `--safe-t` を下げる・共有の水の色）、`js/store.js`（`SPACE`・`readOnly`・`WRITE_METHODS`）、`js/sync.js`（合言葉の選び分け・`space` の見張り）
 
 ## 利用（clone して使う側）
@@ -232,7 +240,7 @@ bash tests/server-setup.test.sh
 | パス | 内容 |
 |---|---|
 | `start.command` | 起動口。この clone の `server.py` を起動してブラウザを開く |
-| `data/` | server.py の記録（個人 `state.json`・`backup/`、共有 `share/`）と合言葉（`token.txt`・`share_token.txt`）。`.gitignore` で除外 |
+| `data/` | server.py の記録（個人 `state.json`・`backup/`、共有 `share/`）と合言葉（`token.txt`・`share_tokens.json`）。`.gitignore` で除外 |
 | `update.command` | `git pull --ff-only` で開発側のコミットを取り込む |
 | `.env` | Android ビルド用の実値（あれば。`.gitignore` で除外） |
 | `.claude/` | ローカルの Claude Code 設定（あれば。`.gitignore` で除外） |
