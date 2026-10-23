@@ -53,7 +53,7 @@
 | 集中1回ぶんの控え（**内部のみ。表示しない**） | `js/store.js` `focusLog` / `logFocus` / `focusCount` / `focusMs` | 2026-09-11。出しどころは A-67 |
 | 完了音（WebAudio 合成。既定オン、設定で切れる） | `js/sound.js` | 設定は store とは別の localStorage キー |
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
-| **改善のコメント（右上の !）**（GitHub の新しい Issue 画面を、画面 ID とコメントを書き込んで開く） | `js/feedback.js`（issue_hub の正本の写し）、`js/app.js` 末尾、各板の `data-screen` | 2026-10-22。バブルの本文が写るので写真と記録の欄は出さない（`screenshot: 'never'`・`log: false`、2026-10-23）。右上の隅に歯車と同じ 44px で置き、歯車・海のカレンダーを左へずらした（2026-10-23）。バブルの本文は送らない（画面と件数だけ） |
+| **改善のコメント（右上の !）**（GitHub の新しい Issue 画面を、画面 ID とコメントを書き込んで開く） | `js/feedback.js`（issue_hub の正本の写し）、`js/app.js` 末尾、各板の `data-screen` | 2026-10-22。バブルの本文が写るので写真は初めは付けない（`screenshot: 'off'`。チェックを入れれば付く、2026-10-23）。記録の欄は出さない（`log: false`）。右上の隅に歯車と同じ 44px で置き、歯車・海のカレンダーを左へずらした（2026-10-23）。バブルの本文は送らない（画面と件数だけ） |
 | Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは開発側（この repo）で |
 | 保存は localStorage。サーバーの住所を入れたときだけ、自分のサーバーと記録を合わせる | `js/store.js` `KEY = 'bubble_todo_v1'`・`stamps`、`js/merge.js`、`js/sync.js`、`server.py`、設定の「サーバー」 | 2026-10-23。記録ごとに新しく書き換えたほうが残る。消したものは消した時刻で比べる。ファイルへの書き出し・読み込みの画面は無い |
 | 名前（本文）を盤で書き直せる | `js/store.js` `setText`、`js/bubble.js` 「名前」欄 | 2026-10-12。空にはできない。記録のスナップショットは当時のまま |
