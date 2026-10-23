@@ -11,7 +11,7 @@
 import { store } from '../store.js';
 import { createField } from '../drift.js';
 import { openMenu } from '../bubble.js';
-import { el, toast } from '../ui.js';
+import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete } from '../sound.js';
 
 /* 詳細の入力を書き終わりまで待たずに保存する間隔（plan.js と同じ） */
@@ -420,6 +420,7 @@ function openDayPop(anchor) {
   const box = el('div', 'today-daypop');
   box.setAttribute('role', 'menu');
   box.setAttribute('aria-label', '日を選ぶ');
+  box.dataset.screen = 'today.daypick'; box.dataset.screenLayer = '4';
 
   dayChoices().forEach(c => {
     const b = el('button', 'today-daych');
@@ -442,7 +443,7 @@ function openDayPop(anchor) {
   back.addEventListener('click', eat);
   back.addEventListener('pointerup', ev => { eat(ev); closeDayPop(); });
   const onKey = ev => {
-    if (ev.key !== 'Escape') return;
+    if (ev.key !== 'Escape' || fromFeedback(ev)) return;
     ev.preventDefault();
     const back2 = dayPop && dayPop.was;
     closeDayPop();
@@ -864,6 +865,7 @@ function makeDetail() {
   const node = el('div', 'today-detail');
   node.setAttribute('role', 'dialog');
   node.setAttribute('aria-label', '詳細');
+  node.dataset.screen = 'today.detail'; node.dataset.screenLayer = '4';
   node.hidden = true;
   node.addEventListener('pointerdown', ev => ev.stopPropagation());
 

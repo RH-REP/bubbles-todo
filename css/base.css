@@ -185,6 +185,15 @@ body {
 /* バブルを掴んでいる間は薄くする。落とし先ではないので、狙わせない */
 body.is-dragging .gearbtn { opacity: .25; pointer-events: none; }
 
+/* ---------- 画面の !（改善のコメント。js/feedback.js が置く）----------
+   共通部品の既定は右上 top:10px right:10px の 26px で、歯車（同じ場所の 44px）に
+   まるごと重なる。歯車の左は海のカレンダー（right:62px）、下はさいころ（top:58px）で
+   空きが無いので、**右上の隅に小さく寄せる**。20px・隅に密着させると、歯車の円とは
+   ほぼ接するだけ（中心間 約31px／半径の和 32px）で、歯車のタップは奪わない。
+   共通部品の CSS は後から head に足されるので、id で上書きする。 */
+#fbBtn { top: var(--safe-t); right: 0; width: 20px; height: 20px; font-size: 12px; line-height: 18px; }
+body.is-dragging #fbBtn { opacity: .15; pointer-events: none; }   /* 掴んでいる間は落とし先の邪魔をしない */
+
 /* ---------- 左のメニュー（F7）----------
    ボタンは歯車の鏡（左上）。板は左から出て、右側は覆い。
    重なり：下タブ 70 ＜ ここ 75 ＜ トースト 80（「今日に置いた」の取り消しが板の上に出る）

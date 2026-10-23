@@ -16,7 +16,7 @@
 
    中身のほとんどは js/screens/todo.js から持ち上げたもの。新しく発明していない。 */
 
-import { el, clamp } from './ui.js';
+import { el, clamp, fromFeedback } from './ui.js';
 
 export const MIN_D = 78;      /* バブルの最小直径 px（文字量で決まるとき） */
 export const MAX_D = 200;     /* 同 最大 */
@@ -606,6 +606,7 @@ function askDelete(name, onYes) {
   const box = el('div', 'ask');
   box.setAttribute('role', 'alertdialog');
   box.setAttribute('aria-modal', 'true');
+  box.dataset.screen = 'board.delete'; box.dataset.screenLayer = '7';
 
   const ttl = el('p', 'ask-title');
   ttl.id = 'ask-t' + seq;
@@ -648,6 +649,7 @@ function askDelete(name, onYes) {
 
   /* Escape は消さない。Tab はこの2つの間だけを回す */
   const onKey = ev => {
+    if (fromFeedback(ev)) return;          /* 右上の ! の欄を打っている */
     if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeAsk(true); return; }
     if (ev.key !== 'Tab') return;
     ev.preventDefault();
@@ -722,6 +724,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let syncTodayChip = null;     /* カレンダーが「今日」の札の見た目を合わせる */
   const root = el('div', 'bub-center');
   root.setAttribute('role', 'group');
+  root.dataset.screen = 'board'; root.dataset.screenLayer = '4';   /* 中央の盤 */
   root.setAttribute('aria-label', (ariaLabel.split('（')[0] || '') + ' の操作');
 
 
@@ -1769,6 +1772,7 @@ function openStepEdit(step, onEdit) {
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-modal', 'true');
   box.setAttribute('aria-label', '記録を直す');
+  box.dataset.screen = 'board.step'; box.dataset.screenLayer = '7';
 
   const at = fmtAt(step && step.at);
   /* 時刻はこちらが作った文字だが、el の第3引数は innerHTML なので、
@@ -2120,6 +2124,7 @@ export function attachGestures(node, handlers = {}) {
        ev.target は window のこともある（Node.contains に渡すと投げる）ので節を分ける */
     const onOutside = ev => {
       const t = ev.target;
+      if (fromFeedback(ev)) return;        /* 右上の !。盤を開いたままコメントを書ける */
       if (!center || !t || !t.nodeType) { cancelCenter(); return; }
       if (center.veil && center.veil.contains(t)) return;
       if (center.hit && center.hit.contains(t)) return;
@@ -2131,7 +2136,7 @@ export function attachGestures(node, handlers = {}) {
        （盤の中の一段を閉じただけで面から放り出されたら、居場所を見失う）。
        盤が「自分で処理した」と言わなければ、いままでどおり中央を閉じる。 */
     const onEsc = ev => {
-      if (ev.key !== 'Escape') return;
+      if (ev.key !== 'Escape' || fromFeedback(ev)) return;
       ev.preventDefault();
       if (center && center.panel && center.panel.handleEscape()) return;
       cancelCenter();
@@ -2404,12 +2409,13 @@ export function openMenu(node, handlers = {}) {
   /* メニューの外を触ったら閉じる。バブルの上なら、その操作は起こさせない（＝閉じるだけ） */
   const onOutside = ev => {
     const t = ev.target;
+    if (fromFeedback(ev)) return;
     if (t && t.nodeType && box.contains(t)) return;
     if (t && t.closest && t.closest('.bub')) { ev.preventDefault(); ev.stopPropagation(); }
     closeMenu();
   };
   const onKey = ev => {
-    if (ev.key !== 'Escape') return;
+    if (ev.key !== 'Escape' || fromFeedback(ev)) return;
     ev.preventDefault(); ev.stopPropagation();
     closeMenu(true);
   };

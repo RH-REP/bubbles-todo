@@ -47,6 +47,9 @@
 <!-- ドラッグ中だけバブルを退避させる層。画面をまたいでタブの上まで運べるようにするため -->
 <div class="drag-layer" id="drag-layer"></div>
 
+<!-- 画面の !（改善のコメント）。普通の script なので module（app.js）より先に走り、
+     app.js が AppFeedback.install を呼ぶ。正本は issue_hub/feedback/feedback.js -->
+<script src="js/feedback.js"></script>
 <script type="module" src="js/app.js"></script>
 
 <!-- オフラインで開けるようにする（sw.js を見よ）。

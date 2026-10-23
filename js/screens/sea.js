@@ -3122,6 +3122,7 @@ export default {
     /* --- 整列中のグリッド（海の物理配置とは別レイアウト） --- */
     grid = el('div', 'sea-grid');
     grid.hidden = true;
+    grid.dataset.screen = 'sea.list';       /* リスト表示。海の pane より深いので、出ている間はこちら */
     grid.setAttribute('role', 'group');
     grid.setAttribute('aria-label', 'すべてのバブル');
     /* 並びは古い順のまま。海が新しいほうしか出さなくなったので、
@@ -3186,6 +3187,7 @@ export default {
     /* --- 詳細（最初の一手 / URL / 開始した） --- */
     sheet = el('section', 'sea-sheet');
     sheet.hidden = true;
+    sheet.dataset.screen = 'sea.detail'; sheet.dataset.screenLayer = '4';
     const sheetHead = el('div', 'sea-sheet-head');
     sheetTitle = el('h2', 'tt');
     sheetHead.appendChild(sheetTitle);

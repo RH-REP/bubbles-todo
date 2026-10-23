@@ -1,6 +1,6 @@
 # 機能表
 
-**最終更新**: 2026-09-24（F7 左のメニューを実装した）
+**最終更新**: 2026-10-22（右上の ! 改善のコメントを足した）
 
 このファイルは2部でできている。
 
@@ -27,7 +27,7 @@
 | 命令形の文言を使わない | 同上 |
 | 「はじめた」を立てるのは押したボタン。時計は判定しない | `js/focus.js` 冒頭、HANDOFF「はじめた」の記録 |
 | 集中中のタイマーは止まらない。停止ボタンは作らない | `js/focus.js` 決めごと |
-| 通信は一切しない（`fetch` も `XHR` も無い） | README 「動かす」 |
+| 通信は一切しない（`fetch` も `XHR` も無い。例外は右上の ! が GitHub の Issue 画面を開くことだけ） | README 「作り」「改善のコメント」 |
 | `focus.js` / `bubble.js` は store を触らない（app.js が差し込む） | `js/app.js` 配線の節 |
 
 ---
@@ -53,6 +53,7 @@
 | 集中1回ぶんの控え（**内部のみ。表示しない**） | `js/store.js` `focusLog` / `logFocus` / `focusCount` / `focusMs` | 2026-09-11。出しどころは A-67 |
 | 完了音（WebAudio 合成。既定オン、設定で切れる） | `js/sound.js` | 設定は store とは別の localStorage キー |
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
+| **改善のコメント（右上の !）**（GitHub の新しい Issue 画面を、画面 ID とコメントを書き込んで開く） | `js/feedback.js`（issue_hub の正本の写し）、`js/app.js` 末尾、各板の `data-screen` | 2026-10-22。repo が公開なので写真は既定で付けない。バブルの本文は送らない（画面と件数だけ） |
 | Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは開発側（この repo）で |
 | 保存は localStorage のみ | `js/store.js` `KEY = 'bubble_todo_v1'` | **書き出し・読み込みは無い** |
 | 名前（本文）を盤で書き直せる | `js/store.js` `setText`、`js/bubble.js` 「名前」欄 | 2026-10-12。空にはできない。記録のスナップショットは当時のまま |

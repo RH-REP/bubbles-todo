@@ -9,7 +9,7 @@
    判定に使うのは指先の座標で、バブルの外形ではない（外形はタブ6本ぶんを覆うため）。 */
 
 import { store } from './store.js';
-import { toast, holdRing } from './ui.js';
+import { toast, holdRing, fromFeedback } from './ui.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
 import { setCenterHandler, centerBubble } from './bubble.js';
@@ -50,6 +50,8 @@ function paneOf(screen) {
     pane = document.createElement('section');
     pane.className = 'pane';
     pane.id = 'pane-' + screen.id;
+    pane.dataset.screen = screen.id;          /* 画面の !（改善のコメント）が読む画面 ID。下地なので layer 0 */
+    pane.dataset.screenLayer = '0';
     panesRoot.appendChild(pane);
   }
   return pane;
@@ -396,6 +398,7 @@ function openDrawer() {
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-label', '引き出し');
+  panel.dataset.screen = 'drawer'; panel.dataset.screenLayer = '4';
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     panel.classList.add('is-still');
   }
@@ -413,7 +416,7 @@ function openDrawer() {
   /* 覆いをタップで閉じる。板の中のタップは閉じない */
   back.addEventListener('click', ev => { if (ev.target === back) closeDrawer(); });
   panel.addEventListener('click', ev => ev.stopPropagation());
-  const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); closeDrawer(); } };
+  const onKey = ev => { if (ev.key === 'Escape' && !fromFeedback(ev)) { ev.preventDefault(); closeDrawer(); } };
   document.addEventListener('keydown', onKey, true);
   const off = has('on') ? store.on(renderDrawer) : null;
   drawer = { back, panel, body, off, onKey, prev: document.activeElement };
@@ -817,3 +820,30 @@ document.addEventListener('visibilitychange', () => {
    ここに共通版を置くと、画面ごとの取り消しと二重になって
    同じ操作に2枚のトーストが出る。だからここでは持たない。
    落下先の対応表は契約 §2 にあり、実装は各 screens/*.js の onDropToTab にある。 */
+
+/* ---- 画面の !（改善のコメント） ----
+   js/feedback.js は issue_hub の正本をそのまま写したもの（直すなら正本を直して写し直す）。
+   index.html が普通の <script> で先に読む。押すと GitHub の「新しい Issue」画面を
+   画面 ID（data-screen）とコメントを書き込んだ状態で開くだけで、**この app は送らない**。
+   repo は公開なので、写真は既定で付けない。
+   **書いたもの（バブルの本文）は渡さない。**渡すのは今の画面と件数だけ。記録（getLog）も渡さない。 */
+if (window.AppFeedback) {
+  window.AppFeedback.install({
+    app: 'bubble_todo',
+    version: '0.1.0',                  /* package.json の version */
+    repo: 'RH-REP/bubbles-todo',
+    screenshot: 'off',
+    isPublic: true,
+    getContext: () => {
+      const n = (f) => { try { const a = f(); return Array.isArray(a) ? a.length : '?'; } catch (err) { return '?'; } };
+      return {
+        summary: '画面 ' + (current ? current.id : '?')
+          + ' ・ 海 ' + n(() => store.floating())
+          + ' ・ 今日 ' + n(() => store.todays())
+          + ' ・ 長期保留 ' + n(() => store.holds())
+          + ' ・ 完了 ' + n(() => store.doneItems())
+          + ' ・ タグ ' + n(() => store.tags()),
+      };
+    },
+  });
+}

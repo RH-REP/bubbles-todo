@@ -39,7 +39,7 @@
    「書く」も作業ログも同じで、預け先は setCaptureHandler() /
    setWorklogHandler() で外から差してもらう。 */
 
-import { el, escapeHtml } from './ui.js';
+import { el, escapeHtml, fromFeedback } from './ui.js';
 /* 一手の記録の一覧は盤と共通のものを使う（bubble.js）。
    bubble.js は ui.js しか読まないので、ここから読んでも循環しない。 */
 import { stepList } from './bubble.js';
@@ -124,6 +124,7 @@ export function openFocus(opts) {
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-modal', 'true');
   root.setAttribute('aria-label', '集中');
+  root.dataset.screen = 'focus'; root.dataset.screenLayer = '7';
   root.tabIndex = -1;
   if (typeof o.slotColor === 'string' && o.slotColor.trim()) {
     // 不正な値なら CSS 側で無効になり、focus.css の既定色がそのまま残る
@@ -252,7 +253,7 @@ export function openFocus(opts) {
      ただし入力欄にいる間の Escape は、まず入力欄から抜けるだけにする
      （書きかけのまま集中画面ごと閉じると、打った文字が消える）。値は消さない。 */
   state.onKeydown = (ev) => {
-    if (!state) return;
+    if (!state || fromFeedback(ev)) return;   /* 右上の ! の欄。Escape で集中を閉じない・Tab を奪わない */
     if (ev.key === 'Escape') {
       ev.preventDefault(); ev.stopPropagation();
       /* 聞いている最中の Escape は「記録しない」にあたる。
@@ -273,7 +274,7 @@ export function openFocus(opts) {
   /* 背後の要素にフォーカスが抜けたら引き戻す。
      聞いている間は、その囲みの中だけに閉じる */
   state.onFocusin = (ev) => {
-    if (!state) return;
+    if (!state || fromFeedback(ev)) return;   /* ! の欄へ移った焦点は引き戻さない（引き戻すと打てない） */
     const scope = state.ask ? state.ask.node : state.root;
     if (!scope.contains(ev.target)) {
       const list = focusables();
@@ -394,6 +395,7 @@ function openAsk(info) {
   const panel = el('div', 'focus-ask-panel');
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-labelledby', 'focus-ask-q');
+  panel.dataset.screen = 'focus.ask'; panel.dataset.screenLayer = '7';   /* focus の中にあるので、同じ層でも深いこちらが勝つ */
 
   /* 淡々と。命令形にしない。件数も「何回目」も出さない */
   const q = el('p', 'focus-ask-q', escapeHtml('書いたものを記録しますか'));

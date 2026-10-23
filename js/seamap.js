@@ -19,7 +19,7 @@
 
    この画面は sea.js を知らない。入る先は onGo() で返すだけ。 */
 
-import { el, toast } from './ui.js';
+import { el, toast, fromFeedback } from './ui.js';
 import { store } from './store.js';
 
 const CENTER_NAME = 'ぜんぶ';
@@ -75,6 +75,7 @@ export function openSeaMap(opts) {
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-modal', 'true');
   box.setAttribute('aria-label', '海の引き');
+  box.dataset.screen = 'sea.map'; box.dataset.screenLayer = '7';
 
   const head = el('div', 'seamap-head');
   head.appendChild(el('span', 'tt', '海'));
@@ -101,7 +102,7 @@ export function openSeaMap(opts) {
   back.addEventListener('pointerdown', ev => { if (ev.target === back) closeSeaMap(true); });
 
   const onKey = ev => {
-    if (ev.key !== 'Escape') return;
+    if (ev.key !== 'Escape' || fromFeedback(ev)) return;
     ev.preventDefault();
     ev.stopPropagation();
     closeSeaMap(true);
@@ -290,6 +291,8 @@ function openSheet(cfg) {
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-modal', 'true');
   box.setAttribute('aria-label', cfg.title);
+  /* 海の引きの上に重なる。引きと同じ深さ（body 直下）なので、層を1つ上にして勝たせる */
+  box.dataset.screen = 'sea.map.sheet'; box.dataset.screenLayer = '8';
   box.appendChild(el('p', 'tt', cfg.title));
 
   const inp = el('input', 'in');

@@ -27,7 +27,7 @@
      ・タブへドラッグ … 海=全解除 / 今日=today を足す / ほか=その軸を足す（契約 §2） */
 
 import { store } from '../store.js';
-import { el, escapeHtml, toast } from '../ui.js';
+import { el, escapeHtml, toast, fromFeedback } from '../ui.js';
 import {
   makeBubble,
   attachGestures,
@@ -962,6 +962,7 @@ function openSchedule(a) {
   const back = el('div', 'psch-back');
   const box = el('div', 'psch');
   box.setAttribute('role', 'dialog');
+  box.dataset.screen = CFG.id + '.schedule'; box.dataset.screenLayer = '7';
   box.setAttribute('aria-modal', 'true');
 
   const ttl = el('p', 'psch-title');
@@ -1063,7 +1064,7 @@ function openSchedule(a) {
   back.addEventListener('pointerup', ev => { eat(ev); finish(); });
 
   const onKey = ev => {
-    if (ev.key !== 'Escape') return;
+    if (ev.key !== 'Escape' || fromFeedback(ev)) return;
     ev.preventDefault(); ev.stopPropagation();
     finish();
   };

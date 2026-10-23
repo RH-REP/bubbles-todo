@@ -22,7 +22,7 @@
    数はふりかえり（review.js）と同じ store.startedByDay() から引く。
    同じ事実が2か所で違って見えることが無いように、集計は1本にしてある。 */
 
-import { el } from './ui.js';
+import { el, fromFeedback } from './ui.js';
 import { store } from './store.js';
 
 const WEEKS = 26;                 /* 出す週の数。26週＝およそ半年 */
@@ -57,6 +57,7 @@ export function openCalendar(opts) {
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-modal', 'true');
   box.setAttribute('aria-label', 'はじめた日のカレンダー');
+  box.dataset.screen = 'sea.calendar'; box.dataset.screenLayer = '7';   /* 画面の !（改善のコメント）が読む画面 ID */
 
   const head = el('div', 'cal-head');
   head.appendChild(el('span', 'tt', 'はじめた日'));
@@ -76,7 +77,7 @@ export function openCalendar(opts) {
   back.addEventListener('pointerdown', ev => { if (ev.target === back) closeCalendar(true); });
 
   const onKey = ev => {
-    if (ev.key !== 'Escape') return;
+    if (ev.key !== 'Escape' || fromFeedback(ev)) return;
     ev.preventDefault();
     ev.stopPropagation();
     closeCalendar(true);

@@ -7,6 +7,15 @@ export function el(tag, className, html) {
   return node;
 }
 
+/* 画面の !（改善のコメント。js/feedback.js）を触っている／打っているか。
+   ! とその欄は body の直下に、どの板よりも上に出る。板が window／document の捕捉段で
+   「外を触った」「Escape」「焦点の囲い込み」を見ていると、! を押しただけで板が閉じたり、
+   欄に文字が打てなかったりする。その捕捉の入口で、これが真なら見送る。 */
+export function fromFeedback(ev) {
+  const t = ev && ev.target;
+  return !!(t && t.closest && t.closest('#fbBtn, #fbDlg'));
+}
+
 let toastNode = null;
 let toastTimer = 0;
 
