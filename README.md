@@ -151,6 +151,7 @@ node tests/store.test.mjs
 node tests/sync.test.mjs
 node tests/space.test.mjs
 python3 -m unittest tests/test_server.py
+bash tests/server-setup.test.sh
 ```
 
 ## サーバーで記録を共有する
@@ -183,9 +184,19 @@ python3 -m unittest tests/test_server.py
   - Android は http を既定で断るので、`tools/patch-android.mjs`（`npm run sync` の最後で走る）が `localhost` と `127.0.0.1` にだけ http を許す設定を足す
   - Android 版の設定には「このページのサーバー」を出さない（ページの住所はサーバーではないため）
   - まだ確かめていない: Tailscale を通した接続、実機の Android
-- **Oracle Cloud へ移すとき**: このフォルダを clone して同じく `python3 server.py --data-dir <置き場>` を常駐させ（systemd など）、
-  そこにも Tailscale を入れて `tailscale serve` する。Mac の `data/state.json` を写せば記録も移る（写さなくても、端末から繋げば合わさる）。
-  合言葉は `BUBBLE_TODO_TOKEN` で同じものを渡すか、新しい `token.txt` を各端末に入れ直す。
+- **Oracle Cloud（Linux）に立ち上げる**: `tools/server-setup.sh`（2026-10-23）。サーバーで clone して実行する。
+  ```bash
+  git clone https://github.com/RH-REP/bubbles-todo.git
+  bash bubbles-todo/tools/server-setup.sh          # 立ち上げ。2回目からは更新として働く
+  bash bubbles-todo/tools/server-setup.sh status   # 動いているか・住所（update / uninstall もある）
+  ```
+  - python3 と git を確かめ（無ければ dnf / apt）、記録の置き場 `~/bubbles-data`（700）を作り、server.py のテストを通してから、
+    systemd のサービス `bubbles-todo` を書いて常駐させる。サーバーは 127.0.0.1 だけで待ち受け、書けるのは記録の置き場だけ（`ProtectSystem=strict`・`ProtectHome=read-only`・`ReadWritePaths`）
+  - Tailscale にログインしていれば `tailscale serve --bg 8931` をして、繋ぐ住所（`https://<機械名>.<tailnet名>.ts.net`）を出す。入っていなければ手順を出して止まる（`BUBBLES_INSTALL_TAILSCALE=1` で公式の手順で入れる）。Oracle のファイアウォールは開けない
+  - 合言葉はサーバーが初回に作る（`~/bubbles-data/token.txt`・`share_token.txt`、600）。systemd の記録（journal）には値を出さず、場所だけを出す
+  - 変えられるもの: `BUBBLES_PORT`・`BUBBLES_DATA`・`BUBBLES_DIR`・`BUBBLES_REPO`・`BUBBLES_SERVICE`
+  - Mac の記録を移すなら `data/state.json` と `data/share/state.json` を `~/bubbles-data/` へ写す（写さなくても、端末から繋げば合わさる）。合言葉は新しいものになるので、各端末に入れ直す
+  - テスト: `bash tests/server-setup.test.sh`（uname・sudo・systemctl・tailscale を偽物にして手順を最後まで通す。本物の systemd と Tailscale では、まだ確かめていない）
 
 ## 個人と共有の海
 

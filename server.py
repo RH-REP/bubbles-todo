@@ -119,7 +119,11 @@ def load_token(data_dir: Path, space: str = 'me') -> str:
     tok = secrets.token_urlsafe(24)
     path.write_text(tok + '\n', encoding='utf-8')
     os.chmod(path, 0o600)
-    print(f'{label}の合言葉を作りました（{path}）: {tok}', flush=True)
+    # 端末で起動したときだけ値を出す。systemd などでは出力が記録（journal）に残るので、場所だけにする
+    if sys.stdout.isatty():
+        print(f'{label}の合言葉を作りました（{path}）: {tok}', flush=True)
+    else:
+        print(f'{label}の合言葉を作りました: {path}', flush=True)
     return tok
 
 
