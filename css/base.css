@@ -166,7 +166,8 @@ body {
 .gearbtn {
   /* 絶対配置の基準は .app の**パディングの外側**なので、
      .app に padding-top を入れても歯車は動かない。自分で足す */
-  position: absolute; z-index: 30; top: calc(10px + var(--safe-t)); right: 10px;
+  /* 右上の隅（right:10px）は「!」に譲ったので、その左どなり（2026-10-23 利用者の指示） */
+  position: absolute; z-index: 30; top: calc(10px + var(--safe-t)); right: 62px;
   appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
   width: 44px; height: 44px; padding: 0;      /* タップ目標は 44 を下回らない */
   display: inline-flex; align-items: center; justify-content: center;
@@ -186,12 +187,21 @@ body {
 body.is-dragging .gearbtn { opacity: .25; pointer-events: none; }
 
 /* ---------- 画面の !（改善のコメント。js/feedback.js が置く）----------
-   共通部品の既定は右上 top:10px right:10px の 26px で、歯車（同じ場所の 44px）に
-   まるごと重なる。歯車の左は海のカレンダー（right:62px）、下はさいころ（top:58px）で
-   空きが無いので、**右上の隅に小さく寄せる**。20px・隅に密着させると、歯車の円とは
-   ほぼ接するだけ（中心間 約31px／半径の和 32px）で、歯車のタップは奪わない。
+   **歯車が居た右上の隅（top:10px right:10px）に、歯車と同じ 44px の丸で置く**
+   （2026-10-23 利用者の指示。歯車は左どなり right:62px、海のカレンダーはその左 right:114px）。
+   以前は歯車の右上に 20px で押し込んでいて、窮屈だった。
+   共通部品の .fb-btn は position:fixed（画面の右上）で、アプリの枠（.app、最大 430px・中央寄せ）の
+   子ではない。広い画面でも枠の右上に来るよう、right を枠の端から測る。
    共通部品の CSS は後から head に足されるので、id で上書きする。 */
-#fbBtn { top: var(--safe-t); right: 0; width: 20px; height: 20px; font-size: 12px; line-height: 18px; }
+#fbBtn {
+  top: calc(10px + var(--safe-t)); right: max(10px, calc((100vw - 430px) / 2 + 10px));
+  width: 44px; height: 44px;      /* タップ目標は 44 を下回らない */
+  font-size: 16px; line-height: 42px;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  opacity: 1;
+}
 body.is-dragging #fbBtn { opacity: .15; pointer-events: none; }   /* 掴んでいる間は落とし先の邪魔をしない */
 
 /* ---------- 左のメニュー（F7）----------

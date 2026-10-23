@@ -28,7 +28,7 @@
    ファイルを足したときは ASSETS にも足す（足し忘れたものは、
    網が無いときだけ取れない——ふだんは動いてしまうので気づきにくい）。 */
 
-const VERSION = '2026-10-22a';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
+const VERSION = '2026-10-23a';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [
@@ -46,7 +46,7 @@ const ASSETS = [
   './css/screens/gap.css',
   './css/screens/review.css',
   './css/screens/stub.css',
-  /* 本体（実際に import されている16本＋ feedback.js。todo.js / stub.js は誰も読まない） */
+  /* 本体（実際に import されている18本＋ feedback.js。todo.js / stub.js は誰も読まない） */
   './js/app.js',
   './js/bubble.js',
   './js/calendar.js',
@@ -61,8 +61,10 @@ const ASSETS = [
   './js/screens/settings.js',
   './js/screens/today.js',
   './js/seamap.js',
+  './js/merge.js',
   './js/sound.js',
   './js/store.js',
+  './js/sync.js',
   './js/ui.js',
   /* アイコン */
   './icons/icon.svg',
@@ -95,6 +97,8 @@ self.addEventListener('fetch', (ev) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  /* 記録の出し入れ（server.py の /api/）は箱に入れない。いつも網へ */
+  if (url.pathname.includes('/api/')) return;
 
   ev.respondWith((async () => {
     const hit = await caches.match(req, { ignoreSearch: true });

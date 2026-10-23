@@ -55,7 +55,7 @@
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
 | **改善のコメント（右上の !）**（GitHub の新しい Issue 画面を、画面 ID とコメントを書き込んで開く） | `js/feedback.js`（issue_hub の正本の写し）、`js/app.js` 末尾、各板の `data-screen` | 2026-10-22。repo が公開なので写真は既定で付けない。バブルの本文は送らない（画面と件数だけ） |
 | Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは開発側（この repo）で |
-| 保存は localStorage のみ | `js/store.js` `KEY = 'bubble_todo_v1'` | **書き出し・読み込みは無い** |
+| 保存は localStorage。サーバーの住所を入れたときだけ、自分のサーバーと記録を合わせる | `js/store.js` `KEY = 'bubble_todo_v1'`・`stamps`、`js/merge.js`、`js/sync.js`、`server.py`、設定の「サーバー」 | 2026-10-23。記録ごとに新しく書き換えたほうが残る。消したものは消した時刻で比べる。ファイルへの書き出し・読み込みの画面は無い |
 | 名前（本文）を盤で書き直せる | `js/store.js` `setText`、`js/bubble.js` 「名前」欄 | 2026-10-12。空にはできない。記録のスナップショットは当時のまま |
 | **引き出し**（左上の ≡。最近つかった／お気に入り／長期保留／タグごと → 今日に置く。名前で盤が開く） | `js/app.js` `openDrawer` / `revealItem`、`js/store.js` `recentItems` / `favItems` / `setFav`、`js/bubble.js` `centerBubble` | 2026-09-24（元 F7）。9/25 にタグ区分・折り畳み・名前タップを追加。お気に入りは盤の ☆ |
 

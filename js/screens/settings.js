@@ -1,4 +1,4 @@
-/* 設定。タグの管理・音のオン/オフ・プロトタイプ確認用の操作。
+/* 設定。タグの管理・音のオン/オフ・サーバー・プロトタイプ確認用の操作。
 
    タグを置く向きは上・左・右の3つしかなく、タグは何個でも作れる。
    だから「どのタグをどの向きに置くか」を決める場所が要る。それがここ。
@@ -7,6 +7,7 @@
 import { el, toast, escapeHtml } from '../ui.js';
 import { store } from '../store.js';
 import { isOn, setOn } from '../sound.js';
+import { sync } from '../sync.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -158,6 +159,9 @@ export default {
       + '端末が消音のときに鳴るかどうかは、機種によって違う。'
     ));
 
+    /* --- サーバー（複数の端末で同じ記録を使う）--- */
+    box.appendChild(serverBox(this));
+
     /* --- プロトタイプ操作 --- */
     const proto = el('div', 'proto');
     proto.appendChild(el('h3', null, 'プロトタイプ操作'));
@@ -185,6 +189,7 @@ export default {
   /* 音もタグも別のところから変わりうるので、開くたびに読み直す */
   onShow() {
     if (this._cb) this._cb.checked = isOn();
+    if (this._server) this._server();
     if (this._taglist) renderTags(this._taglist);
   },
 };
@@ -271,4 +276,106 @@ function renderTags(list) {
 
     list.appendChild(row);
   });
+}
+
+/* サーバーの欄。住所と合言葉を入れて繋ぐ。空にして繋ぐと、繋がない（記録は手元に残る）。
+   状態の字は「繋いでいない／合わせている／合わせた（時刻）／届かない（わけ）」だけ。
+   件数や「未送信 n 件」は出さない（分母のある数字を作らない、と同じ筋） */
+const STATE_TEXT = {
+  off: '繋いでいない（この端末の中だけに記録している）',
+  idle: '繋ぐところ',
+  syncing: '合わせている…',
+};
+function hhmm(ms) {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function serverBox(screen) {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, 'サーバー'));
+  wrap.appendChild(el(
+    'p', 'note',
+    '自分で立てたサーバーに繋ぐと、ほかの端末と同じ記録を使える。'
+    + '食い違ったときは、項目ごとに新しく書き換えたほうが残る。'
+    + '届かない間もこの端末には記録され、届いたら合わせる。'
+  ));
+
+  const form = el('form', 'tagadd');
+  form.style.flexWrap = 'wrap';
+  const urlIn = document.createElement('input');
+  urlIn.type = 'text';
+  urlIn.inputMode = 'url';
+  urlIn.autocomplete = 'off';
+  urlIn.spellcheck = false;
+  urlIn.placeholder = '住所（例 https://名前.ts.net / 100.64.0.1:8931）';
+  urlIn.setAttribute('aria-label', 'サーバーの住所');
+  const tokIn = document.createElement('input');
+  tokIn.type = 'password';
+  tokIn.autocomplete = 'off';
+  tokIn.placeholder = '合言葉（サーバーの token.txt）';
+  tokIn.setAttribute('aria-label', 'サーバーの合言葉');
+  urlIn.style.flexBasis = '100%';
+  const go = el('button', 'btn', '繋ぐ');
+  go.type = 'submit';
+  form.appendChild(urlIn);
+  form.appendChild(tokIn);
+  form.appendChild(go);
+  wrap.appendChild(form);
+
+  const row = el('div', 'row');
+  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  /* このページを配っているサーバー（server.py で開いたとき）。Pages や file では出さない */
+  if (/^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname)) {
+    const here = el('button', 'btn', 'このページのサーバー');
+    here.type = 'button';
+    here.addEventListener('click', () => { urlIn.value = location.origin; tokIn.focus(); });
+    row.appendChild(here);
+  }
+  const now = el('button', 'btn', '今すぐ合わせる');
+  now.type = 'button';
+  now.addEventListener('click', () => sync.syncNow());
+  const off = el('button', 'btn', '繋がない');
+  off.type = 'button';
+  off.addEventListener('click', () => {
+    sync.configure('', '');
+    urlIn.value = ''; tokIn.value = '';
+    toast('サーバーに繋がないようにした（記録はこの端末に残っている）');
+    paint();
+  });
+  row.appendChild(now);
+  row.appendChild(off);
+  wrap.appendChild(row);
+
+  const line = el('p', 'note');
+  line.setAttribute('aria-live', 'polite');
+  wrap.appendChild(line);
+
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    if (!urlIn.value.trim()) { toast('住所を入れる'); return; }
+    if (!sync.configure(urlIn.value, tokIn.value)) { toast('住所が読めない（http:// か https:// で始める）'); return; }
+    urlIn.value = sync.config().url;
+  });
+
+  function paint() {
+    const st = sync.status();
+    const c = sync.config();
+    now.disabled = !c.url;
+    off.disabled = !c.url;
+    if (st.state === 'ok') line.textContent = '合わせた（' + hhmm(st.at) + '）: ' + c.url;
+    else if (st.state === 'error') line.textContent = '届かない: ' + st.message + '（' + c.url + '）';
+    else line.textContent = STATE_TEXT[st.state] || '';
+  }
+  const c0 = sync.config();
+  urlIn.value = c0.url;
+  tokIn.value = c0.token;
+  sync.on(paint);
+  paint();
+  screen._server = () => {
+    const c = sync.config();
+    if (document.activeElement !== urlIn) urlIn.value = c.url;
+    if (document.activeElement !== tokIn) tokIn.value = c.token;
+    paint();
+  };
+  return wrap;
 }

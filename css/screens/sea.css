@@ -169,7 +169,8 @@
   /* 左は ≡（左のメニュー、44px＋余白）の右。歯車と同じ理由で画面の中ではなく .app に居る */
   position: absolute; top: 16px; left: 62px; z-index: 8;
   display: inline-flex; align-items: center; gap: 7px;
-  max-width: 40%; min-height: 32px; padding: 0 12px;
+  /* 右はカレンダー（右から 158px）の手前で止める。狭い画面でも重ねない */
+  max-width: min(40%, calc(100% - 228px)); min-height: 32px; padding: 0 12px;
   border-radius: 999px;
   border: 1px solid var(--line-strong);
   background: color-mix(in srgb, var(--surface) 90%, transparent);
@@ -988,10 +989,10 @@
 }
 
 /* ---------- はじめた日のカレンダー（利用者の指示） ----------
-   1段目の右、歯車（right:10px）の左どなり。**海に置く**のが肝で、
+   1段目の右、歯車（right:62px。右上の隅は「!」）の左どなり。**海に置く**のが肝で、
    積み上がったものが日々使う面から見えるようにするため。 */
 .sea-cal {
-  position: absolute; z-index: 8; top: 10px; right: 62px;
+  position: absolute; z-index: 8; top: 10px; right: 114px;
   appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
   width: 44px; height: 44px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;

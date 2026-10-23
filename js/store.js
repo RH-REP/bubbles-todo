@@ -95,7 +95,15 @@
    あとから todo の本文が変わっても、消えても、ログ側は変わらない。
    log.slot は着手したアンカーの id（アンカー無しで始めたときは null）、
    slotName はその時点のアンカー名のスナップショット。
-   アンカーを改名・削除しても過去の記録が読めるように、名前も一緒に残す。 */
+   アンカーを改名・削除しても過去の記録が読めるように、名前も一緒に残す。
+
+   stamps（2026-10-23 に足した）: 記録ごとの「最後に書き換えた時刻」。
+   サーバーを通して複数の端末で同じ記録を使うときに、食い違った記録の
+   新しいほうを残すために持つ（merge.js）。画面のコードは触らない——
+   persist() が前回の保存と比べて付ける。サーバーに繋がなくても付けて保存する
+   （あとから繋いだときに、どれが新しいかが判るように）。 */
+
+import { stampChanges, initialStamps, recordsOf } from './merge.js';
 
 const KEY = 'bubble_todo_v1';
 
@@ -318,6 +326,12 @@ let todayLogs = [];   /* 「今日する」に入れた記録。着手ログと�
 let focusLogs = [];
 let lastDay = null;
 const listeners = new Set();
+
+/* 記録ごとの印（merge.js）と、前回保存したときの記録の中身（印を付けるための比較用） */
+let stamps = {};
+let snap = new Map();
+/* 保存したあとに知りたい人（いまは sync.js だけ。サーバーへ送る合図に使う） */
+const persistListeners = new Set();
 
 /* ぶら下げた順の通し番号。時刻ではなく連番で持つ。
    同じミリ秒に2件ぶら下げても順が決まるようにするため */
@@ -1096,6 +1110,22 @@ function load() {
     const raw = localStorage.getItem(KEY);
     if (!raw) return blank();
     const parsed = JSON.parse(raw);
+    const data = fromDoc(parsed);
+    /* 印。持っていない保存データ（この版より前）は、全部に 1 を付けて引き継ぐ。
+       0（新しい端末の空の既定値）には勝つので、繋いだ先の既定のタグで上書きされない */
+    data.stamps = (parsed && parsed.stamps && typeof parsed.stamps === 'object'
+      && !Array.isArray(parsed.stamps)) ? parsed.stamps : 1;
+    return data;
+  } catch (e) {
+    /* 壊れた保存データで起動不能にしない */
+    return blank();
+  }
+}
+
+/* 保存データ（persist() が書く形）を読んで正規化する。
+   load() と、サーバーから合わせた記録を入れるとき（applyState）が使う */
+function fromDoc(parsed) {
+  try {
     /* 旧形式（配列そのもの）。todos として取り込み、ログ無しで移行する */
     if (Array.isArray(parsed)) {
       const tags = normalizeTags(null);
@@ -1145,19 +1175,41 @@ function load() {
   }
 }
 
+/* いまの状態を、保存する形に組む */
+function docOf() {
+  return {
+    v: 2, palVer: PAL_VER, anchors: anchorList, gapSlots: gapList, tags: tagList,
+    seas: seaList, todos: items,
+    removedStarters,
+    log: logs, todayLog: todayLogs, focusLog: focusLogs, lastDay,
+  };
+}
+
+/* 今の状態を「前回の保存」として覚える（印を付けずに）。読み込んだ直後に使う */
+function rememberSnap() {
+  snap = new Map();
+  recordsOf(docOf()).forEach((v, k) => snap.set(k, JSON.stringify(v)));
+}
+
+/* その日の始まり（日の境目）の epoch ms */
+function dayStartMs(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d, DAY_CUTOFF_HOUR, 0, 0, 0).getTime();
+}
+
 /* 保存に失敗したことを知りたい人（いまは app.js だけ）。
    store は UI を知らないので、文言も出し方も向こうに任せる。 */
 const saveErrorListeners = new Set();
 let lastSaveError = null;
 
-function persist() {
+/* at は印の時刻。ふだんは今。日の切り替え（rollover）だけはその日の始まりを渡す——
+   今日すでに別の端末で付けた「はじめた」を、あとから開いた端末の切り替えが
+   消さないため（切り替えの印のほうが古くなるので、合わせると今日の記録が勝つ） */
+function persist(at) {
+  const doc = docOf();
+  snap = stampChanges(snap, doc, stamps, Number.isFinite(at) ? at : Date.now());
   try {
-    localStorage.setItem(KEY, JSON.stringify({
-      v: 2, palVer: PAL_VER, anchors: anchorList, gapSlots: gapList, tags: tagList,
-      seas: seaList, todos: items,
-      removedStarters,
-      log: logs, todayLog: todayLogs, focusLog: focusLogs, lastDay,
-    }));
+    localStorage.setItem(KEY, JSON.stringify(Object.assign({}, doc, { stamps })));
     lastSaveError = null;
   } catch (e) {
     /* 落とさないのは前と同じ。**ただし黙らない**（B-4）。
@@ -1173,6 +1225,7 @@ function persist() {
     lastSaveError = e;
     saveErrorListeners.forEach(fn => { try { fn(e); } catch (_) { /* 通知で落とさない */ } });
   }
+  persistListeners.forEach(fn => { try { fn(); } catch (_) { /* 通知で落とさない */ } });
 }
 
 function emit() {
@@ -1217,7 +1270,7 @@ function rollover() {
   /* today は days から出る派生値なので、作り直す仕事はもう無い
      （日が変わった時点で、昨日ぶんは読むだけで外れている） */
   lastDay = day;
-  persist();
+  persist(dayStartMs(day));
   /* **日が変わったこと自体を知らせる。**中身を書き替えていなくても、
      today / タグ / その日の水面の見え方はもう変わっている。
      ここで黙ると、開きっぱなしの画面が昨日の絵のまま残る（それが今回の穴だった） */
@@ -1228,8 +1281,7 @@ function rollover() {
   return n;
 }
 
-{
-  const data = load();
+function useData(data) {
   anchorList = data.anchors;
   gapList = data.gapSlots;
   tagList = data.tags;
@@ -1239,6 +1291,15 @@ function rollover() {
   todayLogs = data.todayLogs;
   focusLogs = data.focusLogs;
   lastDay = data.lastDay;
+}
+
+{
+  const data = load();
+  useData(data);
+  rememberSnap();
+  /* 印を持つ保存データはそのまま。持たない版から来たら 1、空から始めたら 0 */
+  stamps = (data.stamps && typeof data.stamps === 'object')
+    ? data.stamps : initialStamps(docOf(), data.stamps === 1 ? 1 : 0);
   rollover();
 }
 
@@ -2798,6 +2859,42 @@ export const store = {
 
   /* --- 購読 --- */
   on(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+
+  /* --- サーバーと合わせる（sync.js が使う。画面は使わない） --- */
+
+  /* いまの状態の写し { doc, stamps }。書き換えても store には響かない */
+  exportState() {
+    return JSON.parse(JSON.stringify({ doc: docOf(), stamps }));
+  },
+
+  /* 合わせた状態 { doc, stamps } で、いまの状態を置き換える。
+     印はそのまま受け取る（ここで付け直すと、受け取っただけの記録が「今書き換えた」ことになる）。
+     読み込みと同じ正規化を通すので、壊れた記録は落ちる */
+  applyState(state) {
+    if (!state || !state.doc || typeof state.doc !== 'object') return false;
+    const data = fromDoc(state.doc);
+    useData(data);
+    stamps = (state.stamps && typeof state.stamps === 'object') ? JSON.parse(JSON.stringify(state.stamps)) : {};
+    rememberSnap();
+    try {
+      localStorage.setItem(KEY, JSON.stringify(Object.assign({}, docOf(), { stamps })));
+      lastSaveError = null;
+    } catch (e) {
+      lastSaveError = e;
+      saveErrorListeners.forEach(fn => { try { fn(e); } catch (_) { /* 通知で落とさない */ } });
+    }
+    /* 受け取った記録が昨日のままなら、ここで今日に切り替える（その日の始まりの印で） */
+    rollover();
+    emit();
+    return true;
+  },
+
+  /* 保存したあとに呼ばれる。戻り値は解除する関数 */
+  onPersist(fn) {
+    if (typeof fn !== 'function') return () => {};
+    persistListeners.add(fn);
+    return () => persistListeners.delete(fn);
+  },
 
   /* 保存に失敗したときだけ呼ばれる。引数は投げられた例外そのもの。
      戻り値は解除する関数（on() と同じ形）。 */

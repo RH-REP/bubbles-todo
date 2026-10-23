@@ -9,6 +9,8 @@
    判定に使うのは指先の座標で、バブルの外形ではない（外形はタブ6本ぶんを覆うため）。 */
 
 import { store } from './store.js';
+/* サーバーと記録を合わせる。設定で住所を入れていなければ何もしない（sync.js） */
+import './sync.js';
 import { toast, holdRing, fromFeedback } from './ui.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';

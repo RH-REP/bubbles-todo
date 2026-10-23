@@ -100,8 +100,11 @@
 ## 作り
 
 - **素の ES モジュール。ビルド工程なし。外部依存ゼロ**（CDN もパッケージも使っていない）
-- 保存は `localStorage` のみ。**通信は一切しない**（app のコードに `fetch` も `XHR` も無い）。
-  例外は右上の **!** だけで、押した人が GitHub の Issue 画面を開く（下の「改善のコメント」）。
+- 保存は端末の `localStorage`。**設定でサーバーの住所を入れたときだけ**、そのサーバーと記録を合わせる
+  （2026-10-23 から。利用者の指示：複数の端末から同じ記録を使う。下の「サーバーで記録を共有する」）。
+  住所を入れなければ、前と同じく通信は一切しない（GitHub Pages のお試し版はこれ）。
+  送る先は自分で立てたサーバーだけで、ほかへは送らない。
+  もう1つの例外は右上の **!** で、押した人が GitHub の Issue 画面を開く（下の「改善のコメント」）。
   開発側の決まり（全 app 共通の「!」）は、この app 個別の決まりより上に来る（2026-10-23 に決めた）。
   その部品 `js/feedback.js` は画面の写真を作るときに同じオリジンの画像を `fetch` で読むが、外へは送らない
 - 物理（漂う・投げる・跳ね返る）は `js/drift.js` の自前実装。使うのは海と今日だけで、
@@ -114,14 +117,18 @@ index.html
 css/          骨格・バブル・集中画面・画面ごとのスタイル
 js/
   app.js      起動と画面の切り替え
-  store.js    データ層（唯一の状態の持ち主）
+  store.js    データ層（唯一の状態の持ち主）。保存のたびに、変わった記録へ時刻の印を付ける
+  merge.js    2つの端末の記録を合わせる計算（記録ごとに新しいほうを残す）
+  sync.js     サーバーとの出し入れ（住所を入れたときだけ動く）
   drift.js    物理
   bubble.js   バブルの DOM とジェスチャ、中央の盤
   focus.js    5分の集中画面（残り時間の時計つき）
   sound.js    完了音
   feedback.js 右上の !（改善のコメント。issue_hub の正本の写し）
   screens/    6つの画面
-tests/        store.js のテスト（素の Node と assert だけ）
+tests/        store.js・merge.js・sync.js のテスト（素の Node と assert だけ）と server.py のテスト
+server.py     記録を置くサーバー（Python の標準ライブラリだけ）。app 本体も配る
+serve.py      デザイン確認用の静的サーバー（開発補助）
 ```
 
 ### 動かす
@@ -135,20 +142,54 @@ python3 serve.py
 `http://localhost:8931/` が開く（このサーバは開発補助で、アプリ本体には含まれない。
 ES モジュールが強くキャッシュされるので `Cache-Control: no-store` を返している）。
 
-ダブルクリックで起動するなら `start.command`（空きポートを探して同じ `serve.py` を起動する。下の「利用」）。
+ダブルクリックで起動するなら `start.command`（空きポートを探して `server.py` を起動する。記録も置くサーバー。下の「利用」）。
 
 ### テスト
 
 ```bash
 node tests/store.test.mjs
+node tests/sync.test.mjs
+python3 -m unittest tests/test_server.py
 ```
+
+## サーバーで記録を共有する
+
+自分で立てたサーバーに記録を置き、複数の端末（Mac・スマホ・Android 版）から同じ記録を使う。
+
+- **サーバー**: `python3 server.py`（Python の標準ライブラリだけ）。app 本体も一緒に配る。
+  - 記録は `<データの場所>/state.json` 1つ。書くたびに前の版を `backup/` に残す（新しいほうから50個）
+  - データの場所は `--data-dir` → 環境変数 `BUBBLE_TODO_DATA` → このフォルダの `data/`（`.gitignore` 済み）
+  - 合言葉は環境変数 `BUBBLE_TODO_TOKEN` → `<データの場所>/token.txt`。無ければ初回に作って画面に出す
+  - 既定では `127.0.0.1` だけで待ち受ける（外へは下の Tailscale で出す）
+  - 配るのは `index.html`・`manifest.json`・`sw.js`・`css/`・`js/`・`icons/` だけ。`.git`・`.env`・`data/` は出さない
+- **端末**: 設定の「サーバー」に住所と合言葉を入れて「繋ぐ」。server.py が配っているページなら「このページのサーバー」で住所が入る。
+  「繋がない」で切ると、記録はその端末に残ったまま、送らなくなる。
+- **合わせ方**: 記録（todo・アンカー・タグ・着手ログ…）ごとに、最後に書き換えた時刻を持つ。食い違ったら**新しく書き換えたほうが残る**
+  （利用者の指示）。消したものも「消した時刻」で比べるので、片方で消したものが戻ってこない。
+  サーバーに届かない間も、端末にはふだんどおり記録され、届いたら合わせる。
+  - 合わせる計算は端末の側（`js/merge.js`）。サーバーは版つきで JSON を1つ預かるだけで、版が違う書き込みは 409 で断る（端末が取り直す）
+  - 時刻は端末の時計。時計が大きくずれた端末の書き換えは、新しくても負けることがある
+  - 日の切り替え（はじめた記録が消える）は「その日の0時」の時刻で付ける。あとから開いた端末の切り替えが、今日ほかの端末で付けたはじめたを消さないため
+  - 印を持たない前の版の記録は、最初に開いたときに「前からの記録」の印（1）を付けて引き継ぐ。新しい端末の空の既定値（0）には負けない
+- **外の端末から繋ぐ（無料）**: [Tailscale](https://tailscale.com/pricing)（個人向けプランは無料。非商用に限る）を Mac・スマホ・サーバーに入れ、
+  サーバーで `tailscale serve --bg 8931` を走らせる。`https://<機械名>.<tailnet名>.ts.net` という HTTPS の住所が付き、同じ tailnet の端末からだけ届く。
+  - HTTPS を有効にすると、機械名と tailnet 名が証明書の公開ログに載る。機械名に個人の情報を入れない
+  - `http://<IP>:8931` を直接ネットに出すのはやめる（中身が暗号化されずに流れる。Android 版は http を拒む）
+  - GitHub Pages のお試し版は繋がない前提（localStorage だけで動く）。使うのは server.py が配るページか Android 版
+  - まだ確かめていない: Tailscale を通した接続と、Android 版（capacitor://localhost から）の接続
+- **Oracle Cloud へ移すとき**: このフォルダを clone して同じく `python3 server.py --data-dir <置き場>` を常駐させ（systemd など）、
+  そこにも Tailscale を入れて `tailscale serve` する。Mac の `data/state.json` を写せば記録も移る（写さなくても、端末から繋げば合わさる）。
+  合言葉は `BUBBLE_TODO_TOKEN` で同じものを渡すか、新しい `token.txt` を各端末に入れ直す。
 
 ## 利用（clone して使う側）
 
 この repo を clone したフォルダで使う。clone 側では直さず、開発側で直してコミットし、clone 側の `update.command`（`git pull --ff-only`）で取り込む。
 
-- 正本: clone のフォルダ（ただし記録はブラウザの localStorage に入り、ファイルには落ちない。ブラウザのサイトデータを消すと記録も消える）。
-- 起動: `start.command` をダブルクリック。空きポート（既定 8931、環境変数 `BUBBLE_TODO_PORT` で変えられる）で clone の `serve.py` を起動してブラウザを開く。ES モジュールなので `file://` では動かない。
+- 正本: clone の `data/state.json`（server.py の記録。サーバーに繋いだ端末の記録が集まる）。各ブラウザの localStorage にも同じ記録が入る。
+  サーバーに繋いでいない端末の記録は、その端末の localStorage にだけある（サイトデータを消すと消える）。
+- 起動: `start.command` をダブルクリック。空きポート（既定 8931、環境変数 `BUBBLE_TODO_PORT` で変えられる）で clone の `server.py` を起動してブラウザを開く。
+  記録は clone の `data/` に入る。初回に合言葉を作って画面と `data/token.txt` に出すので、設定の「サーバー」で「このページのサーバー」と合言葉を入れて繋ぐ。
+  ES モジュールなので `file://` では動かない。
 - 置くもの: 起動口のほか、Android ビルド用の実値の `.env`（`.env.example` の写し）があれば clone 側。Android ビルド自体は開発側で行う（`node_modules/` `android/` `www/` は clone 側には作らない）。
 - 公開版は GitHub Pages（上の「動かしてみる」）。そちらの記録はそのブラウザの localStorage に入る。
 
@@ -156,7 +197,8 @@ node tests/store.test.mjs
 
 | パス | 内容 |
 |---|---|
-| `start.command` | 起動口。この clone の `serve.py` を起動してブラウザを開く |
+| `start.command` | 起動口。この clone の `server.py` を起動してブラウザを開く |
+| `data/` | server.py の記録（`state.json`・`backup/`）と合言葉（`token.txt`）。`.gitignore` で除外 |
 | `update.command` | `git pull --ff-only` で開発側のコミットを取り込む |
 | `.env` | Android ビルド用の実値（あれば。`.gitignore` で除外） |
 | `.claude/` | ローカルの Claude Code 設定（あれば。`.gitignore` で除外） |
