@@ -324,8 +324,10 @@ function serverBox(screen) {
 
   const row = el('div', 'row');
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
-  /* このページを配っているサーバー（server.py で開いたとき）。Pages や file では出さない */
-  if (/^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname)) {
+  /* このページを配っているサーバー（server.py で開いたとき）。Pages や file では出さない。
+     Android 版（Capacitor）のページは https://localhost で、サーバーではないので出さない
+     （エミュレーターから Mac へは adb reverse を通して http://localhost:<port>。README「サーバーで記録を共有する」） */
+  if (/^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname) && !window.Capacitor) {
     const here = el('button', 'btn', 'このページのサーバー');
     here.type = 'button';
     here.addEventListener('click', () => { urlIn.value = location.origin; tokIn.focus(); });

@@ -176,7 +176,12 @@ python3 -m unittest tests/test_server.py
   - HTTPS を有効にすると、機械名と tailnet 名が証明書の公開ログに載る。機械名に個人の情報を入れない
   - `http://<IP>:8931` を直接ネットに出すのはやめる（中身が暗号化されずに流れる。Android 版は http を拒む）
   - GitHub Pages のお試し版は繋がない前提（localStorage だけで動く）。使うのは server.py が配るページか Android 版
-  - まだ確かめていない: Tailscale を通した接続と、Android 版（capacitor://localhost から）の接続
+- **Android エミュレーターから Mac のサーバーに繋ぐ（開発用）**: `adb reverse tcp:8931 tcp:8931` をしてから、アプリの設定で住所に `http://localhost:8931` を入れる
+  （2026-10-23 に、エミュレーターのアプリとブラウザの web 版で同じ記録になるのを確かめた）。
+  - `http://10.0.2.2:8931`（エミュレーターから見た Mac）は使えない。アプリのページは `https://localhost` なので、http の住所は混在コンテンツとして止められる
+  - Android は http を既定で断るので、`tools/patch-android.mjs`（`npm run sync` の最後で走る）が `localhost` と `127.0.0.1` にだけ http を許す設定を足す
+  - Android 版の設定には「このページのサーバー」を出さない（ページの住所はサーバーではないため）
+  - まだ確かめていない: Tailscale を通した接続、実機の Android
 - **Oracle Cloud へ移すとき**: このフォルダを clone して同じく `python3 server.py --data-dir <置き場>` を常駐させ（systemd など）、
   そこにも Tailscale を入れて `tailscale serve` する。Mac の `data/state.json` を写せば記録も移る（写さなくても、端末から繋げば合わさる）。
   合言葉は `BUBBLE_TODO_TOKEN` で同じものを渡すか、新しい `token.txt` を各端末に入れ直す。
