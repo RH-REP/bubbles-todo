@@ -827,14 +827,16 @@ document.addEventListener('visibilitychange', () => {
    js/feedback.js は issue_hub の正本をそのまま写したもの（直すなら正本を直して写し直す）。
    index.html が普通の <script> で先に読む。押すと GitHub の「新しい Issue」画面を
    画面 ID（data-screen）とコメントを書き込んだ状態で開くだけで、**この app は送らない**。
-   repo は公開なので、写真は既定で付けない。
-   **書いたもの（バブルの本文）は渡さない。**渡すのは今の画面と件数だけ。記録（getLog）も渡さない。 */
+   バブルの本文が画面に写る（個人のデータが写る）ので、開発側の決まりどおり
+   写真の欄は出さない（'never'）、記録の欄も出さない（log: false）。
+   **書いたもの（バブルの本文）は渡さない。**渡すのは今の画面と件数だけ。 */
 if (window.AppFeedback) {
   window.AppFeedback.install({
     app: 'bubble_todo',
     version: '0.1.0',                  /* package.json の version */
     repo: 'RH-REP/bubbles-todo',
-    screenshot: 'off',
+    screenshot: 'never',
+    log: false,
     isPublic: true,
     getContext: () => {
       const n = (f) => { try { const a = f(); return Array.isArray(a) ? a.length : '?'; } catch (err) { return '?'; } };
