@@ -142,6 +142,10 @@ body {
      panes が潰れて**下タブだけが画面の上に出て、中身が真っ白**になった（A-63）。 */
   height: 100vh;
   height: 100dvh;
+  /* dvh を知らない描画エンジン（Chrome 107 まで・Android WebView 103）では 100vh になる。
+     Android の Chrome の 100vh は「アドレスバーを隠したときの高さ」なので、
+     バーが出ている間は画面より約 56px 高くなり、**下のタブが画面の外に押し出された**（2026-10-24）。
+     そこで index.html の小さな script が、dvh を知らないときだけ実際の高さを --app-h に入れる */
   max-width: 430px; margin: 0 auto;
   /* 中身をぜんぶ安全領域の下から始める。海の水も帯もここから下に入るので、
      どの画面でも「ステータスバーに隠れているところ」が生まれない */
@@ -149,6 +153,7 @@ body {
   background: var(--bg);
   box-shadow: 0 0 0 1px var(--line);
 }
+html.no-dvh .app { height: var(--app-h, 100vh); }
 .panes { flex: 1; min-height: 0; position: relative; }
 .pane { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
 .pane.is-active { display: flex; }
