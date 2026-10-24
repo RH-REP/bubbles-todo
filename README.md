@@ -150,6 +150,7 @@ ES モジュールが強くキャッシュされるので `Cache-Control: no-sto
 node tests/store.test.mjs
 node tests/sync.test.mjs
 node tests/space.test.mjs
+node tests/csvio.test.mjs
 python3 -m unittest tests/test_server.py
 bash tests/server-setup.test.sh
 ```
@@ -203,6 +204,14 @@ bash tests/server-setup.test.sh
 `docs/guide/index.html`（スクリーンショットつき。2026-10-23）。app の設定のいちばん上の「使い方」から開き、記事の上の「アプリへ戻る」で戻る。
 server.py も Android 版（`www/`）も docs/ を配る。service worker の箱には入れていない（記事はオフラインでは開けない。Android 版は APK に入るので開ける）。
 スクリーンショットは試し用の記録で撮る（repo は公開。本物の記録・ローカルの場所を写さない）。画面を直したら `node tools/guide-shots.mjs` で全部を撮り直す（試し用のサーバーと headless の Chrome を自分で起動し、375×812 で撮って `docs/guide/img/` を上書きする）。
+
+## 引っ越し（CSV の書き出し・読み込み）
+
+設定の「書き出し・読み込み（CSV）」（2026-10-24。利用者の指示）。いま開いている持ち主（個人か共有）の記録を、まるごと1つの CSV にする。
+- 形は1行1件（`kind,id,text,date,data,stamp`）。kind と id は合わせる仕組みの記録の鍵（`js/merge.js`）を分けたもの、data は記録の中身の JSON（読み込みの正本）、text と date は人が見るための欄。先頭の meta の行に形の名前と版を入れる。BOM と `\r\n` で、Excel で開いても化けない
+- 読み込むときに選ぶ: 「足す」（CSV にしかない記録だけを足す。この端末で消した記録は戻さない。何度読んでも増えない）／「同じものは上書き」（同じ記録を CSV の中身で書き換え、無いものは足す。この端末にしかない記録は残す）
+- 読み込んだ記録には今の印を付けるので、サーバーに繋いでいればほかの端末にも届く。共有が読むだけの間は読み込まない
+- 作り: `js/csvio.js`（toCsv・readCsv・importInto）、`js/screens/settings.js`（csvBox・askMode）。テスト `node tests/csvio.test.mjs`
 
 ## 個人と共有の海
 

@@ -150,6 +150,21 @@ try {
   await sleep(2500);
   await toServer();
   await shot('12_server_connected');
+  /* 書き出し・読み込み（CSV）。読み込み方を選ぶ窓は、書き出した CSV をそのまま読ませて出す */
+  await js(`const h = [...document.querySelectorAll('#pane-settings h3')].find(e => e.textContent.startsWith('書き出し'));
+    let s = h.parentElement; while (s && !(s.scrollHeight > s.clientHeight + 2 && /(auto|scroll)/.test(getComputedStyle(s).overflowY))) s = s.parentElement;
+    (s || document.scrollingElement).scrollBy(0, h.getBoundingClientRect().top - 100);`);
+  await sleep(300);
+  await shot('18_csv');
+  await js(`const { store } = await import('/js/store.js'); const { toCsv, csvFileName } = await import('/js/csvio.js');
+    const h = [...document.querySelectorAll('#pane-settings h3')].find(e => e.textContent.startsWith('書き出し'));
+    const inp = h.parentElement.querySelector('input[type=file]'); const dt = new DataTransfer();
+    dt.items.add(new File([toCsv(store.exportState(), 'me')], csvFileName('me'), { type: 'text/csv' }));
+    inp.files = dt.files; inp.dispatchEvent(new Event('change'));`);
+  await sleep(600);
+  await shot('19_csv_ask');
+  await clickText('やめる');
+  await sleep(300);
 
   /* --- 共有 --- */
   await js(`localStorage.setItem('bubble_todo_space', 'share');`);

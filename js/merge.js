@@ -137,7 +137,18 @@ export function mergeState(a, b) {
     if (s[1]) recs.set(k, w === 'a' ? ra.get(k) : rb.get(k));
   });
 
-  const doc = Object.assign({}, B.doc, A.doc);
+  const doc = buildDoc(recs, Object.assign({}, B.doc, A.doc));
+  /* 日付は進むだけ。新しいほう（日の切り替えはどちらの端末でも同じ結果になる） */
+  const days = [A.doc && A.doc.lastDay, B.doc && B.doc.lastDay]
+    .filter(x => typeof x === 'string').sort();
+  doc.lastDay = days.length ? days[days.length - 1] : null;
+  return { doc, stamps };
+}
+
+/* 記録の Map（recordsOf の形）から保存データを組み直す。base の、記録に分けない欄（v など）は残す。
+   mergeState と、CSV の読み込み（csvio.js）が使う */
+export function buildDoc(recs, base) {
+  const doc = Object.assign({}, base || {});
   LIST_KEYS.forEach(([field, head, keyOf, ordered]) => {
     if (ordered) {
       doc[field] = rebuild(recs, head, recs.get('order:' + head), keyOf);
@@ -152,11 +163,7 @@ export function mergeState(a, b) {
     if (recs.has('whole:' + f)) doc[f] = recs.get('whole:' + f);
     else delete doc[f];
   });
-  /* 日付は進むだけ。新しいほう（日の切り替えはどちらの端末でも同じ結果になる） */
-  const days = [A.doc && A.doc.lastDay, B.doc && B.doc.lastDay]
-    .filter(x => typeof x === 'string').sort();
-  doc.lastDay = days.length ? days[days.length - 1] : null;
-  return { doc, stamps };
+  return doc;
 }
 
 /* 印が同じか（＝合わせても何も変わらないか） */
