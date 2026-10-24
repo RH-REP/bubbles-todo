@@ -185,6 +185,45 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(self.data(out['session'], 'me')[0], 401, '取り消したら次の要求から入れない')
         self.assertEqual(self.login(owner)[0], 401)
 
+    def test_three_passkeys_per_space(self):
+        for n in ('A', 'B', 'C'):
+            self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite(n, ['share']))[0], 200)
+        with self.assertRaises(ValueError):
+            self.pk.add_invite('D', ['share'])          # いっぱいの置き場には招待コードも作らない
+        self.assertEqual(self.pk.count_in('share'), 3)
+        # 個人は別に数える（個人と共有の端末は、両方に入る → 共有がいっぱいなので作れない）
+        self.pk.add_invite('自分', ['me'])
+        with self.assertRaises(ValueError):
+            self.pk.add_invite('自分2', ['me', 'share'])
+        # 先に作ってあった招待コードも、いっぱいになったら登録を受けない
+        self.assertTrue(self.pk.remove_passkey('C'))
+        early = self.pk.add_invite('E', ['share'])
+        self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('F', ['share']))
+        code, body, _ = self.req('POST', '/api/passkey/register/options', {'invite': early})
+        self.assertEqual((code, body['error']), (409, 'full'))
+
+    def test_three_devices_at_once(self):
+        t = [0.0]
+        self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
+            auth='passkey', origin=self.origin, rp_id='localhost', guard=self.guard, passkeys=self.pk,
+            stores={'me': server.Store(self.dir), 'share': server.Store(self.dir / 'share')},
+            devices=server.Devices(max_active=3, window=1800, clock=lambda: t[0])))
+        sessions = []
+        for n in ('A', 'B', 'C', 'D'):
+            space = ['share'] if n != 'D' else ['me']    # 置き場ごとの登録の上限に当たらないように
+            sessions.append(self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite(n, space))[1]['session'])
+        self.assertEqual([self.data(x, 'share')[0] for x in sessions[:3]], [200, 200, 200])
+        code, body, _ = self.data(sessions[3], 'me')
+        self.assertEqual((code, body['error']), (429, 'devices'), '4台目は断る')
+        self.assertEqual(self.data(sessions[0], 'share')[0], 200, '使っている端末は通る')
+        # 出た端末はすぐ外れる
+        self.req('POST', '/api/passkey/logout', {}, {'Authorization': 'Bearer ' + sessions[1]})
+        self.assertEqual(self.data(sessions[3], 'me')[0], 200, '1台出たので入れる')
+        # 30分使わなかった端末は数から外れる
+        t[0] = 1801
+        self.assertEqual(self.data(sessions[2], 'share')[0], 200)
+        self.assertFalse(self.guard.auth_blocked('127.0.0.1'), '混んでいて断ったのは、入場の失敗に数えない')
+
     def test_failures_are_limited(self):
         for _ in range(10):
             self.req('POST', '/api/passkey/register/options', {'invite': 'WRONG'})

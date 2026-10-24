@@ -9,6 +9,8 @@
                     パスキーで入ったあとに出す。値そのものは置かない（sha256 だけ）。期限は既定 30 日
 
 置き場（space）は 'me'（個人）と 'share'（共有）。招待コードを作るときに、どちらに入れるかを決める。
+登録できるパスキーは、置き場ごとに max_per_space（既定 3）まで（2026-10-24 利用者の指示）。
+「個人と共有」の端末は両方の数に入る。いっぱいの置き場には、招待コードも作らず、登録も受けない。
 """
 import hashlib
 import json
@@ -20,6 +22,7 @@ import time
 from pathlib import Path
 
 INVITE_TTL = 24 * 3600
+MAX_PER_SPACE = 3
 SESSION_TTL = 30 * 24 * 3600
 CHALLENGE_TTL = 300
 SPACES = ('me', 'share')
@@ -49,7 +52,8 @@ def normalize_code(code: str) -> str:
 
 
 class PasskeyStore:
-    def __init__(self, data_dir: Path, clock=_now):
+    def __init__(self, data_dir: Path, clock=_now, max_per_space: int = MAX_PER_SPACE):
+        self.max_per_space = max_per_space
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.clock = clock
@@ -71,12 +75,24 @@ class PasskeyStore:
     def _write(self, name, rows):
         _write_private(self._path(name), rows)
 
+    # --- 置き場ごとの数 ---
+    def count_in(self, space: str) -> int:
+        return sum(1 for r in self.passkeys() if space in r.get('spaces', []))
+
+    def full_spaces(self, spaces):
+        """spaces のうち、もう max_per_space 台のパスキーがある置き場"""
+        return [s for s in spaces if self.count_in(s) >= self.max_per_space]
+
     # --- 招待コード ---
     def add_invite(self, name: str, spaces, ttl: int = INVITE_TTL) -> str:
         name = (name or '').strip()
         spaces = [s for s in spaces if s in SPACES]
         if not name or not spaces:
             raise ValueError('名前と置き場（me / share）が要ります')
+        full = self.full_spaces(spaces)
+        if full:
+            raise ValueError('登録はいっぱい（' + '・'.join({'me': '個人', 'share': '共有'}[s] for s in full)
+                             + f'は {self.max_per_space} 台まで）。passkey-remove で使わない端末を外してから')
         raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(12))
         with self.lock:
             rows = [r for r in self._read('invites.json') if r['expires'] > self.clock()]
@@ -139,6 +155,8 @@ class PasskeyStore:
             rows = self._read('passkeys.json')
             if any(r['id'] == cred['cred_id'] for r in rows):
                 raise ValueError('同じパスキーがもうある')
+            if any(sum(1 for r in rows if s in r.get('spaces', [])) >= self.max_per_space for s in spaces):
+                raise ValueError('登録はいっぱい')
             base, n, names = name, 2, {r['name'] for r in rows}
             while name in names:          # 同じ名前を2つにしない（取り消しを名前でするため）
                 name = f'{base} ({n})'
@@ -179,8 +197,8 @@ class PasskeyStore:
             self._write('sessions.json', rows)
         return tok, now + ttl
 
-    def check_session(self, tok: str):
-        """通行証 → その置き場の一覧。期限切れ・取り消し済みなら None"""
+    def session_info(self, tok: str):
+        """通行証 → {spaces, cred_id}。期限切れ・取り消し済みなら None"""
         if not tok:
             return None
         h = _sha(tok)
@@ -190,11 +208,19 @@ class PasskeyStore:
                 pk = keys.get(s['cred_id'])
                 if not pk:            # パスキーを消したら、その通行証は使えない
                     return None
-                return [sp for sp in s['spaces'] if sp in pk['spaces']]
+                return {'spaces': [sp for sp in s['spaces'] if sp in pk['spaces']], 'cred_id': s['cred_id']}
         return None
 
+    def check_session(self, tok: str):
+        """通行証 → その置き場の一覧。期限切れ・取り消し済みなら None"""
+        info = self.session_info(tok)
+        return info['spaces'] if info else None
+
     def end_session(self, tok: str):
+        """通行証を捨てる。その通行証のパスキーの id を返す（無ければ None）"""
+        info = self.session_info(tok)
         h = _sha(tok or '')
         with self.lock:
             rows = self._read('sessions.json')
             self._write('sessions.json', [s for s in rows if s['hash'] != h])
+        return info['cred_id'] if info else None

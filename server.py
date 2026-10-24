@@ -43,6 +43,8 @@ API:
     python3 server.py --auth passkey --origin https://<名前> --trust-proxy
     python3 server.py invite-add <名前> --space me,share   招待コード（1回きり・24時間）を作る
     python3 server.py passkey-list / passkey-remove <名前> / invite-list
+    登録できるパスキーは置き場ごとに 3 つ（--max-passkeys）、同時に使える端末は 3 台（--max-devices。
+    30 分以内に記録を読み書きした端末を数える。--device-window）。4 台目は 429 {"error": "devices"}
     POST /api/passkey/register/options {invite} → 登録の問題   POST /api/passkey/register {credential} → 通行証
     POST /api/passkey/login/options {}  → 入場の問題           POST /api/passkey/login {credential}    → 通行証
     POST /api/passkey/logout（Authorization: Bearer 通行証）
@@ -65,7 +67,7 @@ import time
 from pathlib import Path
 
 import passkey_crypto as pc
-from guard import Guard
+from guard import Devices, Guard
 from passkey_store import PasskeyStore, SPACES as PASSKEY_SPACES
 
 ROOT = Path(__file__).resolve().parent
@@ -289,7 +291,7 @@ class Config:
     """入場の仕方と守りの設定。token（合言葉。Tailscale の中で使う）か passkey（公開して使う）"""
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
-                 guard=None, passkeys=None, stores=None, require_uv=True):
+                 guard=None, passkeys=None, stores=None, require_uv=True, devices=None):
         self.auth, self.origin, self.rp_id = auth, origin, rp_id
         self.trust_proxy = trust_proxy
         self.allow_origins = set(allow_origins)
@@ -297,6 +299,7 @@ class Config:
         self.passkeys = passkeys
         self.stores = stores or {}
         self.require_uv = require_uv
+        self.devices = devices or Devices()   # パスキーの形で、同時に使える端末の数
 
 
 def make_handler(spaces, cfg: Config = None):
@@ -388,10 +391,12 @@ def make_handler(spaces, cfg: Config = None):
             got = self.headers.get('Authorization', '')
             if cfg.auth == 'passkey':
                 tok = got[7:] if got.startswith('Bearer ') else ''
-                allowed = cfg.passkeys.check_session(tok) if tok else None
+                info = cfg.passkeys.session_info(tok) if tok else None
                 want = self.headers.get('X-Bubbles-Space', 'me')
-                if not allowed or want not in allowed or want not in cfg.stores:
+                if not info or want not in info['spaces'] or want not in cfg.stores:
                     return None
+                if not cfg.devices.use(info['cred_id']):
+                    return 'devices'
                 return want, cfg.stores[want]
             # 比べるのは全部の合言葉と（どれに合ったかで時間が変わらないように）
             got_b = got.encode('utf-8')
@@ -406,6 +411,11 @@ def make_handler(spaces, cfg: Config = None):
                 log_event('auth-blocked', self.ip())
                 return self.too_many()
             sp = self.space()
+            if sp == 'devices':
+                # 入場の失敗ではない（正しい端末が、混んでいるので待たされる）。失敗の数に入れない
+                log_event('device-limit', self.ip())
+                self.send_json(429, {'error': 'devices', 'max': cfg.devices.max_active})
+                return None
             if not sp:
                 return self.deny('data')
             return sp
@@ -481,6 +491,9 @@ def make_handler(spaces, cfg: Config = None):
                     inv = pk.find_invite(body.get('invite', ''))
                     if not inv:
                         return self.deny('invite')
+                    full = pk.full_spaces(inv['spaces'])
+                    if full:
+                        return self.send_json(409, {'error': 'full', 'spaces': full, 'max': pk.max_per_space})
                     chal = pk.new_challenge('create', inv['code_hash'])
                     return self.send_json(200, {'publicKey': {
                         'challenge': chal,
@@ -506,6 +519,8 @@ def make_handler(spaces, cfg: Config = None):
                     out = pc.verify_registration(cd, pc.b64u_decode(resp.get('attestationObject', '')),
                                                  challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
                                                  require_uv=cfg.require_uv)
+                    if pk.full_spaces(inv['spaces']):
+                        return self.send_json(409, {'error': 'full', 'spaces': pk.full_spaces(inv['spaces']), 'max': pk.max_per_space})
                     if not pk.use_invite(inv['code_hash']):
                         return self.deny('invite-used')
                     name = pk.add_passkey(name=inv['name'], spaces=inv['spaces'], cred=out)
@@ -538,7 +553,9 @@ def make_handler(spaces, cfg: Config = None):
                     return self.send_json(200, {'session': tok, 'expires': exp, 'spaces': row['spaces'], 'name': row['name']})
                 if path == '/api/passkey/logout':
                     got = self.headers.get('Authorization', '')
-                    pk.end_session(got[7:] if got.startswith('Bearer ') else '')
+                    cred = pk.end_session(got[7:] if got.startswith('Bearer ') else '')
+                    if cred:
+                        cfg.devices.leave(cred)
                     return self.send_json(200, {'ok': True})
             except (pc.VerifyError, ValueError, KeyError, TypeError, AttributeError) as e:
                 return self.deny('passkey ' + type(e).__name__ + ': ' + str(e)[:60])
@@ -623,14 +640,17 @@ def token_command(data_dir: Path, cmd: str, name: str) -> int:
     return 0
 
 
-def passkey_command(data_dir: Path, cmd: str, name: str, space: str) -> int:
+def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkeys: int = 3) -> int:
     """パスキーの操作（公開の形）。動いているサーバーは止めなくてよい"""
-    pk = PasskeyStore(data_dir)
+    pk = PasskeyStore(data_dir, max_per_space=max_passkeys)
     if cmd == 'invite-add':
         spaces = [s.strip() for s in (space or 'share').split(',') if s.strip()]
         if any(s not in PASSKEY_SPACES for s in spaces):
             raise SystemExit('置き場は me・share・me,share のどれか')
-        code = pk.add_invite(name, spaces)
+        try:
+            code = pk.add_invite(name, spaces)
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
         where = '個人と共有' if set(spaces) == {'me', 'share'} else ('個人' if spaces == ['me'] else '共有')
         print(f'「{name}」の招待コード（{where}。24時間・1回だけ）: {code}', flush=True)
         print('相手には、住所とこのコードを渡す。相手は Bubbles の設定の「パスキー」で登録する', flush=True)
@@ -647,6 +667,7 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str) -> int:
         for r in rows:
             last = time.strftime('%Y-%m-%d', time.localtime(r['last_used'])) if r.get('last_used') else '未使用'
             print(f"{r['name']}\t{','.join(r['spaces'])}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}")
+        print(f"（個人 {pk.count_in('me')}/{pk.max_per_space}・共有 {pk.count_in('share')}/{pk.max_per_space}）")
     elif cmd == 'passkey-remove':
         if not pk.remove_passkey(name):
             raise SystemExit(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
@@ -671,6 +692,11 @@ def main(argv=None):
     ap.add_argument('--allow-origin', action='append', default=None,
                     help='よそのオリジンから呼んでよい相手（何度でも）。既定は token のとき Android 版、passkey のとき無し')
     ap.add_argument('--space', default='share', help='invite-add の置き場（me / share / me,share）')
+    ap.add_argument('--max-passkeys', type=int, default=int(os.environ.get('BUBBLE_TODO_MAX_PASSKEYS', '3')),
+                    help='置き場ごとに登録できるパスキーの数（既定 3）')
+    ap.add_argument('--max-devices', type=int, default=int(os.environ.get('BUBBLE_TODO_MAX_DEVICES', '3')),
+                    help='同時に使える端末の数（既定 3。--device-window 秒以内に使った端末を数える）')
+    ap.add_argument('--device-window', type=int, default=int(os.environ.get('BUBBLE_TODO_DEVICE_WINDOW', '1800')))
     ap.add_argument('command', nargs='?', default='serve',
                     choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
                              'invite-add', 'invite-list', 'passkey-list', 'passkey-remove'],
@@ -683,7 +709,7 @@ def main(argv=None):
     if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove'):
         if args.command in ('invite-add', 'passkey-remove') and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} 母のスマホ）')
-        return passkey_command(data_dir, args.command, args.name, args.space)
+        return passkey_command(data_dir, args.command, args.name, args.space, args.max_passkeys)
     if args.command != 'serve':
         return token_command(data_dir, args.command, args.name)
 
@@ -699,7 +725,8 @@ def main(argv=None):
             raise SystemExit('--rp-id は --origin の名前か、その親の名前にする')
         stores = {'me': Store(data_dir), 'share': Store(data_dir / 'share')}
         cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy,
-                     allow_origins=args.allow_origin or (), passkeys=PasskeyStore(data_dir), stores=stores)
+                     allow_origins=args.allow_origin or (), passkeys=PasskeyStore(data_dir, max_per_space=args.max_passkeys),
+                     stores=stores, devices=Devices(max_active=args.max_devices, window=args.device_window))
         spaces = {}
     else:
         cfg = Config(auth='token', trust_proxy=args.trust_proxy,

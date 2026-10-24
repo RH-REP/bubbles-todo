@@ -31,6 +31,7 @@ function fromB64u(str) {
 const WHY = {
   401: { register: '招待コードが違うか、もう使われているか、期限が切れている', login: 'この端末のパスキーは登録されていないか、取り消されている' },
   429: { register: '失敗が続いたので、しばらく待ってからにする', login: '失敗が続いたので、しばらく待ってからにする' },
+  409: { register: '登録はいっぱい（置き場ごとに3台まで）。持ち主に、使わない端末を外してもらう', login: '' },
 };
 
 async function post(base, path, body, kind) {

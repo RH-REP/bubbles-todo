@@ -86,3 +86,34 @@ class Guard:
             q.append(self.clock())
             while len(q) > self.max_fails * 2:
                 q.popleft()
+
+
+class Devices:
+    """同時に使っている端末（パスキー）を max_active 台までにする（2026-10-24 利用者の指示。既定 3）。
+
+    window 秒以内に記録を読み書きした端末を「使っている」と数える。数に入っている端末はいつでも通す。
+    入っていない端末は、使っている端末が max_active 台に届いていたら断る（429 devices）。
+    window 秒使わなかった端末は数から外れる。出た（logout）端末はすぐ外す。数えるのは記憶の中だけ"""
+
+    def __init__(self, max_active=3, window=1800, clock=time.monotonic):
+        self.max_active, self.window, self.clock = max_active, window, clock
+        self.lock = threading.Lock()
+        self.last = {}   # cred_id → 最後に使った時刻
+
+    def use(self, cred_id) -> bool:
+        with self.lock:
+            now = self.clock()
+            self.last = {k: t for k, t in self.last.items() if now - t < self.window}
+            if cred_id not in self.last and len(self.last) >= self.max_active:
+                return False
+            self.last[cred_id] = now
+            return True
+
+    def leave(self, cred_id):
+        with self.lock:
+            self.last.pop(cred_id, None)
+
+    def active(self) -> int:
+        with self.lock:
+            now = self.clock()
+            return sum(1 for t in self.last.values() if now - t < self.window)

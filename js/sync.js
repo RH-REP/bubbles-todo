@@ -140,7 +140,11 @@ async function syncOnce() {
   for (let tries = 0; tries < 3; tries++) {
     const got = await call('GET');
     if (got.status === 401) throw new Error(conf.session ? 'パスキーで入り直す（通行証の期限切れか、取り消された）' : '合言葉が違う');
-    if (got.status === 429) throw new Error('失敗が続いたので、しばらく断られている');
+    if (got.status === 429) {
+      throw new Error(got.json && got.json.error === 'devices'
+        ? '使っている端末が多い（' + (got.json.max || 3) + '台まで）。ほかの端末が30分使わなければ入れる'
+        : '失敗が続いたので、しばらく断られている');
+    }
     if (got.status !== 200 || !got.json) throw new Error('サーバーの応答が読めない（' + got.status + '）');
     /* 取り違えの見張り。前の版のサーバーは space を返さないので、そのときは個人だけ通す */
     const space = got.json.space || 'me';
