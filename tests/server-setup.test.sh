@@ -128,6 +128,7 @@ pass "uninstall は常駐だけをやめ、記録と合言葉は残す"
 kill "$(cat "$T/server.pid")" 2>/dev/null || true
 rm -f "$T/server.pid"
 mkdir -p "$T/etc/caddy" "$T/etc/fail2ban/filter.d" "$T/etc/fail2ban/jail.d" "$T/home2"
+printf '#!/bin/sh\necho "1.1.1.1 via 10.0.0.1 dev ens3 src 10.0.0.42 uid 1001"\n' > "$T/bin/ip"; chmod +x "$T/bin/ip"
 for c in caddy fail2ban-client; do printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\n' "$c" "$T" > "$T/bin/$c"; chmod +x "$T/bin/$c"; done
 run_public() {
   PATH="$T/bin:$PATH" HOME="$T/home2" BUBBLES_DIR="$T/code" BUBBLES_DATA="$T/home2/bubbles-data" \
@@ -139,6 +140,8 @@ grep -q "が応えた" <<<"$outp" || { echo "$outp"; fail "公開の形で応え
 grep -q -- "--auth passkey --origin https://bubbles.example.org --trust-proxy" "$u" || fail "unit がパスキーの形でない: $(grep ExecStart "$u")"
 grep -q "^bubbles.example.org {" "$T/etc/caddy/Caddyfile" && grep -q "reverse_proxy 127.0.0.1:$PORT" "$T/etc/caddy/Caddyfile" \
   || fail "Caddyfile に名前とポートが入っていない"
+grep -q "default_bind 10.0.0.42" "$T/etc/caddy/Caddyfile" || fail "Caddy が外向きの住所だけで待ち受けていない（tailscale serve と 443 を取り合う）"
+if grep -q "__" "$T/etc/caddy/Caddyfile"; then fail "Caddyfile に埋め残しがある"; fi
 grep -q "_SYSTEMD_UNIT=bubbles-todo.service" "$T/etc/fail2ban/filter.d/bubbles.conf" || fail "fail2ban の filter"
 [[ -f "$T/etc/fail2ban/jail.d/bubbles.conf" ]] || fail "fail2ban の jail"
 if grep -q "tailscale serve" <<<"$(grep -c . "$T/calls.log" >/dev/null; tail -20 "$T/calls.log")"; then :; fi

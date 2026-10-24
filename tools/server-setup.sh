@@ -239,12 +239,28 @@ tailscale_serve() {
   fi
 }
 
+# Caddy が待ち受ける住所。外へ出ていく道の住所（Oracle なら 10.0.0.x の内側の住所。公開の IP はその手前で変換される）。
+# 全部の住所で待つと、tailscale serve が使う Tailscale の住所の 443 番とぶつかって起動しない。BUBBLES_BIND で決めてもよい
+bind_addr() {
+  if [[ -n "${BUBBLES_BIND:-}" ]]; then printf '%s' "$BUBBLES_BIND"; return; fi
+  ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1
+}
+
 public_front() {
   say "6. 前段（Caddy・fail2ban）と、ファイアウォール"
   if command -v caddy >/dev/null; then
-    sed -e "s/__DOMAIN__/$DOMAIN/g" -e "s/__PORT__/$PORT/g" "$DIR/tools/public/Caddyfile.template" | sudo tee "$ETC/caddy/Caddyfile" >/dev/null
-    sudo systemctl reload caddy 2>/dev/null || sudo systemctl restart caddy
-    ok "Caddy: $ETC/caddy/Caddyfile（https://$DOMAIN → 127.0.0.1:$PORT）"
+    local bind
+    bind="$(bind_addr)"
+    [[ "$bind" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Caddy が待ち受ける住所が分かりません（BUBBLES_BIND=10.0.0.x のように付けて実行し直す）"
+    sed -e "s/__DOMAIN__/$DOMAIN/g" -e "s/__PORT__/$PORT/g" -e "s/__BIND__/$bind/g" "$DIR/tools/public/Caddyfile.template" | sudo tee "$ETC/caddy/Caddyfile" >/dev/null
+    # 前に起動に失敗していると reload は効かないので、起動し直す
+    sudo systemctl restart caddy
+    if systemctl is-active --quiet caddy 2>/dev/null || [[ -n "${BUBBLES_ETC:-}" ]]; then
+      ok "Caddy: $ETC/caddy/Caddyfile（https://$DOMAIN → 127.0.0.1:$PORT。待ち受けは $bind の 80・443）"
+    else
+      sudo journalctl -u caddy -n 5 --no-pager >&2 || true
+      die "Caddy が起動しません（上の記録を見てください）"
+    fi
   else
     warn "Caddy が入っていません。入れてから実行し直してください（https://caddyserver.com/docs/install の Debian/Ubuntu の手順）"
   fi
@@ -297,7 +313,7 @@ summary() {
 
 front() { if [[ "$MODE" == "public" ]]; then public_front; else tailscale_serve; fi; }
 cmd_install() { need_mode; need_linux; need_tools; get_code; make_data; run_tests; write_unit; health; front; summary; }
-cmd_update()  { need_mode; need_linux; need_tools; get_code; run_tests; write_unit; health; summary; }
+cmd_update()  { need_mode; need_linux; need_tools; get_code; run_tests; write_unit; health; [[ "$MODE" == "public" ]] && public_front; summary; }
 cmd_status() {
   need_linux; PY="$(command -v python3)"
   sudo systemctl --no-pager status "$SERVICE" | head -5 || true
