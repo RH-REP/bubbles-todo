@@ -184,6 +184,10 @@ export default {
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
     box.appendChild(csvBox());
 
+    /* --- 画面の大きさの記録（不具合を調べる用。2026-10-25）---
+       立ち上げ直後に下のタブが隠れる件で、実機の値を見るため。js/boot-dvh.js が測った値を出し、写せる */
+    box.appendChild(sizeBox());
+
     /* --- プロトタイプ操作 --- */
     const proto = el('div', 'proto');
     proto.appendChild(el('h3', null, 'プロトタイプ操作'));
@@ -526,4 +530,33 @@ function askMode(fileName, got) {
     document.body.appendChild(back);
     box.querySelector('button').focus();
   });
+}
+
+/* 画面の大きさの記録。js/boot-dvh.js が立ち上げから測った値（大きさだけ。記録の中身は入らない） */
+function sizeBox() {
+  const d = document.createElement('details');
+  d.className = 'size-log';
+  const sum = document.createElement('summary');
+  sum.textContent = '画面の大きさの記録（不具合を調べる用）';
+  d.appendChild(sum);
+  const pre = document.createElement('pre');
+  const copy = el('button', 'btn', '写す');
+  copy.type = 'button';
+  const text = () => {
+    const log = window.__bubblesSize || [];
+    const head = 'UA: ' + navigator.userAgent + '\n' + '今: inner ' + window.innerHeight + ' / screen ' + (screen && screen.height)
+      + ' / app ' + Math.round(document.querySelector('.app').getBoundingClientRect().height)
+      + ' / tabbar下 ' + Math.round(document.getElementById('tabbar').getBoundingClientRect().bottom) + '\n';
+    return head + log.map(e => [e.t + 'ms', e.why, 'inner ' + e.inner, 'vv ' + e.vv, 'client ' + e.client,
+      'page ' + e.page, e.mode, e.standalone ? 'standalone' : 'browser'].join(' ')).join('\n');
+  };
+  d.addEventListener('toggle', () => { if (d.open) pre.textContent = text(); });
+  copy.addEventListener('click', async () => {
+    pre.textContent = text();
+    try { await navigator.clipboard.writeText(pre.textContent); toast('写した'); }
+    catch (e) { toast('写せなかった。字を長押しして選んでください'); }
+  });
+  d.appendChild(pre);
+  d.appendChild(copy);
+  return d;
 }

@@ -153,7 +153,8 @@ body {
   background: var(--bg);
   box-shadow: 0 0 0 1px var(--line);
 }
-html.no-dvh .app { height: var(--app-h, 100vh); }
+/* no-dvh … dvh を知らないブラウザ。fit-js … dvh でも立ち上げ直後にはみ出したので、実際の高さに合わせた（js/boot-dvh.js） */
+html.no-dvh .app, html.fit-js .app { height: var(--app-h, 100vh); }
 .panes { flex: 1; min-height: 0; position: relative; }
 .pane { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
 .pane.is-active { display: flex; }
