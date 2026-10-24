@@ -2,11 +2,15 @@
 
     python3 -m unittest tests/test_passkey_crypto.py
 
-偽の端末（このファイルの FakeAuthenticator）が、本物の端末と同じ形の登録・入場のデータを作る。
+Node の無い機械（サーバー）でも走る:
+    ・FixtureTest … 前もって Node で作った署名（tests/fixtures/node_signatures.json）を確かめる。いつも走る
+    ・CryptoTest  … その場で Node に鍵と署名を作らせる。node が無ければ飛ばす（2026-10-24。サーバーに
+                    Node が無く、立ち上げのテストが 8 件のエラーで止まったため）
 """
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -16,6 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import passkey_crypto as pc  # noqa: E402
 
+HAVE_NODE = shutil.which('node') is not None
+FIXTURE = Path(__file__).resolve().parent / 'fixtures' / 'node_signatures.json'
 RP_ID = 'bubbles.example.org'
 ORIGIN = 'https://bubbles.example.org'
 
@@ -85,6 +91,46 @@ def client_data(kind, challenge, origin=ORIGIN):
     return json.dumps({'type': kind, 'challenge': challenge, 'origin': origin, 'crossOrigin': False}).encode()
 
 
+class FixtureTest(unittest.TestCase):
+    """Node で前もって作った署名を確かめる（Node が無くても走る）"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fx = json.loads(FIXTURE.read_text(encoding='utf-8'))
+
+    def check(self, kind, force_pure):
+        k = self.fx['keys'][kind]
+        alg, key = pc.parse_cose_key(cose_from_jwk(k['jwk']))
+        for msg_hex, sig_hex in zip(self.fx['msgs'], k['sigs']):
+            msg, sig = bytes.fromhex(msg_hex), bytes.fromhex(sig_hex)
+            self.assertTrue(pc.verify_signature(alg, key, msg, sig, force_pure=force_pure), kind)
+            self.assertFalse(pc.verify_signature(alg, key, msg + b'!', sig, force_pure=force_pure), kind + ' 文を変えたら通らない')
+            bad = bytearray(sig)
+            bad[-1] ^= 1
+            self.assertFalse(pc.verify_signature(alg, key, msg, bytes(bad), force_pure=force_pure), kind + ' 署名を変えたら通らない')
+        # 別の文の署名は通らない
+        msgs = [bytes.fromhex(m) for m in self.fx['msgs']]
+        self.assertFalse(pc.verify_signature(alg, key, msgs[0], bytes.fromhex(k['sigs'][1]), force_pure=force_pure))
+
+    def test_node_signatures_pass_pure(self):
+        self.check('ec', True)
+        self.check('rsa', True)
+
+    def test_node_signatures_pass_cryptography(self):
+        if not pc.HAVE_CRYPTOGRAPHY:
+            self.skipTest('cryptography が入っていない')
+        self.check('ec', False)
+        self.check('rsa', False)
+
+    def test_fake_signer_matches_verifier(self):
+        from fake_signer import EcKey
+        k = EcKey()
+        alg, key = pc.parse_cose_key(k.cose(cbor))
+        self.assertTrue(pc.verify_signature(alg, key, b'hello', k.sign(b'hello'), force_pure=True))
+        self.assertFalse(pc.verify_signature(alg, key, b'hello!', k.sign(b'hello'), force_pure=True))
+
+
+@unittest.skipUnless(HAVE_NODE, 'node が無い（その場で Node に署名させるテストは飛ばす。前もって作った署名のテストは走る）')
 class CryptoTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

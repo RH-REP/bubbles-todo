@@ -1,8 +1,9 @@
-"""公開の形（--auth passkey）と守り（guard.py・ヘッダ）のテスト。標準ライブラリと node だけで走る。
+"""公開の形（--auth passkey）と守り（guard.py・ヘッダ）のテスト。標準ライブラリだけで走る（Node は要らない）。
 
     python3 -m unittest tests/test_server_public.py
 
-偽の端末は、本物と同じ形の登録・入場のデータを作る。署名は Node の暗号の部品で作る（鍵は Node の中）。
+偽の端末は、本物と同じ形の登録・入場のデータを作る。署名は tests/fake_signer.py（標準ライブラリだけの ES256）。
+確かめの側が別の実装の署名を通すことは、test_passkey_crypto.py が Node の署名で見ている。
 """
 import hashlib
 import json
@@ -25,34 +26,15 @@ import server  # noqa: E402
 from guard import Guard  # noqa: E402
 from passkey_store import PasskeyStore  # noqa: E402
 from test_passkey_crypto import cbor  # noqa: E402
-
-NODE_KEY = r"""
-const crypto = require('node:crypto');
-const req = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
-if (req.op === 'gen') {
-  const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
-  process.stdout.write(JSON.stringify({ jwk: publicKey.export({ format: 'jwk' }),
-    pem: privateKey.export({ type: 'pkcs8', format: 'pem' }) }));
-} else {
-  const sig = crypto.sign('sha256', Buffer.from(req.msg, 'hex'), crypto.createPrivateKey(req.pem));
-  process.stdout.write(JSON.stringify({ sig: sig.toString('hex') }));
-}
-"""
-
-
-def node(req):
-    r = subprocess.run(['node', '-e', NODE_KEY], input=json.dumps(req), capture_output=True, text=True, check=True)
-    return json.loads(r.stdout)
-
+from fake_signer import EcKey  # noqa: E402
 
 class FakeAuthenticator:
     """パスキーを1つ持つ偽の端末"""
 
     def __init__(self, rp_id, origin):
         self.rp_id, self.origin = rp_id, origin
-        k = node({'op': 'gen'})
-        self.pem = k['pem']
-        self.cose = cbor({1: 2, 3: -7, -1: 1, -2: pc.b64u_decode(k['jwk']['x']), -3: pc.b64u_decode(k['jwk']['y'])})
+        self.key = EcKey()
+        self.cose = self.key.cose(cbor)
         self.cred_id = os.urandom(32)
         self.count = 0
 
@@ -71,10 +53,10 @@ class FakeAuthenticator:
         self.count += 1
         cd = json.dumps({'type': 'webauthn.get', 'challenge': options['challenge'], 'origin': origin or self.origin}).encode()
         ad = self._ad(0x05)
-        sig = node({'op': 'sign', 'pem': self.pem, 'msg': (ad + hashlib.sha256(cd).digest()).hex()})['sig']
+        sig = self.key.sign(ad + hashlib.sha256(cd).digest())
         return {'id': pc.b64u_encode(self.cred_id), 'type': 'public-key',
                 'response': {'clientDataJSON': pc.b64u_encode(cd), 'authenticatorData': pc.b64u_encode(ad),
-                             'signature': pc.b64u_encode(bytes.fromhex(sig))}}
+                             'signature': pc.b64u_encode(sig)}}
 
 
 class PublicServerTest(unittest.TestCase):

@@ -118,8 +118,15 @@ run_tests() {
   say "4. server.py のテスト"
   local t="tests/test_server.py"
   [[ "$MODE" == "public" ]] && t="tests/test_server.py tests/test_passkey_crypto.py tests/test_server_public.py"
+  local out
   # shellcheck disable=SC2086
-  (cd "$DIR" && "$PY" -m unittest $t 2>&1 | grep -v '^bubbles:' | tail -3) || die "テストが通りません"
+  if ! out="$(cd "$DIR" && "$PY" -m unittest $t 2>&1)"; then
+    # どのテストが、なぜ落ちたかを出す（合計だけでは原因が分からなかった。2026-10-24）
+    printf '%s\n' "$out" | grep -E '^(ERROR|FAIL):|Error:|Exception:|AssertionError' | head -20 >&2
+    printf '%s\n' "$out" | grep -v '^bubbles:' | tail -3 >&2
+    die "テストが通りません（上の行が、落ちたテストとわけ）"
+  fi
+  printf '%s\n' "$out" | grep -v '^bubbles:' | tail -3
 }
 
 need_mode() {
