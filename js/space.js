@@ -1,16 +1,20 @@
-/* 個人と共有の切り替え（2026-10-23。利用者の指示。デザイン案「帯」）。
+/* 個人と共有の切り替え（2026-10-23。利用者の指示）。
 
-   いちばん上の帯に「個人 | 共有」。押すと持ち主を書き換えて画面を読み直す
-   （app 全体＝海・今日・きっかけ・すきま・ふりかえりが、その持ち主の記録になる）。
+   2026-10-24 に置き場を考え直した（利用者の指示：B を切り替えの入口にし、D のように表示）。
+     ・切り替え … 引き出し（左上の ≡）のいちばん上の「個人／共有」（spaceSwitcher()。app.js が置く）。
+                  押すと持ち主を書き換えて画面を読み直す
+                  （app 全体＝海・今日・きっかけ・すきま・ふりかえりが、その持ち主の記録になる）
+     ・表示     … いちばん上の薄い帯（30px）に「個人 共有」を並べ、今の側を白く浮かせる。**押せない**
+                  （表示だけ。前は 54px の帯が切り替えのボタンで、Android の小さい画面で海を削っていた）
    共有のときは水が夕方の色になる（css/space.css。html.is-share）。
 
    共有のときだけ出るもの:
-     ・状態の字   帯の右に2行。「合わせた／15:30」・「繋がっていない／15:30 に見たもの」
+     ・状態の字   薄い帯の右に2行。「合わせた／15:30」・「繋がっていない／15:30 に見たもの」
                   件数・人数は出さない（数を出さない決まりと同じ）
      ・入る札     共有の合言葉がまだ無いとき、海の上に「共有の海に入る」→ 設定へ
      ・読むだけ   合わせられていない間は、入力欄を点線にして「繋がると書ける」。
                   書き込み口は store が断り、ここが知らせを出す
-   個人のときは帯が足されるだけで、ほかは今までどおり。 */
+   個人のときは薄い帯が足されるだけで、ほかは今までどおり。 */
 
 import { store, SPACE_KEY } from './store.js';
 import { sync } from './sync.js';
@@ -26,30 +30,50 @@ function hhmm(ms) {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-/* ---- 帯 ---- */
+const LABELS = [['me', '個人'], ['share', '共有']];
+
+/* 持ち主を替える。個人の書きかけ（位置など）を残してから読み直す。共有で読むだけなら store が断る */
+function switchTo(id) {
+  if (id === SPACE) return;
+  try { store.flush(); } catch (e) { /* 替えるのは止めない */ }
+  try { localStorage.setItem(SPACE_KEY, id); } catch (e) { toast('切り替えを覚えられなかった'); return; }
+  location.reload();
+}
+
+/* ---- 薄い帯（表示だけ。押せない） ---- */
 const strip = document.createElement('div');
 strip.className = 'space-strip';
-strip.setAttribute('role', 'group');
-strip.setAttribute('aria-label', '持ち主');
+strip.setAttribute('role', 'status');
+strip.setAttribute('aria-label', '今の持ち主: ' + (SPACE === 'share' ? '共有' : '個人') + '（切り替えは左上の ≡ から）');
 const seg = document.createElement('div');
 seg.className = 'space-seg';
-[['me', '個人'], ['share', '共有']].forEach(([id, label]) => {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.dataset.space = id;
-  b.className = (id === 'share' ? 'is-share-btn ' : '') + (id === SPACE ? 'is-on' : '');
-  b.textContent = label;
-  b.setAttribute('aria-pressed', id === SPACE ? 'true' : 'false');
-  b.addEventListener('click', () => {
-    if (id === SPACE) return;
-    /* 個人の書きかけ（位置など）を残してから替える。共有で読むだけなら store が断る */
-    try { store.flush(); } catch (e) { /* 替えるのは止めない */ }
-    try { localStorage.setItem(SPACE_KEY, id); } catch (e) { toast('切り替えを覚えられなかった'); return; }
-    location.reload();
-  });
-  seg.appendChild(b);
+seg.setAttribute('aria-hidden', 'true');
+LABELS.forEach(([id, label]) => {
+  const span = document.createElement('span');
+  span.className = (id === 'share' ? 'is-share-btn ' : '') + (id === SPACE ? 'is-on' : '');
+  span.textContent = label;
+  seg.appendChild(span);
 });
 strip.appendChild(seg);
+
+/* ---- 引き出しの頭の切り替え（app.js の openDrawer が、引き出しを開くたびに置く） ---- */
+export function spaceSwitcher() {
+  const box = document.createElement('div');
+  box.className = 'drawer-space';
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', '持ち主の切り替え');
+  LABELS.forEach(([id, label]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.space = id;
+    b.className = (id === 'share' ? 'is-share-btn ' : '') + (id === SPACE ? 'is-on' : '');
+    b.textContent = label;
+    b.setAttribute('aria-pressed', id === SPACE ? 'true' : 'false');
+    b.addEventListener('click', () => switchTo(id));
+    box.appendChild(b);
+  });
+  return box;
+}
 
 /* ---- 共有の状態の字 ---- */
 const stateEl = document.createElement('div');

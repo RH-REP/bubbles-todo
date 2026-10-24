@@ -84,7 +84,7 @@ h2, h3 { scroll-margin-top: 76px; }
 <h3>海に書く</h3>
 <p>下の欄に書いて「送信」を押すと、泡になって海に浮かびます。泡は時間とともにゆっくり漂います。左右の矢印の看板（「仕事」など）か背景をなぞると、となりの海（タグごとの海）へ移ります。上は「長期保留」、下は「完了」の海です。</p>
 <figure>
-  <div class="shot"><img src="img/01_sea.jpg" alt="海の画面。泡がいくつか浮かんでいる" loading="lazy"><figcaption>海。上にあるのは「個人 | 共有」の帯（<a href="#space">2章</a>）</figcaption></div>
+  <div class="shot"><img src="img/01_sea.jpg" alt="海の画面。泡がいくつか浮かんでいる" loading="lazy"><figcaption>海。いちばん上の薄い帯は、今が個人か共有か（<a href="#space">2章</a>）</figcaption></div>
   <div class="shot"><img src="img/02_write.jpg" alt="下の欄に「カーテンを洗う」と書いたところ" loading="lazy"><figcaption>下の欄に書いて「送信」</figcaption></div>
 </figure>
 
@@ -104,21 +104,24 @@ h2, h3 { scroll-margin-top: 76px; }
 </figure>
 
 <h3>引き出しと設定</h3>
-<p>左上の ≡ は「引き出し」。最近つかったもの・お気に入り・長期保留・タグごとの一覧から、1タップで今日に置けます。右上の ⚙ は設定です。設定のいちばん上に「ふりかえり」と、この「使い方」があります。</p>
+<p>左上の ≡ は「引き出し」。いちばん上の「個人／共有」で持ち主を切り替えます。その下の、最近つかったもの・お気に入り・長期保留・タグごとの一覧から、1タップで今日に置けます。右上の ⚙ は設定です。設定のいちばん上に「ふりかえり」と、この「使い方」があります。</p>
 <figure>
   <div class="shot"><img src="img/08_drawer.jpg" alt="引き出し。最近つかった泡と「今日に」のボタン" loading="lazy"><figcaption>引き出し（≡）</figcaption></div>
   <div class="shot"><img src="img/09_settings.jpg" alt="設定の画面。ふりかえり・使い方・タグ" loading="lazy"><figcaption>設定（⚙）</figcaption></div>
 </figure>
 
 <h2 id="space">2. 個人と共有</h2>
-<p>いちばん上の帯で「個人」と「共有」を切り替えます。切り替えると画面を読み直し、app 全体（海・今日・きっかけ・すきま・ふりかえり）がその持ち主の記録になります。</p>
+<p>左上の ≡（引き出し）を開くと、いちばん上に「個人」「共有」のボタンがあります。押すと画面を読み直し、app 全体（海・今日・きっかけ・すきま・ふりかえり）がその持ち主の記録になります。今どちらかは、画面のいちばん上の薄い帯に出ます（帯は表示だけで、押しても切り替わりません）。</p>
+<figure>
+  <div class="shot"><img src="img/08_drawer.jpg" alt="引き出しのいちばん上の「個人」「共有」のボタン" loading="lazy"><figcaption>切り替えは引き出し（≡）のいちばん上</figcaption></div>
+</figure>
 <ul>
   <li><b>個人</b>：自分だけの記録。端末に書き、サーバーに繋いでいればサーバーとも合わせます。</li>
-  <li><b>共有</b>：共有の合言葉を知っている人どうしの記録。水が夕方の色になり、帯の右に「合わせた／時刻」と出ます。書けるのは、サーバーと合わせられている間だけです。</li>
+  <li><b>共有</b>：共有の合言葉を知っている人どうしの記録。水が夕方の色になり、薄い帯の右に「合わせた／時刻」と出ます。書けるのは、サーバーと合わせられている間だけです。</li>
 </ul>
 <figure>
   <div class="shot"><img src="img/01_sea.jpg" alt="個人の海（水色）" loading="lazy"><figcaption>個人（いつもの水の色）</figcaption></div>
-  <div class="shot"><img src="img/13_share.jpg" alt="共有の海（夕方の色）。帯の右に「合わせた 16:34」" loading="lazy"><figcaption>共有（夕方の水。右上に「合わせた」）</figcaption></div>
+  <div class="shot"><img src="img/13_share.jpg" alt="共有の海（夕方の色）。薄い帯の右に「合わせた」と時刻" loading="lazy"><figcaption>共有（夕方の水。右上に「合わせた」）</figcaption></div>
 </figure>
 <div class="box share">個人の泡を共有へ移す道はありません（間違えて人に見せないため）。共有に置きたいものは、共有に切り替えてから書きます。件数や人数は出しません。</div>
 
@@ -143,7 +146,7 @@ h2, h3 { scroll-margin-top: 76px; }
 <ol class="steps">
   <li>Tailscale のアカウントを作り（個人向けは無料）、端末に Tailscale を入れてログインする。</li>
   <li>持ち主から届いた「機械の共有」の招待を受け入れる。あなたの Tailscale に、このサーバー機だけが現れます（ほかの機械には届きません）。</li>
-  <li>Bubbles で帯の「共有」を押す。「共有の海に入る」の札が出るので、「設定を開く」を押す。</li>
+  <li>Bubbles で左上の ≡ を開き、いちばん上の「共有」を押す。「共有の海に入る」の札が出るので、「設定を開く」を押す。</li>
   <li>住所と「共有の合言葉」だけを入れて「繋ぐ」（「自分の合言葉」は空のまま）。「共有: 合わせた」になれば入れています。</li>
 </ol>
 <figure>
@@ -154,7 +157,7 @@ h2, h3 { scroll-margin-top: 76px; }
 <div class="box">Tailscale は「自分の機械どうしだけをつなぐ VPN」です。ほかの Web サイトへの通信は Tailscale を通らず、今までどおり直接届きます。スマホでは VPN の枠を1つ使うので、ほかの VPN とは同時に使えません。</div>
 
 <h2 id="offline">5. 繋がっていないとき</h2>
-<p>共有の海は、サーバーと合わせられていない間は「読むだけ」になります。最後に見たものを色を抜いて出し、帯の右に「繋がっていない／<i>時刻</i> に見たもの」と出ます。入力欄は点線になり、書こうとすると「繋がると書ける」と知らせます。繋がったら自動で新しくなり、色も戻ります。</p>
+<p>共有の海は、サーバーと合わせられていない間は「読むだけ」になります。最後に見たものを色を抜いて出し、薄い帯の右に「繋がっていない／<i>時刻</i> に見たもの」と出ます。入力欄は点線になり、書こうとすると「繋がると書ける」と知らせます。繋がったら自動で新しくなり、色も戻ります。</p>
 <figure>
   <div class="shot"><img src="img/14_share_offline.jpg" alt="繋がっていない共有の海。色が抜け、「繋がっていない 16:34 に見たもの」" loading="lazy"><figcaption>繋がっていない共有</figcaption></div>
   <div class="shot"><img src="img/15_share_blocked.jpg" alt="書こうとしたときの知らせ「繋がると書ける」" loading="lazy"><figcaption>書こうとしたとき</figcaption></div>
@@ -231,7 +234,7 @@ bash bubbles-todo/tools/server-setup.sh rotate-me</code></pre>
   <tr><td>「合言葉が違う」</td><td>合言葉を入れ直す。取り消された（<code>share-remove</code>）か、作り直された（<code>rotate-me</code>）かもしれない。</td></tr>
   <tr><td>「これは共有の合言葉ではない」「これは共有の合言葉（自分の合言葉の欄に入っている）」</td><td>欄を取り違えている。自分の合言葉と共有の合言葉を入れ替える。</td></tr>
   <tr><td>「http では繋がない」</td><td>住所を <code>https://…ts.net</code> にする。</td></tr>
-  <tr><td>共有で書けない（点線）</td><td>サーバーと合わせられるまで読むだけ。右上の字が「合わせた」になれば書ける。</td></tr>
+  <tr><td>共有で書けない（点線）</td><td>サーバーと合わせられるまで読むだけ。いちばん上の薄い帯の右の字が「合わせた」になれば書ける。</td></tr>
   <tr><td>ほかの VPN が切れた（スマホ）</td><td>スマホは VPN を1つしか同時に使えない。Bubbles を使う間だけ Tailscale に切り替える。</td></tr>
 </table>
 <p class="note">この記事のスクリーンショットは、試し用の記録で撮ったものです。</p>

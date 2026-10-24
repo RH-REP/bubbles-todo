@@ -11,8 +11,8 @@
 import { store } from './store.js';
 /* サーバーと記録を合わせる。設定で住所を入れていなければ何もしない（sync.js） */
 import './sync.js';
-/* 個人と共有の帯（space.js）。持ち主は store が開くときに決まっている */
-import './space.js';
+/* 個人と共有（space.js）。薄い帯の表示と、引き出しの頭の切り替え。持ち主は store が開くときに決まっている */
+import { spaceSwitcher } from './space.js';
 import { toast, holdRing, fromFeedback } from './ui.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
@@ -415,6 +415,8 @@ function openDrawer() {
   const body = document.createElement('div');
   body.className = 'drawer-body';
   panel.appendChild(close);
+  /* いちばん上に「個人／共有」の切り替え（2026-10-24 利用者の指示：切り替えの入口は引き出し） */
+  panel.appendChild(spaceSwitcher());
   panel.appendChild(body);
   back.appendChild(panel);
   /* 覆いをタップで閉じる。板の中のタップは閉じない */
