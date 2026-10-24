@@ -25,17 +25,8 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <!-- dvh を知らないブラウザ（Android の Chrome 107 まで・WebView 103）だけ、実際の画面の高さを --app-h に入れる。
      100vh はアドレスバーを隠したときの高さなので、そのままだと下のタブが画面の外に出る（css/base.css .app） -->
-<script>
-(function () {
-  if (window.CSS && CSS.supports && CSS.supports('height', '100dvh')) return;
-  var root = document.documentElement;
-  function fit() { root.style.setProperty('--app-h', window.innerHeight + 'px'); }
-  root.classList.add('no-dvh');
-  fit();
-  window.addEventListener('resize', fit);
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', fit);
-})();
-</script>
+<!-- 中身は js/boot-dvh.js（ページの中に直書きしない。配るときの CSP が script-src 'self' のため） -->
+<script src="js/boot-dvh.js"></script>
 <link rel="stylesheet" href="css/base.css">
 <!-- bubble.css は base.css のあと。タブバーの持ち上げなど、骨格の上書きが入るため -->
 <link rel="stylesheet" href="css/bubble.css">
@@ -73,13 +64,6 @@
      ・updateViaCache:'none' … sw.js 自身を HTTP キャッシュから読ませない。
        ここを既定のままにすると、直しても最大24時間気づかれないことがある
      ・新しい版が効くのは**次に開いたとき**。走っている module を差し替えないため -->
-<script>
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-      .catch(() => { /* 登録できなくても、アプリは網から動く */ });
-  });
-}
-</script>
+<script src="js/sw-register.js"></script>
 </body>
 </html>

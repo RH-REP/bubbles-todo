@@ -37,6 +37,19 @@ API:
 
 外へ出すときは、このサーバーを 127.0.0.1 で動かしたまま、Tailscale の
 `tailscale serve` で HTTPS を付けて同じ tailnet の端末にだけ見せる（README「サーバーに置く」）。
+
+公開して使う形（--auth passkey。2026-10-24 の開発版。Tailscale を使わない）:
+    前段の Caddy で HTTPS にし、このサーバーは 127.0.0.1 のまま。入場はパスキーだけ（合言葉では入れない）。
+    python3 server.py --auth passkey --origin https://<名前> --trust-proxy
+    python3 server.py invite-add <名前> --space me,share   招待コード（1回きり・24時間）を作る
+    python3 server.py passkey-list / passkey-remove <名前> / invite-list
+    POST /api/passkey/register/options {invite} → 登録の問題   POST /api/passkey/register {credential} → 通行証
+    POST /api/passkey/login/options {}  → 入場の問題           POST /api/passkey/login {credential}    → 通行証
+    POST /api/passkey/logout（Authorization: Bearer 通行証）
+    /api/data は Authorization: Bearer <通行証> と X-Bubbles-Space: me|share で使う
+守り（どちらの形でも）: 接続元ごとの接続数・要求数・入場の失敗の数に上限（guard.py）、1接続の待ちは 15 秒、
+    受け取る大きさは 4MB まで、配るページに CSP などのヘッダ、よそのオリジンは決めた相手だけ。
+    守りの出来事は標準エラーに「bubbles: auth-fail ip=…」の形で出す（fail2ban が読む。値は出さない）
 """
 import argparse
 import hmac
@@ -51,11 +64,15 @@ import threading
 import time
 from pathlib import Path
 
+import passkey_crypto as pc
+from guard import Guard
+from passkey_store import PasskeyStore, SPACES as PASSKEY_SPACES
+
 ROOT = Path(__file__).resolve().parent
 # 配るのは app 本体だけ。.git・.env・data/・DEV_NOTES などは出さない
 PUBLIC_FILES = {'index.html', 'manifest.json', 'sw.js'}
 PUBLIC_DIRS = {'css', 'js', 'icons', 'docs'}   # docs/ は使い方の記事（スクリーンショットつき）
-MAX_BODY = 32 * 1024 * 1024
+MAX_BODY = 4 * 1024 * 1024   # 記録に見合う大きさ（前は 32MB。大きすぎる要求でメモリを使わせない）
 BACKUP_KEEP = 50
 
 TYPES = {
@@ -254,14 +271,57 @@ def open_spaces(data_dir: Path):
     return Spaces(data_dir).current()
 
 
-def make_handler(spaces):
-    """spaces = {合言葉: (置き場の名前, Store)}、または current() でそれを返すもの（Spaces）"""
+LOOPBACK = {'127.0.0.1', '::1'}
+# 配るページの守り。外のスクリプト・外への接続・よそのページへの埋め込みを許さない。
+# style は 'unsafe-inline'（画面が要素の style を使う。スクリプトほど危なくない）
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+       "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+       "frame-ancestors 'none'")
+
+
+def log_event(kind: str, ip: str, detail: str = ''):
+    """守りの出来事を記録（journal）に1行出す。fail2ban がこれを読む。合言葉・通行証の値は出さない"""
+    sys.stderr.write(f'bubbles: {kind} ip={ip}{(" " + detail) if detail else ""}\n')
+    sys.stderr.flush()
+
+
+class Config:
+    """入場の仕方と守りの設定。token（合言葉。Tailscale の中で使う）か passkey（公開して使う）"""
+
+    def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
+                 guard=None, passkeys=None, stores=None, require_uv=True):
+        self.auth, self.origin, self.rp_id = auth, origin, rp_id
+        self.trust_proxy = trust_proxy
+        self.allow_origins = set(allow_origins)
+        self.guard = guard or Guard()
+        self.passkeys = passkeys
+        self.stores = stores or {}
+        self.require_uv = require_uv
+
+
+def make_handler(spaces, cfg: Config = None):
+    """spaces = {合言葉: (置き場の名前, Store)}、または current() でそれを返すもの（Spaces）。
+    cfg.auth == 'passkey' なら合言葉では入れず、パスキーで出した通行証だけを通す"""
+    cfg = cfg or Config()
     table = spaces.current if hasattr(spaces, 'current') else (lambda: spaces)
+
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = 'Bubbles'
+        sys_version = ''
+        timeout = 15             # 1つの接続が送ってくるのを待つ長さ（ゆっくり送る攻撃で止められない）
 
         def log_message(self, fmt, *args):
             pass  # アクセスログは出さない（記録の中身も出さない）
+
+        # --- 誰からか ---
+        def ip(self):
+            peer = self.client_address[0]
+            if cfg.trust_proxy and peer in LOOPBACK:
+                # 前段（Caddy）が付けた最後の1つを使う。それより前は送り手が自由に書ける
+                xff = self.headers.get('X-Forwarded-For', '')
+                if xff.strip():
+                    return xff.split(',')[-1].strip()[:64]
+            return peer
 
         # --- 返す ---
         def send(self, code, body=b'', ctype='application/json', extra=None):
@@ -269,9 +329,17 @@ def make_handler(spaces):
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Cache-Control', 'no-store')
-            # 合言葉はヘッダで送るのでクッキーは使っていない。どのオリジンから呼ばれても、
-            # 合言葉を知らなければ読めない（Android 版は capacitor://localhost から呼ぶ）
-            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Referrer-Policy', 'no-referrer')
+            self.send_header('X-Frame-Options', 'DENY')
+            self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
+            if ctype.startswith('text/html'):
+                self.send_header('Content-Security-Policy', CSP)
+            # よそのオリジンから呼んでよいのは、決めた相手だけ（既定は Android 版だけ。公開の形では無し）
+            origin = self.headers.get('Origin', '')
+            if origin and origin in cfg.allow_origins:
+                self.send_header('Access-Control-Allow-Origin', origin)
+                self.send_header('Vary', 'Origin')
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
             self.end_headers()
@@ -281,32 +349,89 @@ def make_handler(spaces):
         def send_json(self, code, obj):
             self.send(code, json.dumps(obj, ensure_ascii=False).encode('utf-8'))
 
+        def too_many(self):
+            return self.send_json(429, {'error': 'too many'}) or False
+
+        def gate(self):
+            """要求の数を数える。多すぎたら 429 を返して False"""
+            if not cfg.guard.request(self.ip()):
+                log_event('rate-limit', self.ip())
+                return self.too_many()
+            return True
+
+        def deny(self, reason):
+            cfg.guard.auth_failed(self.ip())
+            log_event('auth-fail', self.ip(), reason)
+            return self.send_json(401, {'error': 'unauthorized'})
+
+        def read_json(self):
+            try:
+                n = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                n = -1
+            if n <= 0 or n > MAX_BODY:
+                self.send_json(413 if n > MAX_BODY else 400, {'error': 'bad length'})
+                return None
+            try:
+                body = json.loads(self.rfile.read(n).decode('utf-8'))
+            except (ValueError, UnicodeDecodeError):
+                self.send_json(400, {'error': 'bad body'})
+                return None
+            if not isinstance(body, dict):
+                self.send_json(400, {'error': 'bad body'})
+                return None
+            return body
+
+        # --- 入場 ---
         def space(self):
-            """合言葉に合う (置き場の名前, Store)。合わなければ None。
-            比べるのは全部の合言葉と（どれに合ったかで時間が変わらないように）"""
-            got = self.headers.get('Authorization', '').encode('utf-8')
+            """(置き場の名前, Store)。合わなければ None"""
+            got = self.headers.get('Authorization', '')
+            if cfg.auth == 'passkey':
+                tok = got[7:] if got.startswith('Bearer ') else ''
+                allowed = cfg.passkeys.check_session(tok) if tok else None
+                want = self.headers.get('X-Bubbles-Space', 'me')
+                if not allowed or want not in allowed or want not in cfg.stores:
+                    return None
+                return want, cfg.stores[want]
+            # 比べるのは全部の合言葉と（どれに合ったかで時間が変わらないように）
+            got_b = got.encode('utf-8')
             hit = None
             for tok, sp in table().items():
-                if hmac.compare_digest(got, ('Bearer ' + tok).encode('utf-8')):
+                if hmac.compare_digest(got_b, ('Bearer ' + tok).encode('utf-8')):
                     hit = sp
             return hit
 
+        def authed_space(self):
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            sp = self.space()
+            if not sp:
+                return self.deny('data')
+            return sp
+
         # --- 受ける ---
         def do_OPTIONS(self):
+            if not self.gate():
+                return
             self.send(204, extra={
-                'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
-                'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+                'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Bubbles-Space',
                 'Access-Control-Max-Age': '600',
             })
 
         def do_GET(self):
+            if not self.gate():
+                return
             path = self.path.split('?', 1)[0]
             if path == '/api/health':
                 return self.send_json(200, {'ok': True})
+            if path == '/api/auth':
+                return self.send_json(200, {'mode': cfg.auth, 'rp_id': cfg.rp_id if cfg.auth == 'passkey' else ''})
             if path == '/api/data':
-                sp = self.space()
+                sp = self.authed_space()
                 if not sp:
-                    return self.send_json(401, {'error': 'unauthorized'})
+                    return
                 cur = sp[1].read()
                 return self.send_json(200, {'space': sp[0], 'version': cur['version'], 'data': cur['data']})
             if path.startswith('/api/'):
@@ -316,30 +441,108 @@ def make_handler(spaces):
         do_HEAD = do_GET
 
         def do_PUT(self):
+            if not self.gate():
+                return
             if self.path.split('?', 1)[0] != '/api/data':
                 return self.send_json(404, {'error': 'not found'})
-            sp = self.space()
+            sp = self.authed_space()
             if not sp:
-                return self.send_json(401, {'error': 'unauthorized'})
-            store = sp[1]
+                return
+            body = self.read_json()
+            if body is None:
+                return
             try:
-                n = int(self.headers.get('Content-Length', '0'))
-            except ValueError:
-                n = -1
-            if n <= 0 or n > MAX_BODY:
-                return self.send_json(413 if n > MAX_BODY else 400, {'error': 'bad length'})
-            try:
-                body = json.loads(self.rfile.read(n).decode('utf-8'))
                 base = int(body['base'])
                 data = body['data']
                 if not isinstance(data, dict) or not isinstance(data.get('doc'), dict):
                     raise ValueError('data.doc')
-            except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+            except (ValueError, KeyError, TypeError):
                 return self.send_json(400, {'error': 'bad body'})
-            ok, res = store.write(base, data)
+            ok, res = sp[1].write(base, data)
             if ok:
                 return self.send_json(200, {'version': res})
             return self.send_json(409, {'space': sp[0], 'version': res['version'], 'data': res['data']})
+
+        def do_POST(self):
+            if not self.gate():
+                return
+            path = self.path.split('?', 1)[0]
+            if cfg.auth != 'passkey' or not path.startswith('/api/passkey/'):
+                return self.send_json(404, {'error': 'not found'})
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            body = self.read_json()
+            if body is None:
+                return
+            pk = cfg.passkeys
+            try:
+                if path == '/api/passkey/register/options':
+                    inv = pk.find_invite(body.get('invite', ''))
+                    if not inv:
+                        return self.deny('invite')
+                    chal = pk.new_challenge('create', inv['code_hash'])
+                    return self.send_json(200, {'publicKey': {
+                        'challenge': chal,
+                        'rp': {'id': cfg.rp_id, 'name': 'Bubbles'},
+                        'user': {'id': pc.b64u_encode(secrets.token_bytes(16)), 'name': inv['name'], 'displayName': inv['name']},
+                        'pubKeyCredParams': [{'type': 'public-key', 'alg': a} for a in pc.SUPPORTED_ALGS],
+                        'authenticatorSelection': {'residentKey': 'required', 'requireResidentKey': True,
+                                                   'userVerification': 'required'},
+                        'attestation': 'none', 'timeout': 120000,
+                        'excludeCredentials': [],
+                    }})
+                if path == '/api/passkey/register':
+                    cred = body.get('credential') or {}
+                    resp = cred.get('response') or {}
+                    cd = pc.b64u_decode(resp.get('clientDataJSON', ''))
+                    ch = json.loads(cd.decode('utf-8')).get('challenge', '')
+                    got = pk.take_challenge(ch, 'create')
+                    if not got:
+                        return self.deny('challenge')
+                    inv = next((r for r in pk.list_invites() if r['code_hash'] == got['invite_hash']), None)
+                    if not inv:
+                        return self.deny('invite-used')
+                    out = pc.verify_registration(cd, pc.b64u_decode(resp.get('attestationObject', '')),
+                                                 challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
+                                                 require_uv=cfg.require_uv)
+                    if not pk.use_invite(inv['code_hash']):
+                        return self.deny('invite-used')
+                    name = pk.add_passkey(name=inv['name'], spaces=inv['spaces'], cred=out)
+                    tok, exp = pk.new_session(out['cred_id'], inv['spaces'])
+                    log_event('passkey-registered', self.ip(), f'name={name}')
+                    return self.send_json(200, {'session': tok, 'expires': exp, 'spaces': inv['spaces'], 'name': name})
+                if path == '/api/passkey/login/options':
+                    return self.send_json(200, {'publicKey': {
+                        'challenge': pk.new_challenge('get'), 'rpId': cfg.rp_id,
+                        'userVerification': 'required', 'timeout': 120000, 'allowCredentials': [],
+                    }})
+                if path == '/api/passkey/login':
+                    cred = body.get('credential') or {}
+                    resp = cred.get('response') or {}
+                    cd = pc.b64u_decode(resp.get('clientDataJSON', ''))
+                    ch = json.loads(cd.decode('utf-8')).get('challenge', '')
+                    if not pk.take_challenge(ch, 'get'):
+                        return self.deny('challenge')
+                    row = pk.find_passkey(str(cred.get('id', '')))
+                    if not row:
+                        return self.deny('unknown-passkey')
+                    count = pc.verify_assertion(public_key=row['public_key'], sign_count=row['sign_count'],
+                                                client_data_json=cd,
+                                                authenticator_data=pc.b64u_decode(resp.get('authenticatorData', '')),
+                                                signature=pc.b64u_decode(resp.get('signature', '')),
+                                                challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
+                                                require_uv=cfg.require_uv)
+                    pk.touch_passkey(row['id'], count)
+                    tok, exp = pk.new_session(row['id'], row['spaces'])
+                    return self.send_json(200, {'session': tok, 'expires': exp, 'spaces': row['spaces'], 'name': row['name']})
+                if path == '/api/passkey/logout':
+                    got = self.headers.get('Authorization', '')
+                    pk.end_session(got[7:] if got.startswith('Bearer ') else '')
+                    return self.send_json(200, {'ok': True})
+            except (pc.VerifyError, ValueError, KeyError, TypeError, AttributeError) as e:
+                return self.deny('passkey ' + type(e).__name__ + ': ' + str(e)[:60])
+            return self.send_json(404, {'error': 'not found'})
 
         def static(self, path):
             rel = path.lstrip('/') or 'index.html'
@@ -358,8 +561,35 @@ def make_handler(spaces):
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    """接続ごとに1本のスレッド。ただし数を決める（Guard。超えたら読まずに 429 で閉じる）"""
     daemon_threads = True
     allow_reuse_address = True
+    guard = None
+    trust_proxy = False
+
+    def _per_ip(self, ip):
+        # 前段（Caddy）の後ろでは、接続はみな 127.0.0.1 から来る。接続元ごとの数は前段に任せ、全体の数だけを見る
+        return not (self.trust_proxy and ip in LOOPBACK)
+
+    def process_request(self, request, client_address):
+        g = self.guard or Guard()
+        self.guard = g
+        ip = client_address[0]
+        if not g.open(ip, self._per_ip(ip)):
+            try:
+                request.sendall(b'HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+            except OSError:
+                pass
+            log_event('conn-limit', ip)
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.guard.close(client_address[0], self._per_ip(client_address[0]))
 
 
 def token_command(data_dir: Path, cmd: str, name: str) -> int:
@@ -393,24 +623,93 @@ def token_command(data_dir: Path, cmd: str, name: str) -> int:
     return 0
 
 
+def passkey_command(data_dir: Path, cmd: str, name: str, space: str) -> int:
+    """パスキーの操作（公開の形）。動いているサーバーは止めなくてよい"""
+    pk = PasskeyStore(data_dir)
+    if cmd == 'invite-add':
+        spaces = [s.strip() for s in (space or 'share').split(',') if s.strip()]
+        if any(s not in PASSKEY_SPACES for s in spaces):
+            raise SystemExit('置き場は me・share・me,share のどれか')
+        code = pk.add_invite(name, spaces)
+        where = '個人と共有' if set(spaces) == {'me', 'share'} else ('個人' if spaces == ['me'] else '共有')
+        print(f'「{name}」の招待コード（{where}。24時間・1回だけ）: {code}', flush=True)
+        print('相手には、住所とこのコードを渡す。相手は Bubbles の設定の「パスキー」で登録する', flush=True)
+    elif cmd == 'invite-list':
+        rows = pk.list_invites()
+        if not rows:
+            print('使われていない招待コードはありません')
+        for r in rows:
+            print(f"{r['name']}\t{','.join(r['spaces'])}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}")
+    elif cmd == 'passkey-list':
+        rows = pk.passkeys()
+        if not rows:
+            print('登録したパスキーはありません（invite-add <名前> で招待コードを作る）')
+        for r in rows:
+            last = time.strftime('%Y-%m-%d', time.localtime(r['last_used'])) if r.get('last_used') else '未使用'
+            print(f"{r['name']}\t{','.join(r['spaces'])}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}")
+    elif cmd == 'passkey-remove':
+        if not pk.remove_passkey(name):
+            raise SystemExit(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
+        print(f'「{name}」のパスキーと通行証を取り消しました。その端末は次の要求から入れません', flush=True)
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Bubbles の記録を置くサーバー')
     ap.add_argument('--host', default='127.0.0.1',
-                    help='待ち受ける住所（既定 127.0.0.1。外へは tailscale serve で出す）')
+                    help='待ち受ける住所（既定 127.0.0.1。外へは tailscale serve か、前段の Caddy で出す）')
     ap.add_argument('--port', type=int, default=int(os.environ.get('BUBBLE_TODO_PORT', '8931')))
     ap.add_argument('--data-dir', default=os.environ.get('BUBBLE_TODO_DATA', str(ROOT / 'data')))
+    ap.add_argument('--auth', choices=['token', 'passkey'], default=os.environ.get('BUBBLE_TODO_AUTH', 'token'),
+                    help='token: 合言葉（Tailscale の中で使う） / passkey: パスキーだけ（公開して使う）')
+    ap.add_argument('--origin', default=os.environ.get('BUBBLE_TODO_ORIGIN', ''),
+                    help='passkey のとき要る。利用者が開く住所（例 https://bubbles.example.org）')
+    ap.add_argument('--rp-id', default=os.environ.get('BUBBLE_TODO_RP_ID', ''),
+                    help='パスキーを結び付ける名前（既定は --origin の名前）')
+    ap.add_argument('--trust-proxy', action='store_true',
+                    help='前段（Caddy）の X-Forwarded-For で接続元を数える（127.0.0.1 から来たときだけ）')
+    ap.add_argument('--allow-origin', action='append', default=None,
+                    help='よそのオリジンから呼んでよい相手（何度でも）。既定は token のとき Android 版、passkey のとき無し')
+    ap.add_argument('--space', default='share', help='invite-add の置き場（me / share / me,share）')
     ap.add_argument('command', nargs='?', default='serve',
-                    choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me'],
-                    help='serve（既定）か、合言葉の操作')
-    ap.add_argument('name', nargs='?', default='', help='share-add / share-remove の名前')
+                    choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
+                             'invite-add', 'invite-list', 'passkey-list', 'passkey-remove'],
+                    help='serve（既定）か、合言葉・パスキーの操作')
+    ap.add_argument('name', nargs='?', default='', help='share-add / share-remove / invite-add / passkey-remove の名前')
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
+    if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove'):
+        if args.command in ('invite-add', 'passkey-remove') and not args.name.strip():
+            raise SystemExit(f'名前を入れてください（例: {args.command} 母のスマホ）')
+        return passkey_command(data_dir, args.command, args.name, args.space)
     if args.command != 'serve':
         return token_command(data_dir, args.command, args.name)
-    httpd = Server((args.host, args.port), make_handler(Spaces(data_dir)))
-    print(f'Bubbles server: http://{args.host}:{args.port}/  data: {data_dir}', flush=True)
+
+    from urllib.parse import urlsplit
+    if args.auth == 'passkey':
+        u = urlsplit(args.origin)
+        local = u.hostname in ('localhost', '127.0.0.1')
+        if not u.scheme or not u.hostname or (u.scheme != 'https' and not local):
+            raise SystemExit('--auth passkey には --origin https://<名前> が要ります（開発で localhost のときだけ http）')
+        origin = f'{u.scheme}://{u.netloc}'
+        rp_id = args.rp_id or u.hostname
+        if rp_id != u.hostname and not u.hostname.endswith('.' + rp_id):
+            raise SystemExit('--rp-id は --origin の名前か、その親の名前にする')
+        stores = {'me': Store(data_dir), 'share': Store(data_dir / 'share')}
+        cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy,
+                     allow_origins=args.allow_origin or (), passkeys=PasskeyStore(data_dir), stores=stores)
+        spaces = {}
+    else:
+        cfg = Config(auth='token', trust_proxy=args.trust_proxy,
+                     allow_origins=args.allow_origin if args.allow_origin is not None
+                     else ('https://localhost', 'capacitor://localhost'))
+        spaces = Spaces(data_dir)
+    Server.guard, Server.trust_proxy = cfg.guard, cfg.trust_proxy
+    httpd = Server((args.host, args.port), make_handler(spaces, cfg))
+    print(f'Bubbles server: http://{args.host}:{args.port}/  data: {data_dir}  auth: {cfg.auth}'
+          + (f'  origin: {cfg.origin}  rp_id: {cfg.rp_id}' if cfg.auth == 'passkey' else ''), flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

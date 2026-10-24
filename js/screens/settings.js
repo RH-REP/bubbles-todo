@@ -8,6 +8,7 @@ import { el, toast, escapeHtml } from '../ui.js';
 import { store } from '../store.js';
 import { isOn, setOn } from '../sound.js';
 import { sync, checkUrl } from '../sync.js';
+import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode } from '../passkey.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -376,9 +377,99 @@ function serverBox(screen) {
   row.appendChild(off);
   wrap.appendChild(row);
 
+  /* --- パスキー（2026-10-24。公開したサーバー＝ server.py --auth passkey のとき。開発版）---
+     サーバーに入場の形を聞き、パスキーの形なら、合言葉の欄を隠してこちらを出す。
+     登録は、持ち主がサーバーで作った招待コード（1回きり・24時間）で。入るときは Face ID・指紋・PIN */
+  const pkBox = el('div', 'pkbox');
+  pkBox.hidden = true;
+  pkBox.style.cssText = 'margin-top:12px';
+  pkBox.appendChild(el('p', 'note', 'このサーバーはパスキーで入る。初めての端末は、招待コードを入れて登録する。'
+    + '登録した端末は、次から「パスキーで入る」だけでよい（合言葉は使わない）。'));
+  const pkForm = el('form', 'tagadd');
+  const invIn = document.createElement('input');
+  invIn.type = 'text';
+  invIn.autocomplete = 'off';
+  invIn.autocapitalize = 'characters';
+  invIn.spellcheck = false;
+  invIn.placeholder = '招待コード（例 ABCD-EFGH-JKLM）';
+  invIn.setAttribute('aria-label', '招待コード');
+  const regBtn = el('button', 'btn', 'この端末を登録');
+  regBtn.type = 'submit';
+  pkForm.appendChild(invIn);
+  pkForm.appendChild(regBtn);
+  pkBox.appendChild(pkForm);
+  const pkRow = el('div', 'row');
+  pkRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  const inBtn = el('button', 'btn', 'パスキーで入る');
+  inBtn.type = 'button';
+  const outBtn = el('button', 'btn', 'この端末から出る');
+  outBtn.type = 'button';
+  pkRow.appendChild(inBtn);
+  pkRow.appendChild(outBtn);
+  pkBox.appendChild(pkRow);
+  const pkLine = el('p', 'note');
+  pkLine.setAttribute('aria-live', 'polite');
+  pkBox.appendChild(pkLine);
+  wrap.appendChild(pkBox);
+
   const line = el('p', 'note');
   line.setAttribute('aria-live', 'polite');
   wrap.appendChild(line);
+
+  /* 住所: 欄に入っていればそれ、無ければ今の設定、それも無ければこのページ（server.py が配っているとき） */
+  function baseUrl() {
+    const raw = urlIn.value.trim() || sync.config().url
+      || (/^https?:$/.test(location.protocol) && !window.Capacitor ? location.origin : '');
+    const u = checkUrl(raw);
+    return u && u !== 'http' ? u : '';
+  }
+  let mode = null;
+  async function lookMode() {
+    const b = baseUrl();
+    mode = b ? await authMode(b) : null;
+    const pk = mode === 'passkey';
+    pkBox.hidden = !pk;
+    tokIn.hidden = pk;
+    shareIn.hidden = pk;
+    go.hidden = pk;
+    paint();
+  }
+  const PK_SPACES = { me: '個人', share: '共有' };
+  async function withBusy(btn, fn) {
+    btn.disabled = true;
+    try { await fn(); } catch (e) { toast((e && e.message) || '失敗した'); } finally { btn.disabled = false; paint(); }
+  }
+  pkForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const b = baseUrl();
+    if (!b) { toast('住所を入れる（https:// で始める）'); return; }
+    if (!invIn.value.trim()) { toast('招待コードを入れる'); return; }
+    withBusy(regBtn, async () => {
+      const out = await registerPasskey(b, invIn.value);
+      sync.usePasskeySession(b, out);
+      invIn.value = '';
+      urlIn.value = b;
+      toast('この端末を「' + out.name + '」として登録した');
+    });
+  });
+  inBtn.addEventListener('click', () => {
+    const b = baseUrl();
+    if (!b) { toast('住所を入れる（https:// で始める）'); return; }
+    withBusy(inBtn, async () => {
+      const out = await loginPasskey(b);
+      sync.usePasskeySession(b, out);
+      urlIn.value = b;
+      toast('「' + out.name + '」で入った');
+    });
+  });
+  outBtn.addEventListener('click', () => withBusy(outBtn, async () => {
+    const b = sync.config().url;
+    const old = sync.dropPasskeySession();
+    if (b && old) await logoutPasskey(b, old);
+    toast('この端末から出た（記録はこの端末に残っている）');
+  }));
+  urlIn.addEventListener('change', lookMode);
+  if (!passkeySupported()) regBtn.disabled = inBtn.disabled = true;
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
@@ -394,6 +485,14 @@ function serverBox(screen) {
   function paint() {
     const st = sync.status();
     const c = sync.config();
+    if (c.passkey) {
+      const sp = c.passkey.spaces.map(x => PK_SPACES[x] || x).join('・');
+      const until = new Date(c.passkey.expires * 1000);
+      pkLine.textContent = c.passkey.valid
+        ? '「' + c.passkey.name + '」で入っている（' + sp + '。' + (until.getMonth() + 1) + '/' + until.getDate() + ' まで）'
+        : '入り直す（期限が切れた）';
+    } else pkLine.textContent = passkeySupported() ? 'まだ入っていない' : 'このブラウザはパスキーを使えない';
+    outBtn.disabled = !c.passkey;
     /* 字は、いま開いている持ち主（帯）のぶん */
     const who = sync.space() === 'share' ? '共有: ' : '個人: ';
     now.disabled = !sync.ready();
@@ -410,6 +509,7 @@ function serverBox(screen) {
   shareIn.value = c0.shareToken || '';
   sync.on(paint);
   paint();
+  lookMode();
   screen._server = () => {
     const c = sync.config();
     if (document.activeElement !== urlIn) urlIn.value = c.url;
