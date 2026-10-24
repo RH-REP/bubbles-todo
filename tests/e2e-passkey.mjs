@@ -120,6 +120,19 @@ try {
     assert.match(readFileSync(f, 'utf8'), /パスキーで書いた/);
   });
 
+  await step('CSV の書き出しが公開の形（CSP の下）でも動き、書いた記録が入っている', async () => {
+    const dl = join(tmp, 'dl');
+    await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dl, eventsEnabled: true });
+    await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'CSV で書き出す').click();`);
+    let file = null;
+    for (let i = 0; i < 50 && !file; i++) {
+      try { file = (await import('node:fs')).readdirSync(dl).find(f => f.endsWith('.csv')); } catch (e) { /* まだ無い */ }
+      if (!file) await sleep(100);
+    }
+    assert.ok(file, 'CSV が保存された');
+    assert.match(readFileSync(join(dl, file), 'utf8'), /パスキーで書いた/);
+  });
+
   await step('出たあと、パスキーで入り直せる（Face ID のつもりの確かめつき）', async () => {
     await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'この端末から出る').click();`);
     await until(`return !(await import('/js/sync.js')).sync.config().passkey`);

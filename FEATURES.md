@@ -55,7 +55,8 @@
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
 | **改善のコメント（右上の !）**（GitHub の新しい Issue 画面を、画面 ID とコメントを書き込んで開く） | `js/feedback.js`（issue_hub の正本の写し）、`js/app.js` 末尾、各板の `data-screen` | 2026-10-22。バブルの本文が写るので写真は初めは付けない（`screenshot: 'off'`。チェックを入れれば付く、2026-10-23）。記録の欄は出さない（`log: false`）。右上の隅に歯車と同じ 44px で置き、歯車・海のカレンダーを左へずらした（2026-10-23）。バブルの本文は送らない（画面と件数だけ） |
 | Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは開発側（この repo）で |
-| 保存は localStorage。サーバーの住所を入れたときだけ、自分のサーバーと記録を合わせる | `js/store.js` `KEY = 'bubble_todo_v1'`・`stamps`、`js/merge.js`、`js/sync.js`、`server.py`、設定の「サーバー」 | 2026-10-23。記録ごとに新しく書き換えたほうが残る。消したものは消した時刻で比べる。ファイルへの書き出し・読み込みの画面は無い |
+| 保存は localStorage。サーバーの住所を入れたときだけ、自分のサーバーと記録を合わせる | `js/store.js` `KEY = 'bubble_todo_v1'`・`stamps`、`js/merge.js`、`js/sync.js`、`server.py`、設定の「サーバー」 | 2026-10-23。記録ごとに新しく書き換えたほうが残る。消したものは消した時刻で比べる。ファイルへの書き出し・読み込みは CSV（下の行） |
+| 引っ越し（CSV の書き出し・読み込み。読み込むときに「足す」か「同じものは上書き」を選ぶ） | `js/csvio.js`、`js/screens/settings.js` csvBox・askMode | 2026-10-24。記録をまるごと1つの CSV（1行1件。data が JSON の正本）。共有では読むだけの間は読み込まない |
 | 個人と共有の海（引き出しの頭で切り替え、いちばん上の薄い帯で表示。共有は共有の合言葉を知る人どうし、合わせられた間だけ書ける） | `js/space.js`、`css/space.css`、`js/store.js` `SPACE`・`readOnly`・`WRITE_METHODS`、`js/sync.js`、`server.py` `SPACES` | 2026-10-23。繋がっていない共有は最後に見たものを読むだけ。件数・人数は出さない。個人から共有へ移す道は無い |
 | 名前（本文）を盤で書き直せる | `js/store.js` `setText`、`js/bubble.js` 「名前」欄 | 2026-10-12。空にはできない。記録のスナップショットは当時のまま |
 | **引き出し**（左上の ≡。最近つかった／お気に入り／長期保留／タグごと → 今日に置く。名前で盤が開く） | `js/app.js` `openDrawer` / `revealItem`、`js/store.js` `recentItems` / `favItems` / `setFav`、`js/bubble.js` `centerBubble` | 2026-09-24（元 F7）。9/25 にタグ区分・折り畳み・名前タップを追加。お気に入りは盤の ☆ |

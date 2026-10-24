@@ -9,6 +9,7 @@ import { store } from '../store.js';
 import { isOn, setOn } from '../sound.js';
 import { sync, checkUrl } from '../sync.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode } from '../passkey.js';
+import { toCsv, readCsv, importInto, csvFileName } from '../csvio.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -180,6 +181,9 @@ export default {
 
     /* --- サーバー（複数の端末で同じ記録を使う）--- */
     box.appendChild(serverBox(this));
+
+    /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
+    box.appendChild(csvBox());
 
     /* --- プロトタイプ操作 --- */
     const proto = el('div', 'proto');
@@ -518,4 +522,108 @@ function serverBox(screen) {
     paint();
   };
   return wrap;
+}
+
+/* 書き出し・読み込み（CSV）。記録をまるごと1つの CSV にして、別の端末へ引っ越す。
+   対象は、いま開いている持ち主（個人か共有）。形とやり方は js/csvio.js */
+function csvBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, '書き出し・読み込み（CSV）'));
+  const shareNote = store.space() === 'share' ? '共有で読み込むと、共有の合言葉を知っている人の端末にも届く。' : '';
+  wrap.appendChild(el(
+    'p', 'note',
+    'いま開いている' + (store.space() === 'share' ? '共有' : '個人') + 'の記録を、まるごと1つの CSV にする。'
+    + '別の端末で読み込むと、同じ記録になる（引っ越し）。' + shareNote
+  ));
+  const row = el('div', 'row');
+  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  const out = el('button', 'btn', 'CSV で書き出す');
+  out.type = 'button';
+  out.addEventListener('click', () => {
+    try { store.flush(); } catch (e) { /* 書き出しは止めない */ }
+    const csv = toCsv(store.exportState(), store.space());
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = csvFileName(store.space());
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+    toast('書き出した（' + a.download + '）');
+  });
+  const pick = document.createElement('input');
+  pick.type = 'file';
+  pick.accept = '.csv,text/csv';
+  pick.hidden = true;
+  const inBtn = el('button', 'btn', 'CSV を読み込む');
+  inBtn.type = 'button';
+  inBtn.addEventListener('click', () => {
+    if (store.readOnly()) { toast(sync.ready() ? '繋がると読み込める（共有は読むだけの間）' : '共有の合言葉を入れると読み込める'); return; }
+    pick.value = '';
+    pick.click();
+  });
+  pick.addEventListener('change', async () => {
+    const f = pick.files && pick.files[0];
+    if (!f) return;
+    let got;
+    try { got = readCsv(await f.text()); } catch (e) { toast('読み込めない: ' + e.message); return; }
+    const mode = await askMode(f.name, got);
+    if (!mode) return;
+    if (store.readOnly()) { toast('繋がると読み込める（共有は読むだけの間）'); return; }
+    const r = importInto(store.exportState(), got, mode);
+    store.applyState(r.state);
+    toast(mode === 'add'
+      ? 'CSV にしかない記録を足した（todo ' + r.added + ' 件）'
+      : 'CSV の中身で書き換えた（todo 書き換え ' + r.replaced + ' 件・足した ' + r.added + ' 件）');
+  });
+  row.appendChild(out);
+  row.appendChild(inBtn);
+  wrap.appendChild(row);
+  wrap.appendChild(pick);
+  wrap.appendChild(el(
+    'p', 'note',
+    '読み込むときに「足す」か「同じものは上書き」かを選ぶ。'
+    + 'CSV は Excel でも開けるが、data の欄（記録の中身）を書き換えると読み込めなくなることがある。'
+  ));
+  return wrap;
+}
+
+/* 読み込みのやり方を選ばせる。'add' / 'overwrite' / null（やめる） */
+function askMode(fileName, got) {
+  return new Promise(resolve => {
+    const back = el('div', 'csv-ask-back');
+    const box = el('div', 'csv-ask');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-label', 'CSV の読み込み方を選ぶ');
+    const from = got.meta && got.meta.space === 'share' ? '共有' : '個人';
+    const to = store.space() === 'share' ? '共有' : '個人';
+    box.appendChild(el('h4', null, 'CSV をどう読み込む？'));
+    const p = el('p', 'note');
+    p.textContent = fileName + '（' + from + 'の記録）を、いま開いている' + to + 'に読み込む。'
+      + (from !== to ? '持ち主が違うので、気をつけて。' : '');
+    box.appendChild(p);
+    const done = v => { back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(null); } };
+    [['add', '足す', 'いまの記録はそのまま、CSV にしかない記録だけを足す。何度読んでも増えない'],
+     ['overwrite', '同じものは上書き', 'CSV と同じ記録を CSV の中身で書き換え、無いものは足す。この端末にしかない記録は残る']]
+      .forEach(([v, label, sub]) => {
+        const b = el('button', 'csv-ask-choice');
+        b.type = 'button';
+        const t = el('span', 'nm'); t.textContent = label;
+        const u = el('span', 'sub'); u.textContent = sub;
+        b.appendChild(t); b.appendChild(u);
+        b.addEventListener('click', () => done(v));
+        box.appendChild(b);
+      });
+    const cancel = el('button', 'btn', 'やめる');
+    cancel.type = 'button';
+    cancel.addEventListener('click', () => done(null));
+    box.appendChild(cancel);
+    back.appendChild(box);
+    back.addEventListener('click', ev => { if (ev.target === back) done(null); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(back);
+    box.querySelector('button').focus();
+  });
 }

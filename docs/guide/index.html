@@ -74,6 +74,7 @@ h2, h3 { scroll-margin-top: 76px; }
   <li><a href="#offline">繋がっていないとき</a></li>
   <li><a href="#host">サーバーを立てる（持ち主）</a></li>
   <li><a href="#tokens">合言葉の管理（招く・取り消す）</a></li>
+  <li><a href="#csv">引っ越し（CSV の書き出し・読み込み）</a></li>
   <li><a href="#security">安全のための決まり</a></li>
   <li><a href="#faq">困ったとき</a></li>
 </ol>
@@ -217,7 +218,24 @@ bash bubbles-todo/tools/server-setup.sh share-remove 母のスマホ
 bash bubbles-todo/tools/server-setup.sh rotate-me</code></pre>
 <div class="box share">自分の合言葉（<code>token.txt</code>）は人に渡さないでください。個人の記録が読めてしまいます。共有の合言葉だけを知る人は、個人の記録を読めません。</div>
 
-<h2 id="security">8. 安全のための決まり</h2>
+<h2 id="csv">8. 引っ越し（CSV の書き出し・読み込み）</h2>
+<p>記録をまるごと1つの CSV ファイルにして、別の端末へ移せます。対象は、いま開いている持ち主（個人か共有）の記録です。todo だけでなく、きっかけ・すきまの枠・タグ・着手の記録・作業メモの履歴も入ります。</p>
+<ol class="steps">
+  <li>元の端末で、設定（⚙）の「書き出し・読み込み（CSV）」の「CSV で書き出す」を押す。<code>bubbles-個人-日付.csv</code> が保存されます。</li>
+  <li>そのファイルを新しい端末へ写す（AirDrop・USB など。LINE やメールには残さない）。</li>
+  <li>新しい端末で「CSV を読み込む」を押してファイルを選び、読み込み方を選ぶ。
+    <ul>
+      <li><b>足す</b>：いまの記録はそのまま、CSV にしかない記録だけを足す。何度読んでも増えません。</li>
+      <li><b>同じものは上書き</b>：CSV と同じ記録を CSV の中身で書き換え、無いものは足す。この端末にしかない記録は残ります。</li>
+    </ul></li>
+</ol>
+<figure>
+  <div class="shot"><img src="img/18_csv.jpg" alt="設定の「書き出し・読み込み（CSV）」の欄" loading="lazy"><figcaption>設定の「書き出し・読み込み（CSV）」</figcaption></div>
+  <div class="shot"><img src="img/19_csv_ask.jpg" alt="読み込み方を選ぶ窓。足す・同じものは上書き・やめる" loading="lazy"><figcaption>読み込むときに、やり方を選ぶ</figcaption></div>
+</figure>
+<div class="box share">共有で読み込むと、共有の合言葉を知っている人の端末にも届きます。共有が「読むだけ」の間（サーバーと合わせられていないとき）は読み込めません。CSV は Excel でも開けますが、data の欄（記録の中身）を書き換えると読み込めなくなることがあります。</div>
+
+<h2 id="security">9. 安全のための決まり</h2>
 <ul>
   <li>サーバーには、Tailscale を通った端末だけが届く（インターネットには出さない）。</li>
   <li>端末は <code>https://</code> でだけ繋ぐ（外への <code>http://</code> は断る）。</li>
@@ -227,7 +245,7 @@ bash bubbles-todo/tools/server-setup.sh rotate-me</code></pre>
   <li>記録の控えは、サーバーの <code>~/bubbles-data/backup/</code>（個人）と <code>share/backup/</code>（共有）に、書くたびに新しいほうから50個残る。</li>
 </ul>
 
-<h2 id="faq">9. 困ったとき</h2>
+<h2 id="faq">10. 困ったとき</h2>
 <table>
   <tr><th>こうなった</th><th>こうする</th></tr>
   <tr><td>「届かない: サーバーに届かない」</td><td>端末の Tailscale が「接続」になっているか。サーバーで <code>server-setup.sh status</code>。</td></tr>
@@ -235,6 +253,7 @@ bash bubbles-todo/tools/server-setup.sh rotate-me</code></pre>
   <tr><td>「これは共有の合言葉ではない」「これは共有の合言葉（自分の合言葉の欄に入っている）」</td><td>欄を取り違えている。自分の合言葉と共有の合言葉を入れ替える。</td></tr>
   <tr><td>「http では繋がない」</td><td>住所を <code>https://…ts.net</code> にする。</td></tr>
   <tr><td>共有で書けない（点線）</td><td>サーバーと合わせられるまで読むだけ。いちばん上の薄い帯の右の字が「合わせた」になれば書ける。</td></tr>
+  <tr><td>「読み込めない: Bubbles の CSV ではない」</td><td>Bubbles の「CSV で書き出す」で作ったファイルを選ぶ。Excel で保存し直したときに1行目が変わっていないかも見る。</td></tr>
   <tr><td>ほかの VPN が切れた（スマホ）</td><td>スマホは VPN を1つしか同時に使えない。Bubbles を使う間だけ Tailscale に切り替える。</td></tr>
 </table>
 <p class="note">この記事のスクリーンショットは、試し用の記録で撮ったものです。</p>
