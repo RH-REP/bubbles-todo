@@ -17,6 +17,7 @@
    中身のほとんどは js/screens/todo.js から持ち上げたもの。新しく発明していない。 */
 
 import { el, clamp, fromFeedback } from './ui.js';
+import { QUADRANTS, quadrantFor } from './priority.js';
 
 export const MIN_D = 78;      /* バブルの最小直径 px（文字量で決まるとき） */
 export const MAX_D = 200;     /* 同 最大 */
@@ -404,7 +405,22 @@ export function updateBubble(node, item, opts = {}) {
   tagMeta.set(node, { names, colors });
 
   const marks = Array.isArray(opts.marks) ? opts.marks.slice(0, 3) : [];
-  node.setAttribute('aria-label', ariaFor(item, names, marks, started, done));
+  /* ---- 優先度の区分（利用者の指示 2026-10-25）----
+     割り振った泡だけ、右上に区分の色の小さな点。大きさも漂い方も変えない（海を乱さない）。
+     色は css の --q-<鍵>。色だけに頼らないよう、読み上げ文にも区分の名前を足す。
+     item に urgent / important が無い画面（渡さない版）では点を出さない。 */
+  const q = item ? quadrantFor(item.urgent, item.important) : null;
+  let qdot = node.querySelector(':scope > .wob > .qdot');
+  if (q && !qdot) {
+    qdot = el('span', 'qdot');
+    qdot.setAttribute('aria-hidden', 'true');
+    const wob = node.querySelector(':scope > .wob');
+    if (wob) wob.appendChild(qdot);
+  }
+  if (q) node.dataset.q = q; else delete node.dataset.q;
+  if (qdot) qdot.hidden = !q;
+  const label = ariaFor(item, names, marks, started, done);
+  node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
   node.dataset.id = item.id;
   return node;
 }
@@ -716,6 +732,7 @@ function closeAsk(restoreFocus) {
 function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let saveTags = null;          /* タグの付け外しは閉じるときにまとめて書く */
   let saveFav = null;           /* お気に入りの印（F7）も同じく閉じるとき */
+  let savePrio = null;          /* 優先度（急ぐ・大事）も同じく閉じるとき */
   let saveHoldUntil = null;     /* 長期保留の「戻ってくる日」も同じく閉じるとき */
   /* 「今日」の札と、カレンダーの今日の枡は同じものを指す。
      二重に書かないよう、書き込みはカレンダー側が持ち、札は見た目だけ合わせる */
@@ -823,6 +840,70 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     fields.appendChild(favBtn);
     saveFav = () => {
       if (favWant !== fav0) ask(a, 'setFav', id, favWant);
+    };
+  }
+
+  /* ---- 優先度（Eisenhower・利用者の指示 2026-10-25）----
+     「急ぐ」「大事」の2つの切り替えと、いまの区分の名前。書くのは閉じるとき（お気に入りと同じ理由）。
+     どちらも触っていない泡は「まだ」のまま。片方を触ったら、押していない側は「いいえ」として書く
+     （片方だけ「まだ」で残すと区分が出ず、押したのに何も起きないように見えるため）。
+     [印を外す] で両方「まだ」へ戻す。区分の名前は命令形にしない。数は出さない。
+     ◷ と ◆ は文字（絵文字にしない。契約 §15）。預け先に setPriority が無い版では出さない。 */
+  if (fields && typeof (a || {}).setPriority === 'function') {
+    const p0 = ask(a, 'priorityOf', id) || { urgent: null, important: null };
+    let want = { urgent: p0.urgent, important: p0.important };
+    const box = el('div', 'bc-prio');
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', '優先度');
+    const row = el('div', 'bc-prio-row');
+    const mk = (key, ic, name) => {
+      const b = el('button', 'bc-fav bc-prio-b');
+      b.type = 'button';
+      b.dataset.key = key;
+      const i = el('span', 'bc-fav-ic', ic);
+      i.setAttribute('aria-hidden', 'true');
+      b.appendChild(i);
+      b.appendChild(el('span', 'bc-fav-tx', name));
+      b.addEventListener('click', ev => {
+        ev.preventDefault();
+        const other = key === 'urgent' ? 'important' : 'urgent';
+        want[key] = want[key] !== true;
+        if (want[other] === null) want[other] = false;
+        sync();
+      });
+      row.appendChild(b);
+      return b;
+    };
+    const bU = mk('urgent', '◷', '急ぐ');
+    const bI = mk('important', '◆', '大事');
+    const clear = el('button', 'bc-prio-clear', '印を外す');
+    clear.type = 'button';
+    clear.addEventListener('click', ev => { ev.preventDefault(); want = { urgent: null, important: null }; sync(); });
+    row.appendChild(clear);
+    const where = el('div', 'bc-prio-where');
+    where.setAttribute('aria-live', 'polite');
+    box.appendChild(row);
+    box.appendChild(where);
+    function sync() {
+      bU.setAttribute('aria-pressed', want.urgent === true ? 'true' : 'false');
+      bI.setAttribute('aria-pressed', want.important === true ? 'true' : 'false');
+      const q = quadrantFor(want.urgent, want.important);
+      clear.hidden = want.urgent === null && want.important === null;
+      where.textContent = '';
+      if (q) {
+        box.dataset.q = q;
+        where.appendChild(document.createTextNode('いまの区分: '));
+        where.appendChild(el('b', '', QUADRANTS[q].name));
+        where.appendChild(document.createTextNode('（' + QUADRANTS[q].sub + '）。印はいつでも外せる'));
+      } else {
+        delete box.dataset.q;
+        where.textContent = 'まだ分けていない（分けなくても使える）';
+      }
+    }
+    sync();
+    fields.appendChild(box);
+    savePrio = () => {
+      if (want.urgent !== p0.urgent || want.important !== p0.important) ask(a, 'setPriority', id, want);
     };
   }
 
@@ -1685,6 +1766,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
       if (saveFav) saveFav();                 /* 印はタグの後ろ。順に意味は無い */
+      if (savePrio) savePrio();
       if (saveHoldUntil) saveHoldUntil();
     },
     /* 盤の先頭の的。[タスク開始] は盤の中へ移ったので、そこを探す

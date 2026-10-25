@@ -50,6 +50,7 @@ async function richDevice() {
   s.start(a.id, null);
   const an = s.addAnchor('歯を磨いたら');
   const b = s.add('ストレッチ'); s.setAnchor(b.id, an.id, true);
+  s.setQuadrant(a.id, 'now'); s.setQuadrant(b.id, 'drift');   /* 優先度の印（急ぐ・大事）も移る */
   const tg = s.addTag('買い物');
   const c = s.add('牛乳'); s.setTag(c.id, tg.id, true); s.complete(c.id);
   const d = s.add('消したもの'); s.remove(d.id);
@@ -87,6 +88,9 @@ await test('空の端末へ引っ越し（足す）: 記録がすべて同じに
   assert.deepEqual(texts(B), texts(A));
   assert.equal(B.doc.todos.find(t => t.text === '消したもの').trashed, true, '消したものは消したまま');
   assert.equal(B.doc.log.length, A.doc.log.length, '着手の記録も移る');
+  const st = B.doc.todos.find(t => t.text === 'ストレッチ');
+  assert.deepEqual([st.urgent, st.important], [false, false], '優先度の印（いいえ）も移る');
+  assert.equal(B.doc.todos.find(t => t.text.startsWith('歯医者')).urgent, true);
   assert.ok(r.added >= 4);
 });
 

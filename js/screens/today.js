@@ -257,6 +257,9 @@ function itemsForField() {
     colors: tagColors(t.id),
     tagNames: tagNames(t.id),
     anchorHue: null,
+    /* 右上の区分の点（並べ替えはしない） */
+    urgent: t.urgent,
+    important: t.important,
   }));
 }
 

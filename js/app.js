@@ -708,6 +708,9 @@ setCenterHandler({
   /* お気に入りの印（F7）。盤の ☆ が読み書きする。無ければ盤は ☆ を出さない */
   isFav:        (id) => (has('isFav') ? store.isFav(id) : false),
   setFav:       (id, on) => (has('setFav') ? store.setFav(id, on) : false),
+  /* 優先度（急ぐ・大事）。盤の2つの切り替えが読み書きする。無ければ盤は出さない */
+  priorityOf:   (id) => { const t = store.get(id); return t ? { urgent: t.urgent, important: t.important } : null; },
+  setPriority:  (id, p) => (has('setPriority') ? store.setPriority(id, p) : false),
   todayKey:     () => (has('todayKey') ? store.todayKey() : null),
   dayAfter:     (n) => (has('dayAfter') ? store.dayAfter(n) : null),
   monthAfter:   (n) => (has('monthAfter') ? store.monthAfter(n) : null),

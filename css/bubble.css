@@ -766,6 +766,43 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* ---------- 優先度の区分の点（2026-10-25）----------
+   割り振った泡の右上に、区分の色の小さな点（JS が .qdot を入れ、.bub[data-q] で色を選ぶ）。
+   膜の外（.wob の直下）に置き、膜の overflow で欠けないようにする。押す的ではない */
+.bub .qdot {
+  /* 中心を縁の 45° の点（角から 14.6%）に置く。どの直径でも縁に乗り、文字に掛からない */
+  position: absolute; top: calc(14.6% - 5.5px); right: calc(14.6% - 5.5px);
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--qe, var(--bub-edge));
+  box-shadow: 0 0 0 2px var(--surface);
+  pointer-events: none;
+}
+.bub[data-q="now"]   { --qe: var(--q-now-e); }
+.bub[data-q="grow"]  { --qe: var(--q-grow-e); }
+.bub[data-q="quick"] { --qe: var(--q-quick-e); }
+.bub[data-q="drift"] { --qe: var(--q-drift-e); }
+
+/* ---------- 盤の優先度（急ぐ・大事）----------
+   お気に入りと同じ札の作法。下に今の区分を言葉で1行。区分の色は小さな帯で添えるだけ */
+.bub-center .bc-prio { margin-bottom: 6px; }
+.bub-center .bc-prio-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bub-center .bc-prio-b { margin-bottom: 0; }
+.bub-center .bc-prio-clear {
+  appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
+  min-height: 30px; padding: 3px 8px; border: 0; background: none;
+  color: var(--text-2); font-size: 12px; text-decoration: underline;
+}
+.bub-center .bc-prio-clear:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.bub-center .bc-prio-where {
+  margin-top: 4px; padding-left: 9px; border-left: 3px solid var(--line);
+  font-size: 12px; color: var(--text-2);
+}
+.bub-center .bc-prio-where b { color: var(--text); font-weight: 600; }
+.bub-center .bc-prio[data-q="now"]   .bc-prio-where { border-left-color: var(--q-now-e); }
+.bub-center .bc-prio[data-q="grow"]  .bc-prio-where { border-left-color: var(--q-grow-e); }
+.bub-center .bc-prio[data-q="quick"] .bc-prio-where { border-left-color: var(--q-quick-e); }
+.bub-center .bc-prio[data-q="drift"] .bc-prio-where { border-left-color: var(--q-drift-e); }
+
 /* ---------- お気に入りの印（F7）----------
    札の列の上に1つ。見た目は札と同じ作法（押した側は縁と地が立つ）。
    ☆/★ は文字で出す（絵文字も画像も使わない。契約 §15） */

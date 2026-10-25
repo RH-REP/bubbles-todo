@@ -368,6 +368,9 @@
   content: '✓'; margin-left: auto; padding-left: 8px;
   font-size: 12px; color: var(--text-2);
 }
+/* 四つに分けて見る（優先度）。タグの札とは別の切り替えなので、上に区切り線 */
+.sea-narrow-row.is-quad { border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
+.sea-narrow-row .qic { flex: none; width: 10px; text-align: center; font-size: 13px; color: var(--text-2); }
 /* 「ぜんぶ」は選択の取り消し。ほかの行と区切って、印も持たせない */
 .sea-narrow-row.is-clear { border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; }
 .sea-narrow-row .dot {
@@ -493,6 +496,66 @@
   background-color: var(--bg);
   background-image: linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
 }
+/* ---------- 四つに分けて見る（優先度・2026-10-25）----------
+   リスト表示のもう1つの形。上の余白は .sea-grid と同じ（右上の「もどす」の下から）、
+   下は面の底（面はもう入力欄の上で終わっている）。左右は端の帯（隣の海へ運ぶ 21px）より内側に置き、区分と帯の当たりを重ねない。
+   区分の色は同じ明るさの淡い色（--q-*-f）。数は出さない */
+.sea-quad {
+  position: absolute; inset: 0; z-index: 6;
+  padding: 104px 24px 10px;
+  display: flex; flex-direction: column; gap: 6px;
+  background-color: var(--bg);
+  background-image: linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
+}
+.sea-quad-axis {
+  display: flex; justify-content: space-between;
+  font-size: 11.5px; letter-spacing: .04em; color: var(--text-2);
+  padding: 0 4px;
+}
+.sea-quad-grid {
+  position: relative; flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px;
+}
+.sea-quad-yaxis {
+  position: absolute; left: -20px; top: 0; bottom: 0; width: 16px;
+  display: flex; flex-direction: column; justify-content: space-around; align-items: center;
+  font-size: 11px; color: var(--text-2); pointer-events: none;
+}
+.sea-quad-yaxis span { writing-mode: vertical-rl; }   /* 箱に付けると flex の向きまで横になる */
+.sea-q {
+  min-height: 0; display: flex; flex-direction: column;
+  border-radius: 14px; padding: 6px 6px 4px;
+  background: var(--qf); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--qe) 45%, transparent);
+}
+.sea-q[data-q="now"]   { --qf: var(--q-now-f);   --qe: var(--q-now-e); }
+.sea-q[data-q="grow"]  { --qf: var(--q-grow-f);  --qe: var(--q-grow-e); }
+.sea-q[data-q="quick"] { --qf: var(--q-quick-f); --qe: var(--q-quick-e); }
+.sea-q[data-q="drift"] { --qf: var(--q-drift-f); --qe: var(--q-drift-e); }
+.sea-q-hd { display: flex; align-items: baseline; gap: 6px; padding: 0 4px 2px; }
+.sea-q-hd b { font-size: 13px; font-weight: 600; color: var(--text); }
+.sea-q-hd small { font-size: 10.5px; color: var(--text-2); }
+.sea-q .sea-q-body {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px; padding: 2px;
+}
+.sea-q-un {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  min-height: 76px; padding: 4px 8px;
+  border: 1.5px dashed var(--line-strong); border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.sea-q-un-lb { flex: none; width: 4.2em; font-size: 11.5px; line-height: 1.35; color: var(--text-2); }
+.sea-q-un .sea-q-body {
+  flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior: contain; touch-action: pan-x;
+  display: flex; gap: 4px; padding: 2px;
+}
+.sea-quad .bub { flex: none; }
+/* 隣の海の札は、掴んでいる間だけ出す（ふだんは右の区分の見出しに重なるため） */
+.sea-stage.is-quad:not(.is-bubdrag) > .sea-edge { visibility: hidden; }
+/* 掴んでいる間は、落とせる場所の縁を少し立てる */
+.sea-stage.is-bubdrag .sea-q { box-shadow: inset 0 0 0 1.5px var(--qe); }
+.sea-stage.is-bubdrag .sea-q-un { border-color: var(--text-3); }
+
 .sea-grid-cap,
 .sea-grid-empty {
   margin: 0 0 6px; font-size: 12.5px; letter-spacing: .04em;
@@ -726,7 +789,7 @@
    `syncNarrowBtn` は直したのに、**この規則が `!important` で消していた**——
    JS では `hidden=false`、CSS では `display:none`。決めたはずの機能に手が届かない。
    **ここに足し忘れると、JS 側でいくら出しても画面には出ない。** */
-.sea-stage.is-gathering > :not(.sea-grid):not(.sea-gather):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal) {
+.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-gather):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal) {
   display: none !important;
 }
 

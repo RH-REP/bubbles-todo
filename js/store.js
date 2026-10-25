@@ -104,6 +104,7 @@
    （あとから繋いだときに、どれが新しいかが判るように）。 */
 
 import { stampChanges, initialStamps, recordsOf } from './merge.js';
+import { quadrantFor } from './priority.js';
 
 /* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
    'me'    … 個人。今までの記録（bubble_todo_v1）。端末に書き、繋いでいればサーバーとも合わせる
@@ -978,8 +979,16 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
     trashedAt: (trashed && Number.isFinite(Number(t.trashedAt))) ? Number(t.trashedAt) : null,
     /* お気に入りの印（F7）。旧データには無いので false から始まる */
     fav: t.fav === true,
+    /* 優先度（Eisenhower・2026-10-25）。急ぐ・大事の2つの印で、どちらも true / false / null（まだ）。
+       旧データには無いので null から始まる。日付から自動では付けない */
+    urgent: triState(t.urgent),
+    important: triState(t.important),
   });
 }
+
+function triState(v) { return v === true ? true : v === false ? false : null; }
+
+const QUAD_FLAGS = { now: [true, true], grow: [false, true], quick: [true, false], drift: [false, false] };
 
 
 function normalizeTodos(arr, anchors, tags, gapSlots, migrateDay) {
@@ -1400,6 +1409,8 @@ export const store = {
       trashed: false,
       trashedAt: null,
       fav: false,
+      urgent: null,
+      important: null,
     });
     items.push(t);
     /* 「今日する」枠に直接書いた場合も「入れた」記録に残す（setToday を通らない経路） */
@@ -1730,6 +1741,33 @@ export const store = {
   favItems() {
     return items.filter(t => isLive(t) && t.fav && !t.done)
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  },
+
+  /* --- 優先度（Eisenhower・2026-10-25）---
+     urgent / important は true / false / null（まだ）。fav と同じく真偽の場で持ち、タグにはしない。
+     patch に入れた鍵だけを書き換える（片方だけ変えられる）。 */
+  setPriority(id, patch) {
+    const t = store.get(id);
+    if (!t || !patch) return false;
+    let changed = false;
+    ['urgent', 'important'].forEach(k => {
+      if (!(k in patch)) return;
+      const v = triState(patch[k]);
+      if (t[k] !== v) { t[k] = v; changed = true; }
+    });
+    if (!changed) return false;
+    persist(); emit();
+    return true;
+  },
+  /* 区分へ入れる。null なら両方の印を外す（「まだ分けていない」へ戻す） */
+  setQuadrant(id, q) {
+    const f = q ? QUAD_FLAGS[q] : [null, null];
+    if (!f) return false;
+    return store.setPriority(id, { urgent: f[0], important: f[1] });
+  },
+  quadrantOf(id) {
+    const t = store.get(id);
+    return t ? quadrantFor(t.urgent, t.important) : null;
   },
 
   /* --- 最近つかった（F7）---
@@ -2945,7 +2983,7 @@ export const store = {
    口を足したらここにも足す（tests/sync.test.mjs が、persist() を呼ぶ口の漏れを見る） */
 export const WRITE_METHODS = [
   'add', 'remove', 'untrash', 'complete', 'uncomplete', 'restore', 'setDay', 'setToday', 'setHold', 'setHoldUntil',
-  'setFav', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
+  'setFav', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',

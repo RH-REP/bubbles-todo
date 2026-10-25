@@ -63,6 +63,13 @@
   --accent-b: #5b4cc2;
   --accent-text: #ffffff;
 
+  /* 優先度の4区分（2026-10-25）。同じ明るさの淡い色にして、どれも警告に見せない（赤は使わない）。
+     -f は区分の地、-e は泡の点と区分の縁。画面の外（ドラッグの分身）にも出るので :root に置く */
+  --q-now-f: #fbe3cf;   --q-now-e: #c98a5b;     /* いま     杏 */
+  --q-grow-f: #dcefd9;  --q-grow-e: #6f9f68;    /* 育てる   若葉 */
+  --q-quick-f: #d9ecf7; --q-quick-e: #5b97bd;   /* さっと   空 */
+  --q-drift-f: #ebe4f5; --q-drift-e: #8f7fb5;   /* 漂わせる 藤 */
+
   --radius: 12px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   /* 上の安全領域。ブラウザで開いている間は 0。
@@ -118,6 +125,12 @@
     --accent-a: #1d7d9c;
     --accent-b: #6f5fc9;
     --accent-text: #ffffff;
+
+    /* 暗いときは地を沈め、点は明るくする（明るさはそろえたまま） */
+    --q-now-f: rgba(201,138,91,.16);   --q-now-e: #e0a479;
+    --q-grow-f: rgba(111,159,104,.16); --q-grow-e: #8fc187;
+    --q-quick-f: rgba(91,151,189,.16); --q-quick-e: #7fb6da;
+    --q-drift-f: rgba(143,127,181,.18); --q-drift-e: #ad9fd6;
   }
 }
 

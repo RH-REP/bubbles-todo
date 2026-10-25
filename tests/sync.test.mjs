@@ -156,6 +156,23 @@ await test('受け取った記録は「今書き換えた」ことにならな�
   assert.equal(S['todo:' + i2][0], D1 + 90000);
 });
 
+await test('優先度の印も、ほかの書き換えと同じく合わさる（あとで付けたほうが残る）', async () => {
+  const a = await open(null, D1);
+  const id = a.add('税の書類').id;
+  const base = a.exportState();
+  const b = await open(null, D1 + 10);
+  b.applyState(base);
+  setNow(D1 + 60000);
+  assert.ok(b.setQuadrant(id, 'now'));
+  const m = mergeState(base, b.exportState());
+  const t = m.doc.todos.find(x => x.id === id);
+  assert.equal(t.urgent, true);
+  assert.equal(t.important, true);
+  const c = await open(null, D1 + 70000);
+  c.applyState(m);
+  assert.equal(c.quadrantOf(id), 'now', '受け取った端末でも区分が出る');
+});
+
 await test('sync.js: 送る間に別の端末が書いたら（409）、取り直して両方を残す', async () => {
   /* 別の端末が先に置いた記録 */
   const o = await open(null, D1);

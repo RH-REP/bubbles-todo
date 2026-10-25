@@ -68,6 +68,7 @@ h2, h3 { scroll-margin-top: 76px; }
 <nav class="toc" aria-label="目次">
 <ol>
   <li><a href="#screens">画面の見方</a></li>
+  <li><a href="#priority">急ぐ・大事で分ける（優先度）</a></li>
   <li><a href="#space">個人と共有</a></li>
   <li><a href="#connect">サーバーに繋ぐ（自分の端末）</a></li>
   <li><a href="#invited">共有の海に入る（招かれた人）</a></li>
@@ -102,6 +103,19 @@ h2, h3 { scroll-margin-top: 76px; }
   <div class="shot"><img src="img/05_today.jpg" alt="今日の画面。今日やるものの泡" loading="lazy"><figcaption>今日。‹ › で前後の日へ</figcaption></div>
   <div class="shot"><img src="img/06_plan.jpg" alt="きっかけの画面。「歯を磨いたら」にストレッチがぶら下がっている" loading="lazy"><figcaption>きっかけ</figcaption></div>
   <div class="shot"><img src="img/07_gap.jpg" alt="すきまの画面。耳だけの枠にポッドキャストを聴く" loading="lazy"><figcaption>すきま</figcaption></div>
+</figure>
+
+<h3 id="priority">急ぐ・大事で分ける（優先度）</h3>
+<p>泡に「急ぐ」「大事」の2つの印を付けられます。分けるかどうかは自由で、印の無い泡は今までどおり海を漂います。急ぐの印が日付から勝手に付くこともありません。</p>
+<ul>
+  <li><b>盤で付ける</b>：泡をタップして、盤の「◷ 急ぐ」「◆ 大事」を押します。下の行に今の区分が出て、盤を閉じると残ります。「印を外す」で元の「まだ分けていない」に戻ります。</li>
+  <li><b>四つに分けて見る</b>：海の「▽ フィルター」の「⊞ 四つに分けて見る」を押すと、海が4つの区分に分かれます。左右が 急ぐ／急がない、上下が 大事／大事でない です。下の点線の帯に、まだ分けていない泡が並びます。</li>
+  <li><b>ドラッグで分ける</b>：四つに分けた海で、泡を区分へドラッグすると、その区分の印が付きます。帯へ戻すと印が外れます。泡をタップすると、ふだんの盤が開きます。「もどす」で今までの海に戻ります。</li>
+</ul>
+<p>区分は「いま」（急ぐ・大事）、「育てる」（急がない・大事）、「さっと」（急ぐ・大事でない）、「漂わせる」（どちらでもない）の4つです。分けた泡は、海と今日の画面で右上に区分の色の小さな点が付きます。区分ごとの数は出しません。</p>
+<figure>
+  <div class="shot"><img src="img/03_board.jpg" alt="泡の盤。「急ぐ」「大事」の切り替えと「いまの区分: いま」" loading="lazy"><figcaption>盤の「急ぐ」「大事」</figcaption></div>
+  <div class="shot"><img src="img/20_quad.jpg" alt="四つに分けた海。いま・育てる・さっと・漂わせるの区分と、下の「まだ分けていない」の帯" loading="lazy"><figcaption>四つに分けて見る</figcaption></div>
 </figure>
 
 <h3>引き出しと設定</h3>
@@ -203,7 +217,7 @@ bash bubbles-todo/tools/server-setup.sh passkey-remove 母のスマホ</code></p
 <p class="note">登録できるパスキーは置き場（個人・共有）ごとに3つ、同時に使える端末は3台までです。端末を替えたら、古い端末のパスキーを <code>passkey-remove</code> で外してから招待し直します。</p>
 
 <h2 id="csv">8. 引っ越し（CSV の書き出し・読み込み）</h2>
-<p>記録をまるごと1つの CSV ファイルにして、別の端末へ移せます。対象は、いま開いている持ち主（個人か共有）の記録です。todo だけでなく、きっかけ・すきまの枠・タグ・着手の記録・作業メモの履歴も入ります。</p>
+<p>記録をまるごと1つの CSV ファイルにして、別の端末へ移せます。対象は、いま開いている持ち主（個人か共有）の記録です。todo だけでなく、きっかけ・すきまの枠・タグ・急ぐ／大事の印・着手の記録・作業メモの履歴も入ります。</p>
 <ol class="steps">
   <li>元の端末で、設定（⚙）の「書き出し・読み込み（CSV）」の「CSV で書き出す」を押す。<code>bubbles-個人-日付.csv</code> が保存されます。</li>
   <li>そのファイルを新しい端末へ写す（AirDrop・USB など。LINE やメールには残さない）。</li>

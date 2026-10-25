@@ -4145,6 +4145,43 @@ await test('名前を変えても、着手ログと一手の記録の本文は�
   assert.equal(store.stepsOf(t.id).length, 1, '記録は増えも減りもしない');
 });
 
+await test('優先度: 旧データは「まだ」。setPriority は片方だけ変えられ、区分は両方そろって出る', async () => {
+  const store = await open({ raw: { v: 2, todos: [{ id: 'p1', text: '灯油', createdAt: NOW - 1e6 }], lastDay: '2026-08-20' }, now: NOW });
+  const t = store.get('p1');
+  assert.equal(t.urgent, null);
+  assert.equal(t.important, null);
+  assert.equal(store.quadrantOf('p1'), null);
+  assert.equal(store.setPriority('p1', { urgent: true }), true);
+  assert.equal(store.quadrantOf('p1'), null, '片方だけでは区分は無い');
+  assert.equal(store.get('p1').important, null, '入れていない鍵は変わらない');
+  assert.equal(store.setPriority('p1', { urgent: true }), false, '同じ値なら変わらない');
+  assert.equal(store.setPriority('p1', { important: true }), true);
+  assert.equal(store.quadrantOf('p1'), 'now');
+  store.setPriority('p1', { urgent: false });
+  assert.equal(store.quadrantOf('p1'), 'grow');
+  const again = await open({ now: NOW });
+  assert.equal(again.get('p1').urgent, false, '開き直しても残る');
+  assert.equal(again.get('p1').important, true);
+  assert.equal(again.setPriority('nope', { urgent: true }), false, '無い項目は false');
+  assert.equal(again.add('新しい').urgent, null, '新しい項目も「まだ」');
+});
+
+await test('優先度: setQuadrant で区分へ入れ、null で「まだ分けていない」へ戻す', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('電話する');
+  for (const [q, u, i] of [['now', true, true], ['grow', false, true], ['quick', true, false], ['drift', false, false]]) {
+    assert.equal(store.setQuadrant(t.id, q), true, q);
+    assert.equal(store.get(t.id).urgent, u);
+    assert.equal(store.get(t.id).important, i);
+    assert.equal(store.quadrantOf(t.id), q);
+  }
+  assert.equal(store.setQuadrant(t.id, 'drift'), false, '同じ区分なら変わらない');
+  assert.equal(store.setQuadrant(t.id, 'bogus'), false);
+  assert.equal(store.setQuadrant(t.id, null), true);
+  assert.equal(store.quadrantOf(t.id), null);
+  assert.equal(saved().todos.find(x => x.id === t.id).urgent, null);
+});
+
 /* ============================================================ */
 
 Date.now = REAL_NOW;

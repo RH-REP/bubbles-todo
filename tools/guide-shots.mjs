@@ -109,7 +109,8 @@ try {
     const P = [[.25,.30],[.70,.38],[.40,.52],[.75,.62],[.28,.70]];
     const add = (n, i, o) => store.add(n, Object.assign({ fx: P[i % 5][0], fy: P[i % 5][1] }, o || {}));
     const a1 = add('歯医者を予約', 0); store.setFirstStep(a1.id, '診察券を出しておく'); store.commitStep(a1.id, { did: '電話番号を調べた', next: '午前中に電話する' });
-    add('あの論文を読む', 1); add('傘を修理に出す', 2); add('写真のバックアップ', 3); add('灯油を買う', 4);
+    const r1 = add('あの論文を読む', 1); const r2 = add('傘を修理に出す', 2); add('写真のバックアップ', 3); const r3 = add('灯油を買う', 4);
+    store.setQuadrant(a1.id, 'now'); store.setQuadrant(r1.id, 'grow'); store.setQuadrant(r3.id, 'quick'); store.setQuadrant(r2.id, 'drift');
     const w = add('会議の資料をまとめる', 1); store.setTag(w.id, 'work', true);
     add('洗濯物をたたむ', 0, { today: true }); const m = add('メールの返事', 1, { today: true }); store.start(m.id, null);
     const an = store.addAnchor('歯を磨いたら'); const s = add('ストレッチ', 2); store.setAnchor(s.id, an.id, true);
@@ -122,7 +123,7 @@ try {
   await shot('02_write');
   await js(`const i = document.querySelector('input[aria-label="思いついたことを書く"]'); i.form ? i.form.requestSubmit() : null;`);
   await sleep(600);
-  await tap('[aria-label="歯医者を予約（タップで真ん中へ）"]');
+  await tap('[aria-label^="歯医者を予約（タップで真ん中へ）"]');
   await sleep(1500);
   await shot('03_board');
   await clickText('タスク開始');
@@ -137,6 +138,14 @@ try {
   }
   await click('.tabbar button[data-screen="sea"]');
   await sleep(800);
+  /* 四つに分けて見る（フィルターの中） */
+  await click('.sea-narrow');
+  await sleep(300);
+  await click('.sea-narrow-row.is-quad');
+  await sleep(900);
+  await shot('20_quad');
+  await click('.sea-gather');
+  await sleep(900);
   await click('.menubtn');
   await sleep(900);
   await shot('08_drawer');
