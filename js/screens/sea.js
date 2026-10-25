@@ -643,13 +643,40 @@ let seaClipped = false;
    seaClipped（「出し切れていない」の合図）には触らない——あれは海の話。 */
 let capOff = false;
 
+/* --- Issue #2 の候補（見比べ用。localStorage の bubble_todo_seafit で切り替える） ---
+   A … 数を画面の広さで決める（バブルの面積の合計が海の 40% まで）
+   B … 数は 20 のまま、バブルを縮める（合計が 45% に収まるまで。直径は 56px まで）
+   C … まず縮め（0.8 倍まで）、それでも入らないぶんは数を減らす */
+const FIT_A = 0.40, FIT_B = 0.45, FIT_C = 0.45;
+function seaFit() { try { return localStorage.getItem('bubble_todo_seafit') || ''; } catch (err) { return ''; } }
+function stageArea() { return ((stage && stage.clientWidth) || 320) * ((stage && stage.clientHeight) || 420); }
+function areaOf(t, k) {
+  const d = diameterFor(t.text || t.title || '', stage && stage.clientWidth, stage && stage.clientHeight) * k;
+  return Math.PI * d * d / 4;
+}
+function capByArea(newest, budget, k) {
+  let sum = 0, n = 0;
+  for (const t of newest) { sum += areaOf(t, k); if (sum > budget && n >= 5) break; n++; }
+  return Math.min(n, SEA_MAX);
+}
+function shrinkOf(list, budget, kMin) {
+  const sum = list.reduce((a, t) => a + areaOf(t, 1), 0);
+  return sum > budget ? Math.max(kMin, Math.sqrt(budget / sum)) : 1;
+}
+
 function capForSea(list) {
   if (capOff) return list;
-  seaClipped = list.length > SEA_MAX;      /* 直後に読むこと（syncMore を参照） */
+  const mode = seaFit();
+  const byNew = list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  let max = SEA_MAX;
+  if (mode === 'A') max = capByArea(byNew, stageArea() * FIT_A, 1);
+  if (mode === 'C') {
+    const top = byNew.slice(0, SEA_MAX);
+    max = capByArea(byNew, stageArea() * FIT_C, shrinkOf(top, stageArea() * FIT_C, 0.8));
+  }
+  seaClipped = list.length > max;          /* 直後に読むこと（syncMore を参照） */
   if (!seaClipped) return list;
-  const newest = list.slice()
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    .slice(0, SEA_MAX);
+  const newest = byNew.slice(0, max);
   const keep = new Set(newest.map(t => t.id));
   return list.filter(t => keep.has(t.id));
 }
@@ -1847,9 +1874,13 @@ function setFaceItems(face, list) {
        あちらは host（＝広がった面）の寸法で上限を決めるので、
        画面の狭い機種では引くたびにバブルまで大きくなってしまう。 */
     const dw = stage.clientWidth, dh = stage.clientHeight;
+    const mode = seaFit();
+    const k = mode === 'B' ? shrinkOf(list, stageArea() * FIT_B, 0)
+      : mode === 'C' ? shrinkOf(list, stageArea() * FIT_C, 0.8) : 1;
     field.setItems(list.map(t => {
       const it = Object.assign(itemOf(t), { colors: colorsOf(t), tagNames: namesOf(t) });
-      it.size = Math.round(diameterFor(it.text, dw, dh));
+      it.size = Math.round(diameterFor(it.text, dw, dh) * k);
+      if (mode === 'B') it.size = Math.max(56, it.size);
       return it;
     }));
   }
