@@ -24,6 +24,14 @@ html.has-strip { --strip-h: 30px; --safe-t: calc(env(safe-area-inset-top, 0px) +
   padding: 5px 14px; border-radius: 999px;
 }
 .space-seg span.is-on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+/* 版（左端）。読むだけの小さな字。帯の真ん中の「個人 共有」とぶつからない幅で切る */
+.space-ver {
+  position: absolute; left: 10px; bottom: 0; height: var(--strip-h);
+  display: flex; align-items: center;
+  max-width: calc(50% - 90px); overflow: hidden; white-space: nowrap;
+  font-size: 10px; letter-spacing: .02em; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
 /* 共有の印。今が共有のときだけ、字の前に小さな点 */
 .space-seg span.is-share-btn.is-on::before,
 .drawer-space button.is-share-btn.is-on::before {

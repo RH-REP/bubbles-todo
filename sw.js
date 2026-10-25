@@ -28,7 +28,9 @@
    ファイルを足したときは ASSETS にも足す（足し忘れたものは、
    網が無いときだけ取れない——ふだんは動いてしまうので気づきにくい）。 */
 
-const VERSION = '2026-10-25e';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
+/* 直したら上げる。上げないと利用者には古い版が出続ける。
+   画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
+const VERSION = '2026-10-25f';
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [
@@ -73,6 +75,7 @@ const ASSETS = [
   './js/store.js',
   './js/priority.js',
   './js/quadview.js',
+  './js/version.js',
   './js/sync.js',
   './js/ui.js',
   /* アイコン */

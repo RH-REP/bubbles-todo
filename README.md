@@ -213,6 +213,11 @@ bash tests/server-setup.test.sh
   `bash tests/server-setup.test.sh`（公開の形を含む）
 - **まだ確かめていない**: 本物の公開サーバー・ドメイン・Caddy・fail2ban・本物の端末（Face ID・指紋）。Android の APK では使えない（ページの住所が `https://localhost`）
 
+## 版の番号
+
+いちばん上の薄い帯の左端に `v2026-10-25f` の形で出す（2026-10-25。利用者の指示）。update のあと新しい版に入れ替わったかを、画面で確かめるため。
+正本は `sw.js` の `VERSION`。上げたら `js/version.js` も同じ値にする（`node tests/version.test.mjs` が食い違いを見る）。
+
 ## 使い方の記事
 
 `docs/guide/index.html`（スクリーンショットつき。2026-10-23）。app の設定のいちばん上の「使い方」から開き、記事の上の「アプリへ戻る」で戻る。

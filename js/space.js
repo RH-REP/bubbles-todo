@@ -55,6 +55,14 @@ LABELS.forEach(([id, label]) => {
   seg.appendChild(span);
 });
 strip.appendChild(seg);
+/* 版（2026-10-25 利用者の指示）。帯の左端に小さく。update のあと新しい版に入れ替わったかを見るため。
+   正本は sw.js の VERSION（js/version.js が写しを持つ） */
+if (window.BUBBLES_VERSION) {
+  const ver = document.createElement('span');
+  ver.className = 'space-ver';
+  ver.textContent = 'v' + window.BUBBLES_VERSION;
+  strip.appendChild(ver);
+}
 
 /* ---- 引き出しの頭の切り替え（app.js の openDrawer が、引き出しを開くたびに置く） ---- */
 export function spaceSwitcher() {
