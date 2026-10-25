@@ -30,7 +30,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-10-25f';
+const VERSION = '2026-10-25g';
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [

@@ -211,7 +211,7 @@ const EDGE_BAND = 21;   /* 帯の厚み px。利用者の指示で 64 の 1/3。
    狭めるのは長さではなく厚み（EDGE_BAND）のほう。 */
 const EDGE_SPAN = 1;
 
-let root, stage, view, world, hint, grid, gridCap, gridEmpty, moreLine;
+let root, stage, view, world, hint, grid, gridCap, gridEmpty, vent;
 let faceName, faceDot, faceLabel;
 let gatherBtn, gatherLabel;
 let narrowBtn, narrowLabel, centerEmpty;
@@ -676,16 +676,39 @@ let seaClipped = false;
    seaClipped（「出し切れていない」の合図）には触らない——あれは海の話。 */
 let capOff = false;
 
-function capForSea(list) {
+function capForSea(list, face) {
   if (capOff) return list;
   const byNew = list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const budget = stageArea() * SEA_FILL;
   const max = fitCount(byNew, budget, shrinkOf(byNew.slice(0, SEA_MAX), budget, SEA_SHRINK));
   seaClipped = list.length > max;          /* 直後に読むこと（syncMore を参照） */
-  if (!seaClipped) return list;
-  const newest = byNew.slice(0, max);
-  const keep = new Set(newest.map(t => t.id));
+  if (!seaClipped) { if (face) delete swaps[face]; return list; }
+  const keep = swappedKeep(face, list, max) || new Set(byNew.slice(0, max).map(t => t.id));
   return list.filter(t => keep.has(t.id));
+}
+
+/* ---------------- 気孔で入れ替える（利用者の指示 2026-10-25）----------------
+
+   海に出し切れずに隠れている泡を、底の気孔をタップして1つずつ呼び込む。
+   1回で、隠れている泡が1つ気孔から生まれ、**そのとき画面でいちばん上に居た泡**が押し出されて
+   はじける（押し出された泡は隠れる側の最後へ回る）。数は出さない。
+
+   面ごとに「いま出している泡」と「隠れている泡の列」を持つ（swaps[face]）。
+   持っている間も、新しく書いた泡・別の海から来た泡（知らない id）が出たら捨てて、
+   いつもの「新しいほうから」に戻す——書いたものが海に出ないのは困るため。
+   画面を離れたとき・開き直したときも捨てる（水面に戻る）。 */
+const swaps = {};                 /* face -> { visible:[id], queue:[id], known:Set, max } */
+
+function swappedKeep(face, list, max) {
+  const sw = face && swaps[face];
+  if (!sw) return null;
+  if (sw.max !== max || list.some(t => !sw.known.has(t.id))) { delete swaps[face]; return null; }
+  const ids = new Set(list.map(t => t.id));
+  sw.visible = sw.visible.filter(id => ids.has(id));
+  sw.queue = sw.queue.filter(id => ids.has(id));
+  /* 完了・消去などで減ったぶんは、隠れている列の先頭から足す */
+  while (sw.visible.length < max && sw.queue.length) sw.visible.push(sw.queue.shift());
+  return new Set(sw.visible);
 }
 
 /* 中央の海の既定＝**タグが1つも付いておらず、今日より後の日も付いていないもの**
@@ -708,11 +731,11 @@ function capForSea(list) {
 
    完了はどの場面でも出さない（下の海とふりかえりに専用の道がある）。 */
 function centerItems() {
-  if (!hasTags()) return capForSea(store.floating());
+  if (!hasTags()) return capForSea(store.floating(), 'center');
   const key = todayKeySafe();
   const live = store.all().filter(t => !isDoneItem(t));
   if (!narrowSet.size) {
-    return capForSea(live.filter(t => !tagsOfSafe(t.id).length && !hasFutureDay(t, key)));
+    return capForSea(live.filter(t => !tagsOfSafe(t.id).length && !hasFutureDay(t, key)), 'center');
   }
   /* 選んだうちの**どれかが当てはまれば出す**（「または」）。
      絞ったあとにも上限はかける——絞り込みは「どれを見るか」で、
@@ -725,7 +748,7 @@ function centerItems() {
       else if (tags.indexOf(k) >= 0) return true;
     }
     return false;
-  }));
+  }), 'center');
 }
 
 /* 絞り込みに出す一覧。**完了は出さない**（下の海とふりかえりに専用の道がある）。
@@ -765,15 +788,15 @@ function faceItems(face) {
   const tag = faceTag(face);
   if (!tag) return [];
   if (tag.id === 'done') {
-    if (has('doneItems')) { try { return capForSea(store.doneItems() || []); } catch (err) { return []; } }
-    return capForSea(store.all().filter(isDoneItem));
+    if (has('doneItems')) { try { return capForSea(store.doneItems() || [], face); } catch (err) { return []; } }
+    return capForSea(store.all().filter(isDoneItem), face);
   }
   let list;
   try { list = store.inTag(tag.id) || []; } catch (err) { return []; }
   /* タグの海も同じ規則。**その海そのもののタグだけは数えない**ので、
      長期保留の海は長期保留を出すし、きっかけを左右へ置いた人の海も空にならない */
   const key = todayKeySafe();
-  return capForSea(list.filter(t => !isQuietItem(t, tag.id, key)));
+  return capForSea(list.filter(t => !isQuietItem(t, tag.id, key)), face);
 }
 
 function isStarted(t) {
@@ -2949,12 +2972,174 @@ function renderChrome() {
    全部を読む行き先だけ。
 
    出す条件は「いまの面が上限に当たっている」。当たっていなければ何も出さない
-   ——ふだんの海には出ない1行にする。 */
+   ——ふだんの海には出ない1行にする。
+
+   2026-10-25: 1行の文字はやめ、底の気孔（vent）にした（利用者の指示）。気孔からいつも小さな泡が
+   昇っている＝「ここからまだ泡が出てくる」の合図。タップで1つ入れ替わる（swapOne）。
+   全部を読む行き先（リスト表示）は、気孔の読み上げ名に残す。 */
 function syncMore() {
-  if (!moreLine) return;
+  if (!vent) return;
   const shown = faceItems(curFace);         /* ここで seaClipped が立つ */
   const clipped = seaClipped && shown.length > 0;
-  moreLine.hidden = !clipped || gathering || !!bubbleDrag;
+  vent.hidden = !clipped || gathering || !!bubbleDrag;
+}
+
+/* 気孔をタップした。隠れている泡を1つ呼び込み、いちばん上の泡を押し出す */
+let ventBusy = false;
+let ventQueue = 0;                /* 続けて押した回数。動きが終わってから順に効かせる */
+const VENT_MS = 900;
+
+function swapOne() {
+  if (ventBusy) { ventQueue = Math.min(ventQueue + 1, 3); return; }
+  if (gathering || bubbleDrag) return;
+  const face = curFace;
+  const fl = faces[face] && faces[face].field;
+  if (!fl || typeof fl.nodeOf !== 'function') return;
+  const shownList = faceItems(face);
+  if (!seaClipped || !shownList.length) return;
+  let sw = swaps[face];
+  if (!sw) {
+    let full;
+    capOff = true;
+    try { full = faceItems(face) || []; } finally { capOff = false; }
+    const vis = new Set(shownList.map(t => t.id));
+    sw = swaps[face] = {
+      visible: shownList.map(t => t.id),
+      queue: full.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(t => t.id).filter(id => !vis.has(id)),
+      known: new Set(full.map(t => t.id)),
+      max: shownList.length,
+    };
+  }
+  /* いちばん上の泡。掴まれている・盤に寄せている泡（面の外に居る）は数えない */
+  let top = null;
+  sw.visible.forEach(id => {
+    const node = fl.nodeOf(id);
+    if (!node || !stage.contains(node) || node.classList.contains('is-centered')) return;
+    const r = node.getBoundingClientRect();
+    const cy = r.top + r.height / 2;
+    if (!top || cy < top.cy) top = { id, node, cy };
+  });
+  if (!top || !sw.queue.length) return;
+  const incoming = sw.queue.shift();
+  sw.queue.push(top.id);
+  sw.visible = sw.visible.filter(id => id !== top.id).concat([incoming]);
+
+  ventBusy = true;
+  const calm = reduceMotion();
+  puffVent(calm);
+  const ghost = ghostOf(top.node);
+  setFaceItems(face, faceItems(face));
+  if (ghost) pushOut(ghost, calm);
+  const nn = fl.nodeOf(incoming);
+  if (nn) emerge(nn, calm);
+  sw.visible.forEach(id => { if (id !== incoming) nudge(fl.nodeOf(id), calm); });
+  setTimeout(() => {
+    ventBusy = false;
+    if (ventQueue > 0) { ventQueue--; swapOne(); }
+  }, calm ? 400 : VENT_MS);
+}
+
+/* 押し出す泡の写し。本物は drift が降ろすので、写しをドラッグ層に置いて昇らせる */
+function ghostOf(node) {
+  const r = node.getBoundingClientRect();
+  if (!r.width) return null;
+  const g = node.cloneNode(true);
+  g.classList.remove('is-floating', 'is-centered', 'is-held');
+  g.classList.add('is-ghost');
+  g.removeAttribute('tabindex');
+  g.setAttribute('aria-hidden', 'true');
+  g.style.left = r.left + 'px';
+  g.style.top = r.top + 'px';
+  g.style.transform = 'none';
+  g.style.setProperty('--d', r.width + 'px');
+  g.style.width = g.style.height = r.width + 'px';
+  (document.getElementById('drag-layer') || document.body).appendChild(g);
+  return { el: g, r };
+}
+
+/* いちばん上の泡: 揺れながら上へ押し出され、上端ではじける */
+function pushOut(ghost, calm) {
+  const { el: g, r } = ghost;
+  const st = stage.getBoundingClientRect();
+  if (calm) {
+    g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: 'forwards' }).onfinish = () => g.remove();
+    return;
+  }
+  const up = r.top - st.top + r.height * 0.6;
+  const sw = (Math.random() < .5 ? -1 : 1) * 14;
+  const a = g.animate([
+    { transform: 'translate(0, 0)' },
+    { transform: `translate(${sw}px, ${-up * .6}px)`, offset: .6 },
+    { transform: `translate(0, ${-up}px) scale(1.2)`, opacity: .9, offset: .88 },
+    { transform: `translate(0, ${-up}px) scale(1.38)`, opacity: 0 },
+  ], { duration: 820, delay: 100, easing: 'cubic-bezier(.45,.05,.55,.95)', fill: 'forwards' });
+  a.onfinish = () => { popBits(r.left + r.width / 2, r.top - up + r.height / 2); g.remove(); };
+}
+
+/* はじけた飛沫（bubble.css の .pop-bit を使う） */
+function popBits(x, y) {
+  const layer = document.getElementById('drag-layer') || document.body;
+  for (let i = 0; i < 7; i++) {
+    const b = el('span', 'pop-bit');
+    const a = Math.PI * 2 * i / 7 + Math.random() * .4, d = 16 + Math.random() * 16;
+    b.style.setProperty('--x0', x + 'px'); b.style.setProperty('--y0', y + 'px');
+    b.style.setProperty('--x1', (x + Math.cos(a) * d) + 'px'); b.style.setProperty('--y1', (y + Math.sin(a) * d) + 'px');
+    layer.appendChild(b);
+    setTimeout(() => b.remove(), 600);
+  }
+}
+
+/* 新しい泡: 気孔の口で小さく生まれ、ふくらみながら自分の場所へ昇る（見た目だけ。.wob を動かす） */
+function emerge(node, calm) {
+  const wob = node.querySelector('.wob');
+  if (!wob || !vent) return;
+  if (calm) { wob.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 360 }); return; }
+  const r = node.getBoundingClientRect(), v = vent.getBoundingClientRect();
+  const z = node.offsetWidth ? r.width / node.offsetWidth : 1;   /* 面のズーム */
+  const dx = (v.left + v.width / 2 - (r.left + r.width / 2)) / z;
+  const dy = (v.top + 10 - (r.top + r.height / 2)) / z;
+  wob.animate([
+    { transform: `translate(${dx}px, ${dy}px) scale(.12)`, opacity: 0 },
+    { transform: `translate(${dx * .5 - 14}px, ${dy * .5}px) scale(.6)`, opacity: 1, offset: .45 },
+    { transform: 'translate(0, -6px) scale(1.04)', offset: .85 },
+    { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+  ], { duration: 820, delay: 60, easing: 'cubic-bezier(.3,.6,.35,1)' });
+}
+
+/* ほかの泡: 下から押されたように、少しだけ上へ揺れる */
+function nudge(node, calm) {
+  if (calm || !node) return;
+  const wob = node.querySelector('.wob');
+  if (!wob) return;
+  const r = node.getBoundingClientRect();
+  const st = stage.getBoundingClientRect();
+  const k = st.height ? (r.top - st.top) / st.height : .5;      /* 下の泡ほど先に押される */
+  wob.animate([{ transform: 'translate(0, 0)' }, { transform: 'translate(0, -7px)' }, { transform: 'translate(0, 0)' }],
+    { duration: 520, delay: 80 + (1 - k) * 260, easing: 'ease-out' });
+}
+
+/* 気孔がぷにっと縮み、小さな泡がぷわっと出る */
+function puffVent(calm) {
+  if (!vent || calm) return;
+  vent.classList.remove('is-puff');
+  void vent.offsetWidth;
+  vent.classList.add('is-puff');
+  const box = vent.querySelector('.sea-vent-burst');
+  if (!box) return;
+  box.textContent = '';
+  for (let i = 0; i < 10; i++) box.appendChild(miniBubble(true));
+  setTimeout(() => { box.textContent = ''; }, 1500);
+}
+
+function miniBubble(burst) {
+  const m = el('span', 'mini');
+  const r = (lo, hi) => lo + Math.random() * (hi - lo);
+  m.style.setProperty('--s', [4, 5, 6, 7, 8, 10][Math.floor(Math.random() * 6)] + 'px');
+  m.style.setProperty('--dx', (burst ? r(-40, 40) : r(-24, 24)).toFixed(0) + 'px');
+  m.style.setProperty('--h', -(burst ? r(120, 300) : r(200, 380)).toFixed(0) + 'px');
+  m.style.setProperty('--du', (burst ? r(.8, 1.3) : r(2.4, 4.2)).toFixed(2) + 's');
+  m.style.setProperty('--de', (burst ? r(0, .12) : -r(0, 4.2)).toFixed(2) + 's');
+  return m;
 }
 
 /* 中央の海が空のときの言葉。
@@ -3127,10 +3312,25 @@ export default {
       stage.appendChild(box);
     });
 
-    /* --- 出し切れていないときの1行（利用者の指示）--- */
-    moreLine = el('p', 'sea-more', '新しいほうから出している。<br>「リスト表示」で、ぜんぶ。');
-    moreLine.hidden = true;
-    stage.appendChild(moreLine);
+    /* --- 底の気孔（出し切れていないときだけ。2026-10-25 に1行の文字から置き換えた）---
+       横から見た岩の小山。口からいつも小さな泡が昇る。タップで隠れている泡を1つ呼ぶ */
+    vent = el('button', 'sea-vent');
+    vent.type = 'button';
+    vent.hidden = true;
+    vent.setAttribute('aria-label', '隠れている泡を1つ呼ぶ（新しいほうから出している。ぜんぶは「リスト表示」）');
+    const flow = el('span', 'sea-vent-flow');
+    flow.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 10; i++) flow.appendChild(miniBubble(false));
+    vent.appendChild(flow);
+    const burst = el('span', 'sea-vent-burst');
+    burst.setAttribute('aria-hidden', 'true');
+    vent.appendChild(burst);
+    vent.insertAdjacentHTML('beforeend', '<svg class="rock" viewBox="0 0 120 46" aria-hidden="true">'
+      + '<path d="M2 46 C 10 30 24 22 38 18 C 46 10 52 8 60 8 C 68 8 74 10 82 18 C 96 22 110 30 118 46 Z"/>'
+      + '<ellipse class="mouth" cx="60" cy="11" rx="11" ry="4"/>'
+      + '<path class="crack" d="M30 30 Q 40 26 48 29 M74 31 Q 84 27 92 31"/></svg>');
+    vent.addEventListener('click', ev => { ev.preventDefault(); swapOne(); });
+    stage.appendChild(vent);
 
     /* --- タグを外す枠（掴んでいる間だけ、下の真ん中に出る）---
        ステージの子。倍率が掛かると狙いにくくなるので、面の中には置かない。
@@ -3417,6 +3617,7 @@ export default {
     resetZoom();              /* 小さいまま・寄せたまま開き直すと、端が無いように見える */
     cancelShuffle();          /* 混ぜかけのまま裏に回ったら畳む。開かない */
     setGathering(false);      /* タブを離れたら整列は解除（契約 §7） */
+    Object.keys(swaps).forEach(k => delete swaps[k]);   /* 気孔で入れ替えた並びは捨てる（次は水面から） */
     closeDetail();
     clearTimeout(stopTimer); stopTimer = 0;
     liveFaces().forEach(f => {

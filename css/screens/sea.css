@@ -566,21 +566,61 @@
   color: var(--text-2);
 }
 
-/* ---------- 出し切れていないときの1行（利用者の指示） ----------
-   海の底（入力欄の上）に小さく置く。**数は出さない**——
-   「あと◯件」は、やっていないことの数を突き返すのと同じになる。 */
-.sea-more {
-  position: absolute; left: 50%; z-index: 7;
-  bottom: calc(var(--sea-floor, 64px) + 8px);
-  transform: translateX(-50%);
-  max-width: calc(100% - 28px);
-  margin: 0; text-align: center; pointer-events: none;
-  padding: 6px 14px; border-radius: 12px;
-  /* バブルの上に重なるので、地を敷かないと読めない（実測で読めなかった）。
-     押す的ではないので縁は付けない——押せるものと見分けが付くように */
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  font-size: 11.5px; line-height: 1.6; color: var(--text-2);
+/* ---------- 底の気孔（出し切れていないときだけ。2026-10-25 利用者の指示）----------
+   前はここに「新しいほうから出している」の1行を置いていた。いまは横から見た岩の小山（気孔）で、
+   口からいつも小さな泡が昇る（＝まだ泡が出てくる合図）。タップで隠れている泡を1つ呼ぶ（sea.js swapOne）。
+   **数は出さない。**ボタンの枠も文字も持たない（名前は読み上げにだけ）。押す的は 72×56 */
+.sea-vent {
+  /* 置き場は底の右。真ん中は「↓ 完了」の札と、掴んでいる間の「タグを外す枠」の場所 */
+  position: absolute; right: 14px; z-index: 7;
+  bottom: 0;                                  /* 面（.sea-stage）の底がもう入力欄の上 */
+  width: 72px; height: 56px; padding: 0;
+  appearance: none; -webkit-appearance: none; border: 0; background: transparent; cursor: pointer;
+  border-radius: 30px 30px 0 0; -webkit-tap-highlight-color: transparent;
+  --rock-1: #b9cbd4; --rock-2: #8fa6b3; --mouth: rgba(30,70,90,.55); --crack: rgba(255,255,255,.45);
+  --mini: rgba(255,255,255,.9); --mini-edge: rgba(90,170,210,.55);
 }
+@media (prefers-color-scheme: dark) {
+  .sea-vent { --rock-1: #3d4f5c; --rock-2: #2a3843; --mouth: rgba(0,0,0,.6); --crack: rgba(255,255,255,.14);
+    --mini: rgba(220,240,255,.75); --mini-edge: rgba(130,200,235,.6); }
+}
+.sea-vent:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.sea-vent .rock { position: absolute; left: 6px; bottom: 0; width: 60px; height: 23px; transform-origin: 50% 100%; }
+.sea-vent .rock path:first-child { fill: var(--rock-2); }
+.sea-vent .rock .mouth { fill: var(--mouth); }
+.sea-vent .rock .crack { fill: none; stroke: var(--crack); stroke-width: 1.4; stroke-linecap: round; }
+.sea-vent.is-puff .rock { animation: vent-squash .45s ease-out; }
+@keyframes vent-squash { 0% { transform: scale(1) } 25% { transform: scale(1.08, .86) } 60% { transform: scale(.96, 1.08) } 100% { transform: scale(1) } }
+/* 小さな泡。口（岩の上の真ん中）から昇る。流れはいつも、噴き出しは押したときだけ */
+.sea-vent .mini {
+  position: absolute; left: 50%; bottom: 20px; width: var(--s); height: var(--s); margin-left: calc(var(--s) / -2);
+  border-radius: 50%; pointer-events: none; opacity: 0;
+  background: radial-gradient(circle at 35% 30%, var(--mini), rgba(255,255,255,.15) 60%);
+  box-shadow: inset 0 0 0 1px var(--mini-edge);
+}
+.sea-vent-flow .mini { animation: vent-flow var(--du) ease-in infinite; animation-delay: var(--de); }
+@keyframes vent-flow {
+  0% { transform: translate(0, 0) scale(.4); opacity: 0; }
+  10% { opacity: .95; }
+  40% { transform: translate(calc(var(--dx) * .5), calc(var(--h) * .4)) scale(.9); }
+  70% { transform: translate(calc(var(--dx) * -.2), calc(var(--h) * .72)) scale(1); opacity: .8; }
+  100% { transform: translate(var(--dx), var(--h)) scale(1.05); opacity: 0; }
+}
+.sea-vent-burst .mini { animation: vent-burst var(--du) cubic-bezier(.2,.6,.35,1) both; animation-delay: var(--de); }
+@keyframes vent-burst {
+  0% { transform: translate(0, 0) scale(.3); opacity: 0; }
+  8% { opacity: 1; }
+  45% { transform: translate(calc(var(--dx) * .7), calc(var(--h) * .5)) scale(1); }
+  100% { transform: translate(var(--dx), var(--h)) scale(1.1); opacity: 0; }
+}
+/* 掴んでいる間は引っ込める（下の真ん中は「タグを外す枠」の場所） */
+.sea-stage.is-bubdrag .sea-vent { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .sea-vent .mini { animation: none !important; opacity: 0; }
+  .sea-vent.is-puff .rock { animation: none; }
+}
+/* 押し出す泡の写し（ドラッグ層。sea.js ghostOf） */
+.bub.is-ghost { pointer-events: none; }
 
 /* ---------- 詳細（最初の一手 / URL / 開始した） ----------
    入力欄の上に重ねる。ノードは JS 側で使い回す（入力中の値を落とさないため）。 */
