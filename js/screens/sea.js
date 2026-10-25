@@ -65,6 +65,39 @@ import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from
    個数に素直に比例するので、個数を抑えれば効く。 */
 const SEA_MAX = 20;
 
+/* --- 画面の広さに合わせる（Issue #2。利用者の指示で案 C）---
+
+   20個は 375×812 ほどの画面で決めた数で、それより狭い・横に広い画面では
+   バブルで埋め尽くされた（485×963 で 18個、360×640 では重なって読めない）。
+   そこで、バブルの面積の合計を海の SEA_FILL までに収める：
+
+     1. まず縮める。ただし SEA_SHRINK 倍まで（それより小さいと字が詰まって読めない）
+     2. それでも入らないぶんは、数を減らす（古いほうから隠す。最低 SEA_MIN 個は出す）
+
+   実測（試し用の記録 18件）: 485×963 … 18個・直径 86〜132px／360×640 … 10個。
+   候補の A（数だけ減らす）・B（縮めるだけ）と撮り比べた画像は枝 issue-2-candidates。
+   広さは**ステージ**の寸法で見る（引いて広がった世界ではない。直径の決め方と同じ）。 */
+const SEA_FILL = 0.45;
+const SEA_SHRINK = 0.8;
+const SEA_MIN = 5;
+
+function stageArea() { return ((stage && stage.clientWidth) || 320) * ((stage && stage.clientHeight) || 420); }
+function areaOf(t, k) {
+  const d = diameterFor(t.text || '', stage && stage.clientWidth, stage && stage.clientHeight) * k;
+  return Math.PI * d * d / 4;
+}
+/* 面積の合計を budget に収めるための縮め率（kMin より小さくはしない） */
+function shrinkOf(list, budget, kMin) {
+  const sum = list.reduce((a, t) => a + areaOf(t, 1), 0);
+  return sum > budget ? Math.max(kMin, Math.sqrt(budget / sum)) : 1;
+}
+/* 新しい順の list から、縮め率 k で budget に入る数（SEA_MIN〜SEA_MAX） */
+function fitCount(newest, budget, k) {
+  let sum = 0, n = 0;
+  for (const t of newest) { sum += areaOf(t, k); if (sum > budget && n >= SEA_MIN) break; n++; }
+  return Math.min(n, SEA_MAX);
+}
+
 /* 着手（store.start）の印を、画面で何と呼ぶか（利用者の指示）。
    「はじめた」「開始した」と別々に呼んでいたが、同じ印を指している。
    実際にしていることは「今日ぶんはここまで」——押すとバブルが薄くなり、
@@ -645,11 +678,12 @@ let capOff = false;
 
 function capForSea(list) {
   if (capOff) return list;
-  seaClipped = list.length > SEA_MAX;      /* 直後に読むこと（syncMore を参照） */
+  const byNew = list.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const budget = stageArea() * SEA_FILL;
+  const max = fitCount(byNew, budget, shrinkOf(byNew.slice(0, SEA_MAX), budget, SEA_SHRINK));
+  seaClipped = list.length > max;          /* 直後に読むこと（syncMore を参照） */
   if (!seaClipped) return list;
-  const newest = list.slice()
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    .slice(0, SEA_MAX);
+  const newest = byNew.slice(0, max);
   const keep = new Set(newest.map(t => t.id));
   return list.filter(t => keep.has(t.id));
 }
@@ -1847,9 +1881,10 @@ function setFaceItems(face, list) {
        あちらは host（＝広がった面）の寸法で上限を決めるので、
        画面の狭い機種では引くたびにバブルまで大きくなってしまう。 */
     const dw = stage.clientWidth, dh = stage.clientHeight;
+    const k = shrinkOf(list, stageArea() * SEA_FILL, SEA_SHRINK);   /* Issue #2。capForSea と同じ決め方 */
     field.setItems(list.map(t => {
       const it = Object.assign(itemOf(t), { colors: colorsOf(t), tagNames: namesOf(t) });
-      it.size = Math.round(diameterFor(it.text, dw, dh));
+      it.size = Math.round(diameterFor(it.text, dw, dh) * k);
       return it;
     }));
   }
