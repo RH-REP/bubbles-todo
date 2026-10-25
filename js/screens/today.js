@@ -10,7 +10,8 @@
 
 import { store } from '../store.js';
 import { createField } from '../drift.js';
-import { openMenu } from '../bubble.js';
+import { openMenu, attachGestures } from '../bubble.js';
+import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete } from '../sound.js';
 
@@ -46,6 +47,11 @@ let menuHandle = null;
 let detail = null;        /* { node, flush, sync, id } 再描画をまたいで使い回す */
 let randomBtn = null;     /* ランダムスタート（追補5 §4） */
 let shuffle = null;       /* 混ぜている最中だけ { node, timer } が入る */
+/* 四つに分けて見る（優先度・利用者の指示 2026-10-25）。中身はその日の泡。
+   分けている間は漂う面（field）を降ろし、js/quadview.js の箱に一定の大きさで並べる */
+let quadOn = false;
+let quad = null;
+let quadBtn = null;
 
 /* タグの名前。色と同じ並びで渡す。
    タグを色だけで表すと、色を見分けられない人に所属が伝わらない（WCAG 1.4.1）。
@@ -246,8 +252,11 @@ function dayItems(key) {
 }
 
 function itemsForField() {
-  const list = dayItems(curDay());
-  return list.map(t => ({
+  return dayItems(curDay()).map(itemFor);
+}
+
+function itemFor(t) {
+  return ({
     id: t.id,
     text: t.text,
     started: isStarted(t.id),
@@ -260,7 +269,24 @@ function itemsForField() {
     /* 右上の区分の点（並べ替えはしない） */
     urgent: t.urgent,
     important: t.important,
-  }));
+  });
+}
+
+function setQuad(on) {
+  if (!quad || quadOn === on) return;
+  quadOn = on;
+  closeMenu();
+  quad.el.hidden = !on;
+  if (stage) stage.classList.toggle('is-quad', on);
+  syncQuadButton(quadBtn, on);
+  if (on) { if (field) { field.stop(); field.setItems([]); } }
+  else {
+    quad.clear();
+    render();
+    if (field && shown) { field.relayout(); field.start(); }
+    return;
+  }
+  render();
 }
 
 /* ---------------- その日の海に直に書く（利用者の指示） ----------------
@@ -512,9 +538,12 @@ function onDayUp(ev) {
 function render() {
   if (!field) return;
   const items = itemsForField();
-  field.setItems(items);
+  if (quadOn && quad) {
+    /* 分けている間は漂う面に渡さない（同じ泡が2つ出る） */
+    quad.render(items.map(it => ({ id: it.id, item: it, opts: { size: QUAD_BUB, colors: it.colors, tagNames: it.tagNames, marks: [] } })));
+  } else field.setItems(items);
   if (emptyNote) {
-    emptyNote.hidden = items.length > 0;
+    emptyNote.hidden = items.length > 0 || quadOn;
     syncEmptyNote();
   }
   syncDayBtn();
@@ -1127,6 +1156,12 @@ function endBubDrag() {
   window.removeEventListener('pointerup', onBubPointer, true);
   if (stage) stage.classList.remove('is-bubdrag');
   renderDayEdges();
+  /* 四つに分けている間は、区分へ落としたかを先に見る（日の帯より内側にある） */
+  const qk = (d && quadOn && quad) ? quad.hitAt(pt.x, pt.y) : undefined;
+  if (d && qk !== undefined && !to) {
+    Promise.resolve().then(() => { if (!tabDropped && !dropToQuad(d.id, qk)) render(); });
+    return;
+  }
   if (!d || !to) return;
   /* onDropToTab と onDragEnd のどちらが先に来るかは決まっていないので、
      マイクロタスク1つぶん待ってから見る（海・きっかけと同じ間合い） */
@@ -1255,9 +1290,16 @@ export default {
     });
     stage.appendChild(randomBtn);
 
+    /* 四つに分ける切り替え。さいころの左（海ではフィルターの隣） */
+    quadBtn = quadButton(() => setQuad(!quadOn));
+    quadBtn.classList.add('today-quadbtn');
+    stage.appendChild(quadBtn);
+
     /* drift は opts の直下から handlers を読む。将来 opts.handlers を見る作りに
        変わっても落ちないよう、まとめたものも一緒に渡しておく（余分なキーは無視される） */
     field = createField(stage, Object.assign({ size: 'text', handlers }, handlers));
+    quad = createQuadView(stage, { className: 'today-quad', bind: (node) => attachGestures(node, handlers) });
+    quad.el.dataset.screen = 'today.quad';
 
     /* --- その日の海に直に書く（利用者の指示）---
        面（.today-stage）の**兄弟**として下に置く。面は flex:1 なので自然に縮み、
@@ -1325,7 +1367,7 @@ export default {
        自分で過去へなぞって見に行くぶんは、この後いつでもできる */
     if (viewDay && viewDay < todayKey()) { viewDay = null; announceDay(); }
     /* ここで初めてペインが display:flex になる。寸法が取れるのはこの時点から */
-    if (field) { field.relayout(); field.start(); }
+    if (field && !quadOn) { field.relayout(); field.start(); }
     render();
   },
 

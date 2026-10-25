@@ -28,7 +28,7 @@
    ファイルを足したときは ASSETS にも足す（足し忘れたものは、
    網が無いときだけ取れない——ふだんは動いてしまうので気づきにくい）。 */
 
-const VERSION = '2026-10-25d';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
+const VERSION = '2026-10-25e';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [
@@ -40,6 +40,7 @@ const ASSETS = [
   './css/base.css',
   './css/bubble.css',
   './css/focus.css',
+  './css/quad.css',
   './css/screens/sea.css',
   './css/screens/today.css',
   './css/screens/plan.css',
@@ -71,6 +72,7 @@ const ASSETS = [
   './js/space.js',
   './js/store.js',
   './js/priority.js',
+  './js/quadview.js',
   './js/sync.js',
   './js/ui.js',
   /* アイコン */

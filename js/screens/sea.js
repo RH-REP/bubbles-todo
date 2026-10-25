@@ -32,7 +32,7 @@ import { playComplete } from '../sound.js';
 /* 「今日」タブの落とし先は、今日の画面がいま映している日（利用者の指示）。
    today.js は sea.js を読まないので、循環にはならない。 */
 import { dropDay } from './today.js';
-import { QUADRANTS, QUAD_ORDER } from '../priority.js';
+import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 
 /* --- 海に出すバブルの上限（利用者の指示）---
 
@@ -199,8 +199,8 @@ let gathering = false;
    四つの区分は**リスト表示のもう1つの形**として持つ——海の物理を降ろす・滑らせない・
    ズームしない、の守りが gathering ひとつで全部効くため。もどすと 'list' に戻る */
 let gridMode = 'list';
-let quad = null;                  /* 四つに分けた面の箱 */
-const quadNodes = new Map();      /* id -> { node, detach }。再描画をまたいで使い回す */
+let quad = null;                  /* 四つに分けた眺め（js/quadview.js） */
+let quadBtn = null;               /* 四つに分ける切り替え（フィルターの隣） */
 
 /* ---- 海のズーム（利用者の指示）----
 
@@ -1262,7 +1262,7 @@ function endBubbleDrag() {
     if (overTabbar(pt)) return;
     if (offT) { untagHere(d.id, offT); return; }
     const qk = quadHitAt(pt.x, pt.y);
-    if (qk !== undefined) { dropToQuad(d.id, qk); return; }
+    if (qk !== undefined) { if (!dropToQuad(d.id, qk)) renderQuad(); return; }
     const dir = edgeHitAt(pt.x, pt.y, true);
     if (dir) tagFromEdge(d.id, dir);
   });
@@ -2203,7 +2203,7 @@ function setGathering(on) {
   gatherBtn.classList.toggle('is-on', on);
   if (!on) gridMode = 'list';
   grid.hidden = !on || gridMode !== 'list';
-  if (quad) quad.hidden = !on || gridMode !== 'quad';
+  if (quad) quad.el.hidden = !on || gridMode !== 'quad';
   stage.classList.toggle('is-gathering', on);
   stage.classList.toggle('is-quad', on && gridMode === 'quad');
 
@@ -2332,22 +2332,6 @@ function openNarrowPop() {
     rows.push({ id: c.id, btn: b });
     pop.appendChild(b);
   });
-  /* 四つに分けて見る（優先度）。タグの選び札とは別の、見え方の切り替え。区切り線の下に1つ */
-  const qb = el('button', 'sea-narrow-row is-quad');
-  qb.type = 'button';
-  qb.setAttribute('role', 'menuitemcheckbox');
-  const quadOn = gathering && gridMode === 'quad';
-  qb.setAttribute('aria-checked', quadOn ? 'true' : 'false');
-  const qic = el('span', 'qic', '⊞');
-  qic.setAttribute('aria-hidden', 'true');
-  qb.appendChild(qic);
-  qb.appendChild(el('span', 'nm', quadOn ? '四つに分けるのをやめる' : '四つに分けて見る'));
-  qb.addEventListener('click', ev => {
-    ev.preventDefault();
-    closeNarrowPop(false);
-    setQuadView(!(gathering && gridMode === 'quad'));
-  });
-  pop.appendChild(qb);
   pop.addEventListener('keydown', ev => {
     const rows = Array.from(pop.querySelectorAll('button'));
     const i = rows.indexOf(document.activeElement);
@@ -2364,13 +2348,13 @@ function openNarrowPop() {
 }
 
 function syncNarrowBtn() {
+  syncQuadButton(quadBtn, gathering && gridMode === 'quad');
   if (!narrowBtn) return;
   if (pruneNarrow()) syncFaces();          /* 消えたタグを選んだままにしない */
   /* 中央（ぜんぶ）の海にだけ置く。タグの海には出さない（絞る意味が無い）。
      **リスト表示（一覧）の上でも出す**——あちらにもフィルターが効くようになったので、
      切り替える口が要る（利用者の指示） */
-  /* 四つに分けて見る口もここにあるので、タグが無くても中央の海では出す（2026-10-25） */
-  const show = curFace === 'center';
+  const show = curFace === 'center' && hasTags();
   narrowBtn.hidden = !show;
   if (!show) closeNarrowPop(false);
   const nm = narrowName();
@@ -2837,15 +2821,9 @@ function renderGrid() {
 /* ---------------- 画面まわりの表示 ---------------- */
 
 /* ---------------- 四つに分けて見る（優先度・利用者の指示 2026-10-25）----------------
-
-   急ぐ・大事の2つの印で、海を4つの区分に分けて眺める。泡を区分へドラッグすると、その印が付く。
-   決まり（案のとおり）:
-     ・区分ごとの数・割合は出さない。赤は使わない。名前は命令形にしない
-     ・割り振りは任意。印の無い泡は下の「まだ分けていない」に並ぶ（海では今までどおり漂う）
-     ・中身は listItems()——フィルター・長期保留・完了の扱いは海と同じ規則のまま
-   泡は一定の大きさで並べる（漂わせない）。押すと、ふだんと同じ盤が開く。 */
-const QUAD_BUB = 66;   /* 3行の名前が欠けない大きさ。区分の幅に2つ並ぶ */
-
+   箱・泡の出し入れ・当たり・書き込みは js/quadview.js。ここは「リスト表示のもう1つの形」として
+   出し入れするだけ（海の物理を降ろす・滑らせない・ズームしない、が gathering ひとつで効くため）。
+   中身は listItems()——フィルター・長期保留・完了の扱いは海と同じ規則のまま。 */
 function setQuadView(on) {
   if (on) {
     gridMode = 'quad';
@@ -2853,7 +2831,7 @@ function setQuadView(on) {
     if (gathering) {
       clearGrid();
       grid.hidden = true;
-      quad.hidden = false;
+      quad.el.hidden = false;
       stage.classList.add('is-quad');
       renderQuad();
       renderChrome();
@@ -2863,100 +2841,16 @@ function setQuadView(on) {
   setGathering(false);
 }
 
-function clearQuad() {
-  quadNodes.forEach(g => { if (typeof g.detach === 'function') g.detach(); g.node.remove(); });
-  quadNodes.clear();
-  if (quad) quad.textContent = '';
-}
-
-/* 箱（区分4つと帯）を一度だけ組む。泡は renderQuad が出し入れする */
-function quadFrame() {
-  if (quad.firstChild) return;
-  const axis = el('div', 'sea-quad-axis');
-  axis.setAttribute('aria-hidden', 'true');
-  axis.appendChild(el('span', '', '← 急ぐ'));
-  axis.appendChild(el('span', '', '急がない →'));
-  quad.appendChild(axis);
-  const box = el('div', 'sea-quad-grid');
-  QUAD_ORDER.forEach(k => {
-    const cell = el('section', 'sea-q');
-    cell.dataset.q = k;
-    cell.setAttribute('aria-label', QUADRANTS[k].name + '（' + QUADRANTS[k].sub + '）');
-    const hd = el('div', 'sea-q-hd');
-    hd.appendChild(el('b', '', QUADRANTS[k].name));
-    hd.appendChild(el('small', '', QUADRANTS[k].sub));
-    cell.appendChild(hd);
-    cell.appendChild(el('div', 'sea-q-body'));
-    box.appendChild(cell);
-  });
-  const yax = el('div', 'sea-quad-yaxis');
-  yax.setAttribute('aria-hidden', 'true');
-  yax.appendChild(el('span', '', '大事'));
-  yax.appendChild(el('span', '', '大事でない'));
-  box.appendChild(yax);
-  quad.appendChild(box);
-  const un = el('section', 'sea-q-un');
-  un.dataset.q = '';
-  un.setAttribute('aria-label', 'まだ分けていない');
-  un.appendChild(el('span', 'sea-q-un-lb', 'まだ分けていない'));
-  un.appendChild(el('div', 'sea-q-body'));
-  quad.appendChild(un);
-}
+function clearQuad() { if (quad) quad.clear(); }
 
 function renderQuad() {
   if (!quad) return;
-  quadFrame();
-  const list = listItems();
-  const want = new Set(list.map(t => t.id));
-  quadNodes.forEach((g, id) => {
-    if (want.has(id)) return;
-    if (typeof g.detach === 'function') g.detach();
-    g.node.remove();
-    quadNodes.delete(id);
-  });
-  const bodies = {};
-  /* 泡も data-q を持つ（右上の点）。区分の箱だけを拾う */
-  quad.querySelectorAll('.sea-q, .sea-q-un').forEach(c => { bodies[c.dataset.q] = c.querySelector('.sea-q-body'); });
-  list.forEach(t => {
-    const item = itemOf(t);
-    const opts = optsOf(t, QUAD_BUB);
-    let g = quadNodes.get(t.id);
-    if (g) updateBubble(g.node, item, opts);
-    else {
-      const node = makeBubble(item, opts);
-      g = { node, detach: bindNode(node, t.id, () => quad) };
-      quadNodes.set(t.id, g);
-    }
-    const k = store.quadrantOf ? store.quadrantOf(t.id) : null;
-    const body = bodies[k || ''];
-    /* 掴んでいる・盤に寄せている間はドラッグ層に居る。そこから引きはがさない */
-    if (body && (g.node.parentNode === null || quad.contains(g.node))) body.appendChild(g.node);
-  });
-  /* 空の区分には、何を置く場所かだけを薄く書く（数は出さない） */
-  quad.querySelectorAll('.sea-q-body').forEach(b => b.classList.toggle('is-empty', !b.querySelector('.bub')));
+  quad.render(listItems().map(t => ({ id: t.id, item: itemOf(t), opts: optsOf(t, QUAD_BUB) })));
 }
 
-/* 指先の下の区分。区分の中なら鍵、帯の中なら null（印を外す）、どちらでもなければ undefined */
+/* 指先の下の区分。四つに分けていないときは undefined */
 function quadHitAt(x, y) {
-  if (!(gathering && gridMode === 'quad' && quad)) return undefined;
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined;
-  const cells = quad.querySelectorAll('.sea-q, .sea-q-un');
-  for (let i = 0; i < cells.length; i++) {
-    const r = cells[i].getBoundingClientRect();
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return cells[i].dataset.q || null;
-  }
-  return undefined;
-}
-
-function dropToQuad(id, k) {
-  const t = store.get(id);
-  if (!t) return;
-  const before = { urgent: t.urgent, important: t.important };
-  if (!store.setQuadrant(id, k)) { renderQuad(); return; }   /* 同じ区分へ戻した／読むだけの海 */
-  const nm = trim(t.text);
-  const back = () => { store.setPriority(id, before); };
-  toast(k ? '『' + nm + '』を「' + QUADRANTS[k].name + '」に置いた' : '『' + nm + '』の印を外した',
-    { label: '取り消す', on: back });
+  return (gathering && gridMode === 'quad' && quad) ? quad.hitAt(x, y) : undefined;
 }
 
 function renderChrome() {
@@ -3262,7 +3156,13 @@ export default {
       ev.preventDefault();
       openNarrowPop();
     });
-    stage.appendChild(narrowBtn);
+    /* フィルターと「四つに分ける」は横に並べる（利用者の指示 2026-10-25。前はフィルターの中にあった）。
+       フィルターは隠れることがある（タグの海・タグが無いとき）ので、並びは flex に任せる */
+    const tools = el('div', 'sea-tools');
+    tools.appendChild(narrowBtn);
+    quadBtn = quadButton(() => setQuadView(!(gathering && gridMode === 'quad')));
+    tools.appendChild(quadBtn);
+    stage.appendChild(tools);
 
     /* --- ランダムスタート（いま開いている面から1つ、無作為に） --- */
     randomBtn = el('button', 'sea-random');
@@ -3313,12 +3213,8 @@ export default {
     /* --- 四つに分けて見る（優先度・2026-10-25）---
        リスト表示のもう1つの形。左右が 急ぐ／急がない、上下が 大事／大事でない。
        下の帯に「まだ分けていない」。中身は renderQuad が組む */
-    quad = el('div', 'sea-quad');
-    quad.hidden = true;
-    quad.dataset.screen = 'sea.quad';
-    quad.setAttribute('role', 'group');
-    quad.setAttribute('aria-label', '四つに分けた海');
-    stage.appendChild(quad);
+    quad = createQuadView(stage, { className: 'sea-quad', bind: (node, id) => bindNode(node, id, () => quad.el) });
+    quad.el.dataset.screen = 'sea.quad';
 
     /* overflow:clip を知らないブラウザでは、ステージがスクロール容器のままになる。
        中のバブルに focus が当たると勝手にスクロールして中身が丸ごとずれるので、戻す。 */

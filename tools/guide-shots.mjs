@@ -112,7 +112,7 @@ try {
     const r1 = add('あの論文を読む', 1); const r2 = add('傘を修理に出す', 2); add('写真のバックアップ', 3); const r3 = add('灯油を買う', 4);
     store.setQuadrant(a1.id, 'now'); store.setQuadrant(r1.id, 'grow'); store.setQuadrant(r3.id, 'quick'); store.setQuadrant(r2.id, 'drift');
     const w = add('会議の資料をまとめる', 1); store.setTag(w.id, 'work', true);
-    add('洗濯物をたたむ', 0, { today: true }); const m = add('メールの返事', 1, { today: true }); store.start(m.id, null);
+    add('洗濯物をたたむ', 0, { today: true }); const m = add('メールの返事', 1, { today: true }); store.start(m.id, null); store.setQuadrant(m.id, 'quick');
     const an = store.addAnchor('歯を磨いたら'); const s = add('ストレッチ', 2); store.setAnchor(s.id, an.id, true);
     const gs = store.gapSlots ? store.gapSlots() : []; const g = add('ポッドキャストを聴く', 3); store.setGap(g.id, true); if (gs[0]) store.setGapSlot(g.id, gs[0].id, true);
     const d = add('牛乳を買う', 4); store.complete(d.id); store.flush();`);
@@ -138,13 +138,20 @@ try {
   }
   await click('.tabbar button[data-screen="sea"]');
   await sleep(800);
-  /* 四つに分けて見る（フィルターの中） */
-  await click('.sea-narrow');
-  await sleep(300);
-  await click('.sea-narrow-row.is-quad');
+  /* 四つに分けて見る（フィルターの隣の ⊞）。今日の画面でも */
+  await click('.sea-tools .quad-btn');
   await sleep(900);
   await shot('20_quad');
-  await click('.sea-gather');
+  await click('.sea-tools .quad-btn');
+  await sleep(900);
+  await click('.tabbar button[data-screen="today"]');
+  await sleep(900);
+  await click('.today-quadbtn');
+  await sleep(900);
+  await shot('21_today_quad');
+  await click('.today-quadbtn');
+  await sleep(600);
+  await click('.tabbar button[data-screen="sea"]');
   await sleep(900);
   await click('.menubtn');
   await sleep(900);

@@ -390,3 +390,11 @@
 /* 掴んでいる間は、さいころを消す。右上の 58〜106px は帯の札の場所と重なるうえ、
    さいころは落とし先ではない（狙わせない。海が掴んでいる間に看板を消すのと同じ） */
 .today-stage.is-bubdrag .today-random { opacity: 0; pointer-events: none; }
+
+/* ---------- 四つに分けて見る（優先度・2026-10-25）----------
+   形は css/quad.css。ここは今日の面の上での置き場だけ。上は 2段目（日付と ‹ ›・さいころ）の下から。
+   左右は掴んでいる間に出る日の帯より内側 */
+.today-quad { z-index: 6; padding: 108px 24px 10px; }
+.today-quadbtn { position: absolute; top: 60px; right: 66px; z-index: 8; }
+.today-stage.is-bubdrag .today-quadbtn { opacity: 0; pointer-events: none; }
+/* 過去の日でも出す。印は日ではなく泡に付くので、見る・分けるはどの日からでもできる */
