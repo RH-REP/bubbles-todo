@@ -55,15 +55,35 @@ function readConf() {
     if (o && typeof o.url === 'string') {
       /* 前の版で保存した外への http の住所は、読み込みで捨てる（送らない） */
       const url = normalizeUrl(o.url) || '';
-      return { url, token: String(o.token || ''), shareToken: String(o.shareToken || '') };
+      return Object.assign(blankConf(), {
+        url, token: String(o.token || ''), shareToken: String(o.shareToken || ''),
+        session: String(o.session || ''), sessionSpaces: Array.isArray(o.sessionSpaces) ? o.sessionSpaces : [],
+        sessionExpires: Number(o.sessionExpires) || 0, sessionName: String(o.sessionName || ''),
+      });
     }
   } catch (e) { /* 読めなければ繋がない */ }
-  return { url: '', token: '', shareToken: '' };
+  return blankConf();
+}
+function blankConf() {
+  return { url: '', token: '', shareToken: '', session: '', sessionSpaces: [], sessionExpires: 0, sessionName: '' };
+}
+function saveConf() {
+  try {
+    if (conf.url) localStorage.setItem(CONF_KEY, JSON.stringify(conf));
+    else localStorage.removeItem(CONF_KEY);
+  } catch (e) { /* 保存できなくても、開いている間は繋がる */ }
 }
 
-/* いま開いている持ち主の合言葉 */
-function key() { return SPACE === 'share' ? conf.shareToken : conf.token; }
-/* 繋ぐ先と合言葉がそろっているか */
+/* パスキーの通行証（2026-10-24。公開の形）。持っていて、期限内で、今の持ち主（個人・共有）に入れるか */
+function hasSession() {
+  return !!(conf.session && conf.sessionExpires * 1000 > Date.now() && conf.sessionSpaces.indexOf(SPACE) >= 0);
+}
+/* いま開いている持ち主の鍵。パスキーの通行証があればそれ、無ければ合言葉 */
+function key() {
+  if (conf.session) return hasSession() ? conf.session : '';
+  return SPACE === 'share' ? conf.shareToken : conf.token;
+}
+/* 繋ぐ先と鍵がそろっているか */
 function ready() { return !!(conf.url && key()); }
 
 function readSeen() {
@@ -104,6 +124,8 @@ async function call(method, body) {
     method,
     headers: Object.assign(
       { Authorization: 'Bearer ' + key() },
+      /* パスキーの通行証は個人と共有の両方に効くので、どちらの記録かを言う */
+      conf.session ? { 'X-Bubbles-Space': SPACE } : {},
       body ? { 'Content-Type': 'application/json' } : {}),
     body: body ? JSON.stringify(body) : undefined,
     cache: 'no-store',
@@ -117,7 +139,12 @@ async function call(method, body) {
 async function syncOnce() {
   for (let tries = 0; tries < 3; tries++) {
     const got = await call('GET');
-    if (got.status === 401) throw new Error('合言葉が違う');
+    if (got.status === 401) throw new Error(conf.session ? 'パスキーで入り直す（通行証の期限切れか、取り消された）' : '合言葉が違う');
+    if (got.status === 429) {
+      throw new Error(got.json && got.json.error === 'devices'
+        ? '使っている端末が多い（' + (got.json.max || 3) + '台まで）。ほかの端末が30分使わなければ入れる'
+        : '失敗が続いたので、しばらく断られている');
+    }
     if (got.status !== 200 || !got.json) throw new Error('サーバーの応答が読めない（' + got.status + '）');
     /* 取り違えの見張り。前の版のサーバーは space を返さないので、そのときは個人だけ通す */
     const space = got.json.space || 'me';
@@ -180,7 +207,36 @@ function schedule(ms) {
 }
 
 export const sync = {
-  config() { return { url: conf.url, token: conf.token, shareToken: conf.shareToken }; },
+  config() {
+    return { url: conf.url, token: conf.token, shareToken: conf.shareToken,
+      passkey: conf.session ? { name: conf.sessionName, spaces: conf.sessionSpaces.slice(), expires: conf.sessionExpires,
+        valid: conf.sessionExpires * 1000 > Date.now() } : null };
+  },
+
+  /* パスキーで入ったあと（passkey.js の結果 {session, expires, spaces, name}）。合言葉は捨てる */
+  usePasskeySession(url, out) {
+    const u = normalizeUrl(url);
+    if (!u || !out || !out.session) return false;
+    conf = Object.assign(blankConf(), { url: u, session: String(out.session), sessionSpaces: out.spaces || [],
+      sessionExpires: Number(out.expires) || 0, sessionName: String(out.name || '') });
+    saveConf();
+    clearTimeout(timer);
+    failures = 0;
+    if (!ready()) { setStatus('off'); return true; }
+    setStatus('idle');
+    syncNow();
+    return true;
+  },
+
+  /* パスキーの通行証を捨てる（住所は残す）。サーバーへの取り消しは passkey.js の logoutPasskey */
+  dropPasskeySession() {
+    const old = conf.session;
+    conf = Object.assign(conf, { session: '', sessionSpaces: [], sessionExpires: 0, sessionName: '' });
+    saveConf();
+    clearTimeout(timer);
+    setStatus('off');
+    return old;
+  },
   status() { return status; },
   /* いま開いている持ち主と、その合言葉がそろっているか（共有の「入る」札を出すかに使う） */
   space() { return SPACE; },
@@ -194,15 +250,11 @@ export const sync = {
   configure(url, token, shareToken) {
     const u = normalizeUrl(url);
     if (u === null) return false;
-    conf = {
+    conf = Object.assign(blankConf(), {
       url: u, token: String(token || '').trim(),
       shareToken: shareToken === undefined ? conf.shareToken : String(shareToken || '').trim(),
-    };
-    if (!u) conf = { url: '', token: '', shareToken: '' };
-    try {
-      if (u) localStorage.setItem(CONF_KEY, JSON.stringify(conf));
-      else localStorage.removeItem(CONF_KEY);
-    } catch (e) { /* 保存できなくても、開いている間は繋がる */ }
+    });
+    saveConf();
     clearTimeout(timer);
     failures = 0;
     if (!ready()) { setStatus('off'); return true; }

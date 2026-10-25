@@ -28,7 +28,7 @@
    ファイルを足したときは ASSETS にも足す（足し忘れたものは、
    網が無いときだけ取れない——ふだんは動いてしまうので気づきにくい）。 */
 
-const VERSION = '2026-10-25a';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
+const VERSION = '2026-10-25b';   /* 直したら上げる。上げないと利用者には古い版が出続ける */
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [
@@ -65,6 +65,8 @@ const ASSETS = [
   './js/screens/today.js',
   './js/seamap.js',
   './js/merge.js',
+  './js/passkey.js',
+  './js/sw-register.js',
   './js/sound.js',
   './js/space.js',
   './js/store.js',

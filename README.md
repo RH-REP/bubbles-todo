@@ -199,6 +199,36 @@ bash tests/server-setup.test.sh
   - Mac の記録を移すなら `data/state.json` と `data/share/state.json` を `~/bubbles-data/` へ写す（写さなくても、端末から繋げば合わさる）。合言葉は新しいものになるので、各端末に入れ直す
   - テスト: `bash tests/server-setup.test.sh`（uname・sudo・systemctl・tailscale を偽物にして手順を最後まで通す。本物の systemd と Tailscale では、まだ確かめていない）
 
+## 公開して使う（パスキー。開発版・2026-10-24）
+
+Tailscale を使わずに、サーバーをインターネットに公開して使う形。**枝 `dev/public-passkey` の開発版**で、main にはまだ入れていない。
+入場はパスキーだけ（合言葉では入れない）。サーバーが世界から見えることは受け入れ、そのうえで入場・負荷・乗っ取りの道を絞る。
+
+- **入場（パスキー）**: 持ち主がサーバーで招待コード（1回きり・24時間）を作り、端末は設定の「パスキー」で登録する。
+  端末が作った鍵の組のうち、公開鍵だけがサーバーへ行く（秘密の鍵は端末から出ない。Face ID・指紋・PIN で守られる）。
+  以後は「パスキーで入る」で、通行証（30日）を受け取って合わせる。端末ごとに `passkey-remove <名前>` で取り消せる（次の要求から入れない）
+  - 招待は置き場つき: `invite-add <名前> me,share`（自分の端末）／`invite-add <名前> share`（招く人。個人には入れない）
+  - サーバーに置くのは公開鍵・招待コードの sha256・通行証の sha256 だけ（`passkeys.json`・`invites.json`・`sessions.json`。600）
+  - 確かめ（`passkey_crypto.py`）: ES256・RS256。`cryptography` があれば使い、無ければ標準ライブラリだけで計算する。
+    名前（rp id）・出どころ（origin）・問題（1回きり・5分）・本人の確かめ（UV）・署名の回数（戻ったら断る）を見る
+  - 名前の住所（`https://<名前>`）が要る。IP の住所ではパスキーを使えない。名前を変えると登録し直し
+  - **数の上限**（2026-10-24 利用者の指示）: 登録できるパスキーは置き場ごとに 3 つ（個人と共有の端末は両方に数える。いっぱいなら招待コードも作らず、登録も 409 で断る）。
+    同時に使える端末は 3 台（30分以内に記録を読み書きした端末を数える。4台目は 429 `devices`、端末には「使っている端末が多い」と出す。出た端末はすぐ外す）。
+    `--max-passkeys`・`--max-devices`・`--device-window`（環境変数 `BUBBLE_TODO_MAX_PASSKEYS` など）で変えられる
+- **守り**（`guard.py`・`server.py`。合言葉の形でも効く）:
+  - 接続元ごとの同時接続 8・全体 64（超えたら読まずに 429）、要求 120 回/分、入場の失敗 10 回/10分（超えたら 429）
+  - 1つの接続の待ちは 15 秒、受け取る大きさは 4MB まで
+  - 配るページに CSP（`script-src 'self'` など）・`nosniff`・`X-Frame-Options: DENY`・`no-referrer`。直書きのスクリプトをやめた（`js/boot-dvh.js`・`js/sw-register.js`）
+  - よそのオリジンから呼んでよい相手は決めたものだけ（合言葉の形は Android 版だけ、公開の形は無し）。サーバーの版を名乗らない
+  - 守りの出来事を `bubbles: auth-fail ip=…` の形で標準エラーに出す（値は出さない）。fail2ban が読んで締め出す
+- **前段（Caddy）**: HTTPS の証明書・待ち時間・大きさの上限（`tools/public/Caddyfile.template`）。server.py は 127.0.0.1 のまま、`--trust-proxy` で接続元を数える
+- **立ち上げ**: `BUBBLES_MODE=public BUBBLES_DOMAIN=<名前> bash tools/server-setup.sh`（形は `<データの場所>/.setup` に覚え、`update` で戻らない）。
+  Caddy と fail2ban は入っていれば設定を置く。ファイアウォール（クラウドとサーバーの中）で 80・443 を開ける手順は画面に出す（自動では開けない）
+- **テスト**: `python3 -m unittest tests/test_passkey_crypto.py tests/test_server_public.py`（署名は Node の暗号の部品で作り突き合わせる）、
+  `node tests/passkey-sync.test.mjs`、`node tests/e2e-passkey.mjs`（headless の Chrome と、Chrome の仮のパスキーで、登録・合わせる・入り直す）、
+  `bash tests/server-setup.test.sh`（公開の形を含む）
+- **まだ確かめていない**: 本物の公開サーバー・ドメイン・Caddy・fail2ban・本物の端末（Face ID・指紋）。Android の APK では使えない（ページの住所が `https://localhost`）
+
 ## 使い方の記事
 
 `docs/guide/index.html`（スクリーンショットつき。2026-10-23）。app の設定のいちばん上の「使い方」から開き、記事の上の「アプリへ戻る」で戻る。

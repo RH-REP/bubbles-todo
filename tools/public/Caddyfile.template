@@ -1,0 +1,34 @@
+# Bubbles を公開するときの前段（Caddy）。tools/server-setup.sh（BUBBLES_MODE=public）が
+# 名前・ポート・待ち受ける住所を埋めて /etc/caddy/Caddyfile に書く（手で直さない。直すならこの雛形を直す）。
+#
+# Caddy がすること:
+#   ・HTTPS の証明書を自動で取って更新する（Let's Encrypt。80 番と 443 番を開けておく）
+#   ・待ち時間を決める（ゆっくり送る攻撃で、後ろの server.py を止めさせない）
+#   ・受け取る大きさを 4MB までにする（server.py と同じ）
+#   ・後ろの server.py（127.0.0.1 だけで待ち受ける）へ渡す。接続元は X-Forwarded-For で渡す
+#   ・待ち受けるのは外向きの住所だけ（default_bind）。同じ機械で tailscale serve が Tailscale の住所の
+#     443 番を使っていると、全部の住所の 443 番は取れず「bind: address already in use」で起動しなかった（2026-10-24）
+{
+	default_bind __BIND__
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 15s
+			write 30s
+			idle 2m
+		}
+		max_header_size 16KB
+	}
+}
+
+__DOMAIN__ {
+	encode zstd gzip
+	request_body {
+		max_size 4MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:__PORT__
+}

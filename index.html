@@ -64,13 +64,6 @@
      ・updateViaCache:'none' … sw.js 自身を HTTP キャッシュから読ませない。
        ここを既定のままにすると、直しても最大24時間気づかれないことがある
      ・新しい版が効くのは**次に開いたとき**。走っている module を差し替えないため -->
-<script>
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-      .catch(() => { /* 登録できなくても、アプリは網から動く */ });
-  });
-}
-</script>
+<script src="js/sw-register.js"></script>
 </body>
 </html>

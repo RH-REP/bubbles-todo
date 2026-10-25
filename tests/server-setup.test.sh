@@ -42,6 +42,7 @@ cat > "$T/bin/systemctl" <<EOF
 echo "systemctl \$*" >> "$T/calls.log"
 case "\$1" in
   restart)
+    [[ -f "$T/unit/\$2.service" ]] || exit 0    # bubbles 以外（fail2ban・caddy）は何もしない
     [[ -f "$T/server.pid" ]] && kill "\$(cat "$T/server.pid")" 2>/dev/null && sleep 0.3
     cmd="\$(sed -n 's/^ExecStart=//p' "$T/unit/\$2.service")"
     nohup \$cmd > "$T/server.log" 2>&1 &
@@ -122,6 +123,46 @@ out4="$(run uninstall 2>&1)" || { echo "$out4"; fail "uninstall が止まった"
 [[ ! -f "$u" ]] || fail "unit が残った"
 [[ -f "$T/home/bubbles-data/token.txt" ]] || fail "uninstall で合言葉が消えた"
 pass "uninstall は常駐だけをやめ、記録と合言葉は残す"
+
+# --- 公開の形（BUBBLES_MODE=public。パスキー・Caddy・fail2ban） ---
+kill "$(cat "$T/server.pid")" 2>/dev/null || true
+rm -f "$T/server.pid"
+mkdir -p "$T/etc/caddy" "$T/etc/fail2ban/filter.d" "$T/etc/fail2ban/jail.d" "$T/home2"
+printf '#!/bin/sh\necho "1.1.1.1 via 10.0.0.1 dev ens3 src 10.0.0.42 uid 1001"\n' > "$T/bin/ip"; chmod +x "$T/bin/ip"
+for c in caddy fail2ban-client; do printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\n' "$c" "$T" > "$T/bin/$c"; chmod +x "$T/bin/$c"; done
+run_public() {
+  PATH="$T/bin:$PATH" HOME="$T/home2" BUBBLES_DIR="$T/code" BUBBLES_DATA="$T/home2/bubbles-data" \
+    BUBBLES_PORT="$PORT" BUBBLES_UNIT_DIR="$T/unit" BUBBLES_ETC="$T/etc" "$@" < /dev/null
+}
+outp="$(run_public env BUBBLES_MODE=public BUBBLES_DOMAIN=bubbles.example.org bash "$T/code/tools/server-setup.sh" install 2>&1)" \
+  || { echo "$outp"; fail "公開の形の install が止まった"; }
+grep -q "が応えた" <<<"$outp" || { echo "$outp"; fail "公開の形で応えない"; }
+grep -q -- "--auth passkey --origin https://bubbles.example.org --trust-proxy" "$u" || fail "unit がパスキーの形でない: $(grep ExecStart "$u")"
+grep -q "^bubbles.example.org {" "$T/etc/caddy/Caddyfile" && grep -q "reverse_proxy 127.0.0.1:$PORT" "$T/etc/caddy/Caddyfile" \
+  || fail "Caddyfile に名前とポートが入っていない"
+grep -q "default_bind 10.0.0.42" "$T/etc/caddy/Caddyfile" || fail "Caddy が外向きの住所だけで待ち受けていない（tailscale serve と 443 を取り合う）"
+if grep -q "__" "$T/etc/caddy/Caddyfile"; then fail "Caddyfile に埋め残しがある"; fi
+grep -q "_SYSTEMD_UNIT=bubbles-todo.service" "$T/etc/fail2ban/filter.d/bubbles.conf" || fail "fail2ban の filter"
+[[ -f "$T/etc/fail2ban/jail.d/bubbles.conf" ]] || fail "fail2ban の jail"
+if grep -q "tailscale serve" <<<"$(grep -c . "$T/calls.log" >/dev/null; tail -20 "$T/calls.log")"; then :; fi
+grep -q "invite-add 自分のスマホ me,share" <<<"$outp" || fail "最初の端末の招待の手順が出ない"
+pass "公開の形: パスキーで常駐し、Caddy と fail2ban の設定を置き、招待の手順を出す"
+
+auth="$(curl -s "http://127.0.0.1:$PORT/api/auth" 2>/dev/null || python3 -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:$PORT/api/auth').read().decode())")"
+grep -q '"mode": "passkey"' <<<"$auth" || fail "サーバーがパスキーの形でない: $auth"
+outi="$(run_public bash "$T/code/tools/server-setup.sh" invite-add 母のスマホ share 2>&1)" || { echo "$outi"; fail "invite-add が止まった"; }
+grep -Eq "[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}" <<<"$outi" || { echo "$outi"; fail "招待コードが出ない"; }
+grep -q "母のスマホ" <<<"$(run_public bash "$T/code/tools/server-setup.sh" invite-list 2>&1)" || fail "invite-list に出ない"
+pass "invite-add・invite-list が通る"
+
+outu="$(run_public bash "$T/code/tools/server-setup.sh" update 2>&1)" || { echo "$outu"; fail "update が止まった"; }
+grep -q -- "--auth passkey" "$u" || fail "環境変数なしの update で、公開の形が合言葉の形に戻った"
+pass "環境変数なしの update でも、公開の形のまま"
+
+if run_public env BUBBLES_MODE=public BUBBLES_DOMAIN='bad;name' bash "$T/code/tools/server-setup.sh" install >/dev/null 2>&1; then
+  fail "おかしな名前でも通った"
+fi
+pass "おかしな名前（BUBBLES_DOMAIN）は断る"
 
 echo
 echo "server-setup: all passed"
