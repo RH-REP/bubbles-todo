@@ -200,8 +200,8 @@ await test('sync.js: 送る間に別の端末が書いたら（409）、取り�
 
 await test('住所: 頭を省くと https。外への http は断り、自分の機械の中の http だけ通す', async () => {
   const { checkUrl, normalizeUrl } = await import(new URL('../js/sync.js', import.meta.url).href);
-  assert.equal(checkUrl('mac.tail1234.ts.net'), 'https://mac.tail1234.ts.net');
-  assert.equal(checkUrl('https://mac.tail1234.ts.net/'), 'https://mac.tail1234.ts.net');
+  assert.equal(checkUrl('bubbles.example.org'), 'https://bubbles.example.org');
+  assert.equal(checkUrl('https://bubbles.example.org/'), 'https://bubbles.example.org');
   assert.equal(checkUrl('http://100.64.0.1:8931'), 'http');
   assert.equal(normalizeUrl('http://100.64.0.1:8931'), null);
   assert.equal(checkUrl('http://192.168.1.5:8931'), 'http');

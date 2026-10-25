@@ -35,10 +35,12 @@ API:
                                同じなら書いて {"version": n+1}
 書くたびに前の版を <データの場所>/backup/ に残す（新しいほうから BACKUP_KEEP 個）。
 
-外へ出すときは、このサーバーを 127.0.0.1 で動かしたまま、Tailscale の
-`tailscale serve` で HTTPS を付けて同じ tailnet の端末にだけ見せる（README「サーバーに置く」）。
+入場の形は2つ:
+    token   … 合言葉。この Mac など手元で使う形（start.command）。外へは出さない
+    passkey … パスキーだけ。公開して使う形（tools/server-setup.sh が立ち上げる）
+    （2026-10-25 に、合言葉で入って tailscale serve で tailnet にだけ見せる形は外した。履歴の commit 0263e6a まで）
 
-公開して使う形（--auth passkey。2026-10-24 の開発版。Tailscale を使わない）:
+公開して使う形（--auth passkey。2026-10-24）:
     前段の Caddy で HTTPS にし、このサーバーは 127.0.0.1 のまま。入場はパスキーだけ（合言葉では入れない）。
     python3 server.py --auth passkey --origin https://<名前> --trust-proxy
     python3 server.py invite-add <名前> --space me,share   招待コード（1回きり・24時間）を作る
@@ -288,7 +290,7 @@ def log_event(kind: str, ip: str, detail: str = ''):
 
 
 class Config:
-    """入場の仕方と守りの設定。token（合言葉。Tailscale の中で使う）か passkey（公開して使う）"""
+    """入場の仕方と守りの設定。token（合言葉。手元で使う）か passkey（公開して使う）"""
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
                  guard=None, passkeys=None, stores=None, require_uv=True, devices=None):
@@ -678,11 +680,11 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Bubbles の記録を置くサーバー')
     ap.add_argument('--host', default='127.0.0.1',
-                    help='待ち受ける住所（既定 127.0.0.1。外へは tailscale serve か、前段の Caddy で出す）')
+                    help='待ち受ける住所（既定 127.0.0.1。外へは前段の Caddy で出す）')
     ap.add_argument('--port', type=int, default=int(os.environ.get('BUBBLE_TODO_PORT', '8931')))
     ap.add_argument('--data-dir', default=os.environ.get('BUBBLE_TODO_DATA', str(ROOT / 'data')))
     ap.add_argument('--auth', choices=['token', 'passkey'], default=os.environ.get('BUBBLE_TODO_AUTH', 'token'),
-                    help='token: 合言葉（Tailscale の中で使う） / passkey: パスキーだけ（公開して使う）')
+                    help='token: 合言葉（手元で使う） / passkey: パスキーだけ（公開して使う）')
     ap.add_argument('--origin', default=os.environ.get('BUBBLE_TODO_ORIGIN', ''),
                     help='passkey のとき要る。利用者が開く住所（例 https://bubbles.example.org）')
     ap.add_argument('--rp-id', default=os.environ.get('BUBBLE_TODO_RP_ID', ''),

@@ -325,7 +325,8 @@ function serverBox(screen) {
     '自分で立てたサーバーに繋ぐと、ほかの端末と同じ記録を使える。'
     + '食い違ったときは、項目ごとに新しく書き換えたほうが残る。'
     + '届かない間もこの端末には記録され、届いたら合わせる。'
-    + '共有の合言葉も入れると、それを知っている人と共有の海を使える（左上の ≡ の引き出しで切り替える）。'
+    + '共有に入れると、招かれた人と共有の海を使える（左上の ≡ の引き出しで切り替える）。'
+    + '公開したサーバーはパスキーで入り、手元のサーバーは合言葉で入る。'
   ));
 
   const form = el('form', 'tagadd');
@@ -335,7 +336,7 @@ function serverBox(screen) {
   urlIn.inputMode = 'url';
   urlIn.autocomplete = 'off';
   urlIn.spellcheck = false;
-  urlIn.placeholder = '住所（例 https://名前.tailxxxx.ts.net）';
+  urlIn.placeholder = '住所（例 https://bubbles.example.org）';
   urlIn.setAttribute('aria-label', 'サーバーの住所');
   const tokIn = document.createElement('input');
   tokIn.type = 'password';
@@ -533,7 +534,7 @@ function serverBox(screen) {
 function csvBox() {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, '書き出し・読み込み（CSV）'));
-  const shareNote = store.space() === 'share' ? '共有で読み込むと、共有の合言葉を知っている人の端末にも届く。' : '';
+  const shareNote = store.space() === 'share' ? '共有で読み込むと、共有に入っている人の端末にも届く。' : '';
   wrap.appendChild(el(
     'p', 'note',
     'いま開いている' + (store.space() === 'share' ? '共有' : '個人') + 'の記録を、まるごと1つの CSV にする。'

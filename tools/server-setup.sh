@@ -1,49 +1,38 @@
 #!/usr/bin/env bash
-# Bubbles の記録を置くサーバー（server.py）を、Linux のサーバー（Oracle Cloud など）に立ち上げる。
+# Bubbles の記録を置くサーバー（server.py）を、Linux のサーバー（Oracle Cloud など）に公開して立ち上げる。
+# 入場はパスキーだけ（合言葉では入れない）。前段に Caddy（HTTPS）、あれば fail2ban。
 #
 #   git clone https://github.com/RH-REP/bubbles-todo.git
-#   bash bubbles-todo/tools/server-setup.sh            # 立ち上げ（2回目からは更新として働く）
-#   bash bubbles-todo/tools/server-setup.sh update     # コードを取り込んで起動し直す
+#   BUBBLES_DOMAIN=<名前> bash bubbles-todo/tools/server-setup.sh   # 立ち上げ（2回目からは更新として働く）
+#   bash bubbles-todo/tools/server-setup.sh update     # コードを取り込んで起動し直す（名前は覚えている）
 #   bash bubbles-todo/tools/server-setup.sh status     # 動いているか・住所
-#   bash bubbles-todo/tools/server-setup.sh uninstall  # 常駐をやめる（記録と合言葉は消さない）
+#   bash bubbles-todo/tools/server-setup.sh uninstall  # 常駐をやめる（記録とパスキーは消さない）
 #
-# 合言葉（止めずに効く）:
-#   bash bubbles-todo/tools/server-setup.sh share-add <名前>     共有に招く人ごとに1つ作る（値はこのときだけ出る）
-#   bash bubbles-todo/tools/server-setup.sh share-list           一覧（名前・作った日・末尾4文字）
-#   bash bubbles-todo/tools/server-setup.sh share-remove <名前>  その人の合言葉を取り消す
-#   bash bubbles-todo/tools/server-setup.sh rotate-me            自分の合言葉を作り直す
+# 招待とパスキー（止めずに効く）:
+#   bash bubbles-todo/tools/server-setup.sh invite-add <名前> [me|share|me,share]   招待コード（1回きり・24時間）
+#   bash bubbles-todo/tools/server-setup.sh invite-list / passkey-list / passkey-remove <名前>
 #
 # すること（install）:
 #   1. python3（3.8 以上）と git を確かめる。無ければ dnf / apt で入れる
 #   2. このスクリプトの入っている clone を使う（無ければ BUBBLES_REPO から clone）。あれば git pull --ff-only
 #   3. 記録の置き場（BUBBLES_DATA）を作る（chmod 700）
 #   4. server.py のテストを走らせる
-#   5. systemd のサービスを書いて、起動し、ログイン無しでも常駐させる
-#      サーバーは 127.0.0.1 だけで待ち受ける（外からは直接届かない。ファイアウォールは開けない）
-#   6. Tailscale に繋がっていれば `tailscale serve --bg <port>` で、tailnet の端末にだけ HTTPS で見せる
-#   7. 繋ぐ住所と、合言葉のファイルの場所を出す（合言葉はサーバーが初回に作る）
+#   5. systemd のサービスを書いて常駐させる。server.py は --auth passkey で 127.0.0.1 だけで待ち受ける
+#   6. 前段に Caddy（tools/public/Caddyfile.template を /etc/caddy/Caddyfile に書く）、fail2ban があればその設定。
+#      ファイアウォールで 80 と 443 を開ける手順を出す（自動では開けない）
+#   7. 住所と、最初の端末の招待の手順を出す
 #
 # 変えられるもの（環境変数）:
-#   BUBBLES_PORT     待ち受けるポート（既定 8931）
-#   BUBBLES_DATA     記録と合言葉の置き場（既定 ~/bubbles-data）
+#   BUBBLES_DOMAIN   公開する名前（例 bubbles.example.org。必須。2回目からは覚えている）
+#   BUBBLES_PORT     server.py のポート（既定 8931）
+#   BUBBLES_DATA     記録とパスキーの置き場（既定 ~/bubbles-data）
 #   BUBBLES_DIR      コードの clone（既定 このスクリプトの入っている clone、無ければ ~/bubbles-todo）
 #   BUBBLES_REPO     clone する先（既定 https://github.com/RH-REP/bubbles-todo.git）
 #   BUBBLES_SERVICE  systemd のサービス名（既定 bubbles-todo）
-#   BUBBLES_INSTALL_TAILSCALE=1  Tailscale が無ければ、公式の手順（tailscale.com/install.sh）で入れる
-#   BUBBLES_TAILSCALE_SSH=1      Tailscale SSH を有効にする（tailnet から ssh。そのあとクラウドの 22 番を閉じられる）
+#   BUBBLES_BIND     Caddy が待ち受ける住所（既定 外へ出ていく道の住所）
 #
-# 公開して使う形（開発版。2026-10-24。Tailscale を使わない）:
-#   BUBBLES_MODE=public BUBBLES_DOMAIN=<名前> bash bubbles-todo/tools/server-setup.sh
-#   ・server.py を --auth passkey（パスキーだけで入る）で常駐させる。127.0.0.1 のまま
-#   ・前段に Caddy（HTTPS・待ち時間・大きさの上限）。tools/public/Caddyfile.template を /etc/caddy/Caddyfile に書く
-#   ・fail2ban があれば、失敗をくり返す接続元を締め出す（tools/public/fail2ban-*.conf）
-#   ・ファイアウォールで 80 と 443 を開ける手順を出す（自動では開けない）
-#   招待（パスキーの登録に使う。1回きり・24時間）:
-#     bash bubbles-todo/tools/server-setup.sh invite-add <名前> [me|share|me,share]
-#     bash bubbles-todo/tools/server-setup.sh invite-list / passkey-list / passkey-remove <名前>
-#
-# 合言葉: 個人は <置き場>/token.txt、共有は <置き場>/share_tokens.json（人ごと。初回に「最初の合言葉」を作る。chmod 600）。
-#         共有に招く人には、住所と、その人のぶんの共有の合言葉だけを渡す。token.txt は渡さない。
+# 2026-10-25: Tailscale の形（合言葉で入り、tailscale serve で tailnet にだけ見せる）は外した（利用者の指示）。
+#   手順と考え方は library/tech_stack の記録に残し、例のコードはこの repo の履歴（commit 0263e6a まで）にある。
 set -euo pipefail
 
 PORT="${BUBBLES_PORT:-8931}"
@@ -51,16 +40,15 @@ DATA="${BUBBLES_DATA:-$HOME/bubbles-data}"
 REPO="${BUBBLES_REPO:-https://github.com/RH-REP/bubbles-todo.git}"
 SERVICE="${BUBBLES_SERVICE:-bubbles-todo}"
 UNIT_DIR="${BUBBLES_UNIT_DIR:-/etc/systemd/system}"   # テストのときだけ替える
-MODE="${BUBBLES_MODE:-}"                                # tailscale（合言葉）か public（パスキー）
 DOMAIN="${BUBBLES_DOMAIN:-}"
-# 立ち上げたときの形を覚えておく（update を環境変数なしで走らせても、公開の形を合言葉の形に戻さないため）
+# 立ち上げたときの名前を覚えておく（update を環境変数なしで走らせても同じ形で立ち上げるため）
 SETUP_FILE="$DATA/.setup"
-if [[ -z "$MODE" && -f "$SETUP_FILE" ]]; then
+OLD_MODE=""
+if [[ -f "$SETUP_FILE" ]]; then
   while IFS='=' read -r k v; do
-    case "$k" in MODE) MODE="$v" ;; DOMAIN) [[ -z "$DOMAIN" ]] && DOMAIN="$v" ;; esac
+    case "$k" in MODE) OLD_MODE="$v" ;; DOMAIN) [[ -z "$DOMAIN" ]] && DOMAIN="$v" ;; esac
   done < "$SETUP_FILE"
 fi
-MODE="${MODE:-tailscale}"
 ETC="${BUBBLES_ETC:-/etc}"                             # テストのときだけ替える（Caddy・fail2ban の置き場）
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -n "${BUBBLES_DIR:-}" ]]; then DIR="$BUBBLES_DIR"
@@ -110,14 +98,13 @@ make_data() {
   say "3. 記録の置き場（$DATA）"
   mkdir -p "$DATA"
   chmod 700 "$DATA"
-  printf 'MODE=%s\nDOMAIN=%s\n' "$MODE" "$DOMAIN" > "$SETUP_FILE"
+  printf 'MODE=public\nDOMAIN=%s\n' "$DOMAIN" > "$SETUP_FILE"
   ok "$(ls -ld "$DATA")"
 }
 
 run_tests() {
   say "4. server.py のテスト"
-  local t="tests/test_server.py"
-  [[ "$MODE" == "public" ]] && t="tests/test_server.py tests/test_passkey_crypto.py tests/test_server_public.py"
+  local t="tests/test_server.py tests/test_passkey_crypto.py tests/test_server_public.py"
   local out
   # shellcheck disable=SC2086
   if ! out="$(cd "$DIR" && "$PY" -m unittest $t 2>&1)"; then
@@ -130,18 +117,13 @@ run_tests() {
 }
 
 need_mode() {
-  if [[ "$MODE" == "public" ]]; then
-    [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "BUBBLES_DOMAIN=<名前>（例 bubbles.example.org）を付けてください"
-  elif [[ "$MODE" != "tailscale" ]]; then
-    die "BUBBLES_MODE は tailscale か public"
+  if [[ -z "$DOMAIN" && "$OLD_MODE" == "tailscale" ]]; then
+    die "Tailscale の形（合言葉）は 2026-10-25 に外しました。公開の形にするなら BUBBLES_DOMAIN=<名前> を付けて実行し直してください（記録はそのまま使えます。端末はパスキーで登録し直します）"
   fi
+  [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "BUBBLES_DOMAIN=<名前>（例 bubbles.example.org）を付けてください"
 }
 
-server_args() {
-  if [[ "$MODE" == "public" ]]; then
-    printf -- '--auth passkey --origin https://%s --trust-proxy' "$DOMAIN"
-  fi
-}
+server_args() { printf -- '--auth passkey --origin https://%s --trust-proxy' "$DOMAIN"; }
 
 write_unit() {
   say "5. 常駐（systemd: $SERVICE）"
@@ -199,48 +181,8 @@ EOF
   die "サーバーが応えません（上の記録を見てください）"
 }
 
-ts_url() {
-  # tailnet の中での住所（https://<機械名>.<tailnet名>.ts.net）。分からなければ空
-  tailscale status --json 2>/dev/null | "$PY" -c '
-import json, sys
-try:
-    name = json.load(sys.stdin)["Self"]["DNSName"].rstrip(".")
-    print("https://" + name if name else "")
-except Exception:
-    print("")'
-}
-
-tailscale_serve() {
-  say "6. Tailscale（tailnet の端末にだけ HTTPS で見せる）"
-  if ! command -v tailscale >/dev/null; then
-    if [[ "${BUBBLES_INSTALL_TAILSCALE:-0}" == "1" ]]; then
-      curl -fsSL https://tailscale.com/install.sh | sh
-    else
-      warn "Tailscale が入っていません。入れてから実行し直してください:"
-      warn "  BUBBLES_INSTALL_TAILSCALE=1 bash $DIR/tools/server-setup.sh"
-      warn "  （または https://tailscale.com/download の手順）"
-      return 0
-    fi
-  fi
-  if ! tailscale status >/dev/null 2>&1; then
-    if [[ -t 0 ]]; then
-      warn "Tailscale にまだログインしていません。出てくる URL をブラウザで開いてログインしてください"
-      sudo tailscale up
-    else
-      warn "Tailscale にまだログインしていません: sudo tailscale up をしてから実行し直してください"
-      return 0
-    fi
-  fi
-  # HTTPS（MagicDNS と HTTPS 証明書）が管理画面で無効だと、ここで有効にする URL が出る
-  sudo tailscale serve --bg "$PORT" || { warn "tailscale serve に失敗しました（管理画面の DNS で MagicDNS と HTTPS を有効にする）"; return 0; }
-  ok "tailscale serve --bg $PORT"
-  if [[ "${BUBBLES_TAILSCALE_SSH:-0}" == "1" ]]; then
-    sudo tailscale set --ssh && ok "Tailscale SSH を有効にした（入れたら、クラウドのファイアウォールの 22 番を閉じてよい）"
-  fi
-}
-
 # Caddy が待ち受ける住所。外へ出ていく道の住所（Oracle なら 10.0.0.x の内側の住所。公開の IP はその手前で変換される）。
-# 全部の住所で待つと、tailscale serve が使う Tailscale の住所の 443 番とぶつかって起動しない。BUBBLES_BIND で決めてもよい
+# 全部の住所で待つと、同じ機械でほかに 443 番を使うもの（VPN の受け口など）とぶつかって起動しないことがある。BUBBLES_BIND で決めてもよい
 bind_addr() {
   if [[ -n "${BUBBLES_BIND:-}" ]]; then printf '%s' "$BUBBLES_BIND"; return; fi
   ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1
@@ -281,44 +223,24 @@ public_front() {
 }
 
 summary() {
-  if [[ "$MODE" == "public" ]]; then
-    say "7. できあがり（公開・パスキー）"
-    printf '   サービス:     %s（sudo systemctl status %s）\n' "$SERVICE" "$SERVICE"
-    printf '   住所:         https://%s\n' "$DOMAIN"
-    printf '   記録:         %s/state.json（個人）、%s/share/state.json（共有）\n' "$DATA" "$DATA"
-    printf '   パスキー:     %s/passkeys.json（公開鍵だけ）\n' "$DATA"
-    printf '   最初の端末:   bash %s/tools/server-setup.sh invite-add 自分のスマホ me,share\n' "$DIR"
-    printf '                 出たコードを、その端末の Bubbles の設定の「パスキー」に入れて「この端末を登録」\n'
-    printf '   人を招く:     bash %s/tools/server-setup.sh invite-add <名前> share\n' "$DIR"
-    printf '   取り消す:     bash %s/tools/server-setup.sh passkey-remove <名前>\n' "$DIR"
-    printf '   更新:         BUBBLES_MODE=public BUBBLES_DOMAIN=%s bash %s/tools/server-setup.sh update\n' "$DOMAIN" "$DIR"
-    return
-  fi
-  local url
-  url="$(command -v tailscale >/dev/null && ts_url || true)"
-  say "7. できあがり"
+  say "7. できあがり（公開・パスキー）"
   printf '   サービス:     %s（sudo systemctl status %s）\n' "$SERVICE" "$SERVICE"
+  printf '   住所:         https://%s\n' "$DOMAIN"
   printf '   記録:         %s/state.json（個人）、%s/share/state.json（共有）\n' "$DATA" "$DATA"
-  printf '   合言葉:       %s/token.txt（個人）、%s/share_tokens.json（共有。人ごと）\n' "$DATA" "$DATA"
-  printf '                 自分の合言葉を見る: cat %s/token.txt\n' "$DATA"
-  printf '                 共有に招く: bash %s/tools/server-setup.sh share-add <名前>（取り消しは share-remove <名前>）\n' "$DIR"
-  if [[ -n "$url" ]]; then
-    printf '   繋ぐ住所:     %s\n' "$url"
-  else
-    printf '   繋ぐ住所:     （Tailscale の設定が済むと https://<機械名>.<tailnet名>.ts.net）\n'
-  fi
-  printf '   端末では:     設定の「サーバー」に住所と合言葉を入れて「繋ぐ」。共有に招く人には住所とその人の共有の合言葉だけを渡す\n'
+  printf '   パスキー:     %s/passkeys.json（公開鍵だけ）\n' "$DATA"
+  printf '   最初の端末:   bash %s/tools/server-setup.sh invite-add 自分のスマホ me,share\n' "$DIR"
+  printf '                 出たコードを、その端末の Bubbles の設定の「パスキー」に入れて「この端末を登録」\n'
+  printf '   人を招く:     bash %s/tools/server-setup.sh invite-add <名前> share\n' "$DIR"
+  printf '   取り消す:     bash %s/tools/server-setup.sh passkey-remove <名前>\n' "$DIR"
   printf '   更新:         bash %s/tools/server-setup.sh update\n' "$DIR"
 }
 
-front() { if [[ "$MODE" == "public" ]]; then public_front; else tailscale_serve; fi; }
-cmd_install() { need_mode; need_linux; need_tools; get_code; make_data; run_tests; write_unit; health; front; summary; }
-cmd_update()  { need_mode; need_linux; need_tools; get_code; run_tests; write_unit; health; [[ "$MODE" == "public" ]] && public_front; summary; }
+cmd_install() { need_mode; need_linux; need_tools; get_code; make_data; run_tests; write_unit; health; public_front; summary; }
+cmd_update()  { need_mode; need_linux; need_tools; get_code; run_tests; write_unit; health; public_front; summary; }
 cmd_status() {
   need_linux; PY="$(command -v python3)"
   sudo systemctl --no-pager status "$SERVICE" | head -5 || true
   health
-  command -v tailscale >/dev/null && { sudo tailscale serve status || true; } || warn "Tailscale が入っていません"
   summary
 }
 cmd_uninstall() {
@@ -326,8 +248,7 @@ cmd_uninstall() {
   sudo systemctl disable --now "$SERVICE" 2>/dev/null || true
   sudo rm -f "$UNIT"
   sudo systemctl daemon-reload
-  ok "常駐をやめました。記録と合言葉は $DATA に残っています"
-  warn "tailscale serve を止めるなら: sudo tailscale serve status で確かめてから sudo tailscale serve --https=443 off"
+  ok "常駐をやめました。記録とパスキーは $DATA に残っています"
 }
 
 token_cmd() {
@@ -336,8 +257,6 @@ token_cmd() {
 }
 
 case "${1:-install}" in
-  share-add|share-remove) [[ -n "${2:-}" ]] || die "名前を入れてください（例: $1 母のスマホ）"; token_cmd "$1" "$2" ;;
-  share-list|rotate-me) token_cmd "$1" ;;
   invite-add) [[ -n "${2:-}" ]] || die "名前を入れてください（例: invite-add 自分のスマホ me,share）"; token_cmd invite-add "$2" --space "${3:-share}" ;;
   passkey-remove) [[ -n "${2:-}" ]] || die "名前を入れてください（例: passkey-remove 母のスマホ）"; token_cmd passkey-remove "$2" ;;
   invite-list|passkey-list) token_cmd "$1" ;;
@@ -345,5 +264,5 @@ case "${1:-install}" in
   update) cmd_update ;;
   status) cmd_status ;;
   uninstall) cmd_uninstall ;;
-  *) die "使い方: bash $0 [install|update|status|uninstall|share-add 名前|share-list|share-remove 名前|rotate-me|invite-add 名前 [me|share|me,share]|invite-list|passkey-list|passkey-remove 名前]" ;;
+  *) die "使い方: bash $0 [install|update|status|uninstall|invite-add 名前 [me|share|me,share]|invite-list|passkey-list|passkey-remove 名前]" ;;
 esac

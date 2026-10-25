@@ -163,9 +163,9 @@ bash tests/server-setup.test.sh
   - 記録は `<データの場所>/state.json` 1つ。書くたびに前の版を `backup/` に残す（新しいほうから50個）
   - データの場所は `--data-dir` → 環境変数 `BUBBLE_TODO_DATA` → このフォルダの `data/`（`.gitignore` 済み）
   - 合言葉は環境変数 `BUBBLE_TODO_TOKEN` → `<データの場所>/token.txt`。無ければ初回に作って画面に出す
-  - 既定では `127.0.0.1` だけで待ち受ける（外へは下の Tailscale で出す）
+  - 既定では `127.0.0.1` だけで待ち受ける（外へは前段の Caddy で出す。下の「公開して使う」）
   - 配るのは `index.html`・`manifest.json`・`sw.js`・`css/`・`js/`・`icons/` だけ。`.git`・`.env`・`data/` は出さない
-- **端末**: 設定の「サーバー」に住所と合言葉を入れて「繋ぐ」。server.py が配っているページなら「このページのサーバー」で住所が入る。
+- **端末**: 設定の「サーバー」に住所を入れる。サーバーがパスキーの形（公開したサーバー）なら招待コードで登録し、合言葉の形（手元の Mac の `start.command`）なら合言葉を入れて「繋ぐ」。server.py が配っているページなら「このページのサーバー」で住所が入る。
   「繋がない」で切ると、記録はその端末に残ったまま、送らなくなる。
 - **合わせ方**: 記録（todo・アンカー・タグ・着手ログ…）ごとに、最後に書き換えた時刻を持つ。食い違ったら**新しく書き換えたほうが残る**
   （利用者の指示）。消したものも「消した時刻」で比べるので、片方で消したものが戻ってこない。
@@ -174,34 +174,18 @@ bash tests/server-setup.test.sh
   - 時刻は端末の時計。時計が大きくずれた端末の書き換えは、新しくても負けることがある
   - 日の切り替え（はじめた記録が消える）は「その日の0時」の時刻で付ける。あとから開いた端末の切り替えが、今日ほかの端末で付けたはじめたを消さないため
   - 印を持たない前の版の記録は、最初に開いたときに「前からの記録」の印（1）を付けて引き継ぐ。新しい端末の空の既定値（0）には負けない
-- **外の端末から繋ぐ（無料）**: [Tailscale](https://tailscale.com/pricing)（個人向けプランは無料。非商用に限る）を Mac・スマホ・サーバーに入れ、
-  サーバーで `tailscale serve --bg 8931` を走らせる。`https://<機械名>.<tailnet名>.ts.net` という HTTPS の住所が付き、同じ tailnet の端末からだけ届く。
-  - HTTPS を有効にすると、機械名と tailnet 名が証明書の公開ログに載る。機械名に個人の情報を入れない
-  - `http://<IP>:8931` を直接ネットに出すのはやめる（中身が暗号化されずに流れる。Android 版は http を拒む）
-  - GitHub Pages のお試し版は繋がない前提（localStorage だけで動く）。使うのは server.py が配るページか Android 版
 - **Android エミュレーターから Mac のサーバーに繋ぐ（開発用）**: `adb reverse tcp:8931 tcp:8931` をしてから、アプリの設定で住所に `http://localhost:8931` を入れる
   （2026-10-23 に、エミュレーターのアプリとブラウザの web 版で同じ記録になるのを確かめた）。
   - `http://10.0.2.2:8931`（エミュレーターから見た Mac）は使えない。アプリのページは `https://localhost` なので、http の住所は混在コンテンツとして止められる
   - Android は http を既定で断るので、`tools/patch-android.mjs`（`npm run sync` の最後で走る）が `localhost` と `127.0.0.1` にだけ http を許す設定を足す
   - Android 版の設定には「このページのサーバー」を出さない（ページの住所はサーバーではないため）
-  - まだ確かめていない: Tailscale を通した接続、実機の Android
-- **Oracle Cloud（Linux）に立ち上げる**: `tools/server-setup.sh`（2026-10-23）。サーバーで clone して実行する。
-  ```bash
-  git clone https://github.com/RH-REP/bubbles-todo.git
-  bash bubbles-todo/tools/server-setup.sh          # 立ち上げ。2回目からは更新として働く
-  bash bubbles-todo/tools/server-setup.sh status   # 動いているか・住所（update / uninstall もある）
-  ```
-  - python3 と git を確かめ（無ければ dnf / apt）、記録の置き場 `~/bubbles-data`（700）を作り、server.py のテストを通してから、
-    systemd のサービス `bubbles-todo` を書いて常駐させる。サーバーは 127.0.0.1 だけで待ち受け、書けるのは記録の置き場だけ（`ProtectSystem=strict`・`ProtectHome=read-only`・`ReadWritePaths`）
-  - Tailscale にログインしていれば `tailscale serve --bg 8931` をして、繋ぐ住所（`https://<機械名>.<tailnet名>.ts.net`）を出す。入っていなければ手順を出して止まる（`BUBBLES_INSTALL_TAILSCALE=1` で公式の手順で入れる）。Oracle のファイアウォールは開けない
-  - 合言葉はサーバーが初回に作る（`~/bubbles-data/token.txt`・`share_tokens.json`、600）。systemd の記録（journal）には値を出さず、場所だけを出す
-  - 変えられるもの: `BUBBLES_PORT`・`BUBBLES_DATA`・`BUBBLES_DIR`・`BUBBLES_REPO`・`BUBBLES_SERVICE`
-  - Mac の記録を移すなら `data/state.json` と `data/share/state.json` を `~/bubbles-data/` へ写す（写さなくても、端末から繋げば合わさる）。合言葉は新しいものになるので、各端末に入れ直す
-  - テスト: `bash tests/server-setup.test.sh`（uname・sudo・systemctl・tailscale を偽物にして手順を最後まで通す。本物の systemd と Tailscale では、まだ確かめていない）
+  - まだ確かめていない: 実機の Android
+- 2026-10-25 に、合言葉で入って Tailscale の `tailscale serve` で tailnet にだけ見せる形（Tailscale 版）は外した（利用者の指示）。
+  手順と考え方は my_knowledge の技術スタックに残し、例のコードはこの repo の履歴（commit `0263e6a` まで）にある。
 
-## 公開して使う（パスキー。開発版・2026-10-24）
+## 公開して使う（パスキー。2026-10-24 に作り、2026-10-25 に main へ取り込んだ）
 
-Tailscale を使わずに、サーバーをインターネットに公開して使う形。**枝 `dev/public-passkey` の開発版**で、main にはまだ入れていない。
+サーバーをインターネットに公開して使う形（サーバーに置くときは、この形だけ）。
 入場はパスキーだけ（合言葉では入れない）。サーバーが世界から見えることは受け入れ、そのうえで入場・負荷・乗っ取りの道を絞る。
 
 - **入場（パスキー）**: 持ち主がサーバーで招待コード（1回きり・24時間）を作り、端末は設定の「パスキー」で登録する。
@@ -222,7 +206,7 @@ Tailscale を使わずに、サーバーをインターネットに公開して�
   - よそのオリジンから呼んでよい相手は決めたものだけ（合言葉の形は Android 版だけ、公開の形は無し）。サーバーの版を名乗らない
   - 守りの出来事を `bubbles: auth-fail ip=…` の形で標準エラーに出す（値は出さない）。fail2ban が読んで締め出す
 - **前段（Caddy）**: HTTPS の証明書・待ち時間・大きさの上限（`tools/public/Caddyfile.template`）。server.py は 127.0.0.1 のまま、`--trust-proxy` で接続元を数える
-- **立ち上げ**: `BUBBLES_MODE=public BUBBLES_DOMAIN=<名前> bash tools/server-setup.sh`（形は `<データの場所>/.setup` に覚え、`update` で戻らない）。
+- **立ち上げ**: `BUBBLES_DOMAIN=<名前> bash tools/server-setup.sh`（名前は `<データの場所>/.setup` に覚え、`update` は環境変数なしでよい）。前の Tailscale 版で立ち上げた置き場では、名前を付けるよう言って止まる。
   Caddy と fail2ban は入っていれば設定を置く。ファイアウォール（クラウドとサーバーの中）で 80・443 を開ける手順は画面に出す（自動では開けない）
 - **テスト**: `python3 -m unittest tests/test_passkey_crypto.py tests/test_server_public.py`（署名は Node の暗号の部品で作り突き合わせる）、
   `node tests/passkey-sync.test.mjs`、`node tests/e2e-passkey.mjs`（headless の Chrome と、Chrome の仮のパスキーで、登録・合わせる・入り直す）、
@@ -254,7 +238,7 @@ server.py も Android 版（`www/`）も docs/ を配る。service worker の箱
   - 共有の合言葉がまだ無ければ、海に「共有の海に入る」の札（「設定を開く」）
   - 件数・人数は出さない（数を出さない決まりと同じ）
 - **サーバー**: 合言葉が置き場を決める。個人は `token.txt`（`BUBBLE_TODO_TOKEN`）で `data/state.json`、共有は人ごとの `share_tokens.json`（と `BUBBLE_TODO_SHARE_TOKEN`）で `data/share/state.json`。共有の合言葉だけを知る人は個人の記録を読めない。同じ合言葉を2つに使うと起動しない
-- **共有の合言葉は人ごと**（2026-10-23）: `data/share_tokens.json`（名前と合言葉の組。600）。`tools/server-setup.sh share-add <名前>`・`share-list`・`share-remove <名前>`・`rotate-me`（自分の合言葉の作り直し）。止めずに次の接続から効く。前の版の `share_token.txt` は「最初の合言葉」として引き継ぐ
+- **共有の合言葉は人ごと**（2026-10-23。合言葉の形＝手元のサーバーのとき）: `data/share_tokens.json`（名前と合言葉の組。600）。`python3 server.py share-add <名前>`・`share-list`・`share-remove <名前>`・`rotate-me`（自分の合言葉の作り直し）。止めずに次の接続から効く。前の版の `share_token.txt` は「最初の合言葉」として引き継ぐ
 - **端末は https でだけ繋ぐ**（2026-10-23）: 頭を省いた住所には `https://` を補い、外への `http://` は断る。`localhost`・`127.0.0.1` の http だけ通す（開発・`adb reverse` 用）
 - **取り違えの見張り**: サーバーは合言葉の置き場（`space`）を返す。開いている持ち主と違えば、端末は送らない（共有の合言葉を自分の欄に入れても、個人の記録を共有へ送らない）
 - **端末の箱**: 個人は `bubble_todo_v1`、共有の控えは `bubble_todo_share_v1`、どちらで開くかは `bubble_todo_space`、最後に合わせた時刻は `bubble_todo_sync_seen_<持ち主>`

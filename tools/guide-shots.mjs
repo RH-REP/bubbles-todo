@@ -5,12 +5,13 @@
      CHROME=/path/to/chrome node tools/guide-shots.mjs
 
    することは:
-     1. 試し用の置き場（一時フォルダ）で server.py を起動する（合言葉も試し用）
+     1. 試し用の置き場（一時フォルダ）で server.py を公開の形（--auth passkey）で起動し、招待コードを2つ作る
+        （住所は http://localhost:<port>。パスキーは localhost なら http でも使える）
      2. headless の Chrome を DevTools の口つきで起動し、画面を 375×812 にする（スマホの大きさ）
      3. 試し用の記録を入れ、画面を順に開いて撮る（480px 幅の JPEG）
    本物の記録は使わない（repo は公開）。Node 22 の WebSocket と、標準の child_process だけで動く。 */
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -20,16 +21,21 @@ import { createServer } from 'node:net';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'docs', 'guide', 'img');
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const OWN = 'guide-own-token', SHARE = 'guide-share-token';
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
 const tmp = mkdtempSync(join(tmpdir(), 'bubbles-guide-'));
 const port = await freePort();
 const dbg = await freePort();
-const server = spawn('python3', [join(ROOT, 'server.py'), '--port', String(port), '--data-dir', join(tmp, 'data')], {
-  env: { ...process.env, BUBBLE_TODO_TOKEN: OWN, BUBBLE_TODO_SHARE_TOKEN: SHARE }, stdio: 'ignore',
-});
+const origin = `http://localhost:${port}`;
+const data = join(tmp, 'data');
+const invite = (name, space) => execFileSync('python3', [join(ROOT, 'server.py'), '--data-dir', data, 'invite-add', name, '--space', space])
+  .toString().match(/[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}/)[0];
+const INV_ME = invite('自分のスマホ', 'me,share');
+const INV_MOM = invite('母のスマホ', 'share');
+const server = spawn('python3', [join(ROOT, 'server.py'), '--port', String(port), '--data-dir', data,
+  '--auth', 'passkey', '--origin', origin], { stdio: 'ignore' });
 const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${dbg}`, `--user-data-dir=${join(tmp, 'chrome')}`,
   '--no-first-run', '--hide-scrollbars', '--lang=ja', 'about:blank'], { stdio: 'ignore' });
 const cleanup = () => { try { chrome.kill(); } catch (e) {} try { server.kill(); } catch (e) {} try { rmSync(tmp, { recursive: true, force: true }); } catch (e) {} };
@@ -57,7 +63,7 @@ async function js(expr) {
   return r.result && r.result.result && r.result.result.value;
 }
 async function go(path) {
-  await send('Page.navigate', { url: `http://127.0.0.1:${port}${path}` });
+  await send('Page.navigate', { url: origin + path });
   for (let i = 0; i < 50; i++) { await sleep(200); if (await js('return document.readyState === "complete" && !!document.querySelector(".tabbar button")')) break; }
   await sleep(1500);
 }
@@ -77,7 +83,7 @@ async function tap(sel) {
 }
 const click = sel => js(`const e = document.querySelector(${JSON.stringify(sel)}); if (!e) throw new Error('無い: ' + ${JSON.stringify(sel)}); e.click();`);
 const clickText = text => js(`const e = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(text)}); if (!e) throw new Error('無い: ' + ${JSON.stringify(text)}); e.click();`);
-const setInput = (sel, v) => js(`const e = document.querySelector(${JSON.stringify(sel)}); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true }));`);
+const setInput = (sel, v) => js(`const e = document.querySelector(${JSON.stringify(sel)}); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true }));`);
 const toServer = () => js(`const h = [...document.querySelectorAll('#pane-settings h3')].find(e => e.textContent === 'サーバー');
   let s = h.parentElement; while (s && !(s.scrollHeight > s.clientHeight + 2 && /(auto|scroll)/.test(getComputedStyle(s).overflowY))) s = s.parentElement;
   (s || document.scrollingElement).scrollBy(0, h.getBoundingClientRect().top - 100);   /* 見出しを ≡ の段の下に */`);
@@ -89,6 +95,11 @@ try {
   await send('Runtime.enable');
   /* 375×812 を 480px 幅で撮る（1.28 倍） */
   await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 1.28, mobile: true });
+  /* 仮のパスキーの置き場（Face ID 済みの端末のつもり） */
+  await send('WebAuthn.enable');
+  await send('WebAuthn.addVirtualAuthenticator', { options: {
+    protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true,
+    automaticPresenceSimulation: true } });
   await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
 
   /* --- 個人（試し用の記録） --- */
@@ -143,11 +154,12 @@ try {
   await toServer();
   await shot('11_http_refused');
   await sleep(4500);   /* 知らせが消えるのを待つ */
-  await clickText('このページのサーバー');
-  await setInput('input[aria-label="サーバーの合言葉"]', OWN);
-  await setInput('input[aria-label="共有の合言葉"]', SHARE);
-  await clickText('繋ぐ');
-  await sleep(2500);
+  /* 住所の欄を空に戻すと、このページのサーバーに形を聞き直して、パスキーの欄が出る */
+  await setInput('input[aria-label="サーバーの住所"]', '');
+  await sleep(1200);
+  await setInput('input[aria-label="招待コード"]', INV_ME);
+  await clickText('この端末を登録');
+  await sleep(3000);
   await toServer();
   await shot('12_server_connected');
   /* 書き出し・読み込み（CSV）。読み込み方を選ぶ窓は、書き出した CSV をそのまま読ませて出す */
@@ -191,10 +203,10 @@ try {
   await clickText('設定を開く');
   await sleep(900);
   await toServer();
-  await clickText('このページのサーバー');
-  await setInput('input[aria-label="共有の合言葉"]', SHARE);
-  await clickText('繋ぐ');
-  await sleep(2500);
+  await sleep(1200);
+  await setInput('input[aria-label="招待コード"]', INV_MOM);
+  await clickText('この端末を登録');
+  await sleep(3000);
   await toServer();
   await shot('17_invitee_settings');
   console.log('できた:', OUT);

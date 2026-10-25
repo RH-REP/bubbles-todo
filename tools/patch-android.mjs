@@ -10,7 +10,7 @@
    ・http://10.0.2.2:<port>（エミュレーターから見た Mac）は使えない。アプリのページは https://localhost なので、
      http の住所は「混在コンテンツ」として WebView に止められる（2026-10-23 に確かめた）。
      localhost と 127.0.0.1 は止められない（ループバックは安全な住所として扱われる）
-   ・ほかの住所（Tailscale の https://….ts.net など）は今までどおり https だけ。 */
+   ・ほかの住所（公開したサーバーの https://… など）は今までどおり https だけ。 */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';

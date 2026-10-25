@@ -89,7 +89,7 @@ function stateText(a, b) { stateA.textContent = a; stateB.textContent = b || '';
 const join = document.createElement('div');
 join.className = 'space-join';
 join.innerHTML = '<h4>共有の海に入る</h4>'
-  + '<p>共有の合言葉を知っている人どうしで使う海。設定の「サーバー」に住所と共有の合言葉を入れると、ここに出る。</p>';
+  + '<p>招かれた人どうしで使う海。設定の「サーバー」で、共有に入れるパスキーを登録する（手元のサーバーなら共有の合言葉を入れる）と、ここに出る。</p>';
 const joinBtn = document.createElement('button');
 joinBtn.type = 'button';
 joinBtn.className = 'btn';
@@ -106,7 +106,7 @@ if (SPACE === 'share') { app.appendChild(stateEl); app.appendChild(join); }
 /* ---- 入力欄（思いついたことを書く）を、読むだけのときに閉じる ---- */
 const LOCKED = new WeakMap();   /* input → 元の placeholder */
 /* 入力欄に収まる長さにする（375px 幅で「共有の合言葉を入れると書ける」は末尾が切れた） */
-function lockText() { return sync.ready() ? '繋がると書ける' : '合言葉を入れると書ける'; }
+function lockText() { return sync.ready() ? '繋がると書ける' : '共有に入ると書ける'; }
 function lockInputs() {
   const ro = SPACE === 'share' && store.readOnly();
   document.querySelectorAll('input[aria-label="思いついたことを書く"], input[placeholder="思いついたことを書く"], input.is-space-locked')
@@ -166,5 +166,5 @@ store.onBlocked(() => {
   const now = Date.now();
   if (now - lastBlocked < 2500) return;
   lastBlocked = now;
-  toast(sync.ready() ? '繋がると書ける（いまは最後に見たものを出している）' : '共有の合言葉を入れると書ける');
+  toast(sync.ready() ? '繋がると書ける（いまは最後に見たものを出している）' : '共有に入ると書ける（設定の「サーバー」から）');
 });

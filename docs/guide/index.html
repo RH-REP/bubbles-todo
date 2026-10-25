@@ -73,7 +73,7 @@ h2, h3 { scroll-margin-top: 76px; }
   <li><a href="#invited">共有の海に入る（招かれた人）</a></li>
   <li><a href="#offline">繋がっていないとき</a></li>
   <li><a href="#host">サーバーを立てる（持ち主）</a></li>
-  <li><a href="#tokens">合言葉の管理（招く・取り消す）</a></li>
+  <li><a href="#tokens">招待とパスキーの管理</a></li>
   <li><a href="#csv">引っ越し（CSV の書き出し・読み込み）</a></li>
   <li><a href="#security">安全のための決まり</a></li>
   <li><a href="#faq">困ったとき</a></li>
@@ -127,35 +127,35 @@ h2, h3 { scroll-margin-top: 76px; }
 <div class="box share">個人の泡を共有へ移す道はありません（間違えて人に見せないため）。共有に置きたいものは、共有に切り替えてから書きます。件数や人数は出しません。</div>
 
 <h2 id="connect">3. サーバーに繋ぐ（自分の端末）</h2>
-<p>複数の端末で同じ記録を使うには、自分で立てたサーバー（<a href="#host">6章</a>）に繋ぎます。サーバーが無くても、今までどおり端末の中だけで使えます。</p>
+<p>複数の端末で同じ記録を使うには、自分で立てたサーバー（<a href="#host">6章</a>）に繋ぎます。入るのはパスキー（Face ID・指紋・画面ロックの PIN）で、合言葉は使いません。サーバーが無くても、今までどおり端末の中だけで使えます。</p>
 <ol class="steps">
-  <li>端末に Tailscale を入れて、サーバーと同じアカウントでログインし、「接続」にする（<a href="#host">6章</a>）。</li>
-  <li>設定（⚙）を開き、「サーバー」の欄までスクロールする。</li>
-  <li>住所に <code>https://&lt;機械名&gt;.&lt;tailnet名&gt;.ts.net</code>、「自分の合言葉」にサーバーの <code>token.txt</code> の中身を入れる。共有も使うなら「共有の合言葉」も入れる。</li>
-  <li>「繋ぐ」を押す。下の字が「個人: 合わせた（時刻）」になれば繋がっています。</li>
+  <li>持ち主（自分）がサーバーで招待コードを作る：<code>invite-add 自分のスマホ me,share</code>（<a href="#tokens">7章</a>）。1回きり・24時間有効の <code>ABCD-EFGH-JKLM</code> の形のコードが出ます。</li>
+  <li>端末のブラウザでサーバーの住所（<code>https://&lt;名前&gt;</code>）を開き、設定（⚙）の「サーバー」までスクロールする。サーバーがパスキーの形なら、招待コードの欄が出ます。</li>
+  <li>招待コードを入れて「この端末を登録」を押し、Face ID・指紋などで確かめる。下の字が「『自分のスマホ』で入っている」「個人: 合わせた（時刻）」になれば繋がっています。</li>
+  <li>次からは、この端末で「パスキーで入る」を押すだけです（通行証は30日。切れたら押し直す）。</li>
 </ol>
 <figure>
-  <div class="shot"><img src="img/10_server_empty.jpg" alt="設定のサーバーの欄。住所・自分の合言葉・共有の合言葉" loading="lazy"><figcaption>サーバーの欄（まだ繋いでいない）</figcaption></div>
-  <div class="shot"><img src="img/12_server_connected.jpg" alt="繋いだあと。「個人: 合わせた（16:32）」" loading="lazy"><figcaption>繋いだあと。画面は手元で試したときのもので、住所は <code>http://127.0.0.1</code>。実際は <code>https://…ts.net</code></figcaption></div>
-  <div class="shot"><img src="img/11_http_refused.jpg" alt="http の住所を入れると「http では繋がない」と出る" loading="lazy"><figcaption><code>http://</code> の住所は断ります（合言葉と記録が暗号化されずに流れるため）</figcaption></div>
+  <div class="shot"><img src="img/10_server_empty.jpg" alt="設定のサーバーの欄。招待コードの欄と「この端末を登録」" loading="lazy"><figcaption>パスキーで入るサーバーの欄（まだ登録していない）</figcaption></div>
+  <div class="shot"><img src="img/12_server_connected.jpg" alt="登録したあと。「自分のスマホ」で入っている・個人: 合わせた" loading="lazy"><figcaption>登録したあと。画面は手元で試したときのもので、住所は <code>http://localhost</code>。実際は <code>https://&lt;名前&gt;</code></figcaption></div>
+  <div class="shot"><img src="img/11_http_refused.jpg" alt="http の住所を入れると「http では繋がない」と出る" loading="lazy"><figcaption><code>http://</code> の住所は断ります（記録が暗号化されずに流れるため）</figcaption></div>
 </figure>
-<p class="note">住所の頭を省くと <code>https://</code> を補います。<code>http://</code> で繋げるのは、自分の機械の中（<code>localhost</code>・<code>127.0.0.1</code>）だけです（開発と、Android エミュレーターの <code>adb reverse</code> 用）。</p>
+<p class="note">住所の頭を省くと <code>https://</code> を補います。<code>http://</code> で繋げるのは、自分の機械の中（<code>localhost</code>・<code>127.0.0.1</code>）だけです。パスキーは名前の住所でしか使えないので、IP の住所では登録できません。</p>
 <p>食い違ったときは、項目ごとに新しく書き換えたほうが残ります。消したものも、消した時刻で比べます。サーバーに届かない間も端末には記録され、届いたら合わせます。</p>
+<p class="note">手元の Mac だけで使う形（<code>start.command</code> で起動したサーバー）は、パスキーではなく合言葉で入ります。そのときは「自分の合言葉」「共有の合言葉」の欄が出ます。</p>
 
 <h2 id="invited">4. 共有の海に入る（招かれた人）</h2>
-<p>持ち主から「住所」と「あなたのぶんの共有の合言葉」を受け取ったら、次のようにします。</p>
+<p>持ち主から「住所」と「あなたのぶんの招待コード」を受け取ったら、次のようにします。アプリを入れる必要はありません（ブラウザで開いて、ホーム画面に追加できます）。</p>
 <ol class="steps">
-  <li>Tailscale のアカウントを作り（個人向けは無料）、端末に Tailscale を入れてログインする。</li>
-  <li>持ち主から届いた「機械の共有」の招待を受け入れる。あなたの Tailscale に、このサーバー機だけが現れます（ほかの機械には届きません）。</li>
+  <li>スマホのブラウザで住所を開き、ホーム画面に追加する。</li>
   <li>Bubbles で左上の ≡ を開き、いちばん上の「共有」を押す。「共有の海に入る」の札が出るので、「設定を開く」を押す。</li>
-  <li>住所と「共有の合言葉」だけを入れて「繋ぐ」（「自分の合言葉」は空のまま）。「共有: 合わせた」になれば入れています。</li>
+  <li>招待コードを入れて「この端末を登録」を押し、Face ID・指紋などで確かめる。「『母のスマホ』で入っている（共有）」「共有: 合わせた」になれば入れています。</li>
 </ol>
 <figure>
-  <div class="shot"><img src="img/16_share_join.jpg" alt="共有の海に入る札。設定を開くボタン" loading="lazy"><figcaption>共有の合言葉がまだのとき</figcaption></div>
-  <div class="shot"><img src="img/17_invitee_settings.jpg" alt="招かれた人の設定。住所と共有の合言葉だけ。「共有: 合わせた」" loading="lazy"><figcaption>招かれた人の設定（共有の合言葉だけ）</figcaption></div>
+  <div class="shot"><img src="img/16_share_join.jpg" alt="共有の海に入る札。設定を開くボタン" loading="lazy"><figcaption>まだ共有に入っていないとき</figcaption></div>
+  <div class="shot"><img src="img/17_invitee_settings.jpg" alt="招かれた人の設定。「母のスマホ」で入っている（共有）" loading="lazy"><figcaption>招かれた人の設定（共有だけに入れる招待）</figcaption></div>
   <div class="shot"><img src="img/13_share.jpg" alt="共有の海に、ほかの人が書いた泡が出ている" loading="lazy"><figcaption>共有の海</figcaption></div>
 </figure>
-<div class="box">Tailscale は「自分の機械どうしだけをつなぐ VPN」です。ほかの Web サイトへの通信は Tailscale を通らず、今までどおり直接届きます。スマホでは VPN の枠を1つ使うので、ほかの VPN とは同時に使えません。</div>
+<div class="box">共有だけに招かれた人は、持ち主の個人の記録には入れません。招待コードは1回きりなので、使ったあとに人に見られても困りません。</div>
 
 <h2 id="offline">5. 繋がっていないとき</h2>
 <p>共有の海は、サーバーと合わせられていない間は「読むだけ」になります。最後に見たものを色を抜いて出し、薄い帯の右に「繋がっていない／<i>時刻</i> に見たもの」と出ます。入力欄は点線になり、書こうとすると「繋がると書ける」と知らせます。繋がったら自動で新しくなり、色も戻ります。</p>
@@ -166,17 +166,19 @@ h2, h3 { scroll-margin-top: 76px; }
 <p class="note">個人の海は、繋がっていなくても見た目は変わらず、今までどおり書けます（届いたら合わせます）。</p>
 
 <h2 id="host">6. サーバーを立てる（持ち主）</h2>
-<p>Linux のサーバー（Oracle Cloud の無料枠など）に立てます。サーバーは自分の機械の中（<code>127.0.0.1</code>）だけで待ち受け、外からは Tailscale を通った端末だけが届きます。クラウドのファイアウォールは開けません。</p>
+<p>Linux のサーバー（Oracle Cloud の無料枠など）に、名前の住所（例 <code>bubbles.example.org</code>。DuckDNS などの無料の名前でもよい）で公開します。server.py は自分の機械の中（<code>127.0.0.1</code>）だけで待ち受け、前段の Caddy が HTTPS を受けて渡します。</p>
 
-<h3>6-1. サーバーで立ち上げる</h3>
+<h3>6-1. 準備</h3>
 <ol class="steps">
-  <li>サーバーに ssh で入り、Tailscale を入れてログインする（<code>BUBBLES_INSTALL_TAILSCALE=1</code> を付けると、次の手順の中で公式の手順で入れます）。</li>
-  <li>次を実行する。2回目からは同じコマンドが「更新」として働きます。
-<pre><code>git clone https://github.com/RH-REP/bubbles-todo.git
-BUBBLES_TAILSCALE_SSH=1 bash bubbles-todo/tools/server-setup.sh</code></pre></li>
-  <li>最後に出る「繋ぐ住所」と「合言葉」の場所を控える。自分の合言葉は <code>cat ~/bubbles-data/token.txt</code> で見られます。</li>
+  <li>名前を、サーバーの公開の IP に向ける（DuckDNS なら管理画面で IP を入れる）。</li>
+  <li>サーバーに Caddy を入れる（<a href="https://caddyserver.com/docs/install">公式の手順</a>）。fail2ban もあると、失敗をくり返す接続元を締め出せます。</li>
+  <li>ファイアウォールで 80 番と 443 番だけを開ける（クラウドの側と、サーバーの中の両方。立ち上げのときに手順が出ます）。</li>
 </ol>
-<p>スクリプトがすること：python3 と git の確認 → コードの取り込み → 記録の置き場（<code>~/bubbles-data</code>）づくり → テスト → systemd で常駐（落ちたら起動し直す。書けるのは記録の置き場だけ）→ <code>tailscale serve</code> で HTTPS 化 → 住所と合言葉の場所を出す。</p>
+
+<h3>6-2. 立ち上げる</h3>
+<pre><code>git clone https://github.com/RH-REP/bubbles-todo.git
+BUBBLES_DOMAIN=bubbles.example.org bash bubbles-todo/tools/server-setup.sh</code></pre>
+<p>スクリプトがすること：python3 と git の確認 → コードの取り込み → 記録の置き場（<code>~/bubbles-data</code>）づくり → テスト → systemd で常駐（パスキーで入る形。落ちたら起動し直す。書けるのは記録の置き場だけ）→ Caddy と fail2ban の設定 → 住所と、最初の端末の招待の手順を出す。2回目からは同じコマンドが「更新」として働き、名前も覚えています。</p>
 <table>
   <tr><th>操作</th><th>コマンド</th></tr>
   <tr><td>動いているか・住所</td><td><code>bash bubbles-todo/tools/server-setup.sh status</code></td></tr>
@@ -184,39 +186,21 @@ BUBBLES_TAILSCALE_SSH=1 bash bubbles-todo/tools/server-setup.sh</code></pre></li
   <tr><td>常駐をやめる（記録は残す）</td><td><code>bash bubbles-todo/tools/server-setup.sh uninstall</code></td></tr>
   <tr><td>サーバーの記録（ログ）</td><td><code>sudo journalctl -u bubbles-todo</code></td></tr>
 </table>
+<p class="note">update したあとは、スマホの Bubbles を「最近使ったアプリ」から払って完全に閉じ、開き直してください。古い版が残っていたら、もう一度。</p>
 
-<h3>6-2. Tailscale の管理画面ですること（最初の1回）</h3>
-<ol class="steps">
-  <li><b>HTTPS を有効にする</b>：管理画面の DNS で MagicDNS と HTTPS 証明書を有効にする（<code>tailscale serve</code> に要る）。機械名と tailnet 名は証明書の公開ログに載るので、機械名に個人の情報を入れない。</li>
-  <li><b>人を招くときは、機械を「共有」する</b>：管理画面の Machines でサーバー機の「…」→「Share」から招待のリンクを作り、相手に送る。tailnet そのものには招かない（相手から届くのは、このサーバー機だけになる）。</li>
-  <li><b>届くポートを 443 だけにする</b>：アクセスの規則（Access controls）に、共有された人の宛先を絞る規則を書く。例（サーバー機の住所 <code>100.x.y.z</code> は管理画面で確かめる）：
-<pre><code>{
-  "grants": [
-    // 自分の端末は今までどおり
-    { "src": ["autogroup:member"], "dst": ["*"], "ip": ["*"] },
-    // 共有された人は、サーバー機の HTTPS（443）だけ
-    { "src": ["autogroup:shared"], "dst": ["100.x.y.z"], "ip": ["tcp:443"] }
-  ]
-}</code></pre>
-  規則を書き換えると、既定の「全部通す」が置き換わります。自分の端末の規則も一緒に書いてください（保存するときに構文の確かめが走ります）。</li>
-  <li><b>ssh を Tailscale に寄せる</b>：<code>BUBBLES_TAILSCALE_SSH=1</code> で立ち上げると Tailscale SSH が有効になります。tailnet から ssh で入れることを確かめてから、クラウドのファイアウォール（Oracle の Security List）の 22 番を閉じます。</li>
-  <li><b>Funnel（インターネットへの公開）は使わない</b>。</li>
-</ol>
+<h2 id="tokens">7. 招待とパスキーの管理</h2>
+<p>端末は、招待コードで1台ずつ登録します。どれもサーバーを止めずに効きます。</p>
+<pre><code># 招待コードを作る（1回きり・24時間。me = 個人、share = 共有）
+bash bubbles-todo/tools/server-setup.sh invite-add 自分のスマホ me,share
+bash bubbles-todo/tools/server-setup.sh invite-add 母のスマホ share
 
-<h2 id="tokens">7. 合言葉の管理（招く・取り消す）</h2>
-<p>共有の合言葉は人ごとに1つ作ります。1人ぶんだけ取り消せます。どれもサーバーを止めずに、次の接続から効きます。</p>
-<pre><code># 招く人のぶんを作る（値はこのときだけ出る。相手には住所とこの値だけを渡す）
-bash bubbles-todo/tools/server-setup.sh share-add 母のスマホ
+# 一覧（使われていない招待 / 登録済みのパスキー）
+bash bubbles-todo/tools/server-setup.sh invite-list
+bash bubbles-todo/tools/server-setup.sh passkey-list
 
-# 一覧（名前・作った日・末尾4文字。値そのものは出さない）
-bash bubbles-todo/tools/server-setup.sh share-list
-
-# 取り消す（その端末は次の接続から入れない）
-bash bubbles-todo/tools/server-setup.sh share-remove 母のスマホ
-
-# 自分の合言葉を作り直す（自分の端末すべてで入れ直す）
-bash bubbles-todo/tools/server-setup.sh rotate-me</code></pre>
-<div class="box share">自分の合言葉（<code>token.txt</code>）は人に渡さないでください。個人の記録が読めてしまいます。共有の合言葉だけを知る人は、個人の記録を読めません。</div>
+# 取り消す（その端末は次の要求から入れない）
+bash bubbles-todo/tools/server-setup.sh passkey-remove 母のスマホ</code></pre>
+<p class="note">登録できるパスキーは置き場（個人・共有）ごとに3つ、同時に使える端末は3台までです。端末を替えたら、古い端末のパスキーを <code>passkey-remove</code> で外してから招待し直します。</p>
 
 <h2 id="csv">8. 引っ越し（CSV の書き出し・読み込み）</h2>
 <p>記録をまるごと1つの CSV ファイルにして、別の端末へ移せます。対象は、いま開いている持ち主（個人か共有）の記録です。todo だけでなく、きっかけ・すきまの枠・タグ・着手の記録・作業メモの履歴も入ります。</p>
@@ -237,24 +221,24 @@ bash bubbles-todo/tools/server-setup.sh rotate-me</code></pre>
 
 <h2 id="security">9. 安全のための決まり</h2>
 <ul>
-  <li>サーバーには、Tailscale を通った端末だけが届く（インターネットには出さない）。</li>
+  <li>入るのはパスキーだけ。サーバーが持つのは公開鍵だけで、Face ID・指紋の情報はサーバーに来ない。</li>
+  <li>招待コードは1回きり・24時間。端末ごとに取り消せて、取り消しはすぐ効く。</li>
   <li>端末は <code>https://</code> でだけ繋ぐ（外への <code>http://</code> は断る）。</li>
-  <li>合言葉は人ごと。取り消しは1人ずつ、すぐ効く。</li>
-  <li>サーバーは、合言葉の値をログに書かない（端末で起動したときだけ、作った直後に画面に出す）。</li>
-  <li>合言葉を取り違えて入れても（共有の合言葉を自分の欄に入れるなど）、サーバーが返す置き場の名前で端末が気づき、記録を送らない。</li>
+  <li>server.py は外から直接届かない（<code>127.0.0.1</code>）。前段の Caddy が HTTPS・待ち時間・大きさの上限を受け持ち、fail2ban が失敗をくり返す接続元を締め出す。</li>
+  <li>共有だけに入れる招待で登録した端末は、個人の記録に入れない。</li>
   <li>記録の控えは、サーバーの <code>~/bubbles-data/backup/</code>（個人）と <code>share/backup/</code>（共有）に、書くたびに新しいほうから50個残る。</li>
 </ul>
 
 <h2 id="faq">10. 困ったとき</h2>
 <table>
   <tr><th>こうなった</th><th>こうする</th></tr>
-  <tr><td>「届かない: サーバーに届かない」</td><td>端末の Tailscale が「接続」になっているか。サーバーで <code>server-setup.sh status</code>。</td></tr>
-  <tr><td>「合言葉が違う」</td><td>合言葉を入れ直す。取り消された（<code>share-remove</code>）か、作り直された（<code>rotate-me</code>）かもしれない。</td></tr>
-  <tr><td>「これは共有の合言葉ではない」「これは共有の合言葉（自分の合言葉の欄に入っている）」</td><td>欄を取り違えている。自分の合言葉と共有の合言葉を入れ替える。</td></tr>
-  <tr><td>「http では繋がない」</td><td>住所を <code>https://…ts.net</code> にする。</td></tr>
+  <tr><td>「届かない: サーバーに届かない」</td><td>住所が合っているか。サーバーで <code>server-setup.sh status</code>。</td></tr>
+  <tr><td>招待コードで登録できない</td><td>コードは1回きり・24時間。使ったか切れたなら、持ち主に作り直してもらう。パスキーがいっぱい（3つ）のときも断られる。</td></tr>
+  <tr><td>入っていたのに入れなくなった</td><td>通行証（30日）が切れた。設定の「パスキーで入る」を押す。それでも入れないなら、取り消された（<code>passkey-remove</code>）かもしれない。</td></tr>
+  <tr><td>「http では繋がない」</td><td>住所を <code>https://&lt;名前&gt;</code> にする。</td></tr>
   <tr><td>共有で書けない（点線）</td><td>サーバーと合わせられるまで読むだけ。いちばん上の薄い帯の右の字が「合わせた」になれば書ける。</td></tr>
+  <tr><td>update したのに古いまま・下のタブが隠れる</td><td>Bubbles を「最近使ったアプリ」から払って完全に閉じ、開き直す。直らなければ、設定の下の「画面の大きさの記録」を写して持ち主に渡す。</td></tr>
   <tr><td>「読み込めない: Bubbles の CSV ではない」</td><td>Bubbles の「CSV で書き出す」で作ったファイルを選ぶ。Excel で保存し直したときに1行目が変わっていないかも見る。</td></tr>
-  <tr><td>ほかの VPN が切れた（スマホ）</td><td>スマホは VPN を1つしか同時に使えない。Bubbles を使う間だけ Tailscale に切り替える。</td></tr>
 </table>
 <p class="note">この記事のスクリーンショットは、試し用の記録で撮ったものです。</p>
 </main>
