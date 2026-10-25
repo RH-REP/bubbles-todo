@@ -57,7 +57,7 @@
 | Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは開発側（この repo）で |
 | 保存は localStorage。サーバーの住所を入れたときだけ、自分のサーバーと記録を合わせる | `js/store.js` `KEY = 'bubble_todo_v1'`・`stamps`、`js/merge.js`、`js/sync.js`、`server.py`、設定の「サーバー」 | 2026-10-23。記録ごとに新しく書き換えたほうが残る。消したものは消した時刻で比べる。ファイルへの書き出し・読み込みは CSV（下の行） |
 | 引っ越し（CSV の書き出し・読み込み。読み込むときに「足す」か「同じものは上書き」を選ぶ） | `js/csvio.js`、`js/screens/settings.js` csvBox・askMode | 2026-10-24。記録をまるごと1つの CSV（1行1件。data が JSON の正本）。共有では読むだけの間は読み込まない |
-| 個人と共有の海（引き出しの頭で切り替え、いちばん上の薄い帯で表示。共有は共有の合言葉を知る人どうし、合わせられた間だけ書ける） | `js/space.js`、`css/space.css`、`js/store.js` `SPACE`・`readOnly`・`WRITE_METHODS`、`js/sync.js`、`server.py` `SPACES` | 2026-10-23。繋がっていない共有は最後に見たものを読むだけ。件数・人数は出さない。個人から共有へ移す道は無い |
+| 個人と共有の海（いちばん上の薄い帯か引き出しの頭で切り替え。共有はマグマの赤の水。共有は共有の合言葉を知る人どうし、合わせられた間だけ書ける） | `js/space.js`、`css/space.css`、`js/store.js` `SPACE`・`readOnly`・`WRITE_METHODS`、`js/sync.js`、`server.py` `SPACES` | 2026-10-23。繋がっていない共有は最後に見たものを読むだけ。件数・人数は出さない。個人から共有へ移す道は無い |
 | **優先度（急ぐ・大事）**（盤の「◷ 急ぐ」「◆ 大事」／海と今日の「⊞」で四つに分けて見て、ドラッグして分ける／分けた泡の右上に区分の色の点） | `js/priority.js`、`js/store.js` `urgent`・`important`・`setPriority`・`setQuadrant`・`quadrantOf`、`js/bubble.js` 盤の bc-prio と `.qdot`、`js/quadview.js`・`css/quad.css`（海の `renderQuad`＝リスト表示のもう1つの形、今日の `setQuad`） | 2026-10-25（Eisenhower。デザイン案 A と B）。区分は いま／育てる／さっと／漂わせる。数・割合は出さない、赤は使わない、名前は命令形にしない。分けるのは任意で、印の無い泡は今までどおり。急ぐを日付から自動で付けない。印は true / false / まだ の3つで、記録ごとに合わさり CSV にも入る |
 | 名前（本文）を盤で書き直せる | `js/store.js` `setText`、`js/bubble.js` 「名前」欄 | 2026-10-12。空にはできない。記録のスナップショットは当時のまま |
 | **引き出し**（左上の ≡。最近つかった／お気に入り／長期保留／タグごと → 今日に置く。名前で盤が開く） | `js/app.js` `openDrawer` / `revealItem`、`js/store.js` `recentItems` / `favItems` / `setFav`、`js/bubble.js` `centerBubble` | 2026-09-24（元 F7）。9/25 にタグ区分・折り畳み・名前タップを追加。お気に入りは盤の ☆ |

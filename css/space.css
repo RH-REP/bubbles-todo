@@ -17,13 +17,20 @@ html.has-strip { --strip-h: 30px; --safe-t: calc(env(safe-area-inset-top, 0px) +
   background: var(--sea-1);
   display: flex; justify-content: center; align-items: center; pointer-events: none;
 }
-/* 表示だけの「個人 共有」。今の側を白く浮かせる。押せないので 44px の決まりは当てはまらない */
-.space-seg { display: inline-flex; gap: 2px; }
-.space-seg span {
+/* 「個人 共有」。今の側を白く浮かせる。押すと切り替わる（2026-10-25 Issue #3）。
+   帯は 30px のままにして、押す的だけを ::after で上下に 7px ずつ広げ 44px にする
+   （下の 7px は、上の段の丸ボタン（帯の 10px 下から）に届かない） */
+.space-seg { display: inline-flex; gap: 2px; pointer-events: auto; }
+.space-seg button {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  position: relative; border: 0; background: transparent;
   font-size: 12.5px; line-height: 1; color: var(--text-3);
   padding: 5px 14px; border-radius: 999px;
 }
-.space-seg span.is-on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.space-seg button::after { content: ""; position: absolute; left: 0; right: 0; top: -7px; bottom: -7px; }
+.space-seg button.is-on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); cursor: default; }
+.space-seg button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+body.is-dragging .space-seg { pointer-events: none; }
 /* 版（左端）。読むだけの小さな字。帯の真ん中の「個人 共有」とぶつからない幅で切る */
 .space-ver {
   position: absolute; left: 10px; bottom: 0; height: var(--strip-h);
@@ -33,7 +40,7 @@ html.has-strip { --strip-h: 30px; --safe-t: calc(env(safe-area-inset-top, 0px) +
   font-variant-numeric: tabular-nums;
 }
 /* 共有の印。今が共有のときだけ、字の前に小さな点 */
-.space-seg span.is-share-btn.is-on::before,
+.space-seg button.is-share-btn.is-on::before,
 .drawer-space button.is-share-btn.is-on::before {
   content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   background: var(--share-mark); margin-right: 6px; vertical-align: 1px;
@@ -58,27 +65,36 @@ html.is-share .drawer-space button.is-on { border-color: var(--share-edge); }
 /* 切り替えが ✕ の高さを占めるので、下の一覧の上の余白を詰める */
 .drawer-space + .drawer-body { padding-top: 8px; }
 
-/* ---------- 共有の水（夕方の杏・藤・若葉）----------
-   海の色はどの画面も --sea-* と --drift-* から塗っているので、ここを替えるだけで全画面が変わる */
-:root { --share-mark: #b0604f; --share-edge: rgba(176,96,82,.55); --share-text: #5a2a22; }
+/* ---------- 共有の水（マグマの海。2026-10-25 Issue #3 利用者の指示）----------
+   個人（空色の海）と取り違えないように、共有は赤を地にする（前は夕方の杏・藤・若葉で、個人と近すぎた）。
+   赤は「持ち主の印」で、警告や遅れの意味には使わない（優先度の区分が赤を避けているのはそのまま）。
+   海の色はどの画面も --sea-* と --drift-* から塗っているので、ここを替えるだけで全画面が変わる。
+   バブルの縁・粒も赤寄りにして、膜の青が赤い水に浮かないようにする */
+:root { --share-mark: #c2412d; --share-edge: rgba(194,65,45,.60); --share-text: #5c1a10; }
 html.is-share {
-  --sea-1: #f8e3d6;
-  --sea-2: #eee0f3;
-  --sea-3: #e3f0e8;
-  --drift-a: rgba(250,182,150,.40);
-  --drift-b: rgba(200,170,240,.32);
-  --bub-text: #5a2a22;
-  --bub-shadow: rgba(150,80,70,.24);
+  --sea-1: #fcd3c4;
+  --sea-2: #f8bfae;
+  --sea-3: #f6d6c2;
+  --drift-a: rgba(255,120,70,.38);
+  --drift-b: rgba(230,70,90,.26);
+  --spark-2: rgba(255,170,110,.85);
+  --bub-fill: rgba(240,130,100,.14);
+  --bub-edge: rgba(190,70,50,.60);
+  --bub-text: #5c1a10;
+  --bub-shadow: rgba(160,50,30,.26);
 }
 @media (prefers-color-scheme: dark) {
-  :root { --share-mark: #e39a86; --share-edge: rgba(227,154,134,.55); --share-text: #f6dcd4; }
+  :root { --share-mark: #f07a5e; --share-edge: rgba(240,122,94,.60); --share-text: #fbd9cf; }
   html.is-share {
-    --sea-1: #2a1a1c;
-    --sea-2: #241a2c;
-    --sea-3: #1a2420;
-    --drift-a: rgba(220,120,100,.18);
-    --drift-b: rgba(170,120,200,.14);
-    --bub-text: #f6dcd4;
+    --sea-1: #33130f;
+    --sea-2: #2c0f12;
+    --sea-3: #221414;
+    --drift-a: rgba(255,90,40,.22);
+    --drift-b: rgba(220,50,70,.16);
+    --spark-2: rgba(255,150,100,.45);
+    --bub-fill: rgba(240,110,80,.10);
+    --bub-edge: rgba(240,130,100,.62);
+    --bub-text: #fbd9cf;
     --bub-shadow: rgba(0,0,0,.55);
   }
 }

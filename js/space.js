@@ -4,9 +4,11 @@
      ・切り替え … 引き出し（左上の ≡）のいちばん上の「個人／共有」（spaceSwitcher()。app.js が置く）。
                   押すと持ち主を書き換えて画面を読み直す
                   （app 全体＝海・今日・きっかけ・すきま・ふりかえりが、その持ち主の記録になる）
-     ・表示     … いちばん上の薄い帯（30px）に「個人 共有」を並べ、今の側を白く浮かせる。**押せない**
-                  （表示だけ。前は 54px の帯が切り替えのボタンで、Android の小さい画面で海を削っていた）
-   共有のときは水が夕方の色になる（css/space.css。html.is-share）。
+     ・表示     … いちばん上の薄い帯（30px）に「個人 共有」を並べ、今の側を白く浮かせる
+                  （前は 54px の帯が切り替えのボタンで、Android の小さい画面で海を削っていた）
+   2026-10-25（Issue #3。利用者の指示）: 薄い帯の「個人 共有」も押せるようにした（引き出しと同じ switchTo）。
+   帯の高さは 30px のまま、押す的だけを上下に広げて 44px にする（css/space.css）。
+   あわせて、取り違えないように共有の水をマグマの赤にした（css/space.css。html.is-share）。
 
    共有のときだけ出るもの:
      ・状態の字   薄い帯の右に2行。「合わせた／15:30」・「繋がっていない／15:30 に見たもの」
@@ -40,19 +42,22 @@ function switchTo(id) {
   location.reload();
 }
 
-/* ---- 薄い帯（表示だけ。押せない） ---- */
+/* ---- 薄い帯（今の側を浮かせる。押すと切り替わる） ---- */
 const strip = document.createElement('div');
 strip.className = 'space-strip';
-strip.setAttribute('role', 'status');
-strip.setAttribute('aria-label', '今の持ち主: ' + (SPACE === 'share' ? '共有' : '個人') + '（切り替えは左上の ≡ から）');
 const seg = document.createElement('div');
 seg.className = 'space-seg';
-seg.setAttribute('aria-hidden', 'true');
+seg.setAttribute('role', 'group');
+seg.setAttribute('aria-label', '持ち主の切り替え');
 LABELS.forEach(([id, label]) => {
-  const span = document.createElement('span');
-  span.className = (id === 'share' ? 'is-share-btn ' : '') + (id === SPACE ? 'is-on' : '');
-  span.textContent = label;
-  seg.appendChild(span);
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.space = id;
+  b.className = (id === 'share' ? 'is-share-btn ' : '') + (id === SPACE ? 'is-on' : '');
+  b.textContent = label;
+  b.setAttribute('aria-pressed', id === SPACE ? 'true' : 'false');
+  b.addEventListener('click', () => switchTo(id));
+  seg.appendChild(b);
 });
 strip.appendChild(seg);
 /* 版（2026-10-25 利用者の指示）。帯の左端に小さく。update のあと新しい版に入れ替わったかを見るため。

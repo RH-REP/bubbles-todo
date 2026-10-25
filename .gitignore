@@ -21,3 +21,6 @@ ios/
 
 # server.py の記録（state.json・backup/）と合言葉（token.txt）。clone して使う側に置く
 /data/
+
+# Python のテストが作る（2026-10-25 に誤って入ったので外した）
+__pycache__/
