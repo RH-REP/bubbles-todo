@@ -122,5 +122,14 @@ outo="$(PATH="$T/bin:$PATH" HOME="$T/old" BUBBLES_DIR="$T/code" BUBBLES_DATA="$T
 grep -q "Tailscale の形（合言葉）は 2026-10-25 に外しました" <<<"$outo" || { echo "$outo"; fail "わけが出ない"; }
 pass "前の Tailscale の形の置き場では、わけ（BUBBLES_DOMAIN を付ける）を出して止まる"
 
+# --- Caddy が無いときの案内は OS ごとに替わる（関数だけを取り出して、偽の os-release で呼ぶ） ---
+hint_fn="$(sed -n '/^caddy_install_hint()/,/^}/p' "$ROOT/tools/server-setup.sh")"
+hint() { mkdir -p "$T/os/$1"; [[ "$1" == none ]] || printf 'NAME="x"\nID=%s\n' "$1" > "$T/os/$1/os-release"; ETC="$T/os/$1" bash -c "$hint_fn"$'\ncaddy_install_hint'; }
+grep -q "Amazon Linux には公式のパッケージがありません" <<<"$(hint amzn)" && grep -q "#static-binaries" <<<"$(hint amzn)" || fail "Amazon Linux で静的バイナリの案内が出ない"
+grep -q "#debian-ubuntu-raspbian" <<<"$(hint ubuntu)" || fail "Ubuntu で Debian の手順が出ない"
+grep -q "#fedora-redhat-centos" <<<"$(hint rhel)" || fail "RHEL で Fedora/RHEL の手順が出ない"
+grep -q "OS に合う手順" <<<"$(hint none)" || fail "os-release が無いときに一般の案内が出ない"
+pass "Caddy が無いときの案内は OS ごとに替わる（Amazon Linux は静的バイナリ）"
+
 echo
 echo "server-setup: all passed"

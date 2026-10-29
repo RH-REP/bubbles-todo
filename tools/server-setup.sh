@@ -188,6 +188,18 @@ bind_addr() {
   ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1
 }
 
+# Caddy の入れ方は OS で違う。Amazon Linux には公式のパッケージが無い（https://caddyserver.com/docs/install に載っていない。2026-10-29）
+caddy_install_hint() {
+  local id=""
+  [[ -r "$ETC/os-release" ]] && id="$(. "$ETC/os-release" && printf '%s' "${ID:-}")"
+  case "$id" in
+    amzn) printf '%s' "Amazon Linux には公式のパッケージがありません。静的バイナリを入れ（https://caddyserver.com/docs/install#static-binaries）、systemd の unit を手で置いてください（https://caddyserver.com/docs/running#manual-installation）" ;;
+    debian|ubuntu|raspbian) printf '%s' "https://caddyserver.com/docs/install#debian-ubuntu-raspbian の手順" ;;
+    fedora|rhel|centos|rocky|almalinux) printf '%s' "https://caddyserver.com/docs/install#fedora-redhat-centos の手順" ;;
+    *) printf '%s' "https://caddyserver.com/docs/install から OS に合う手順" ;;
+  esac
+}
+
 public_front() {
   say "6. 前段（Caddy・fail2ban）と、ファイアウォール"
   if command -v caddy >/dev/null; then
@@ -204,7 +216,7 @@ public_front() {
       die "Caddy が起動しません（上の記録を見てください）"
     fi
   else
-    warn "Caddy が入っていません。入れてから実行し直してください（https://caddyserver.com/docs/install の Debian/Ubuntu の手順）"
+    warn "Caddy が入っていません。入れてから実行し直してください（$(caddy_install_hint)）"
   fi
   if command -v fail2ban-client >/dev/null; then
     sed -e "s/__SERVICE__/$SERVICE/g" "$DIR/tools/public/fail2ban-filter.conf" | sudo tee "$ETC/fail2ban/filter.d/bubbles.conf" >/dev/null
