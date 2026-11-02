@@ -53,6 +53,7 @@
 | 集中1回ぶんの控え（**内部のみ。表示しない**） | `js/store.js` `focusLog` / `logFocus` / `focusCount` / `focusMs` | 2026-09-11。出しどころは A-67 |
 | 完了音（WebAudio 合成。既定オン、設定で切れる） | `js/sound.js` | 設定は store とは別の localStorage キー |
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
+| **最新の版を確認する**（設定の中のボタン。押すと service worker に新しい版を取りに行かせ、見つかれば入れ替えて読み直す） | `js/update.js`、`js/screens/settings.js` updateBox、`sw.js` の `message` 口 | 2026-11-02（利用者の指示）。iOS のホーム画面アプリは「閉じて開き直す」だけでは新しい版に気づかないことがある（WebKit の既知の挙動）。ふだんは呼ばない `skipWaiting()` を、このボタンを押したときだけ呼ぶ |
 | **改善のコメント（右上の !）**（GitHub の新しい Issue 画面を、画面 ID とコメントを書き込んで開く） | `js/feedback.js`（issue_hub の正本の写し）、`js/app.js` 末尾、各板の `data-screen` | 2026-10-22。バブルの本文が写るので写真は初めは付けない（`screenshot: 'off'`。チェックを入れれば付く、2026-10-23）。記録の欄は出さない（`log: false`）。右上の隅に歯車と同じ 44px で置き、歯車・海のカレンダーを左へずらした（2026-10-23）。バブルの本文は送らない（画面と件数だけ）。iPhone の GitHub アプリが Issue の画面を空欄で開くことがある件（iOS の Universal Links。Issue #5）への備えとして、押した時点で題名・本文をクリップボードにも置き、iOS では長押しで Safari へ開けると案内する（2026-11-02） |
 | Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは開発側（この repo）で |
 | 保存は localStorage。サーバーの住所を入れたときだけ、自分のサーバーと記録を合わせる | `js/store.js` `KEY = 'bubble_todo_v1'`・`stamps`、`js/merge.js`、`js/sync.js`、`server.py`、設定の「サーバー」 | 2026-10-23。記録ごとに新しく書き換えたほうが残る。消したものは消した時刻で比べる。ファイルへの書き出し・読み込みは CSV（下の行） |

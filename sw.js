@@ -30,7 +30,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-02a';
+const VERSION = '2026-11-02b';
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [
@@ -78,6 +78,7 @@ const ASSETS = [
   './js/version.js',
   './js/sync.js',
   './js/ui.js',
+  './js/update.js',   /* 設定の「最新の版を確認する」（2026-11-02） */
   /* アイコン */
   './icons/icon.svg',
   './icons/icon-192.png',
@@ -102,6 +103,14 @@ self.addEventListener('activate', (ev) => {
     await Promise.all(names.map((n) => (n.startsWith('bubbles-') && n !== CACHE) ? caches.delete(n) : null));
     await self.clients.claim();
   })());
+});
+
+/* 設定の「最新の版を確認する」（js/update.js）から、押した人だけが頼める入れ替え。
+   ふだんは呼ばない skipWaiting() を、この頼みが来たときだけ呼ぶ（2026-11-02）。
+   走っている module を足元から差し替えないという元の決めごとは、
+   「押した人が納得のうえでページを読み直す」ことで引き受ける。 */
+self.addEventListener('message', (ev) => {
+  if (ev.data && ev.data.type === 'skipWaiting') self.skipWaiting();
 });
 
 self.addEventListener('fetch', (ev) => {
