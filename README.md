@@ -253,6 +253,7 @@ server.py も Android 版（`www/`）も docs/ を配る。service worker の箱
 - 形は1行1件（`kind,id,text,date,data,stamp`）。kind と id は合わせる仕組みの記録の鍵（`js/merge.js`）を分けたもの、data は記録の中身の JSON（読み込みの正本）、text と date は人が見るための欄。先頭の meta の行に形の名前と版を入れる。BOM と `\r\n` で、Excel で開いても化けない
 - 読み込むときに選ぶ: 「足す」（CSV にしかない記録だけを足す。この端末で消した記録は戻さない。何度読んでも増えない）／「同じものは上書き」（同じ記録を CSV の中身で書き換え、無いものは足す。この端末にしかない記録は残す）
 - 読み込んだ記録には今の印を付けるので、サーバーに繋いでいればほかの端末にも届く。招かれた海が読むだけの間は読み込まない
+- 書き出し（Issue #7）: 指で触る端末（iPhone・Android）では共有シートでファイルを渡す（「"ファイル"に保存」）。iPhone のホーム画面アプリは `<a download>` でファイルにならないことがあるため。パソコンはふつうのダウンロード。ファイル名は時刻（時分秒）まで入れ、meta の行に書き出した時刻と端末（iPhone・Mac など）を入れる。読み込みの窓で「書き出した時刻・todo の件数・端末」を見せ、別の端末の CSV の取り違えに気づけるようにする
 - 作り: `js/csvio.js`（toCsv・readCsv・importInto）、`js/screens/settings.js`（csvBox・askMode）。テスト `node tests/csvio.test.mjs`
 
 ## 気孔（隠れている泡を呼ぶ）

@@ -5,7 +5,7 @@
    「端末」は store.js を読み直した別のモジュールで表す（sync.test.mjs と同じやり方）。 */
 
 import assert from 'node:assert/strict';
-import { toCsv, parseCsv, readCsv, importInto, csvFileName } from '../js/csvio.js';
+import { toCsv, parseCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../js/csvio.js';
 import { recordsOf } from '../js/merge.js';
 
 const KEY = 'bubble_todo_v1';
@@ -68,7 +68,7 @@ await test('CSV の形: BOM・1行目・meta・\\r\\n。カンマ・引用符・
   const todo = rows.find(r => r[0] === 'todo' && r[2].startsWith('歯医者'));
   assert.equal(todo[2], '歯医者を予約, 午前中に "電話"\n2行目');
   assert.match(todo[3], /^2026-10-24T10:00/);
-  assert.equal(csvFileName('share', D), 'bubbles-共有-20261024.csv');
+  assert.equal(csvFileName('share', D), 'bubbles-共有-20261024-100000.csv');
 });
 
 await test('空の端末へ引っ越し（足す）: 記録がすべて同じになる', async () => {
@@ -135,6 +135,24 @@ await test('足すでは、この端末で消した記録を戻さない。上�
   assert.ok(!add.state.doc.anchors.some(a => a.id === an.id));
   const ow = importInto(to.exportState(), readCsv(csv), 'overwrite');
   assert.ok(ow.state.doc.anchors.some(a => a.id === an.id));
+});
+
+await test('Issue #7: 読み込む前に、書き出した時刻・端末・todo の数が分かる。名前は時刻まで入り、別の端末の CSV と重ならない', async () => {
+  const from = await richDevice();
+  const csv = toCsv(from.exportState(), 'me', D, '個人', 'iPhone');
+  const info = csvSummary(readCsv(csv));
+  assert.equal(info.at, '2026-10-24 10:00:00');
+  assert.equal(info.device, 'iPhone');
+  assert.equal(info.todos, 3, '消した todo は数えない');
+  /* 端末の名前を持たない前の版の CSV も、時刻は1行目の date の欄から読める */
+  const old = csv.replace(',\"\"at\"\":' + D, '').replace(',\"\"device\"\":\"\"iPhone\"\"', '');
+  const oi = csvSummary(readCsv(old));
+  assert.equal(oi.device, '');
+  assert.equal(oi.at, '2026-10-24 10:00:00');
+  assert.notEqual(csvFileName('me', D), csvFileName('me', D + 60 * 1000), '同じ日の別の時刻は別の名前');
+  assert.equal(deviceLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'), 'iPhone');
+  assert.equal(deviceLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', false), 'Mac');
+  assert.equal(deviceLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', true), 'iPad');
 });
 
 await test('Bubbles の CSV でないファイルは、わけを付けて断る', async () => {

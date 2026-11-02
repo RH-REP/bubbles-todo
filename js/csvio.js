@@ -75,12 +75,14 @@ function label(space, name) {
   return name || (space === 'me' ? '個人' : space === 'share' ? '共有' : String(space || ''));
 }
 
-/* state = { doc, stamps }（store.exportState()）。space = 'me' か海の ID。name = 海の名前（2026-11-02 Issue #4） */
-export function toCsv(state, space, now = Date.now(), name) {
+/* state = { doc, stamps }（store.exportState()）。space = 'me' か海の ID。name = 海の名前（2026-11-02 Issue #4）。
+   device = 書き出した端末の呼び名（iPhone・Mac など。読み込むときに見せて、取り違えに気づけるように。Issue #7） */
+export function toCsv(state, space, now = Date.now(), name, device) {
   const doc = (state && state.doc) || {};
   const stamps = (state && state.stamps) || {};
   const lines = [HEADER.join(',')];
-  const meta = { format: FORMAT, version: 1, space, lastDay: doc.lastDay || null };
+  const meta = { format: FORMAT, version: 1, space, lastDay: doc.lastDay || null, at: now };
+  if (device) meta.device = String(device);
   lines.push(['meta', 'bubbles', label(space, name), iso(now), JSON.stringify(meta), ''].map(cell).join(','));
   recordsOf(doc).forEach((v, key) => {
     const at = key.indexOf(':');
@@ -92,8 +94,10 @@ export function toCsv(state, space, now = Date.now(), name) {
   return '﻿' + lines.join('\r\n') + '\r\n';
 }
 
+/* ファイル名に時刻（時分秒）まで入れる。日付だけだと、別の端末で同じ日に書き出した CSV と
+   同じ名前になり、読み込むときに取り違える（Issue #7） */
 export function csvFileName(space, now = Date.now(), name) {
-  const d = iso(now).slice(0, 10).replace(/-/g, '');
+  const d = iso(now).replace(/[-:]/g, '').replace('T', '-');
   /* ファイル名に使えない字は _ にする（海の名前は人が付ける） */
   return `bubbles-${label(space, name).replace(/[\\/:*?"<>|\s]+/g, '_')}-${d}.csv`;
 }
@@ -112,6 +116,7 @@ export function readCsv(text) {
     const [kind, id, , , data] = r;
     if (kind === 'meta') {
       try { meta = JSON.parse(data); } catch (e) { /* 下で断る */ }
+      if (meta && typeof meta === 'object' && !meta.at && r[3]) meta.atText = r[3];
       continue;
     }
     if (!KINDS.has(kind) || !id) { bad++; continue; }
@@ -145,4 +150,27 @@ export function importInto(local, imported, mode, now = Date.now()) {
     stamps[key] = [now, 1];
   });
   return { state: { doc: buildDoc(recs, doc), stamps }, added, replaced };
+}
+
+/* 読み込む前に見せる要約（readCsv の戻り値から）。at = 書き出した時刻の文字、todos = 消していない todo の数 */
+export function csvSummary(got) {
+  const meta = (got && got.meta) || {};
+  const at = Number(meta.at) > 0 ? iso(meta.at).replace('T', ' ') : String(meta.atText || '').replace('T', ' ');
+  let todos = 0;
+  ((got && got.recs) || new Map()).forEach((v, k) => {
+    if (k.startsWith('todo:') && v && !v.trashed) todos++;
+  });
+  return { at, todos, device: typeof meta.device === 'string' ? meta.device : '' };
+}
+
+/* 書き出した端末の呼び名。userAgent から大まかに */
+export function deviceLabel(ua, touchMac) {
+  const s = String(ua || '');
+  if (/iPhone/.test(s)) return 'iPhone';
+  if (/iPad/.test(s) || (/Macintosh/.test(s) && touchMac)) return 'iPad';
+  if (/Android/.test(s)) return 'Android';
+  if (/Macintosh|Mac OS X/.test(s)) return 'Mac';
+  if (/Windows/.test(s)) return 'Windows';
+  if (/Linux/.test(s)) return 'Linux';
+  return '';
 }

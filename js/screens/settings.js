@@ -9,7 +9,7 @@ import { store } from '../store.js';
 import { isOn, setOn } from '../sound.js';
 import { sync, checkUrl } from '../sync.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode } from '../passkey.js';
-import { toCsv, readCsv, importInto, csvFileName } from '../csvio.js';
+import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
 import { seaName } from '../spacelist.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 
@@ -553,15 +553,29 @@ function csvBox() {
   out.type = 'button';
   out.addEventListener('click', () => {
     try { store.flush(); } catch (e) { /* 書き出しは止めない */ }
-    const csv = toCsv(store.exportState(), store.space(), Date.now(), seaName(store.space()));
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = csvFileName(store.space(), Date.now(), seaName(store.space()));
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
-    toast('書き出した（' + a.download + '）');
+    const now = Date.now();
+    const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
+    const csv = toCsv(store.exportState(), store.space(), now, seaName(store.space()), dev);
+    const name = csvFileName(store.space(), now, seaName(store.space()));
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    /* iPhone（とくにホーム画面のアプリ）は <a download> でファイルにならないことがある（Issue #7）。
+       共有シートでファイルを渡せる端末では、そちらで「"ファイル"に保存」してもらう */
+    let file = null;
+    try { file = new File([blob], name, { type: 'text/csv' }); } catch (e) { file = null; }
+    if (file && navigator.canShare && navigator.share && touchDevice()) {
+      let ok = false;
+      try { ok = navigator.canShare({ files: [file] }); } catch (e) { ok = false; }
+      if (ok) {
+        navigator.share({ files: [file], title: name })
+          .then(() => toast('書き出した（' + name + '）'))
+          .catch(e => {
+            if (e && e.name === 'AbortError') toast('書き出しをやめた');
+            else download(blob, name);
+          });
+        return;
+      }
+    }
+    download(blob, name);
   });
   const pick = document.createElement('input');
   pick.type = 'file';
@@ -598,6 +612,22 @@ function csvBox() {
     + 'CSV は Excel でも開けるが、data の欄（記録の中身）を書き換えると読み込めなくなることがある。'
   ));
   return wrap;
+}
+
+/* 指で触る端末か（iPhone・iPad・Android）。パソコンでは共有シートより、ふつうのダウンロードがよい */
+function touchDevice() {
+  try { return window.matchMedia('(pointer: coarse)').matches; } catch (e) { return false; }
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+  toast('書き出した（' + name + '）');
 }
 
 /* 最新の版を確認する（2026-11-02。利用者の指示）。
@@ -647,9 +677,15 @@ function askMode(fileName, got) {
     const to = seaName(store.space());
     box.appendChild(el('h4', null, 'CSV をどう読み込む？'));
     const p = el('p', 'note');
+    const info = csvSummary(got);
     p.textContent = fileName + '（' + from + 'の記録）を、いま開いている' + to + 'に読み込む。'
       + (fromId !== store.space() ? '別の海の記録なので、気をつけて。' : '');
     box.appendChild(p);
+    /* どの端末でいつ書き出したものかを見せる。取り違え（別の端末の CSV）に気づけるように（Issue #7） */
+    const q = el('p', 'note');
+    q.textContent = '書き出した時刻: ' + (info.at || '不明') + '／todo ' + info.todos + ' 件'
+      + (info.device ? '／書き出した端末: ' + info.device : '');
+    box.appendChild(q);
     const done = v => { back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
     const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(null); } };
     [['add', '足す', 'いまの記録はそのまま、CSV にしかない記録だけを足す。何度読んでも増えない'],
