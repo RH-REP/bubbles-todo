@@ -11,6 +11,7 @@ import { sync, checkUrl } from '../sync.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode } from '../passkey.js';
 import { toCsv, readCsv, importInto, csvFileName } from '../csvio.js';
 import { seaName } from '../spacelist.js';
+import { checkForUpdate, applyUpdate } from '../update.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -185,6 +186,11 @@ export default {
 
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
     box.appendChild(csvBox());
+
+    /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
+       ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
+       （WebKit の既知の挙動）。その逃げ道として、押した人だけがその場で確かめて入れ替えられる */
+    box.appendChild(updateBox());
 
     /* --- 画面の大きさの記録（不具合を調べる用。2026-10-25）---
        立ち上げ直後に下のタブが隠れる件で、実機の値を見るため。js/boot-dvh.js が測った値を出し、写せる */
@@ -591,6 +597,40 @@ function csvBox() {
     '読み込むときに「足す」か「同じものは上書き」かを選ぶ。'
     + 'CSV は Excel でも開けるが、data の欄（記録の中身）を書き換えると読み込めなくなることがある。'
   ));
+  return wrap;
+}
+
+/* 最新の版を確認する（2026-11-02。利用者の指示）。
+   ふだんは「閉じて開き直す」だけで次の版に入れ替わるが、iOS のホーム画面アプリは
+   それでも気づかないことがある（WebKit の既知の挙動）。ここは押した人だけの逃げ道。
+   service worker が無い環境（file:// など）では、箱ごと出さない */
+function updateBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, '最新の版を確認する'));
+  wrap.appendChild(el(
+    'p', 'note',
+    '版は' + (window.BUBBLES_VERSION ? '「v' + window.BUBBLES_VERSION + '」' : '不明') + '。'
+    + 'ホーム画面に追加した端末（とくに iPhone）で、閉じて開き直しても古いままに見えるときに押す。'
+  ));
+  if (!('serviceWorker' in navigator)) {
+    wrap.appendChild(el('p', 'note', 'このブラウザでは確認できない。'));
+    return wrap;
+  }
+  const row = el('div', 'row');
+  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  const btn = el('button', 'btn', '最新の版を確認する');
+  btn.type = 'button';
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    checkForUpdate().then((found) => {
+      if (found === null) { toast('この端末では確認できない'); btn.disabled = false; return; }
+      if (!found) { toast('今のが最新の版'); btn.disabled = false; return; }
+      toast('新しい版が見つかった。入れ替えて読み直す…');
+      applyUpdate().catch(() => { toast('入れ替えられなかった'); btn.disabled = false; });
+    }).catch((e) => { toast((e && e.message) || '確認できなかった'); btn.disabled = false; });
+  });
+  row.appendChild(btn);
+  wrap.appendChild(row);
   return wrap;
 }
 

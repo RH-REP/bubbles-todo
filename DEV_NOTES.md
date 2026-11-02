@@ -16,6 +16,37 @@
 
 ## A. 決めてもらう必要があるもの
 
+### A-69.【調査・低コストで対応】iPhone の GitHub アプリが Issue 画面を空欄で開く（Issue #5。利用者の指示）
+
+> iPhone SE2にgithubのアプリを入れている。bubbles-todoアプリからissueに書き込みをしようとしても、
+> githubのアプリが立ち上がるだけで書き込めない。1.対応可能か調査して 2.可能でコストが低い場合は対応して
+
+#### 原因
+
+iOS の **Universal Links**（`github.com` 宛のリンクを、GitHub ネイティブアプリが居ると
+Safari ではなくそのアプリへ渡す OS の仕組み）。`js/feedback.js` の「GitHub を開く」は
+`window.open` で `https://github.com/…/issues/new?title=…&body=…` を開くだけなので、
+リンクそのものは書き込み済みだが、**渡した先の GitHub アプリ側が「新しい Issue」フォームに
+クエリの `title`/`body` を差し込まない**ため、アプリが開いても欄が空のままになる。
+これは OS／GitHub アプリ側の挙動で、**app 側の JS からは Universal Links を止められない**
+（Apple の仕組み上、個別の web ページから特定サイトの Universal Links を無効化する API は無い）。
+
+#### 対応（低コスト。2026-11-02）
+
+- 「GitHub を開く」を押した時点で、**題名・本文をクリップボードにも置く**
+  （`navigator.clipboard.writeText`。空欄で開いても貼り付ければ書ける）
+- 送信後のメッセージに「書けないときは、コピーした題名・本文を貼り付けてください」を添える
+- iOS で開いているときだけ、ダイアログに注記を出す：GitHub アプリ側でリンクを**長押しして
+  「開く」を選ぶと、次回からその種のリンクは Safari で開く**
+  （GitHub 公式の Universal Links の無効化手順。app 側の設定ではなく、利用者が GitHub アプリ側で行う）
+
+#### やっていないこと（コストが上がるため見送り）
+
+- サーバー経由で Issue を直接作成する（`server.py` に GitHub API のトークンを持たせる形）は、
+  鍵を app 側に置くことになり既定の方針（「鍵を app に置かない」）と衝突するので見送った
+- Universal Links を無効化する `apple-app-site-association` 相当の細工は、この repo 側では打てない
+  （GitHub 側のドメインの設定であり、bubbles-todo からは触れない）
+
 ### A-68. 提案7件の採否（→ `FEATURES.md`）
 
 他の todo／ポモドーロ系アプリの利点から、方針と両立するものを6件、それに利用者の要望（左のメニュー、F7。**9/24 に実装済み**）を1件足して、
