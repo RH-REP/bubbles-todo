@@ -1,4 +1,4 @@
-/* 個人と共有（js/space.js。2026-10-23 利用者の指示）。
+/* 海の切り替え（js/space.js。2026-10-23「個人と共有」、2026-11-02 Issue #4 で名前を付けて複数作れる海に）。
    2026-10-24: 切り替えは引き出し（≡）の頭へ移し、いちばん上は表示だけの薄い帯（30px）にした
    （Android の小さい画面で、54px の帯が海を削っていた。デザイン案の B と D）。
 
@@ -17,124 +17,206 @@ html.has-strip { --strip-h: 30px; --safe-t: calc(env(safe-area-inset-top, 0px) +
   background: var(--sea-1);
   display: flex; justify-content: center; align-items: center; pointer-events: none;
 }
-/* 「個人 共有」。今の側を白く浮かせる。押すと切り替わる（2026-10-25 Issue #3）。
-   帯は 30px のままにして、押す的だけを ::after で上下に 7px ずつ広げ 44px にする
-   （下の 7px は、上の段の丸ボタン（帯の 10px 下から）に届かない） */
-.space-seg { display: inline-flex; gap: 2px; pointer-events: auto; }
+/* 海の名前を並べ、今の海を白く浮かせる。押すと切り替わる（2026-10-25 Issue #3）。
+   海が多いときは横に流す（2026-11-02 Issue #4）。帯は 30px のままにして、押す的は並びの上下の
+   余白 7px ずつで 44px にする（横に流すと ::after の的は切られるので、余白で広げる。
+   下の 7px は、上の段の丸ボタン（帯の 10px 下から）に届かない）。
+   左の版の字・右の状態の字とぶつからない幅に収める */
+.space-seg {
+  display: flex; gap: 2px; pointer-events: auto;
+  padding: 7px 12px; margin: -7px 0;
+  max-width: calc(100% - 2 * 100px);
+  /* 流れて端で切れた名前は、ぼかして消す（版の字とつながって読めないように）。
+     ぼかすのは左右の余白 12px の中だけなので、収まっているときの名前にはかからない */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+}
+.space-seg::-webkit-scrollbar { display: none; }
 .space-seg button {
   appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  flex: 0 0 auto; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   position: relative; border: 0; background: transparent;
   font-size: 12.5px; line-height: 1; color: var(--text-3);
-  padding: 5px 14px; border-radius: 999px;
+  padding: 5px 12px; border-radius: 999px;
 }
-.space-seg button::after { content: ""; position: absolute; left: 0; right: 0; top: -7px; bottom: -7px; }
 .space-seg button.is-on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); cursor: default; }
-.space-seg button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.space-seg button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
 body.is-dragging .space-seg { pointer-events: none; }
-/* 版（左端）。読むだけの小さな字。帯の真ん中の「個人 共有」とぶつからない幅で切る */
+/* 版（左端）。読むだけの小さな字 */
 .space-ver {
   position: absolute; left: 10px; bottom: 0; height: var(--strip-h);
   display: flex; align-items: center;
-  max-width: calc(50% - 90px); overflow: hidden; white-space: nowrap;
+  max-width: 84px; overflow: hidden; white-space: nowrap;
   font-size: 10px; letter-spacing: .02em; color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
-/* 共有の印。今が共有のときだけ、字の前に小さな点 */
-.space-seg button.is-share-btn.is-on::before,
-.drawer-space button.is-share-btn.is-on::before {
+/* 海の印。個人でない海の名前の前に、その海の色の小さな点（--dot は js/space.js が入れる） */
+.space-seg button.is-sea-btn::before,
+.drawer-space button.is-sea-btn::before {
   content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--share-mark); margin-right: 6px; vertical-align: 1px;
+  background: var(--dot, var(--sea-mark)); margin-right: 6px; vertical-align: 1px;
 }
+.space-seg button.is-sea-btn:not(.is-on)::before { opacity: .55; }
 
-/* 引き出しの頭の切り替え。2つ並べ、今の側を浮かせる。押す的は 44px 以上 */
+/* 引き出しの頭の切り替え。2列に並べ、今の海を浮かせる。押す的は 44px 以上。
+   海が多いときは、この中だけを縦に流す */
+.drawer-space-wrap { margin: 4px 56px 4px 14px; }   /* 右は ✕（引き出しを閉じる）の分あける */
 .drawer-space {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-  margin: 4px 56px 4px 14px;            /* 右は ✕（引き出しを閉じる）の分あける */
+  max-height: 34vh; overflow-y: auto;
 }
 .drawer-space button {
   appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit; font-size: 14px;
-  min-height: 48px; border-radius: 14px;
+  min-height: 48px; border-radius: 14px; padding: 0 10px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2);
 }
 .drawer-space button.is-on {
   border-color: var(--bub-edge); color: var(--text);
   background: color-mix(in srgb, var(--sea-1) 60%, var(--surface));
 }
-html.is-share .drawer-space button.is-on { border-color: var(--share-edge); }
+html.is-sea .drawer-space button.is-on { border-color: var(--sea-edge); }
 .drawer-space button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.drawer-space-tools { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+.drawer-space-tools button {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit; font-size: 13px;
+  min-height: 44px; padding: 0 2px; border: 0; background: transparent; color: var(--text-2);
+}
+.drawer-space-tools button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 /* 切り替えが ✕ の高さを占めるので、下の一覧の上の余白を詰める */
-.drawer-space + .drawer-body { padding-top: 8px; }
+.drawer-space-wrap + .drawer-body { padding-top: 4px; }
 
-/* ---------- 共有の水（マグマの海。2026-10-25 Issue #3 利用者の指示）----------
-   個人（空色の海）と取り違えないように、共有は赤を地にする（前は夕方の杏・藤・若葉で、個人と近すぎた）。
-   赤は「持ち主の印」で、警告や遅れの意味には使わない（優先度の区分が赤を避けているのはそのまま）。
+/* ---------- 海を作る・直す板 ---------- */
+.space-sheet-back {
+  position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.32);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.space-sheet {
+  width: min(400px, 100%); background: var(--surface); color: var(--text);
+  border-radius: 18px; padding: 18px; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.space-sheet h4 { margin: 0; font-size: 17px; }
+.space-sheet input[type="text"] {
+  font: inherit; font-size: 16px; min-height: 44px; padding: 0 12px; border-radius: 12px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text);
+}
+.space-sheet .note { margin: 0; font-size: 12.5px; color: var(--text-2); line-height: 1.7; overflow-wrap: anywhere; }
+.space-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.space-colors button {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit; font-size: 13px;
+  min-height: 44px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.space-colors button::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); }
+.space-colors button.is-on { border: 2px solid var(--dot); color: var(--text); padding: 0 11px; }
+.space-colors button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.space-sheet-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+.space-sheet-row .btn {
+  appearance: none; cursor: pointer; font: inherit; font-size: 14px; color: var(--text);
+  min-height: 44px; padding: 0 16px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--surface);
+}
+.space-sheet-row .btn.is-primary { border-color: var(--bub-edge); font-weight: 600; }
+.space-sheet-row .space-del {
+  appearance: none; cursor: pointer; font: inherit; font-size: 13px; margin-right: auto;
+  min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--text-2);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+
+/* ---------- 海の水の色（2026-11-02 Issue #4。作るときに選ぶ）----------
+   個人は空色のまま（base.css）。ほかの海は選んだ色を地にする。
+   マグマは前の版の「共有」の色（2026-10-25 Issue #3）。赤は「持ち主の印」で、警告や遅れの意味には使わない。
    海の色はどの画面も --sea-* と --drift-* から塗っているので、ここを替えるだけで全画面が変わる。
-   バブルの縁・粒も赤寄りにして、膜の青が赤い水に浮かないようにする */
-:root { --share-mark: #c2412d; --share-edge: rgba(194,65,45,.60); --share-text: #5c1a10; }
-html.is-share {
-  --sea-1: #fcd3c4;
-  --sea-2: #f8bfae;
-  --sea-3: #f6d6c2;
-  --drift-a: rgba(255,120,70,.38);
-  --drift-b: rgba(230,70,90,.26);
-  --spark-2: rgba(255,170,110,.85);
-  --bub-fill: rgba(240,130,100,.14);
-  --bub-edge: rgba(190,70,50,.60);
-  --bub-text: #5c1a10;
-  --bub-shadow: rgba(160,50,30,.26);
+   バブルの縁・粒も水に寄せて、膜の青が色のついた水に浮かないようにする。
+   --sea-mark・--sea-edge・--sea-text は、状態の字と、読むだけの入力欄に使う */
+:root { --sea-mark: #c2412d; --sea-edge: rgba(194,65,45,.60); --sea-text: #5c1a10; }
+html.is-sea[data-sea="magma"] {
+  --sea-mark: #c2412d; --sea-edge: rgba(194,65,45,.60); --sea-text: #5c1a10;
+  --sea-1: #fcd3c4; --sea-2: #f8bfae; --sea-3: #f6d6c2;
+  --drift-a: rgba(255,120,70,.38); --drift-b: rgba(230,70,90,.26); --spark-2: rgba(255,170,110,.85);
+  --bub-fill: rgba(240,130,100,.14); --bub-edge: rgba(190,70,50,.60); --bub-text: #5c1a10; --bub-shadow: rgba(160,50,30,.26);
+}
+html.is-sea[data-sea="moss"] {
+  --sea-mark: #3f8a4a; --sea-edge: rgba(63,138,74,.60); --sea-text: #173d1c;
+  --sea-1: #d6ecd2; --sea-2: #c2e2c4; --sea-3: #e0eedb;
+  --drift-a: rgba(90,170,90,.30); --drift-b: rgba(40,140,110,.22); --spark-2: rgba(150,210,120,.80);
+  --bub-fill: rgba(90,160,90,.12); --bub-edge: rgba(50,120,60,.55); --bub-text: #173d1c; --bub-shadow: rgba(40,100,50,.22);
+}
+html.is-sea[data-sea="dusk"] {
+  --sea-mark: #7a52b8; --sea-edge: rgba(122,82,184,.60); --sea-text: #2e1a4d;
+  --sea-1: #e3d8f2; --sea-2: #d6c6ec; --sea-3: #ebe0f2;
+  --drift-a: rgba(150,110,220,.30); --drift-b: rgba(200,110,180,.22); --spark-2: rgba(200,160,240,.80);
+  --bub-fill: rgba(140,100,200,.12); --bub-edge: rgba(100,60,160,.55); --bub-text: #2e1a4d; --bub-shadow: rgba(80,50,130,.22);
+}
+html.is-sea[data-sea="sand"] {
+  --sea-mark: #b07a1c; --sea-edge: rgba(176,122,28,.60); --sea-text: #4a3208;
+  --sea-1: #f6e7c4; --sea-2: #f1dbaa; --sea-3: #f6ecd2;
+  --drift-a: rgba(230,170,60,.32); --drift-b: rgba(210,140,70,.22); --spark-2: rgba(250,200,110,.85);
+  --bub-fill: rgba(220,160,60,.13); --bub-edge: rgba(150,100,30,.55); --bub-text: #4a3208; --bub-shadow: rgba(130,90,30,.22);
+}
+html.is-sea[data-sea="ink"] {
+  --sea-mark: #6b6b6b; --sea-edge: rgba(80,80,80,.55); --sea-text: #222222;
+  --sea-1: #e2e2e0; --sea-2: #d4d4d2; --sea-3: #e8e8e5;
+  --drift-a: rgba(120,120,120,.25); --drift-b: rgba(90,90,110,.18); --spark-2: rgba(200,200,200,.80);
+  --bub-fill: rgba(100,100,100,.10); --bub-edge: rgba(70,70,70,.50); --bub-text: #222222; --bub-shadow: rgba(0,0,0,.18);
 }
 @media (prefers-color-scheme: dark) {
-  :root { --share-mark: #f07a5e; --share-edge: rgba(240,122,94,.60); --share-text: #fbd9cf; }
-  html.is-share {
-    --sea-1: #33130f;
-    --sea-2: #2c0f12;
-    --sea-3: #221414;
-    --drift-a: rgba(255,90,40,.22);
-    --drift-b: rgba(220,50,70,.16);
-    --spark-2: rgba(255,150,100,.45);
-    --bub-fill: rgba(240,110,80,.10);
-    --bub-edge: rgba(240,130,100,.62);
-    --bub-text: #fbd9cf;
-    --bub-shadow: rgba(0,0,0,.55);
+  :root { --sea-mark: #f07a5e; --sea-edge: rgba(240,122,94,.60); --sea-text: #fbd9cf; }
+  html.is-sea[data-sea="magma"] {
+    --sea-mark: #f07a5e; --sea-edge: rgba(240,122,94,.60); --sea-text: #fbd9cf;
+    --sea-1: #33130f; --sea-2: #2c0f12; --sea-3: #221414;
+    --drift-a: rgba(255,90,40,.22); --drift-b: rgba(220,50,70,.16); --spark-2: rgba(255,150,100,.45);
+    --bub-fill: rgba(240,110,80,.10); --bub-edge: rgba(240,130,100,.62); --bub-text: #fbd9cf; --bub-shadow: rgba(0,0,0,.55);
+  }
+  html.is-sea[data-sea="moss"] {
+    --sea-mark: #7cc987; --sea-edge: rgba(124,201,135,.60); --sea-text: #d4f0d6;
+    --sea-1: #12261a; --sea-2: #0f2116; --sea-3: #141f17;
+    --drift-a: rgba(80,200,110,.18); --drift-b: rgba(40,160,130,.14); --spark-2: rgba(140,220,140,.40);
+    --bub-fill: rgba(90,200,110,.09); --bub-edge: rgba(130,210,140,.60); --bub-text: #d4f0d6; --bub-shadow: rgba(0,0,0,.55);
+  }
+  html.is-sea[data-sea="dusk"] {
+    --sea-mark: #b496e6; --sea-edge: rgba(180,150,230,.60); --sea-text: #e6dcf7;
+    --sea-1: #1f1530; --sea-2: #1a1129; --sea-3: #191424;
+    --drift-a: rgba(150,100,230,.20); --drift-b: rgba(210,90,180,.14); --spark-2: rgba(190,150,240,.40);
+    --bub-fill: rgba(150,110,220,.10); --bub-edge: rgba(180,150,230,.60); --bub-text: #e6dcf7; --bub-shadow: rgba(0,0,0,.55);
+  }
+  html.is-sea[data-sea="sand"] {
+    --sea-mark: #e3b45c; --sea-edge: rgba(227,180,92,.60); --sea-text: #f6e6c4;
+    --sea-1: #2b2210; --sea-2: #251c0c; --sea-3: #201b12;
+    --drift-a: rgba(240,170,50,.18); --drift-b: rgba(220,130,60,.14); --spark-2: rgba(250,200,110,.40);
+    --bub-fill: rgba(230,170,60,.09); --bub-edge: rgba(227,180,92,.60); --bub-text: #f6e6c4; --bub-shadow: rgba(0,0,0,.55);
+  }
+  html.is-sea[data-sea="ink"] {
+    --sea-mark: #b0b0b0; --sea-edge: rgba(190,190,190,.55); --sea-text: #e6e6e6;
+    --sea-1: #1c1c1e; --sea-2: #18181a; --sea-3: #161618;
+    --drift-a: rgba(200,200,200,.12); --drift-b: rgba(150,150,170,.10); --spark-2: rgba(220,220,220,.35);
+    --bub-fill: rgba(200,200,200,.07); --bub-edge: rgba(190,190,190,.55); --bub-text: #e6e6e6; --bub-shadow: rgba(0,0,0,.55);
   }
 }
 
-/* 繋がっていない共有: 最後に見たものを、色を抜いて出す */
-html.is-share.is-off .panes { filter: saturate(.45); opacity: .82; }
+/* 招かれた海で、繋がっていない間: 最後に見たものを、色を抜いて出す */
+html.is-sea.is-off .panes { filter: saturate(.45); opacity: .82; }
 
-/* 共有の状態の字。薄い帯の右の空き（「個人 共有」の右どなり）に2行で置く。
-   押せない（読むだけの字） */
+/* 海の状態の字。薄い帯の右の空きに2行で置く。押せない（読むだけの字） */
 .space-state {
   position: absolute; z-index: 32; right: 8px;
   top: env(safe-area-inset-top, 0px); height: var(--strip-h);
-  width: calc(50% - 76px);
+  width: 88px;
   display: flex; flex-direction: column; justify-content: center; align-items: flex-end;
   text-align: right; pointer-events: none;
   font-size: 10px; line-height: 1.25; color: var(--text-2);
 }
 .space-state span { display: block; white-space: nowrap; }
-.space-state.is-off { color: var(--share-text); }
-.space-state[hidden], .space-join[hidden] { display: none; }
-
-/* 共有に入る札（共有の合言葉がまだ無いとき） */
-.space-join {
-  position: absolute; z-index: 9; left: 34px; right: 34px;
-  top: calc(var(--safe-t) + 200px);
-  /* 透かさない。空の海の案内の字が下から透けて読みにくかった */
-  background: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,.10);
-  border: 1px solid var(--line-strong); border-radius: 18px; padding: 18px 18px 16px;
-}
-.space-join h4 { margin: 0 0 6px; font-size: 16px; color: var(--text); }
-.space-join p { margin: 0 0 12px; font-size: 13px; color: var(--text-2); line-height: 1.7; }
-.space-join .btn {
-  appearance: none; cursor: pointer; font: inherit; font-size: 14px; color: var(--text);
-  min-height: 44px; padding: 0 16px; border-radius: 999px;
-  border: 1px solid var(--line-strong); background: var(--surface);
-}
+.space-state.is-off { color: var(--sea-text); }
+.space-state[hidden] { display: none; }
 
 /* 読むだけのときの入力欄。点線にして、字は案内だけ */
 input.is-space-locked {
   border-style: dashed !important;
   background: color-mix(in srgb, var(--surface) 55%, transparent) !important;
 }
-input.is-space-locked::placeholder { color: var(--share-text); }
+input.is-space-locked::placeholder { color: var(--sea-text); }

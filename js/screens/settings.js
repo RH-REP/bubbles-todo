@@ -10,6 +10,7 @@ import { isOn, setOn } from '../sound.js';
 import { sync, checkUrl } from '../sync.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode } from '../passkey.js';
 import { toCsv, readCsv, importInto, csvFileName } from '../csvio.js';
+import { seaName } from '../spacelist.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -103,7 +104,7 @@ export default {
     help.type = 'button';
     const hpT = el('span', 'tx');
     hpT.appendChild(el('span', 'nm', '使い方'));
-    hpT.appendChild(el('span', 'sub', '画面の見方・サーバーと共有の始め方'));
+    hpT.appendChild(el('span', 'sub', '画面の見方・サーバーと海の始め方'));
     help.appendChild(hpT);
     const hpA = el('span', 'ar', '›');
     hpA.setAttribute('aria-hidden', 'true');
@@ -325,7 +326,8 @@ function serverBox(screen) {
     '自分で立てたサーバーに繋ぐと、ほかの端末と同じ記録を使える。'
     + '食い違ったときは、項目ごとに新しく書き換えたほうが残る。'
     + '届かない間もこの端末には記録され、届いたら合わせる。'
-    + '共有に入れると、招かれた人と共有の海を使える（左上の ≡ の引き出しで切り替える）。'
+    + '海は左上の ≡ の引き出しで作り、切り替える。自分の合言葉（個人に入れるパスキー）で、どの海もサーバーと合わせる。'
+    + '人を招いた海は、招かれた人の端末とも同じ海になる。'
     + '公開したサーバーはパスキーで入り、手元のサーバーは合言葉で入る。'
   ));
 
@@ -348,8 +350,8 @@ function serverBox(screen) {
   const shareIn = document.createElement('input');
   shareIn.type = 'password';
   shareIn.autocomplete = 'off';
-  shareIn.placeholder = '共有の合言葉（招かれた人のぶん。空なら使わない）';
-  shareIn.setAttribute('aria-label', '共有の合言葉');
+  shareIn.placeholder = '「共有」の海の合言葉（招かれた人のぶん。空なら使わない）';
+  shareIn.setAttribute('aria-label', '「共有」の海の合言葉');
   urlIn.style.flexBasis = '100%';
   tokIn.style.flexBasis = '100%';
   const go = el('button', 'btn', '繋ぐ');
@@ -443,7 +445,6 @@ function serverBox(screen) {
     go.hidden = pk;
     paint();
   }
-  const PK_SPACES = { me: '個人', share: '共有' };
   async function withBusy(btn, fn) {
     btn.disabled = true;
     try { await fn(); } catch (e) { toast((e && e.message) || '失敗した'); } finally { btn.disabled = false; paint(); }
@@ -495,7 +496,7 @@ function serverBox(screen) {
     const st = sync.status();
     const c = sync.config();
     if (c.passkey) {
-      const sp = c.passkey.spaces.map(x => PK_SPACES[x] || x).join('・');
+      const sp = c.passkey.spaces.map(x => x === 'me' ? '個人とすべての海' : seaName(x)).join('・');
       const until = new Date(c.passkey.expires * 1000);
       pkLine.textContent = c.passkey.valid
         ? '「' + c.passkey.name + '」で入っている（' + sp + '。' + (until.getMonth() + 1) + '/' + until.getDate() + ' まで）'
@@ -503,13 +504,13 @@ function serverBox(screen) {
     } else pkLine.textContent = passkeySupported() ? 'まだ入っていない' : 'このブラウザはパスキーを使えない';
     outBtn.disabled = !c.passkey;
     /* 字は、いま開いている持ち主（帯）のぶん */
-    const who = sync.space() === 'share' ? '共有: ' : '個人: ';
+    const who = seaName(sync.space()) + ': ';
     now.disabled = !sync.ready();
     off.disabled = !c.url;
     if (st.state === 'ok') line.textContent = who + '合わせた（' + hhmm(st.at) + '）: ' + c.url;
     else if (st.state === 'error') line.textContent = who + '届かない: ' + st.message + '（' + c.url + '）';
     else if (st.state === 'off' && c.url) {
-      line.textContent = who + (sync.space() === 'share' ? '共有の合言葉が無い（共有は読むだけ）' : '自分の合言葉が無い（個人はこの端末の中だけ）');
+      line.textContent = who + (sync.space() === 'me' ? '自分の合言葉が無い（個人はこの端末の中だけ）' : '合言葉が無い（この海はこの端末の中だけ）');
     } else line.textContent = who + (STATE_TEXT[st.state] || '');
   }
   const c0 = sync.config();
@@ -530,14 +531,14 @@ function serverBox(screen) {
 }
 
 /* 書き出し・読み込み（CSV）。記録をまるごと1つの CSV にして、別の端末へ引っ越す。
-   対象は、いま開いている持ち主（個人か共有）。形とやり方は js/csvio.js */
+   対象は、いま開いている海。形とやり方は js/csvio.js */
 function csvBox() {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, '書き出し・読み込み（CSV）'));
-  const shareNote = store.space() === 'share' ? '共有で読み込むと、共有に入っている人の端末にも届く。' : '';
+  const shareNote = store.space() !== 'me' ? '人を招いた海で読み込むと、招いた人の端末にも届く。' : '';
   wrap.appendChild(el(
     'p', 'note',
-    'いま開いている' + (store.space() === 'share' ? '共有' : '個人') + 'の記録を、まるごと1つの CSV にする。'
+    'いま開いている「' + seaName(store.space()) + '」の記録を、まるごと1つの CSV にする。'
     + '別の端末で読み込むと、同じ記録になる（引っ越し）。' + shareNote
   ));
   const row = el('div', 'row');
@@ -546,11 +547,11 @@ function csvBox() {
   out.type = 'button';
   out.addEventListener('click', () => {
     try { store.flush(); } catch (e) { /* 書き出しは止めない */ }
-    const csv = toCsv(store.exportState(), store.space());
+    const csv = toCsv(store.exportState(), store.space(), Date.now(), seaName(store.space()));
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = csvFileName(store.space());
+    a.download = csvFileName(store.space(), Date.now(), seaName(store.space()));
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
@@ -563,7 +564,7 @@ function csvBox() {
   const inBtn = el('button', 'btn', 'CSV を読み込む');
   inBtn.type = 'button';
   inBtn.addEventListener('click', () => {
-    if (store.readOnly()) { toast(sync.ready() ? '繋がると読み込める（共有は読むだけの間）' : '共有の合言葉を入れると読み込める'); return; }
+    if (store.readOnly()) { toast('繋がると読み込める（いまは読むだけの間）'); return; }
     pick.value = '';
     pick.click();
   });
@@ -574,7 +575,7 @@ function csvBox() {
     try { got = readCsv(await f.text()); } catch (e) { toast('読み込めない: ' + e.message); return; }
     const mode = await askMode(f.name, got);
     if (!mode) return;
-    if (store.readOnly()) { toast('繋がると読み込める（共有は読むだけの間）'); return; }
+    if (store.readOnly()) { toast('繋がると読み込める（いまは読むだけの間）'); return; }
     const r = importInto(store.exportState(), got, mode);
     store.applyState(r.state);
     toast(mode === 'add'
@@ -601,12 +602,13 @@ function askMode(fileName, got) {
     box.setAttribute('role', 'dialog');
     box.setAttribute('aria-modal', 'true');
     box.setAttribute('aria-label', 'CSV の読み込み方を選ぶ');
-    const from = got.meta && got.meta.space === 'share' ? '共有' : '個人';
-    const to = store.space() === 'share' ? '共有' : '個人';
+    const fromId = (got.meta && got.meta.space) || 'me';
+    const from = seaName(fromId) || '別の海';
+    const to = seaName(store.space());
     box.appendChild(el('h4', null, 'CSV をどう読み込む？'));
     const p = el('p', 'note');
     p.textContent = fileName + '（' + from + 'の記録）を、いま開いている' + to + 'に読み込む。'
-      + (from !== to ? '持ち主が違うので、気をつけて。' : '');
+      + (fromId !== store.space() ? '別の海の記録なので、気をつけて。' : '');
     box.appendChild(p);
     const done = v => { back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
     const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(null); } };

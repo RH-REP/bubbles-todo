@@ -8,13 +8,16 @@
     sessions.json   通行証 [{hash, cred_id, spaces, expires}]
                     パスキーで入ったあとに出す。値そのものは置かない（sha256 だけ）。期限は既定 30 日
 
-置き場（space）は 'me'（個人）と 'share'（共有）。招待コードを作るときに、どちらに入れるかを決める。
+置き場（space）は 'me'（個人）と、名前を付けた海の ID（'share' は前の版の「共有」。
+ほかは 's' と英小文字・数字。2026-11-02 Issue #4）。招待コードを作るときに、どこに入れるかを決める。
+'me' に入れるパスキーは持ち主のもので、どの海にも入れる（server.py）。
 登録できるパスキーは、置き場ごとに max_per_space（既定 3）まで（2026-10-24 利用者の指示）。
 「個人と共有」の端末は両方の数に入る。いっぱいの置き場には、招待コードも作らず、登録も受けない。
 """
 import hashlib
 import json
 import os
+import re
 import secrets
 import tempfile
 import threading
@@ -25,7 +28,17 @@ INVITE_TTL = 24 * 3600
 MAX_PER_SPACE = 3
 SESSION_TTL = 30 * 24 * 3600
 CHALLENGE_TTL = 300
-SPACES = ('me', 'share')
+SPACES = ('me', 'share')   # 前の版からある置き場（ほかに名前を付けた海。valid_space）
+SEA_RE = re.compile(r'^s[0-9a-z]{3,23}$')
+
+
+def valid_space(space) -> bool:
+    """置き場の名前として通すか。'me' か海の ID（'share' もこの形に入る）"""
+    return isinstance(space, str) and (space == 'me' or bool(SEA_RE.match(space)))
+
+
+def space_label(space: str) -> str:
+    return {'me': '個人', 'share': '共有'}.get(space, '海 ' + space)
 _CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # 読み違えやすい I・O・0・1 を外す
 
 
@@ -86,12 +99,12 @@ class PasskeyStore:
     # --- 招待コード ---
     def add_invite(self, name: str, spaces, ttl: int = INVITE_TTL) -> str:
         name = (name or '').strip()
-        spaces = [s for s in spaces if s in SPACES]
+        spaces = list(dict.fromkeys(s for s in spaces if valid_space(s)))
         if not name or not spaces:
-            raise ValueError('名前と置き場（me / share）が要ります')
+            raise ValueError('名前と置き場（me・share・海の ID）が要ります')
         full = self.full_spaces(spaces)
         if full:
-            raise ValueError('登録はいっぱい（' + '・'.join({'me': '個人', 'share': '共有'}[s] for s in full)
+            raise ValueError('登録はいっぱい（' + '・'.join(space_label(s) for s in full)
                              + f'は {self.max_per_space} 台まで）。passkey-remove で使わない端末を外してから')
         raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(12))
         with self.lock:

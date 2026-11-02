@@ -9,7 +9,8 @@
 #   bash bubbles-todo/tools/server-setup.sh uninstall  # 常駐をやめる（記録とパスキーは消さない）
 #
 # 招待とパスキー（止めずに効く）:
-#   bash bubbles-todo/tools/server-setup.sh invite-add <名前> [me|share|me,share]   招待コード（1回きり・24時間）
+#   bash bubbles-todo/tools/server-setup.sh invite-add <名前> [me|share|me,share|<海の ID>]   招待コード（1回きり・24時間）
+#     me は持ち主の端末（どの海にも入れる）。人を招くのは、その海の ID（アプリの「この海の名前・色」に出る）
 #   bash bubbles-todo/tools/server-setup.sh invite-list / passkey-list / passkey-remove <名前>
 #
 # すること（install）:
@@ -238,11 +239,11 @@ summary() {
   say "7. できあがり（公開・パスキー）"
   printf '   サービス:     %s（sudo systemctl status %s）\n' "$SERVICE" "$SERVICE"
   printf '   住所:         https://%s\n' "$DOMAIN"
-  printf '   記録:         %s/state.json（個人）、%s/share/state.json（共有）\n' "$DATA" "$DATA"
+  printf '   記録:         %s/state.json（個人）、%s/share/state.json（共有）、%s/seas/<海の ID>/（作った海）\n' "$DATA" "$DATA" "$DATA"
   printf '   パスキー:     %s/passkeys.json（公開鍵だけ）\n' "$DATA"
   printf '   最初の端末:   bash %s/tools/server-setup.sh invite-add 自分のスマホ me,share\n' "$DIR"
   printf '                 出たコードを、その端末の Bubbles の設定の「パスキー」に入れて「この端末を登録」\n'
-  printf '   人を招く:     bash %s/tools/server-setup.sh invite-add <名前> share\n' "$DIR"
+  printf '   人を招く:     bash %s/tools/server-setup.sh invite-add <名前> <海の ID>（「共有」の海なら share）\n' "$DIR"
   printf '   取り消す:     bash %s/tools/server-setup.sh passkey-remove <名前>\n' "$DIR"
   printf '   更新:         bash %s/tools/server-setup.sh update\n' "$DIR"
 }
@@ -276,5 +277,5 @@ case "${1:-install}" in
   update) cmd_update ;;
   status) cmd_status ;;
   uninstall) cmd_uninstall ;;
-  *) die "使い方: bash $0 [install|update|status|uninstall|invite-add 名前 [me|share|me,share]|invite-list|passkey-list|passkey-remove 名前]" ;;
+  *) die "使い方: bash $0 [install|update|status|uninstall|invite-add 名前 [me|share|me,share|海の ID]|invite-list|passkey-list|passkey-remove 名前]" ;;
 esac

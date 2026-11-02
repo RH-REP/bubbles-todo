@@ -76,9 +76,12 @@ await test('通行証を捨てたら、もう送らない', async () => {
   assert.equal(JSON.parse(mem.get('bubble_todo_sync')).session, '', '保存からも消える');
 });
 
-await test('共有に入れない通行証では、共有の記録を取りに行かない', async () => {
+await test('共有に入れない通行証では、共有の記録を取りに行かない。持ち主（個人）の通行証はどの海にも入る', async () => {
+  sync.usePasskeySession('https://bubbles.example.org', { session: 'S1b', spaces: ['sother12'], expires: later, name: '母' });
+  assert.equal(sync.ready(), false, '共有で開いているのに、通行証はほかの海だけ');
   sync.usePasskeySession('https://bubbles.example.org', { session: 'S2', spaces: ['me'], expires: later, name: '自分' });
-  assert.equal(sync.ready(), false, '共有で開いているのに、通行証は個人だけ');
+  assert.equal(sync.ready(), true, '個人に入れる通行証は持ち主のもの（2026-11-02 Issue #4）');
+  assert.equal(sync.owner(), true);
   sync.usePasskeySession('https://bubbles.example.org', { session: 'S3', spaces: ['me', 'share'], expires: later - 7200, name: '自分' });
   assert.equal(sync.ready(), false, '期限切れ');
   assert.equal(sync.usePasskeySession('http://bubbles.example.org', { session: 'S4', spaces: ['share'], expires: later }), false,

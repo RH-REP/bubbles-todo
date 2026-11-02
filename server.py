@@ -16,6 +16,11 @@
           環境変数 BUBBLE_TODO_SHARE_TOKEN も1人ぶんとして通す。前の版の share_token.txt は
           「最初の合言葉」として share_tokens.json へ引き継ぐ
     合言葉が置き場を決める。共有の合言葉だけを知る人は、個人の記録を読めない。
+    名前を付けた海（2026-11-02 Issue #4）: 「共有」は、名前を付けて複数作れる海の1つになった。
+          海はアプリの中で作り、記録は <データの場所>/seas/<海の ID>/state.json（「共有」だけは share/）。
+          自分の合言葉（と、個人に入れるパスキー）はどの海にも入れる。どの海かは X-Bubbles-Space で言う。
+          共有の合言葉は「共有」の海だけ。ほかの海に人を招くのはパスキーの招待コード（invite-add <名前> --space <海の ID>）。
+          海の一覧（名前・色）は <データの場所>/seas.json（POST /api/spaces で端末と合わせる）
     API（/api/data）は合言葉がどれにも合わないと 401 を返す。
     ファイルを書き換えると、止めずに次の接続から効く（取り消しもすぐ効く）。
 
@@ -30,6 +35,9 @@ API:
     GET /api/health          → {"ok": true}（合言葉は要らない。届くかを見るだけ）
     GET /api/data            → {"space": "me"|"share", "version": n, "data": {...} | null}
                                space はその合言葉の置き場（端末が取り違えに気づくため）
+    POST /api/spaces         ← {"spaces": [{id, name, color, at, alive}, ...]}
+                             → {"spaces": [...]}  海の一覧。持ち主の鍵なら合わせて全部を返し、
+                               招かれた鍵なら書き換えず、入れる海のぶんだけ返す
     PUT /api/data            ← {"base": n, "data": {...}}
                                base が今の版と違えば 409 と今の版・中身を返す（上書きしない）
                                同じなら書いて {"version": n+1}
@@ -44,13 +52,14 @@ API:
     前段の Caddy で HTTPS にし、このサーバーは 127.0.0.1 のまま。入場はパスキーだけ（合言葉では入れない）。
     python3 server.py --auth passkey --origin https://<名前> --trust-proxy
     python3 server.py invite-add <名前> --space me,share   招待コード（1回きり・24時間）を作る
+                                                          （--space は me・share・海の ID をコンマで）
     python3 server.py passkey-list / passkey-remove <名前> / invite-list
     登録できるパスキーは置き場ごとに 3 つ（--max-passkeys）、同時に使える端末は 3 台（--max-devices。
     30 分以内に記録を読み書きした端末を数える。--device-window）。4 台目は 429 {"error": "devices"}
     POST /api/passkey/register/options {invite} → 登録の問題   POST /api/passkey/register {credential} → 通行証
     POST /api/passkey/login/options {}  → 入場の問題           POST /api/passkey/login {credential}    → 通行証
     POST /api/passkey/logout（Authorization: Bearer 通行証）
-    /api/data は Authorization: Bearer <通行証> と X-Bubbles-Space: me|share で使う
+    /api/data は Authorization: Bearer <通行証> と X-Bubbles-Space: me|<海の ID> で使う
 守り（どちらの形でも）: 接続元ごとの接続数・要求数・入場の失敗の数に上限（guard.py）、1接続の待ちは 15 秒、
     受け取る大きさは 4MB まで、配るページに CSP などのヘッダ、よそのオリジンは決めた相手だけ。
     守りの出来事は標準エラーに「bubbles: auth-fail ip=…」の形で出す（fail2ban が読む。値は出さない）
@@ -60,6 +69,7 @@ import hmac
 import http.server
 import json
 import os
+import re
 import secrets
 import socketserver
 import sys
@@ -70,7 +80,7 @@ from pathlib import Path
 
 import passkey_crypto as pc
 from guard import Devices, Guard
-from passkey_store import PasskeyStore, SPACES as PASSKEY_SPACES
+from passkey_store import PasskeyStore, valid_space, space_label
 
 ROOT = Path(__file__).resolve().parent
 # 配るのは app 本体だけ。.git・.env・data/・DEV_NOTES などは出さない
@@ -135,6 +145,89 @@ SPACES = {
     'me': ('BUBBLE_TODO_TOKEN', 'token.txt', '.', '個人'),
     'share': ('BUBBLE_TODO_SHARE_TOKEN', 'share_token.txt', 'share', '共有'),
 }
+
+
+class SeaStores:
+    """置き場の名前 → Store。'me' と、名前を付けた海の ID（valid_space）だけを、使うときに作る。
+    dict と同じく `in` と `[]` で使う（Config.stores・Spaces.stores）"""
+
+    def __init__(self, data_dir: Path):
+        self.dir = data_dir
+        self._m = {}
+        self._lock = threading.Lock()
+
+    def __contains__(self, space):
+        return valid_space(space)
+
+    def __getitem__(self, space):
+        if not valid_space(space):
+            raise KeyError(space)
+        with self._lock:
+            if space not in self._m:
+                if space == 'me':
+                    d = self.dir
+                elif space == 'share':
+                    d = self.dir / 'share'      # 前の版の「共有」の置き場をそのまま使う
+                else:
+                    d = self.dir / 'seas' / space
+                self._m[space] = Store(d)
+            return self._m[space]
+
+
+SEA_COLOR_RE = re.compile(r'^[a-z]{1,12}$')
+
+
+class SeaList:
+    """海の一覧 <データの場所>/seas.json = [{id, name, color, at, alive}]。海ごとに新しいほうを残す"""
+
+    def __init__(self, data_dir: Path):
+        self.path = data_dir / 'seas.json'
+        self.lock = threading.Lock()
+
+    @staticmethod
+    def clean(e):
+        if not isinstance(e, dict):
+            return None
+        sid = e.get('id')
+        if not valid_space(sid) or sid == 'me':
+            return None
+        name = str(e.get('name') or '').strip()[:40]
+        color = str(e.get('color') or '')
+        try:
+            at = max(0, int(e.get('at') or 0))
+        except (TypeError, ValueError):
+            return None
+        if not name or not SEA_COLOR_RE.match(color):
+            return None
+        return {'id': sid, 'name': name, 'color': color, 'at': at, 'alive': 0 if e.get('alive') == 0 else 1}
+
+    def read(self):
+        if not self.path.exists():
+            return []
+        try:
+            with self.path.open(encoding='utf-8') as f:
+                rows = json.load(f)
+        except (OSError, ValueError):
+            return []
+        return [r for r in (self.clean(x) for x in (rows if isinstance(rows, list) else [])) if r]
+
+    def merge(self, entries):
+        """端末の一覧を合わせる（海ごとに新しいほう）。合わせたあとの一覧を返す"""
+        with self.lock:
+            rows = {r['id']: r for r in self.read()}
+            changed = False
+            for e in entries if isinstance(entries, list) else []:
+                e = self.clean(e)
+                if not e:
+                    continue
+                cur = rows.get(e['id'])
+                if cur is None or e['at'] > cur['at']:
+                    rows[e['id']] = e
+                    changed = True
+            out = list(rows.values())
+            if changed and len(out) <= 500:
+                _write_private(self.path, json.dumps(out, ensure_ascii=False, indent=1) + '\n')
+            return out
 
 
 def load_token(data_dir: Path, space: str = 'me') -> str:
@@ -233,7 +326,7 @@ class Spaces:
 
     def __init__(self, data_dir: Path):
         self.dir = data_dir
-        self.stores = {'me': Store(data_dir), 'share': Store(data_dir / 'share')}
+        self.stores = SeaStores(data_dir)
         self.shares = ShareTokens(data_dir)
         load_token(data_dir, 'me')
         self.shares.ensure()
@@ -293,7 +386,7 @@ class Config:
     """入場の仕方と守りの設定。token（合言葉。手元で使う）か passkey（公開して使う）"""
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
-                 guard=None, passkeys=None, stores=None, require_uv=True, devices=None):
+                 guard=None, passkeys=None, stores=None, require_uv=True, devices=None, sea_list=None):
         self.auth, self.origin, self.rp_id = auth, origin, rp_id
         self.trust_proxy = trust_proxy
         self.allow_origins = set(allow_origins)
@@ -302,6 +395,7 @@ class Config:
         self.stores = stores or {}
         self.require_uv = require_uv
         self.devices = devices or Devices()   # パスキーの形で、同時に使える端末の数
+        self.sea_list = sea_list              # 海の一覧（SeaList）。無ければ /api/spaces は 404
 
 
 def make_handler(spaces, cfg: Config = None):
@@ -309,6 +403,7 @@ def make_handler(spaces, cfg: Config = None):
     cfg.auth == 'passkey' なら合言葉では入れず、パスキーで出した通行証だけを通す"""
     cfg = cfg or Config()
     table = spaces.current if hasattr(spaces, 'current') else (lambda: spaces)
+    sea_stores = getattr(spaces, 'stores', None)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version = 'Bubbles'
@@ -388,25 +483,69 @@ def make_handler(spaces, cfg: Config = None):
             return body
 
         # --- 入場 ---
-        def space(self):
-            """(置き場の名前, Store)。合わなければ None"""
-            got = self.headers.get('Authorization', '')
-            if cfg.auth == 'passkey':
-                tok = got[7:] if got.startswith('Bearer ') else ''
-                info = cfg.passkeys.session_info(tok) if tok else None
-                want = self.headers.get('X-Bubbles-Space', 'me')
-                if not info or want not in info['spaces'] or want not in cfg.stores:
-                    return None
-                if not cfg.devices.use(info['cred_id']):
-                    return 'devices'
-                return want, cfg.stores[want]
-            # 比べるのは全部の合言葉と（どれに合ったかで時間が変わらないように）
-            got_b = got.encode('utf-8')
+        def token_hit(self):
+            """合言葉に合った (置き場の名前, Store)。合わなければ None"""
+            got_b = self.headers.get('Authorization', '').encode('utf-8')
             hit = None
+            # 比べるのは全部の合言葉と（どれに合ったかで時間が変わらないように）
             for tok, sp in table().items():
                 if hmac.compare_digest(got_b, ('Bearer ' + tok).encode('utf-8')):
                     hit = sp
             return hit
+
+        def session(self):
+            got = self.headers.get('Authorization', '')
+            tok = got[7:] if got.startswith('Bearer ') else ''
+            return cfg.passkeys.session_info(tok) if tok else None
+
+        def space(self):
+            """(置き場の名前, Store)。合わなければ None。
+            個人（me）に入れる鍵＝持ち主はどの海にも入れる。どの海かは X-Bubbles-Space（無ければ me）"""
+            want = self.headers.get('X-Bubbles-Space', 'me') or 'me'
+            if cfg.auth == 'passkey':
+                info = self.session()
+                if not info or want not in cfg.stores:
+                    return None
+                if want not in info['spaces'] and 'me' not in info['spaces']:
+                    return None
+                if not cfg.devices.use(info['cred_id']):
+                    return 'devices'
+                return want, cfg.stores[want]
+            hit = self.token_hit()
+            if not hit or hit[0] != 'me' or want == 'me':
+                # 共有の合言葉は「共有」だけ（ほかの海を言われても共有を返す。端末が取り違えに気づく）
+                return hit
+            if sea_stores is not None:
+                return (want, sea_stores[want]) if want in sea_stores else None
+            # 置き場の表だけを渡されたとき（テスト）: 表にある置き場だけ
+            return next(((n, st) for n, st in table().values() if n == want), None)
+
+        def who(self):
+            """海の一覧のため。(持ち主か, 入れる置き場) か None。端末の数には入れない"""
+            if cfg.auth == 'passkey':
+                info = self.session()
+                return ('me' in info['spaces'], list(info['spaces'])) if info else None
+            hit = self.token_hit()
+            return (hit[0] == 'me', [hit[0]]) if hit else None
+
+        def seas(self):
+            """POST /api/spaces。持ち主は一覧を合わせて全部を、招かれた人は入れる海だけを受け取る"""
+            if cfg.sea_list is None:
+                return self.send_json(404, {'error': 'not found'})
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            w = self.who()
+            if not w:
+                return self.deny('spaces')
+            body = self.read_json()
+            if body is None:
+                return
+            owner, allowed = w
+            rows = cfg.sea_list.merge(body.get('spaces')) if owner else cfg.sea_list.read()
+            if not owner:
+                rows = [r for r in rows if r['id'] in allowed]
+            return self.send_json(200, {'spaces': rows})
 
         def authed_space(self):
             if cfg.guard.auth_blocked(self.ip()):
@@ -479,6 +618,8 @@ def make_handler(spaces, cfg: Config = None):
             if not self.gate():
                 return
             path = self.path.split('?', 1)[0]
+            if path == '/api/spaces':
+                return self.seas()
             if cfg.auth != 'passkey' or not path.startswith('/api/passkey/'):
                 return self.send_json(404, {'error': 'not found'})
             if cfg.guard.auth_blocked(self.ip()):
@@ -647,13 +788,13 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
     pk = PasskeyStore(data_dir, max_per_space=max_passkeys)
     if cmd == 'invite-add':
         spaces = [s.strip() for s in (space or 'share').split(',') if s.strip()]
-        if any(s not in PASSKEY_SPACES for s in spaces):
-            raise SystemExit('置き場は me・share・me,share のどれか')
+        if not spaces or any(not valid_space(s) for s in spaces):
+            raise SystemExit('置き場は me・share・海の ID（アプリの「この海」に出る s で始まる名前）をコンマで')
         try:
             code = pk.add_invite(name, spaces)
         except ValueError as e:
             raise SystemExit(str(e)) from None
-        where = '個人と共有' if set(spaces) == {'me', 'share'} else ('個人' if spaces == ['me'] else '共有')
+        where = 'と'.join(space_label(s) for s in spaces)
         print(f'「{name}」の招待コード（{where}。24時間・1回だけ）: {code}', flush=True)
         print('相手には、住所とこのコードを渡す。相手は Bubbles の設定の「パスキー」で登録する', flush=True)
     elif cmd == 'invite-list':
@@ -669,7 +810,8 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
         for r in rows:
             last = time.strftime('%Y-%m-%d', time.localtime(r['last_used'])) if r.get('last_used') else '未使用'
             print(f"{r['name']}\t{','.join(r['spaces'])}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}")
-        print(f"（個人 {pk.count_in('me')}/{pk.max_per_space}・共有 {pk.count_in('share')}/{pk.max_per_space}）")
+        used = list(dict.fromkeys(['me', 'share'] + [s for r in rows for s in r.get('spaces', [])]))
+        print('（' + '・'.join(f'{space_label(s)} {pk.count_in(s)}/{pk.max_per_space}' for s in used) + '）')
     elif cmd == 'passkey-remove':
         if not pk.remove_passkey(name):
             raise SystemExit(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
@@ -693,7 +835,7 @@ def main(argv=None):
                     help='前段（Caddy）の X-Forwarded-For で接続元を数える（127.0.0.1 から来たときだけ）')
     ap.add_argument('--allow-origin', action='append', default=None,
                     help='よそのオリジンから呼んでよい相手（何度でも）。既定は token のとき Android 版、passkey のとき無し')
-    ap.add_argument('--space', default='share', help='invite-add の置き場（me / share / me,share）')
+    ap.add_argument('--space', default='share', help='invite-add の置き場（me / share / 海の ID をコンマで）')
     ap.add_argument('--max-passkeys', type=int, default=int(os.environ.get('BUBBLE_TODO_MAX_PASSKEYS', '3')),
                     help='置き場ごとに登録できるパスキーの数（既定 3）')
     ap.add_argument('--max-devices', type=int, default=int(os.environ.get('BUBBLE_TODO_MAX_DEVICES', '3')),
@@ -725,15 +867,16 @@ def main(argv=None):
         rp_id = args.rp_id or u.hostname
         if rp_id != u.hostname and not u.hostname.endswith('.' + rp_id):
             raise SystemExit('--rp-id は --origin の名前か、その親の名前にする')
-        stores = {'me': Store(data_dir), 'share': Store(data_dir / 'share')}
         cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy,
                      allow_origins=args.allow_origin or (), passkeys=PasskeyStore(data_dir, max_per_space=args.max_passkeys),
-                     stores=stores, devices=Devices(max_active=args.max_devices, window=args.device_window))
+                     stores=SeaStores(data_dir), devices=Devices(max_active=args.max_devices, window=args.device_window),
+                     sea_list=SeaList(data_dir))
         spaces = {}
     else:
         cfg = Config(auth='token', trust_proxy=args.trust_proxy,
                      allow_origins=args.allow_origin if args.allow_origin is not None
-                     else ('https://localhost', 'capacitor://localhost'))
+                     else ('https://localhost', 'capacitor://localhost'),
+                     sea_list=SeaList(data_dir))
         spaces = Spaces(data_dir)
     Server.guard, Server.trust_proxy = cfg.guard, cfg.trust_proxy
     httpd = Server((args.host, args.port), make_handler(spaces, cfg))

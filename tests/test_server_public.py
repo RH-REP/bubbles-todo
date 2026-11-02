@@ -137,6 +137,30 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(self.data(out['session'], 'share')[0], 200)
         self.assertEqual(self.data(out['session'], 'me')[0], 401, '共有だけの人は個人に入れない')
 
+    def test_named_sea_invite_and_owner_reaches_every_sea(self):
+        """2026-11-02 Issue #4: 人を招くのは海の ID。個人に入れるパスキー（持ち主）はどの海にも入る"""
+        self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
+            auth='passkey', origin=self.origin, rp_id='localhost', guard=self.guard, passkeys=self.pk,
+            stores=server.SeaStores(self.dir), allow_origins=(), sea_list=server.SeaList(self.dir)))
+        owner = FakeAuthenticator('localhost', self.origin)
+        own = self.register(owner, self.pk.add_invite('自分のスマホ', ['me']))[1]['session']
+        self.assertEqual(self.data(own, 'shome123')[0], 200, '持ち主は作った海に入れる')
+        self.assertEqual(self.data(own, 'share')[0], 200)
+        hdr = {'Authorization': 'Bearer ' + own}
+        self.req('POST', '/api/spaces', {'spaces': [
+            {'id': 'shome123', 'name': '家', 'color': 'moss', 'at': 1, 'alive': 1},
+            {'id': 'share', 'name': '共有', 'color': 'magma', 'at': 1, 'alive': 1}]}, hdr)
+        guest = FakeAuthenticator('localhost', self.origin)
+        code, out, _ = self.register(guest, self.pk.add_invite('母', ['shome123']))
+        self.assertEqual((code, out['spaces']), (200, ['shome123']))
+        self.assertEqual(self.data(out['session'], 'shome123')[1]['space'], 'shome123')
+        self.assertEqual(self.data(out['session'], 'share')[0], 401, '招かれた海のほかには入れない')
+        self.assertEqual(self.data(out['session'], 'me')[0], 401)
+        code, got, _ = self.req('POST', '/api/spaces', {'spaces': []}, {'Authorization': 'Bearer ' + out['session']})
+        self.assertEqual((code, [e['name'] for e in got['spaces']]), (200, ['家']), '招かれた人には入れる海の名前だけ')
+        with self.assertRaises(ValueError):
+            self.pk.add_invite('だめ', ['../x'])
+
     def test_invite_is_single_use_and_bad_invite_is_refused(self):
         inv = self.pk.add_invite('父', ['share'])
         self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), inv)[0], 200)

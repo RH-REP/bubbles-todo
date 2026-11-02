@@ -70,13 +70,18 @@ function readable(kind, v) {
 }
 
 /* ---------- 書き出し ---------- */
-/* state = { doc, stamps }（store.exportState()）。space = 'me' | 'share' */
-export function toCsv(state, space, now = Date.now()) {
+/* 海の名前（書き出しの meta の行とファイル名に入れる）。名前を渡さなければ、前の版と同じ呼び方 */
+function label(space, name) {
+  return name || (space === 'me' ? '個人' : space === 'share' ? '共有' : String(space || ''));
+}
+
+/* state = { doc, stamps }（store.exportState()）。space = 'me' か海の ID。name = 海の名前（2026-11-02 Issue #4） */
+export function toCsv(state, space, now = Date.now(), name) {
   const doc = (state && state.doc) || {};
   const stamps = (state && state.stamps) || {};
   const lines = [HEADER.join(',')];
   const meta = { format: FORMAT, version: 1, space, lastDay: doc.lastDay || null };
-  lines.push(['meta', 'bubbles', space === 'share' ? '共有' : '個人', iso(now), JSON.stringify(meta), ''].map(cell).join(','));
+  lines.push(['meta', 'bubbles', label(space, name), iso(now), JSON.stringify(meta), ''].map(cell).join(','));
   recordsOf(doc).forEach((v, key) => {
     const at = key.indexOf(':');
     const kind = key.slice(0, at), id = key.slice(at + 1);
@@ -87,9 +92,10 @@ export function toCsv(state, space, now = Date.now()) {
   return '﻿' + lines.join('\r\n') + '\r\n';
 }
 
-export function csvFileName(space, now = Date.now()) {
+export function csvFileName(space, now = Date.now(), name) {
   const d = iso(now).slice(0, 10).replace(/-/g, '');
-  return `bubbles-${space === 'share' ? '共有' : '個人'}-${d}.csv`;
+  /* ファイル名に使えない字は _ にする（海の名前は人が付ける） */
+  return `bubbles-${label(space, name).replace(/[\\/:*?"<>|\s]+/g, '_')}-${d}.csv`;
 }
 
 /* ---------- 読み込み ---------- */

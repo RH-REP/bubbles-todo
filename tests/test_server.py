@@ -157,6 +157,62 @@ class ServerTest(unittest.TestCase):
             httpd.shutdown()
             httpd.server_close()
 
+    def test_named_seas_with_own_token(self):
+        """2026-11-02 Issue #4: 自分の合言葉はどの海にも入る。共有の合言葉は「共有」だけ。海の一覧"""
+        d = self.data / 'seas'
+        d.mkdir()
+        spaces = server.Spaces(d)
+        cfg = server.Config(sea_list=server.SeaList(d))
+        httpd = server.Server(('127.0.0.1', 0), server.make_handler(spaces, cfg))
+        base = f'http://127.0.0.1:{httpd.server_address[1]}'
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        me = (d / 'token.txt').read_text().strip()
+        guest = server.ShareTokens(d).add('母のスマホ')
+
+        def call(method, path, tok, space=None, body=None):
+            r = urllib.request.Request(base + path, method=method,
+                                       data=json.dumps(body).encode() if body is not None else None)
+            r.add_header('Authorization', 'Bearer ' + tok)
+            if space:
+                r.add_header('X-Bubbles-Space', space)
+            if body is not None:
+                r.add_header('Content-Type', 'application/json')
+            try:
+                with urllib.request.urlopen(r) as res:
+                    return res.status, json.loads(res.read())
+            except urllib.error.HTTPError as e:
+                return e.code, None
+        try:
+            doc = {'doc': {'todos': [{'id': 'w1', 'text': '仕事のもの'}]}, 'stamps': {}}
+            self.assertEqual(call('PUT', '/api/data', me, 'swork123', {'base': 0, 'data': doc}), (200, {'version': 1}))
+            self.assertTrue((d / 'seas' / 'swork123' / 'state.json').exists(), '作った海は seas/<ID>/')
+            self.assertEqual(call('GET', '/api/data', me, 'swork123')[1]['space'], 'swork123')
+            self.assertEqual(call('GET', '/api/data', me)[1], {'space': 'me', 'version': 0, 'data': None},
+                             '海を言わなければ個人')
+            self.assertEqual(call('GET', '/api/data', me, 'share')[1]['space'], 'share', '自分の合言葉で共有にも入る')
+            self.assertEqual(call('GET', '/api/data', me, '../etc')[0], 401, '形の違う海は断る')
+            self.assertEqual(call('GET', '/api/data', guest, 'swork123')[1]['space'], 'share',
+                             '共有の合言葉はほかの海を言っても共有（端末が取り違えに気づく）')
+            # 海の一覧
+            seas = [{'id': 'swork123', 'name': '仕事', 'color': 'sand', 'at': 10, 'alive': 1},
+                    {'id': 'share', 'name': '家族', 'color': 'moss', 'at': 10, 'alive': 1},
+                    {'id': 'me', 'name': '個人', 'color': 'sand', 'at': 10, 'alive': 1}]
+            code, out = call('POST', '/api/spaces', me, body={'spaces': seas})
+            self.assertEqual(code, 200)
+            self.assertEqual(sorted(e['id'] for e in out['spaces']), ['share', 'swork123'], '個人は一覧に入れない')
+            self.assertEqual((d / 'seas.json').stat().st_mode & 0o777, 0o600)
+            old = [{'id': 'swork123', 'name': '古い', 'color': 'sand', 'at': 5, 'alive': 1}]
+            out = call('POST', '/api/spaces', me, body={'spaces': old})[1]
+            self.assertEqual([e['name'] for e in out['spaces'] if e['id'] == 'swork123'], ['仕事'], '新しいほうが残る')
+            code, out = call('POST', '/api/spaces', guest, body={'spaces': [
+                {'id': 'share', 'name': '書き換え', 'color': 'ink', 'at': 99, 'alive': 0}]})
+            self.assertEqual((code, out['spaces']), (200, [{'id': 'share', 'name': '家族', 'color': 'moss', 'at': 10, 'alive': 1}]),
+                             '招かれた人には入れる海だけを返し、書き換えは受けない')
+            self.assertEqual(call('POST', '/api/spaces', 'wrong', body={'spaces': []})[0], 401)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
     def test_share_add_rejects_duplicate_and_list_hides_token(self):
         d = self.data / 'cli'
         d.mkdir()

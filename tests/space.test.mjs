@@ -1,4 +1,6 @@
-/* 個人と共有（store の持ち主・読むだけ、sync.js の合言葉と取り違えの見張り）のテスト。
+/* 招かれた海（store の持ち主・読むだけ、sync.js の合言葉と取り違えの見張り）のテスト。
+   2026-11-02（Issue #4）: 「共有」は名前を付けた海の1つになった。ここは、共有の合言葉だけを持つ
+   招かれた人の端末（前の版の共有と同じく、合わせられた間だけ書ける）。持ち主の端末は tests/sea.test.mjs。
    素の Node と assert だけで走る。
 
      node tests/space.test.mjs
@@ -33,18 +35,24 @@ const tick = (ms = 20) => new Promise(r => setTimeout(r, ms));
 mem.set('bubble_todo_v1', JSON.stringify({ v: 2, todos: [{ id: 'p1', text: '個人のもの', createdAt: 1, fx: .5, fy: .5 }] }));
 mem.set('bubble_todo_space', 'share');
 /* 住所は自分の機械の中の http（start.command の形）。読み込みの時点で住所を確かめる道を通す */
-mem.set('bubble_todo_sync', JSON.stringify({ url: 'http://127.0.0.1:8931', token: 'me-tk', shareToken: 'share-tk' }));
+mem.set('bubble_todo_sync', JSON.stringify({ url: 'http://127.0.0.1:8931', token: '', shareToken: 'share-tk' }));
 
-/* 偽のサーバー。合言葉で置き場を分ける */
+/* 偽のサーバー。合言葉で置き場を分ける。自分の合言葉（me-tk）は X-Bubbles-Space の海に入る */
 const spaces = { 'me-tk': { space: 'me', version: 0, data: null }, 'share-tk': { space: 'share', version: 0, data: null } };
 let down = false;
 const calls = [];
+const seaCalls = [];
 globalThis.fetch = async (url, init) => {
   if (down) throw new TypeError('Failed to fetch');
   const tk = init.headers.Authorization.replace('Bearer ', '');
-  calls.push(init.method + ' ' + tk);
-  const sp = spaces[tk];
   const reply = (status, obj) => ({ status, json: async () => obj });
+  if (url.endsWith('/api/spaces')) {
+    seaCalls.push(tk);
+    return reply(200, { spaces: tk === 'share-tk' ? [{ id: 'share', name: '家族', color: 'moss', at: 5, alive: 1 }] : [] });
+  }
+  calls.push(init.method + ' ' + tk + ' ' + init.headers['X-Bubbles-Space']);
+  const want = init.headers['X-Bubbles-Space'] || 'me';
+  const sp = tk === 'me-tk' && want === 'share' ? spaces['share-tk'] : spaces[tk];
   if (!sp) return reply(401, { error: 'unauthorized' });
   if (init.method === 'GET') return reply(200, { space: sp.space, version: sp.version, data: sp.data });
   const body = JSON.parse(init.body);
@@ -72,6 +80,11 @@ await test('共有で開くと、共有の箱を使い、個人の記録には�
   assert.match(mem.get('bubble_todo_v1'), /個人のもの/);
 });
 
+await test('招かれた海は、合わせるまでは読むだけ', async () => {
+  assert.equal(sync.owner(), false);
+  if (sync.status().state !== 'ok') assert.equal(store.readOnly(), true);
+});
+
 await test('合わせられたら書ける。共有の合言葉だけを使い、個人の置き場には送らない', async () => {
   for (let i = 0; i < 50 && sync.status().state !== 'ok'; i++) await tick();
   assert.equal(sync.status().state, 'ok');
@@ -80,8 +93,15 @@ await test('合わせられたら書ける。共有の合言葉だけを使い�
   for (let i = 0; i < 200 && !(spaces['share-tk'].data && JSON.stringify(spaces['share-tk'].data).includes('みんなで買う')); i++) await tick();
   assert.match(JSON.stringify(spaces['share-tk'].data), /みんなで買う/);
   assert.equal(spaces['me-tk'].data, null, '個人の置き場には何も行かない');
-  assert.ok(calls.every(c => c.endsWith('share-tk')));
+  assert.ok(calls.every(c => c.endsWith('share-tk share')), '鍵は共有の合言葉、海は share と言う');
   assert.ok(sync.seenAt() > 0, '見た時刻を覚える');
+});
+
+await test('海の一覧も取りに行き、サーバーが付けた名前・色が届く', async () => {
+  for (let i = 0; i < 50 && !seaCalls.length; i++) await tick();
+  assert.ok(seaCalls.length > 0 && seaCalls.every(t => t === 'share-tk'));
+  const list = JSON.parse(mem.get('bubble_todo_spaces'));
+  assert.deepEqual(list.filter(e => e.id === 'share').map(e => [e.name, e.color]), [['家族', 'moss']]);
 });
 
 await test('届かなくなったら読むだけ。書こうとすると知らされ、記録は変わらない', async () => {
@@ -108,14 +128,30 @@ await test('繋がり直したら、また書ける', async () => {
   assert.equal(store.readOnly(), false);
 });
 
-await test('個人の合言葉を共有の欄に入れたら、送らずに知らせる', async () => {
+await test('前の版のサーバー（海を言っても個人を返す）に自分の合言葉で入ったら、送らずに知らせる', async () => {
   const before = JSON.stringify(spaces['me-tk']);
-  sync.configure('https://srv.test', 'me-tk', 'me-tk');
+  /* 共有の海を言われても個人を返すサーバーにする */
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/api/spaces')) return { status: 404, json: async () => ({}) };
+    return { status: 200, json: async () => ({ space: 'me', version: spaces['me-tk'].version, data: spaces['me-tk'].data }) };
+  };
+  sync.configure('https://srv.test', 'me-tk', '');
   for (let i = 0; i < 50 && sync.status().state !== 'error'; i++) await tick();
   assert.equal(sync.status().state, 'error');
-  assert.match(sync.status().message, /共有の合言葉ではない/);
+  assert.match(sync.status().message, /サーバーがこの海を知らない/);
   assert.equal(JSON.stringify(spaces['me-tk']), before, '個人の置き場は変わらない');
-  assert.equal(store.readOnly(), true);
+  assert.equal(store.readOnly(), false, '持ち主の鍵の海は、届かなくても書ける');
+  globalThis.fetch = realFetch;
+  sync.configure('', '', '');
+});
+
+await test('自分の合言葉だけでも、共有の海に入れる（持ち主はどの海にも入れる）', async () => {
+  sync.configure('https://srv.test', 'me-tk', '');
+  for (let i = 0; i < 50 && sync.status().state !== 'ok'; i++) await tick();
+  assert.equal(sync.status().state, 'ok');
+  assert.equal(sync.owner(), true);
+  assert.match(calls[calls.length - 1], /me-tk share$/);
   sync.configure('', '', '');
 });
 

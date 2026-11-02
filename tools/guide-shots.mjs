@@ -203,20 +203,29 @@ try {
     ['週末の買い出し', '旅行の宿を決める', '網戸を直す'].forEach((t, i) => store.add(t, { fx: P[i][0], fy: P[i][1] }));
     await new Promise(r => setTimeout(r, 2500));`);
   await shot('13_share');
-  /* 繋がっていないとき: サーバーは止めず、この画面の fetch だけを届かないようにする */
-  await js(`window.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
-    const { sync } = await import('/js/sync.js'); await sync.syncNow();`);
-  await sleep(800);
-  await shot('14_share_offline');
-  await js(`const { store } = await import('/js/store.js'); store.add('洗剤を買う');`);
+  /* 海をつくる板と、この海の板（2026-11-02 Issue #4） */
+  await click('.menubtn');
+  await sleep(900);
+  await clickText('＋ 海をつくる');
   await sleep(500);
-  await shot('15_share_blocked');
+  await js(`const i = document.querySelector('.space-sheet input'); i.value = '仕事';
+    [...document.querySelectorAll('.space-colors button')].find(b => b.textContent === '苔').click();`);
+  await sleep(300);
+  await shot('22_new_sea');
+  await clickText('やめる');
+  await sleep(300);
+  await click('.menubtn');
+  await sleep(900);
+  await clickText('この海の名前・色');
+  await sleep(500);
+  await shot('23_sea_edit');
+  await clickText('やめる');
+  await sleep(300);
 
-  /* --- 招かれた人（共有の合言葉だけ） --- */
-  await js(`localStorage.clear(); localStorage.setItem('bubble_todo_space', 'share');`);
+  /* --- 招かれた人（「共有」の海だけに入れる招待） --- */
+  await js(`localStorage.clear();`);
   await go('/');
-  await shot('16_share_join');
-  await clickText('設定を開く');
+  await click('.gearbtn');
   await sleep(900);
   await toServer();
   await sleep(1200);
@@ -225,6 +234,20 @@ try {
   await sleep(3000);
   await toServer();
   await shot('17_invitee_settings');
+  await js(`localStorage.setItem('bubble_todo_space', 'share');`);
+  await go('/');
+  await js(`const { sync } = await import('/js/sync.js');
+    for (let i = 0; i < 40 && sync.status().state !== 'ok'; i++) await new Promise(r => setTimeout(r, 100));`);
+  await sleep(1500);
+  /* 繋がっていないとき: サーバーは止めず、この画面の fetch だけを届かないようにする。
+     招かれた人の端末は、合わせられていない間は読むだけ */
+  await js(`window.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+    const { sync } = await import('/js/sync.js'); await sync.syncNow();`);
+  await sleep(800);
+  await shot('14_share_offline');
+  await js(`const { store } = await import('/js/store.js'); store.add('洗剤を買う');`);
+  await sleep(500);
+  await shot('15_share_blocked');
   console.log('できた:', OUT);
 } finally {
   cleanup();

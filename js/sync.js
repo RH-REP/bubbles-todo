@@ -25,10 +25,20 @@
    いま開いている持ち主（store.space()）の合言葉だけを使う。
    サーバーは、その合言葉がどちらの置き場かを返す（space）。開いている持ち主と違えば送らない
    ——共有の合言葉を個人の欄に入れたとき、個人の記録を共有へ送らないため。
-   共有は、合わせられた間だけ書ける。届かない・合言葉が無い間は store を読むだけにする。 */
+   共有は、合わせられた間だけ書ける。届かない・合言葉が無い間は store を読むだけにする。
+
+   ■ 名前を付けた海（2026-11-02 Issue #4）
+   「共有」は、名前を付けて複数作れる海の1つになった（js/spacelist.js）。
+   どの海の記録かは X-Bubbles-Space で言う（合言葉でも）。鍵は次のとおり。
+     持ち主の鍵 … 自分の合言葉（token）か、個人（me）に入れるパスキー。どの海にも入れる
+     招かれた鍵 … 「共有」の合言葉（shareToken。前の版のまま）か、その海だけに入れるパスキー
+   招かれた鍵で開いている海だけ、合わせられた間だけ書ける（前の版の共有と同じ）。
+   作った海は、初めはこの端末だけのもの。繋いでいれば、持ち主の鍵でサーバーとも合わせる。
+   海の一覧（名前・色）も POST /api/spaces でサーバーと合わせる（ほかの端末・招いた人に名前が届く）。 */
 
 import { store } from './store.js';
 import { mergeState, sameStamps } from './merge.js';
+import { allEntries, mergeSeas, seaName } from './spacelist.js';
 
 const CONF_KEY = 'bubble_todo_sync';
 const PUSH_DELAY = 1500;      /* 保存してから送るまで。続けて打っている間はまとめる */
@@ -74,17 +84,23 @@ function saveConf() {
   } catch (e) { /* 保存できなくても、開いている間は繋がる */ }
 }
 
-/* パスキーの通行証（2026-10-24。公開の形）。持っていて、期限内で、今の持ち主（個人・共有）に入れるか */
-function hasSession() {
-  return !!(conf.session && conf.sessionExpires * 1000 > Date.now() && conf.sessionSpaces.indexOf(SPACE) >= 0);
-}
-/* いま開いている持ち主の鍵。パスキーの通行証があればそれ、無ければ合言葉 */
+/* パスキーの通行証（2026-10-24。公開の形）。持っていて、期限内か */
+function sessionLive() { return !!(conf.session && conf.sessionExpires * 1000 > Date.now()); }
+/* 個人（me）に入れる鍵＝持ち主。どの海にも入れる（2026-11-02 Issue #4） */
+function ownerKey() { return conf.session ? sessionLive() && conf.sessionSpaces.indexOf('me') >= 0 : !!conf.token; }
+/* いま開いている海の鍵。パスキーの通行証があればそれ、無ければ合言葉 */
 function key() {
-  if (conf.session) return hasSession() ? conf.session : '';
-  return SPACE === 'share' ? conf.shareToken : conf.token;
+  if (conf.session) {
+    return sessionLive() && (conf.sessionSpaces.indexOf(SPACE) >= 0 || conf.sessionSpaces.indexOf('me') >= 0)
+      ? conf.session : '';
+  }
+  if (SPACE === 'share') return conf.token || conf.shareToken;
+  return conf.token;
 }
 /* 繋ぐ先と鍵がそろっているか */
 function ready() { return !!(conf.url && key()); }
+/* 招かれた鍵で開いている海か（合わせられた間だけ書ける） */
+function guest() { return SPACE !== 'me' && ready() && !ownerKey(); }
 
 function readSeen() {
   try { const n = Number(localStorage.getItem(SEEN_KEY)); return Number.isFinite(n) && n > 0 ? n : null; } catch (e) { return null; }
@@ -114,18 +130,18 @@ export function normalizeUrl(raw) {
 
 function setStatus(state, message) {
   status = { state, at: Date.now(), message: message || '' };
-  /* 共有は、合わせられた直後だけ書ける。合わせている最中は前のまま */
-  if (SPACE === 'share' && state !== 'syncing') store.setReadOnly(state !== 'ok');
+  /* 招かれて入った海は、合わせられた直後だけ書ける。合わせている最中は前のまま */
+  if (state !== 'syncing') store.setReadOnly(guest() && state !== 'ok');
   listeners.forEach(fn => { try { fn(status); } catch (e) { /* 通知で落とさない */ } });
 }
 
-async function call(method, body) {
-  const res = await fetch(conf.url + '/api/data', {
+async function call(method, body, path = '/api/data', auth = key()) {
+  const res = await fetch(conf.url + path, {
     method,
     headers: Object.assign(
-      { Authorization: 'Bearer ' + key() },
-      /* パスキーの通行証は個人と共有の両方に効くので、どちらの記録かを言う */
-      conf.session ? { 'X-Bubbles-Space': SPACE } : {},
+      { Authorization: 'Bearer ' + auth },
+      /* 持ち主の鍵はどの海にも効くので、どの海の記録かを言う */
+      { 'X-Bubbles-Space': SPACE },
       body ? { 'Content-Type': 'application/json' } : {}),
     body: body ? JSON.stringify(body) : undefined,
     cache: 'no-store',
@@ -149,7 +165,9 @@ async function syncOnce() {
     /* 取り違えの見張り。前の版のサーバーは space を返さないので、そのときは個人だけ通す */
     const space = got.json.space || 'me';
     if (space !== SPACE) {
-      throw new Error(SPACE === 'share' ? 'これは共有の合言葉ではない' : 'これは共有の合言葉（自分の合言葉の欄に入っている）');
+      if (SPACE === 'me') throw new Error('これは「' + seaName(space) + '」の合言葉（自分の合言葉の欄に入っている）');
+      if (space === 'me') throw new Error('サーバーがこの海を知らない（サーバーを新しくする）');
+      throw new Error('これは「' + seaName(SPACE) + '」の合言葉ではない');
     }
     const version = Number(got.json.version) || 0;
     const remote = got.json.data && got.json.data.doc ? got.json.data : null;
@@ -171,6 +189,26 @@ async function syncOnce() {
   throw new Error('ほかの端末と書き込みが重なり続けた');
 }
 
+/* 海の一覧（名前・色）をサーバーと合わせる（2026-11-02 Issue #4）。
+   鍵は持ち主の鍵か、招かれた鍵のどちらか。持ち主の鍵なら手元の書き換えもサーバーへ届き、
+   招かれた鍵ならサーバーは自分の入れる海だけを返す（書き換えは届かない）。
+   前の版のサーバー（404）や届かないときは黙って見送る（記録を合わせるのは止めない） */
+const seaListeners = new Set();
+function anyKey() {
+  if (conf.session) return sessionLive() ? conf.session : '';
+  return conf.token || conf.shareToken;
+}
+export async function syncSeas() {
+  const k = anyKey();
+  if (!conf.url || !k) return false;
+  try {
+    const got = await call('POST', { spaces: allEntries() }, '/api/spaces', k);
+    if (got.status !== 200 || !got.json || !Array.isArray(got.json.spaces)) return false;
+    if (mergeSeas(got.json.spaces)) seaListeners.forEach(fn => { try { fn(); } catch (e) { /* 通知で落とさない */ } });
+    return true;
+  } catch (e) { return false; }
+}
+
 /* 合わせる。走っている最中に呼ばれたら、終わってからもう1回だけ走る */
 export async function syncNow() {
   if (!ready()) return false;
@@ -180,6 +218,7 @@ export async function syncNow() {
   let ok = false;
   try {
     await syncOnce();
+    await syncSeas();
     failures = 0;
     ok = true;
     writeSeen(Date.now());
@@ -222,6 +261,7 @@ export const sync = {
     saveConf();
     clearTimeout(timer);
     failures = 0;
+    syncSeas();
     if (!ready()) { setStatus('off'); return true; }
     setStatus('idle');
     syncNow();
@@ -238,9 +278,14 @@ export const sync = {
     return old;
   },
   status() { return status; },
-  /* いま開いている持ち主と、その合言葉がそろっているか（共有の「入る」札を出すかに使う） */
+  /* いま開いている海 */
   space() { return SPACE; },
   ready,
+  /* 持ち主の鍵（どの海にも入れる）を持っているか */
+  owner: ownerKey,
+  /* 海の一覧をサーバーと合わせる。一覧が変わったら onSeas の相手に知らせる */
+  syncSeas,
+  onSeas(fn) { seaListeners.add(fn); return () => seaListeners.delete(fn); },
   /* 最後に合わせた時刻（epoch ms）。まだなら null。開き直しても残る */
   seenAt() { return readSeen(); },
   on(fn) { listeners.add(fn); return () => listeners.delete(fn); },
@@ -257,7 +302,7 @@ export const sync = {
     saveConf();
     clearTimeout(timer);
     failures = 0;
-    if (!ready()) { setStatus('off'); return true; }
+    if (!ready()) { syncSeas(); setStatus('off'); return true; }
     setStatus('idle');
     syncNow();
     return true;
@@ -272,4 +317,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('online', () => syncNow());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
 }
+/* 招かれて入った海は、合わせるまでは読むだけ */
+if (guest()) store.setReadOnly(true);
 if (ready()) syncNow();
+else syncSeas();   /* この海の鍵が無くても、入れる海の一覧は取りに行く（招かれた人が海を知るため） */

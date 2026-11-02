@@ -105,19 +105,24 @@
 
 import { stampChanges, initialStamps, recordsOf } from './merge.js';
 import { quadrantFor } from './priority.js';
+import { findSea, boxKey } from './spacelist.js';
 
 /* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
+   2026-11-02（Issue #4）: 「共有」は名前を付けて複数作れる海の1つになった（js/spacelist.js）。
    'me'    … 個人。今までの記録（bubble_todo_v1）。端末に書き、繋いでいればサーバーとも合わせる
-   'share' … 共有。共有の合言葉を知る人どうしの記録の、この端末の控え（最後に見たもの）。
-             サーバーと合わせられている間だけ書ける（それ以外は readOnly。sync.js が切り替える）
-   どちらで開くかは 'bubble_todo_space' に入っている。切り替えるときは space.js が書き換えて
+   ほか    … 名前を付けた海（'share' は前の版の「共有」）。個人と同じく端末に書き、繋いでいれば合わせる。
+             招かれて入った海だけは、サーバーと合わせられている間だけ書ける（readOnly。sync.js が切り替える）
+   どれで開くかは 'bubble_todo_space' に入っている。切り替えるときは space.js が書き換えて
    画面を読み直す（開いたあとで持ち主を替えない。画面ごとの古い状態を残さないため） */
 export const SPACE_KEY = 'bubble_todo_space';
 function readSpace() {
-  try { return localStorage.getItem(SPACE_KEY) === 'share' ? 'share' : 'me'; } catch (e) { return 'me'; }
+  try {
+    const v = localStorage.getItem(SPACE_KEY);
+    return v && v !== 'me' && findSea(v) ? v : 'me';
+  } catch (e) { return 'me'; }
 }
 const SPACE = readSpace();
-const KEY = SPACE === 'share' ? 'bubble_todo_share_v1' : 'bubble_todo_v1';
+const KEY = boxKey(SPACE);
 
 /* 時間帯タグ。ユーザーが増やせない固定の3値。記録は付かない */
 const SLOTS = ['morning', 'noon', 'night'];
@@ -344,8 +349,8 @@ let stamps = {};
 let snap = new Map();
 /* 保存したあとに知りたい人（いまは sync.js だけ。サーバーへ送る合図に使う） */
 const persistListeners = new Set();
-/* 読むだけのとき（共有で、サーバーと合わせられていない間）。書き込み口は何もせずに断る */
-let readOnly = SPACE === 'share';
+/* 読むだけのとき（招かれて入った海で、サーバーと合わせられていない間）。書き込み口は何もせずに断る */
+let readOnly = false;
 const blockedListeners = new Set();
 
 /* ぶら下げた順の通し番号。時刻ではなく連番で持つ。
