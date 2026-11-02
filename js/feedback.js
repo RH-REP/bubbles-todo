@@ -121,9 +121,17 @@
   }
 
   // ---- Issue の題名と本文（paper_reader の feedback.py・feedback.js と同じ形）----
+  // 題名はコメントの要約として、最初の1文（句点・。．！？!? まで）を使う。長ければ 50 字で切って「…」を付ける
   function issueTitle(r) {
-    const first = (r.comment || "").trim().split("\n")[0] || "（コメントなし）";
-    return `[${r.screen}] ${first.slice(0, 70)}`;
+    const line = (r.comment || "").trim().split("\n")[0].trim();
+    const m = line.match(/^.+?[。．！？!?](?=\s|$|[^。．！？!?])/);
+    let first = (m ? m[0] : line).trim() || "（コメントなし）";
+    if ([...first].length > 50) first = [...first].slice(0, 50).join("") + "…";
+    return `[${r.screen}] ${first}`;
+  }
+  // クリップボードに置く文: 題名、空行、コメントだけ（画面・版・時刻などの付記は入れない。Issue #5 利用者の指示）
+  function clipText(r) {
+    return `${issueTitle(r)}\n\n${(r.comment || "").trim()}`;
   }
   function issueBody(r) {
     const c = r.context || {};
@@ -152,7 +160,7 @@
   // 既定の送り方: GitHub の画面を開き、写真は端末に保存（押した操作の中で開く。後回しにするとポップアップとして止められる）
   // iPhone など iOS は、github.com のリンクを Universal Links が GitHub アプリへ横取りすることがあり、
   // アプリが欄を空のまま開いて「書けない」ことがある（Issue #5。OS の仕組みなので app 側からは止められない）。
-  // 低コストな備えとして、題名・本文をクリップボードにも置く（アプリが空欄でも貼り付ければ書ける）。
+  // 低コストな備えとして、題名とコメントをクリップボードにも置く（アプリが空欄でも貼り付ければ書ける）。
   function openGitHub(opts) {
     return async function (payload) {
       const r = Object.assign({}, payload, { log: payload.client_log,
@@ -160,7 +168,7 @@
       window.open(newIssueUrl(opts.repo, r), "_blank", "noopener");
       let copied = false;
       try {
-        await navigator.clipboard.writeText(`${issueTitle(r)}\n\n${issueBody(r)}`);
+        await navigator.clipboard.writeText(clipText(r));
         copied = true;
       } catch (e) { /* クリップボードが使えなくても、リンクは開けているので続ける */ }
       if (payload.screenshot) {
@@ -173,7 +181,7 @@
         a.remove();
       }
       const base = payload.screenshot ? "GitHub を開き、写真を保存しました。写真を添付して「Create」で送ってください" : "GitHub を開きました。「Create」で送ってください";
-      return { message: copied ? `${base}。書けないときは、コピーした題名・本文を貼り付けてください` : base };
+      return { message: copied ? `${base}。書けないときは、コピーした題名とコメントを貼り付けてください` : base };
     };
   }
 
@@ -276,7 +284,7 @@
         <div class="fb-head"><b>改善のコメント</b> <span class="fb-muted">GitHub の新しい Issue（<span class="fb-repo"></span>）にします</span></div>
         <div class="fb-warn fb-public" hidden>この repo は公開です。送った中身（コメント・写真・記録）は誰でも読めます。</div>
         <div class="fb-warn fb-iosnote" hidden>iPhone に GitHub アプリが入っていると、「GitHub を開く」はアプリを空欄のまま開くことがあります（OS の仕組み）。
-          そのときは題名・本文をコピーしてあるので貼り付けてください。ブラウザで開きたいときは、次に出るリンクを長押しして「開く」を選ぶと、次回から Safari で開けます。</div>
+          そのときは題名とコメントをコピーしてあるので貼り付けてください。ブラウザで開きたいときは、次に出るリンクを長押しして「開く」を選ぶと、次回から Safari で開けます。</div>
         <div class="fb-meta"><div>画面: <code class="fb-screen"></code></div><div class="fb-muted fb-ver"></div></div>
         <textarea class="fb-text" rows="5" placeholder="どこを、どう直したいか（例: ボタンが小さい、ここで止まった）"></textarea>
         <label class="fb-row fb-ctxrow"><input type="checkbox" class="fb-ctx" checked> <span>今の状態を付ける</span></label>
@@ -356,5 +364,5 @@
     setTimeout(() => $q(".fb-text").focus(), 0);
   }
 
-  window.AppFeedback = { install, open, currentScreen, captureScreen, issueTitle, issueBody, newIssueUrl, errorLog };
+  window.AppFeedback = { install, open, currentScreen, captureScreen, issueTitle, issueBody, clipText, newIssueUrl, errorLog };
 })();
