@@ -10,9 +10,14 @@
 
 置き場（space）は 'me'（個人）と、名前を付けた海の ID（'share' は前の版の「共有」。
 ほかは 's' と英小文字・数字。2026-11-02 Issue #4）。招待コードを作るときに、どこに入れるかを決める。
-'me' に入れるパスキーは持ち主のもので、どの海にも入れる（server.py）。
 登録できるパスキーは、置き場ごとに max_per_space（既定 3）まで（2026-10-24 利用者の指示）。
 「個人と共有」の端末は両方の数に入る。いっぱいの置き場には、招待コードも作らず、登録も受けない。
+
+■ 個人は人ごと（2026-11-03 利用者の指示：個人は、その人の端末どうしだけで共有する箱）
+'me' は「その人の個人」で、人はサーバーに登録した順の番号（person。1, 2, 3…）で分ける。
+'me' に入れるパスキーと招待コードは person を持つ（無い古い行は 1）。
+1 番はサーバーを立てた人（持ち主）。記録は前の版の個人の置き場のまま、どの海にも入れる（server.py）。
+ほかの番号の人は、自分の個人と、招かれた海だけ。個人の登録の数は、人ごとに数える。
 """
 import hashlib
 import json
@@ -39,6 +44,24 @@ def valid_space(space) -> bool:
 
 def space_label(space: str) -> str:
     return {'me': '個人', 'share': '共有'}.get(space, '海 ' + space)
+
+
+OWNER = 1   # 持ち主（サーバーを立てた人）の個人の番号
+
+
+def person_of(row):
+    """パスキー・招待コードの行の個人の番号。個人に入れないなら None。番号の無い古い行は持ち主（1）"""
+    if 'me' not in (row.get('spaces') or []):
+        return None
+    try:
+        n = int(row.get('person') or OWNER)
+    except (TypeError, ValueError):
+        return OWNER
+    return n if n >= 1 else OWNER
+
+
+def person_label(person) -> str:
+    return f'個人 {person}' + ('（持ち主）' if person == OWNER else '')
 _CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # 読み違えやすい I・O・0・1 を外す
 
 
@@ -89,30 +112,62 @@ class PasskeyStore:
         _write_private(self._path(name), rows)
 
     # --- 置き場ごとの数 ---
-    def count_in(self, space: str) -> int:
-        return sum(1 for r in self.passkeys() if space in r.get('spaces', []))
+    def count_in(self, space: str, person=None, rows=None) -> int:
+        """その置き場のパスキーの数。個人（me）は person の人のぶんだけ数える"""
+        rows = self.passkeys() if rows is None else rows
+        if space == 'me':
+            return sum(1 for r in rows if person_of(r) == person)
+        return sum(1 for r in rows if space in r.get('spaces', []))
 
-    def full_spaces(self, spaces):
+    def full_spaces(self, spaces, person=None, rows=None):
         """spaces のうち、もう max_per_space 台のパスキーがある置き場"""
-        return [s for s in spaces if self.count_in(s) >= self.max_per_space]
+        return [s for s in spaces if self.count_in(s, person, rows) >= self.max_per_space]
+
+    # --- 個人の番号 ---
+    def persons(self):
+        """いる人の番号（パスキーと、使われていない招待コードから）"""
+        rows = self.passkeys() + self.list_invites()
+        return sorted({p for p in (person_of(r) for r in rows) if p is not None})
+
+    def next_person(self) -> int:
+        """新しい人の番号（登録した順）。まだ誰もいなければ持ち主の 1"""
+        got = self.persons()
+        return (max(got) + 1) if got else OWNER
 
     # --- 招待コード ---
-    def add_invite(self, name: str, spaces, ttl: int = INVITE_TTL) -> str:
+    def add_invite(self, name: str, spaces, ttl: int = INVITE_TTL, person=None) -> str:
+        """招待コードを作る。個人（me）を含むなら person の人の端末にする（省けば新しい人）"""
+        return self.add_invite_full(name, spaces, ttl, person)[0]
+
+    def add_invite_full(self, name: str, spaces, ttl: int = INVITE_TTL, person=None):
+        """(コード, 個人の番号か None)"""
         name = (name or '').strip()
         spaces = list(dict.fromkeys(s for s in spaces if valid_space(s)))
         if not name or not spaces:
             raise ValueError('名前と置き場（me・share・海の ID）が要ります')
-        full = self.full_spaces(spaces)
+        if 'me' in spaces:
+            if person is None:
+                person = self.next_person()
+            else:
+                person = int(person)
+                if person != OWNER and person not in self.persons():
+                    raise ValueError(f'個人 {person} の人はいません（passkey-list で番号を確かめる。新しい人なら番号を付けない）')
+        else:
+            person = None
+        full = self.full_spaces(spaces, person)
         if full:
-            raise ValueError('登録はいっぱい（' + '・'.join(space_label(s) for s in full)
+            raise ValueError('登録はいっぱい（' + '・'.join(person_label(person) if s == 'me' else space_label(s) for s in full)
                              + f'は {self.max_per_space} 台まで）。passkey-remove で使わない端末を外してから')
         raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(12))
         with self.lock:
             rows = [r for r in self._read('invites.json') if r['expires'] > self.clock()]
-            rows.append({'name': name, 'spaces': spaces, 'code_hash': _sha(raw),
-                         'expires': self.clock() + ttl, 'created': self.clock()})
+            row = {'name': name, 'spaces': spaces, 'code_hash': _sha(raw),
+                   'expires': self.clock() + ttl, 'created': self.clock()}
+            if person is not None:
+                row['person'] = person
+            rows.append(row)
             self._write('invites.json', rows)
-        return '-'.join(raw[i:i + 4] for i in range(0, 12, 4))
+        return '-'.join(raw[i:i + 4] for i in range(0, 12, 4)), person
 
     def find_invite(self, code: str):
         h = _sha(normalize_code(code))
@@ -163,12 +218,13 @@ class PasskeyStore:
                 return r
         return None
 
-    def add_passkey(self, *, name, spaces, cred):
+    def add_passkey(self, *, name, spaces, cred, person=None):
+        person = (person or OWNER) if 'me' in spaces else None
         with self.lock:
             rows = self._read('passkeys.json')
             if any(r['id'] == cred['cred_id'] for r in rows):
                 raise ValueError('同じパスキーがもうある')
-            if any(sum(1 for r in rows if s in r.get('spaces', [])) >= self.max_per_space for s in spaces):
+            if self.full_spaces(spaces, person, rows):
                 raise ValueError('登録はいっぱい')
             base, n, names = name, 2, {r['name'] for r in rows}
             while name in names:          # 同じ名前を2つにしない（取り消しを名前でするため）
@@ -177,8 +233,32 @@ class PasskeyStore:
             rows.append({'id': cred['cred_id'], 'name': name, 'spaces': list(spaces), 'alg': cred['alg'],
                          'public_key': cred['public_key'], 'sign_count': cred['sign_count'],
                          'created': self.clock(), 'last_used': None})
+            if person is not None:
+                rows[-1]['person'] = person
             self._write('passkeys.json', rows)
         return name
+
+    def set_person(self, name: str, person) -> int:
+        """名前のパスキーを、ほかの人の個人へ移す。person は番号か 'new'（新しい人）。移した先の番号を返す。
+        通行証はそのまま（個人の番号は使うたびにパスキーの行から引くので、次の要求から移った先に入る）"""
+        new = person == 'new'
+        target = self.next_person() if new else int(person)
+        with self.lock:
+            rows = self._read('passkeys.json')
+            hit = [r for r in rows if r['name'] == name]
+            if not hit:
+                raise ValueError(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
+            r = hit[0]
+            if 'me' not in r.get('spaces', []):
+                raise ValueError(f'「{name}」は個人に入れないパスキーです')
+            known = {person_of(x) for x in rows + self.list_invites()}
+            if not new and target != OWNER and target not in known:
+                raise ValueError(f'個人 {target} の人はいません（新しい人にするなら new）')
+            if person_of(r) != target and self.count_in('me', target, rows) >= self.max_per_space:
+                raise ValueError(f'{person_label(target)}の登録はいっぱい（{self.max_per_space} 台まで）')
+            r['person'] = target
+            self._write('passkeys.json', rows)
+        return target
 
     def touch_passkey(self, cred_id: str, sign_count: int):
         with self.lock:
@@ -211,7 +291,8 @@ class PasskeyStore:
         return tok, now + ttl
 
     def session_info(self, tok: str):
-        """通行証 → {spaces, cred_id}。期限切れ・取り消し済みなら None"""
+        """通行証 → {spaces, cred_id, person, owner}。期限切れ・取り消し済みなら None。
+        person（個人の番号）は、いまのパスキーの行から引く（set_person がすぐ効く）"""
         if not tok:
             return None
         h = _sha(tok)
@@ -221,7 +302,9 @@ class PasskeyStore:
                 pk = keys.get(s['cred_id'])
                 if not pk:            # パスキーを消したら、その通行証は使えない
                     return None
-                return {'spaces': [sp for sp in s['spaces'] if sp in pk['spaces']], 'cred_id': s['cred_id']}
+                spaces = [sp for sp in s['spaces'] if sp in pk['spaces']]
+                person = person_of(pk) if 'me' in spaces else None
+                return {'spaces': spaces, 'cred_id': s['cred_id'], 'person': person, 'owner': person == OWNER}
         return None
 
     def check_session(self, tok: str):

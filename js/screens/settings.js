@@ -502,7 +502,7 @@ function serverBox(screen) {
     const st = sync.status();
     const c = sync.config();
     if (c.passkey) {
-      const sp = c.passkey.spaces.map(x => x === 'me' ? '個人とすべての海' : seaName(x)).join('・');
+      const sp = c.passkey.spaces.map(x => x !== 'me' ? seaName(x) : (c.passkey.owner ? '個人とすべての海' : '自分の個人')).join('・');
       const until = new Date(c.passkey.expires * 1000);
       pkLine.textContent = c.passkey.valid
         ? '「' + c.passkey.name + '」で入っている（' + sp + '。' + (until.getMonth() + 1) + '/' + until.getDate() + ' まで）'

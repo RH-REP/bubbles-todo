@@ -54,6 +54,11 @@ API:
     python3 server.py invite-add <名前> --space me,share   招待コード（1回きり・24時間）を作る
                                                           （--space は me・share・海の ID をコンマで）
     python3 server.py passkey-list / passkey-remove <名前> / invite-list
+    個人は人ごと（2026-11-03 利用者の指示）。人はサーバーに登録した順の番号で分ける（passkey_store.py）。
+        --space me      … 新しい人（次の番号）の個人。1 番はサーバーを立てた人（持ち主）で、記録は state.json のまま
+        --space me:2    … 2 番の人の、もう1台の端末
+        ほかの人の記録は <データの場所>/people/<番号>/state.json。持ち主だけがどの海にも入れる
+    python3 server.py passkey-person <名前> <番号|new>   そのパスキーをほかの人の個人へ移す
     登録できるパスキーは置き場ごとに 3 つ（--max-passkeys）、同時に使える端末は 3 台（--max-devices。
     30 分以内に記録を読み書きした端末を数える。--device-window）。4 台目は 429 {"error": "devices"}
     POST /api/passkey/register/options {invite} → 登録の問題   POST /api/passkey/register {credential} → 通行証
@@ -80,7 +85,7 @@ from pathlib import Path
 
 import passkey_crypto as pc
 from guard import Devices, Guard
-from passkey_store import PasskeyStore, valid_space, space_label
+from passkey_store import PasskeyStore, valid_space, space_label, person_label, person_of, OWNER
 
 ROOT = Path(__file__).resolve().parent
 # 配るのは app 本体だけ。.git・.env・data/・DEV_NOTES などは出さない
@@ -156,15 +161,24 @@ class SeaStores:
         self._m = {}
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _person(space):
+        """'me/<番号>'（持ち主でない人の個人）の番号。違えば None"""
+        m = re.fullmatch(r'me/([1-9][0-9]{0,5})', space) if isinstance(space, str) else None
+        return int(m.group(1)) if m else None
+
     def __contains__(self, space):
-        return valid_space(space)
+        return valid_space(space) or self._person(space) is not None
 
     def __getitem__(self, space):
-        if not valid_space(space):
+        if space not in self:
             raise KeyError(space)
         with self._lock:
             if space not in self._m:
-                if space == 'me':
+                n = self._person(space)
+                if n is not None:
+                    d = self.dir / 'people' / str(n)   # 持ち主でない人の個人（2026-11-03）
+                elif space == 'me':
                     d = self.dir
                 elif space == 'share':
                     d = self.dir / 'share'      # 前の版の「共有」の置き場をそのまま使う
@@ -499,18 +513,27 @@ def make_handler(spaces, cfg: Config = None):
             return cfg.passkeys.session_info(tok) if tok else None
 
         def space(self):
-            """(置き場の名前, Store)。合わなければ None。
-            個人（me）に入れる鍵＝持ち主はどの海にも入れる。どの海かは X-Bubbles-Space（無ければ me）"""
+            """(置き場の名前, Store)。合わなければ None。どの海かは X-Bubbles-Space（無ければ me）。
+            個人（me）は、その鍵の人の個人（2026-11-03。人ごとに別の箱）。
+            持ち主（1 番の人）の鍵はどの海にも入れる"""
             want = self.headers.get('X-Bubbles-Space', 'me') or 'me'
             if cfg.auth == 'passkey':
                 info = self.session()
-                if not info or want not in cfg.stores:
+                if not info or not valid_space(want) or want not in cfg.stores:
                     return None
-                if want not in info['spaces'] and 'me' not in info['spaces']:
+                if want == 'me':
+                    if info['person'] is None:
+                        return None
+                    key = 'me' if info['person'] == OWNER else f"me/{info['person']}"
+                    if key not in cfg.stores:
+                        return None
+                elif want in info['spaces'] or info['owner']:
+                    key = want
+                else:
                     return None
                 if not cfg.devices.use(info['cred_id']):
                     return 'devices'
-                return want, cfg.stores[want]
+                return want, cfg.stores[key]
             hit = self.token_hit()
             if not hit or hit[0] != 'me' or want == 'me':
                 # 共有の合言葉は「共有」だけ（ほかの海を言われても共有を返す。端末が取り違えに気づく）
@@ -524,7 +547,7 @@ def make_handler(spaces, cfg: Config = None):
             """海の一覧のため。(持ち主か, 入れる置き場) か None。端末の数には入れない"""
             if cfg.auth == 'passkey':
                 info = self.session()
-                return ('me' in info['spaces'], list(info['spaces'])) if info else None
+                return (info['owner'], list(info['spaces'])) if info else None
             hit = self.token_hit()
             return (hit[0] == 'me', [hit[0]]) if hit else None
 
@@ -546,6 +569,11 @@ def make_handler(spaces, cfg: Config = None):
             if not owner:
                 rows = [r for r in rows if r['id'] in allowed]
             return self.send_json(200, {'spaces': rows})
+
+        def who_am_i(self, tok):
+            """入ったあとに端末へ返す {spaces, person, owner}"""
+            info = cfg.passkeys.session_info(tok) or {}
+            return {'spaces': info.get('spaces', []), 'person': info.get('person'), 'owner': bool(info.get('owner'))}
 
         def authed_space(self):
             if cfg.guard.auth_blocked(self.ip()):
@@ -584,7 +612,14 @@ def make_handler(spaces, cfg: Config = None):
                 if not sp:
                     return
                 cur = sp[1].read()
-                return self.send_json(200, {'space': sp[0], 'version': cur['version'], 'data': cur['data']})
+                out = {'space': sp[0], 'version': cur['version'], 'data': cur['data']}
+                if cfg.auth == 'passkey':
+                    # 端末が「誰の個人か」「持ち主か」を知るため（パスキーを移したとき、手元の箱を入れ替える）
+                    info = self.session() or {}
+                    out['owner'] = bool(info.get('owner'))
+                    if sp[0] == 'me':
+                        out['person'] = info.get('person')
+                return self.send_json(200, out)
             if path.startswith('/api/'):
                 return self.send_json(404, {'error': 'not found'})
             return self.static(path)
@@ -634,7 +669,7 @@ def make_handler(spaces, cfg: Config = None):
                     inv = pk.find_invite(body.get('invite', ''))
                     if not inv:
                         return self.deny('invite')
-                    full = pk.full_spaces(inv['spaces'])
+                    full = pk.full_spaces(inv['spaces'], inv.get('person'))
                     if full:
                         return self.send_json(409, {'error': 'full', 'spaces': full, 'max': pk.max_per_space})
                     chal = pk.new_challenge('create', inv['code_hash'])
@@ -662,14 +697,15 @@ def make_handler(spaces, cfg: Config = None):
                     out = pc.verify_registration(cd, pc.b64u_decode(resp.get('attestationObject', '')),
                                                  challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
                                                  require_uv=cfg.require_uv)
-                    if pk.full_spaces(inv['spaces']):
-                        return self.send_json(409, {'error': 'full', 'spaces': pk.full_spaces(inv['spaces']), 'max': pk.max_per_space})
+                    full = pk.full_spaces(inv['spaces'], inv.get('person'))
+                    if full:
+                        return self.send_json(409, {'error': 'full', 'spaces': full, 'max': pk.max_per_space})
                     if not pk.use_invite(inv['code_hash']):
                         return self.deny('invite-used')
-                    name = pk.add_passkey(name=inv['name'], spaces=inv['spaces'], cred=out)
+                    name = pk.add_passkey(name=inv['name'], spaces=inv['spaces'], cred=out, person=inv.get('person'))
                     tok, exp = pk.new_session(out['cred_id'], inv['spaces'])
                     log_event('passkey-registered', self.ip(), f'name={name}')
-                    return self.send_json(200, {'session': tok, 'expires': exp, 'spaces': inv['spaces'], 'name': name})
+                    return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=name))
                 if path == '/api/passkey/login/options':
                     return self.send_json(200, {'publicKey': {
                         'challenge': pk.new_challenge('get'), 'rpId': cfg.rp_id,
@@ -693,7 +729,7 @@ def make_handler(spaces, cfg: Config = None):
                                                 require_uv=cfg.require_uv)
                     pk.touch_passkey(row['id'], count)
                     tok, exp = pk.new_session(row['id'], row['spaces'])
-                    return self.send_json(200, {'session': tok, 'expires': exp, 'spaces': row['spaces'], 'name': row['name']})
+                    return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=row['name']))
                 if path == '/api/passkey/logout':
                     got = self.headers.get('Authorization', '')
                     cred = pk.end_session(got[7:] if got.startswith('Bearer ') else '')
@@ -783,18 +819,30 @@ def token_command(data_dir: Path, cmd: str, name: str) -> int:
     return 0
 
 
-def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkeys: int = 3) -> int:
+def where_of(row):
+    """passkey-list・invite-list に出す置き場。個人は番号つき"""
+    return ','.join(person_label(person_of(row)) if s == 'me' else space_label(s) for s in row.get('spaces', []))
+
+
+def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkeys: int = 3, value: str = '') -> int:
     """パスキーの操作（公開の形）。動いているサーバーは止めなくてよい"""
     pk = PasskeyStore(data_dir, max_per_space=max_passkeys)
     if cmd == 'invite-add':
-        spaces = [s.strip() for s in (space or 'share').split(',') if s.strip()]
+        spaces, person = [], None
+        for s in (x.strip() for x in (space or 'share').split(',')):
+            m = re.fullmatch(r'me:([1-9][0-9]{0,5})', s)
+            if m:                      # me:2 … 2 番の人の、もう1台
+                spaces.append('me')
+                person = int(m.group(1))
+            elif s:
+                spaces.append(s)
         if not spaces or any(not valid_space(s) for s in spaces):
-            raise SystemExit('置き場は me・share・海の ID（アプリの「この海」に出る s で始まる名前）をコンマで')
+            raise SystemExit('置き場は me（新しい人）・me:<番号>（その人の端末）・share・海の ID をコンマで')
         try:
-            code = pk.add_invite(name, spaces)
+            code, person = pk.add_invite_full(name, spaces, person=person)
         except ValueError as e:
             raise SystemExit(str(e)) from None
-        where = 'と'.join(space_label(s) for s in spaces)
+        where = 'と'.join(person_label(person) if s == 'me' else space_label(s) for s in spaces)
         print(f'「{name}」の招待コード（{where}。24時間・1回だけ）: {code}', flush=True)
         print('相手には、住所とこのコードを渡す。相手は Bubbles の設定の「パスキー」で登録する', flush=True)
     elif cmd == 'invite-list':
@@ -802,16 +850,28 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
         if not rows:
             print('使われていない招待コードはありません')
         for r in rows:
-            print(f"{r['name']}\t{','.join(r['spaces'])}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}")
+            print(f"{r['name']}\t{where_of(r)}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}")
     elif cmd == 'passkey-list':
         rows = pk.passkeys()
         if not rows:
             print('登録したパスキーはありません（invite-add <名前> で招待コードを作る）')
         for r in rows:
             last = time.strftime('%Y-%m-%d', time.localtime(r['last_used'])) if r.get('last_used') else '未使用'
-            print(f"{r['name']}\t{','.join(r['spaces'])}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}")
-        used = list(dict.fromkeys(['me', 'share'] + [s for r in rows for s in r.get('spaces', [])]))
-        print('（' + '・'.join(f'{space_label(s)} {pk.count_in(s)}/{pk.max_per_space}' for s in used) + '）')
+            print(f"{r['name']}\t{where_of(r)}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}")
+        used = list(dict.fromkeys(['share'] + [s for r in rows for s in r.get('spaces', []) if s != 'me']))
+        counts = [f'{person_label(n)} {pk.count_in("me", n)}/{pk.max_per_space}' for n in pk.persons()]
+        print('（' + '・'.join(counts + [f'{space_label(s)} {pk.count_in(s)}/{pk.max_per_space}' for s in used]) + '）')
+    elif cmd == 'passkey-person':
+        if not value.strip():
+            raise SystemExit('移す先を入れてください（例: passkey-person 母のスマホ new ／ passkey-person 母のタブレット 2）')
+        to = value.strip()
+        if to != 'new' and not re.fullmatch(r'[1-9][0-9]{0,5}', to):
+            raise SystemExit('移す先は番号か new（新しい人）')
+        try:
+            got = pk.set_person(name, to if to == 'new' else int(to))
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
+        print(f'「{name}」を{person_label(got)}へ移しました。その端末は次に合わせたときから{person_label(got)}の記録を使います', flush=True)
     elif cmd == 'passkey-remove':
         if not pk.remove_passkey(name):
             raise SystemExit(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
@@ -835,7 +895,8 @@ def main(argv=None):
                     help='前段（Caddy）の X-Forwarded-For で接続元を数える（127.0.0.1 から来たときだけ）')
     ap.add_argument('--allow-origin', action='append', default=None,
                     help='よそのオリジンから呼んでよい相手（何度でも）。既定は token のとき Android 版、passkey のとき無し')
-    ap.add_argument('--space', default='share', help='invite-add の置き場（me / share / 海の ID をコンマで）')
+    ap.add_argument('--space', default='share',
+                    help='invite-add の置き場（me＝新しい人 / me:<番号>＝その人の端末 / share / 海の ID をコンマで）')
     ap.add_argument('--max-passkeys', type=int, default=int(os.environ.get('BUBBLE_TODO_MAX_PASSKEYS', '3')),
                     help='置き場ごとに登録できるパスキーの数（既定 3）')
     ap.add_argument('--max-devices', type=int, default=int(os.environ.get('BUBBLE_TODO_MAX_DEVICES', '3')),
@@ -843,17 +904,18 @@ def main(argv=None):
     ap.add_argument('--device-window', type=int, default=int(os.environ.get('BUBBLE_TODO_DEVICE_WINDOW', '1800')))
     ap.add_argument('command', nargs='?', default='serve',
                     choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
-                             'invite-add', 'invite-list', 'passkey-list', 'passkey-remove'],
+                             'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person'],
                     help='serve（既定）か、合言葉・パスキーの操作')
     ap.add_argument('name', nargs='?', default='', help='share-add / share-remove / invite-add / passkey-remove の名前')
+    ap.add_argument('value', nargs='?', default='', help='passkey-person の移す先（番号か new）')
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
-    if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove'):
-        if args.command in ('invite-add', 'passkey-remove') and not args.name.strip():
+    if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person'):
+        if args.command in ('invite-add', 'passkey-remove', 'passkey-person') and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} 母のスマホ）')
-        return passkey_command(data_dir, args.command, args.name, args.space, args.max_passkeys)
+        return passkey_command(data_dir, args.command, args.name, args.space, args.max_passkeys, args.value)
     if args.command != 'serve':
         return token_command(data_dir, args.command, args.name)
 

@@ -34,7 +34,14 @@
      招かれた鍵 … 「共有」の合言葉（shareToken。前の版のまま）か、その海だけに入れるパスキー
    招かれた鍵で開いている海だけ、合わせられた間だけ書ける（前の版の共有と同じ）。
    作った海は、初めはこの端末だけのもの。繋いでいれば、持ち主の鍵でサーバーとも合わせる。
-   海の一覧（名前・色）も POST /api/spaces でサーバーと合わせる（ほかの端末・招いた人に名前が届く）。 */
+   海の一覧（名前・色）も POST /api/spaces でサーバーと合わせる（ほかの端末・招いた人に名前が届く）。
+
+   ■ 個人は人ごと（2026-11-03 利用者の指示）
+   パスキーの形では、個人（me）は「その鍵の人の個人」。人はサーバーに登録した順の番号（person）で、
+   持ち主（どの海にも入れる鍵）は 1 番の人だけ。サーバーは GET /api/data で person と owner を返す。
+   この端末が前に合わせた個人と番号が変わったら（サーバーでパスキーを移したとき）、
+   手元の個人の箱をサーバーのものに入れ替える。前の中身は 'bubble_todo_v1_before_person_<時刻>' に残す。
+   番号を覚える前の版で個人を合わせていた端末は、1 番（持ち主）の個人を合わせていたとみなす。 */
 
 import { store } from './store.js';
 import { mergeState, sameStamps } from './merge.js';
@@ -51,6 +58,8 @@ const RETRY_MAX = 60000;      /* 届かないとき、見に行く間隔をこ�
 const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
 const SPACE = store.space();
 const SEEN_KEY = 'bubble_todo_sync_seen_' + SPACE;   /* 最後に合わせた時刻（「15:30 に見たもの」） */
+const PERSON_KEY = 'bubble_todo_sync_person';       /* 個人を最後に合わせた人の番号（パスキーの形） */
+const OWNER_PERSON = 1;
 let conf = readConf();
 let status = { state: ready() ? 'idle' : 'off', at: null, message: '' };
 const listeners = new Set();
@@ -69,13 +78,15 @@ function readConf() {
         url, token: String(o.token || ''), shareToken: String(o.shareToken || ''),
         session: String(o.session || ''), sessionSpaces: Array.isArray(o.sessionSpaces) ? o.sessionSpaces : [],
         sessionExpires: Number(o.sessionExpires) || 0, sessionName: String(o.sessionName || ''),
+        sessionOwner: typeof o.sessionOwner === 'boolean' ? o.sessionOwner : null,
       });
     }
   } catch (e) { /* 読めなければ繋がない */ }
   return blankConf();
 }
 function blankConf() {
-  return { url: '', token: '', shareToken: '', session: '', sessionSpaces: [], sessionExpires: 0, sessionName: '' };
+  return { url: '', token: '', shareToken: '', session: '', sessionSpaces: [], sessionExpires: 0, sessionName: '',
+    sessionOwner: null };
 }
 function saveConf() {
   try {
@@ -86,13 +97,19 @@ function saveConf() {
 
 /* パスキーの通行証（2026-10-24。公開の形）。持っていて、期限内か */
 function sessionLive() { return !!(conf.session && conf.sessionExpires * 1000 > Date.now()); }
-/* 個人（me）に入れる鍵＝持ち主。どの海にも入れる（2026-11-02 Issue #4） */
-function ownerKey() { return conf.session ? sessionLive() && conf.sessionSpaces.indexOf('me') >= 0 : !!conf.token; }
+/* 持ち主の鍵。どの海にも入れる（2026-11-02 Issue #4）。
+   パスキーの形では、サーバーが言う owner（1 番の人）。まだ聞いていなければ、前の版どおり個人に入れる鍵 */
+function ownerKey() {
+  if (!conf.session) return !!conf.token;
+  if (!sessionLive()) return false;
+  return conf.sessionOwner === null ? conf.sessionSpaces.indexOf('me') >= 0 : conf.sessionOwner;
+}
 /* いま開いている海の鍵。パスキーの通行証があればそれ、無ければ合言葉 */
 function key() {
   if (conf.session) {
-    return sessionLive() && (conf.sessionSpaces.indexOf(SPACE) >= 0 || conf.sessionSpaces.indexOf('me') >= 0)
-      ? conf.session : '';
+    if (!sessionLive()) return '';
+    if (SPACE === 'me') return conf.sessionSpaces.indexOf('me') >= 0 ? conf.session : '';
+    return (conf.sessionSpaces.indexOf(SPACE) >= 0 || ownerKey()) ? conf.session : '';
   }
   if (SPACE === 'share') return conf.token || conf.shareToken;
   return conf.token;
@@ -101,6 +118,18 @@ function key() {
 function ready() { return !!(conf.url && key()); }
 /* 招かれた鍵で開いている海か（合わせられた間だけ書ける） */
 function guest() { return SPACE !== 'me' && ready() && !ownerKey(); }
+
+/* 個人の番号が、この端末で前に合わせたものから変わったか。
+   番号を覚える前の版で個人を合わせていた端末（SEEN はあるが PERSON が無い）は、1 番を合わせていた */
+function personMoved(person) {
+  let prev = null;
+  try { prev = localStorage.getItem(PERSON_KEY); } catch (e) { /* 読めなければ覚えていない */ }
+  if (prev !== null && prev !== '') return Number(prev) !== person;
+  return person !== OWNER_PERSON && readSeen() !== null;
+}
+function rememberPerson(person) {
+  try { localStorage.setItem(PERSON_KEY, String(person)); } catch (e) { /* 覚えられなくても動く */ }
+}
 
 function readSeen() {
   try { const n = Number(localStorage.getItem(SEEN_KEY)); return Number.isFinite(n) && n > 0 ? n : null; } catch (e) { return null; }
@@ -171,6 +200,23 @@ async function syncOnce() {
     }
     const version = Number(got.json.version) || 0;
     const remote = got.json.data && got.json.data.doc ? got.json.data : null;
+
+    /* 持ち主か（サーバーが言う。パスキーを移すと変わる） */
+    if (conf.session && typeof got.json.owner === 'boolean' && got.json.owner !== conf.sessionOwner) {
+      conf.sessionOwner = got.json.owner;
+      saveConf();
+    }
+    /* 個人の番号が変わった（サーバーでパスキーをほかの人の個人へ移した）。
+       手元の個人は前の人のものなので、合わせずにサーバーのものへ入れ替える（前の中身は控えに残す） */
+    if (SPACE === 'me' && conf.session && Number.isInteger(got.json.person)) {
+      if (personMoved(got.json.person)) {
+        try {
+          localStorage.setItem('bubble_todo_v1_before_person_' + Date.now(), JSON.stringify(store.exportState()));
+        } catch (e) { /* 控えが入らなくても、前の人の記録をこの人の個人へ送らないほうを取る */ }
+        store.applyState(remote || { doc: {}, stamps: {} });
+      }
+      rememberPerson(got.json.person);
+    }
 
     /* ここから PUT まで、手元の状態は await を挟まずに読む
        （取りに行っている間に打った分も、合わせる相手に入る） */
@@ -249,7 +295,7 @@ export const sync = {
   config() {
     return { url: conf.url, token: conf.token, shareToken: conf.shareToken,
       passkey: conf.session ? { name: conf.sessionName, spaces: conf.sessionSpaces.slice(), expires: conf.sessionExpires,
-        valid: conf.sessionExpires * 1000 > Date.now() } : null };
+        valid: conf.sessionExpires * 1000 > Date.now(), owner: ownerKey() } : null };
   },
 
   /* パスキーで入ったあと（passkey.js の結果 {session, expires, spaces, name}）。合言葉は捨てる */
@@ -257,7 +303,8 @@ export const sync = {
     const u = normalizeUrl(url);
     if (!u || !out || !out.session) return false;
     conf = Object.assign(blankConf(), { url: u, session: String(out.session), sessionSpaces: out.spaces || [],
-      sessionExpires: Number(out.expires) || 0, sessionName: String(out.name || '') });
+      sessionExpires: Number(out.expires) || 0, sessionName: String(out.name || ''),
+      sessionOwner: typeof out.owner === 'boolean' ? out.owner : null });
     saveConf();
     clearTimeout(timer);
     failures = 0;
@@ -271,7 +318,7 @@ export const sync = {
   /* パスキーの通行証を捨てる（住所は残す）。サーバーへの取り消しは passkey.js の logoutPasskey */
   dropPasskeySession() {
     const old = conf.session;
-    conf = Object.assign(conf, { session: '', sessionSpaces: [], sessionExpires: 0, sessionName: '' });
+    conf = Object.assign(conf, { session: '', sessionSpaces: [], sessionExpires: 0, sessionName: '', sessionOwner: null });
     saveConf();
     clearTimeout(timer);
     setStatus('off');

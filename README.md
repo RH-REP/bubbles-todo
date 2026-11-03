@@ -199,7 +199,11 @@ bash tests/server-setup.test.sh
 - **入場（パスキー）**: 持ち主がサーバーで招待コード（1回きり・24時間）を作り、端末は設定の「パスキー」で登録する。
   端末が作った鍵の組のうち、公開鍵だけがサーバーへ行く（秘密の鍵は端末から出ない。Face ID・指紋・PIN で守られる）。
   以後は「パスキーで入る」で、通行証（30日）を受け取って合わせる。端末ごとに `passkey-remove <名前>` で取り消せる（次の要求から入れない）
-  - 招待は置き場つき: `invite-add <名前> me,share`（自分の端末）／`invite-add <名前> share`（招く人。個人には入れない）
+  - 招待は置き場つき: `invite-add <名前> me:1,share`（自分の端末）／`invite-add <名前> me,share`（招く人。その人だけの個人を作る）／`invite-add <名前> share`（招く人。個人は無し）
+  - **個人は人ごと**（2026-11-03 利用者の指示）: 人はサーバーに登録した順の番号で分ける。`me` は新しい番号の人、`me:<番号>` はその人の2台目。
+    1 番はサーバーを立てた人（持ち主）で、記録は `state.json` のまま。ほかの人は `people/<番号>/state.json`。ほかの人の個人は読めない。
+    番号の無い前の版のパスキーは 1 番。ほかの人の端末を前の版で `me` に入れていたら、`passkey-person <名前> new`（または `<番号>`）で移す。
+    移された端末は、次に合わせたとき手元の個人をサーバーのものへ入れ替え、前の中身を `bubble_todo_v1_before_person_<時刻>` に残す（`js/sync.js`）
   - サーバーに置くのは公開鍵・招待コードの sha256・通行証の sha256 だけ（`passkeys.json`・`invites.json`・`sessions.json`。600）
   - 確かめ（`passkey_crypto.py`）: ES256・RS256。`cryptography` があれば使い、無ければ標準ライブラリだけで計算する。
     名前（rp id）・出どころ（origin）・問題（1回きり・5分）・本人の確かめ（UV）・署名の回数（戻ったら断る）を見る
@@ -217,7 +221,7 @@ bash tests/server-setup.test.sh
 - **立ち上げ**: `BUBBLES_DOMAIN=<名前> bash tools/server-setup.sh`（名前は `<データの場所>/.setup` に覚え、`update` は環境変数なしでよい）。前の Tailscale 版で立ち上げた置き場では、名前を付けるよう言って止まる。
   Caddy と fail2ban は入っていれば設定を置く。ファイアウォール（クラウドとサーバーの中）で 80・443 を開ける手順は画面に出す（自動では開けない）
 - **テスト**: `python3 -m unittest tests/test_passkey_crypto.py tests/test_server_public.py`（署名は Node の暗号の部品で作り突き合わせる）、
-  `node tests/passkey-sync.test.mjs`、`node tests/e2e-passkey.mjs`（headless の Chrome と、Chrome の仮のパスキーで、登録・合わせる・入り直す）、
+  `node tests/passkey-sync.test.mjs`、`node tests/person-sync.test.mjs`（個人を人ごとに分けたときの入れ替え）、`node tests/e2e-passkey.mjs`（headless の Chrome と、Chrome の仮のパスキーで、登録・合わせる・入り直す）、
   `bash tests/server-setup.test.sh`（公開の形を含む）
 - **まだ確かめていない**: 本物の公開サーバー・ドメイン・Caddy・fail2ban・本物の端末（Face ID・指紋）。Android の APK では使えない（ページの住所が `https://localhost`）
 
@@ -287,7 +291,7 @@ server.py も Android 版（`www/`）も docs/ を配る。service worker の箱
 - **作った海**: 引き出しの「＋ 海をつくる」で、名前（16字まで）と水の色を選んで作る。色はマグマ・苔・夕暮れ・砂・墨（`js/spacelist.js` の `COLORS`、水の色は `css/space.css` の `html.is-sea[data-sea=…]`。赤は持ち主の印で、警告の意味には使わない）。
   初めはその端末だけの海で、繋いでいれば自分の鍵でサーバーとも合わせる
 - **この海の名前・色**（引き出し）: 今の海の名前・色を直す。人を招くときの海の ID（`s` で始まる）と `invite-add` の書き方も出す。「この海を消す」（2度押す）は、端末の箱を消して一覧に消した印を残し（ほかの端末の一覧からも外れる）、個人へ戻る。サーバーに置いた記録は消さない
-- **鍵**: 持ち主の鍵＝自分の合言葉（`token.txt`）か、個人（`me`）に入れるパスキー。**どの海にも入れる**。どの海かは `X-Bubbles-Space` で言う（合言葉でも）。
+- **鍵**: 持ち主の鍵＝自分の合言葉（`token.txt`）か、1 番の人の個人に入れるパスキー。**どの海にも入れる**。ほかの番号の人の鍵は、自分の個人と招かれた海だけ。どの海かは `X-Bubbles-Space` で言う（合言葉でも）。
   招かれた鍵＝「共有」の合言葉（前の版の `share_tokens.json`。「共有」の海だけ）か、海を指定した招待のパスキー（`invite-add <名前> --space <海の ID>`。その海だけ）
 - **読むだけ**: 招かれた鍵で開いている海だけ、サーバーと合わせられている間だけ書ける（前の版の共有と同じ。入力欄は点線で「繋がると書ける」、色を抜いて出す）。持ち主の端末は、どの海も届かなくても書ける（前の版では、共有は持ち主の端末でも読むだけになった。「共有の海に入る」の札も外した）
 - 個人でない海では、薄い帯の右に「合わせた／15:30」・「繋がっていない／15:30 に見たもの」。件数・人数は出さない（数を出さない決まりと同じ）

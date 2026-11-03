@@ -151,7 +151,7 @@ h2, h3 { scroll-margin-top: 76px; }
 <h2 id="connect">3. サーバーに繋ぐ（自分の端末）</h2>
 <p>複数の端末で同じ記録を使うには、自分で立てたサーバー（<a href="#host">6章</a>）に繋ぎます。入るのはパスキー（Face ID・指紋・画面ロックの PIN）で、合言葉は使いません。サーバーが無くても、今までどおり端末の中だけで使えます。</p>
 <ol class="steps">
-  <li>持ち主（自分）がサーバーで招待コードを作る：<code>invite-add 自分のスマホ me</code>（<a href="#tokens">7章</a>。<code>me</code> は持ち主の端末で、どの海にも入れます）。1回きり・24時間有効の <code>ABCD-EFGH-JKLM</code> の形のコードが出ます。</li>
+  <li>持ち主（自分）がサーバーで招待コードを作る：<code>invite-add 自分のスマホ me:1</code>（<a href="#tokens">7章</a>。<code>me:1</code> は 1 番の人＝持ち主の個人で、どの海にも入れます）。1回きり・24時間有効の <code>ABCD-EFGH-JKLM</code> の形のコードが出ます。</li>
   <li>端末のブラウザでサーバーの住所（<code>https://&lt;名前&gt;</code>）を開き、設定（⚙）の「サーバー」までスクロールする。サーバーがパスキーの形なら、招待コードの欄が出ます。</li>
   <li>招待コードを入れて「この端末を登録」を押し、Face ID・指紋などで確かめる。下の字が「『自分のスマホ』で入っている」「個人: 合わせた（時刻）」になれば繋がっています。</li>
   <li>次からは、この端末で「パスキーで入る」を押すだけです（通行証は30日。切れたら押し直す）。</li>
@@ -212,11 +212,18 @@ BUBBLES_DOMAIN=bubbles.example.org bash bubbles-todo/tools/server-setup.sh</code
 <h2 id="tokens">7. 招待とパスキーの管理</h2>
 <p>端末は、招待コードで1台ずつ登録します。どれもサーバーを止めずに効きます。</p>
 <pre><code># 招待コードを作る（1回きり・24時間）
-#   me = 持ち主の端末（個人と、すべての海に入れる）
+#   個人は人ごと。人はサーバーに登録した順の番号で分ける（1 番 = サーバーを立てた持ち主）
+#   me:1 = 持ち主の端末（持ち主の個人と、すべての海に入れる）
+#   me = 新しい人の個人（その人の端末どうしだけ。番号は passkey-list に出る）
+#   me:2 = 2 番の人の、もう1台の端末
 #   share = 「共有」の海、s で始まる名前 = 作った海（アプリの「この海の名前・色」に出る ID）
-bash bubbles-todo/tools/server-setup.sh invite-add 自分のスマホ me
-bash bubbles-todo/tools/server-setup.sh invite-add 母のスマホ share
+bash bubbles-todo/tools/server-setup.sh invite-add 自分のスマホ me:1,share
+bash bubbles-todo/tools/server-setup.sh invite-add 母のスマホ me,share
+bash bubbles-todo/tools/server-setup.sh invite-add 母のタブレット me:2
 bash bubbles-todo/tools/server-setup.sh invite-add 同僚 smvyvfsp3u8xc
+
+# パスキーをほかの人の個人へ移す（new = 新しい番号の人）
+bash bubbles-todo/tools/server-setup.sh passkey-person 母のスマホ new
 
 # 一覧（使われていない招待 / 登録済みのパスキー）
 bash bubbles-todo/tools/server-setup.sh invite-list
@@ -224,7 +231,8 @@ bash bubbles-todo/tools/server-setup.sh passkey-list
 
 # 取り消す（その端末は次の要求から入れない）
 bash bubbles-todo/tools/server-setup.sh passkey-remove 母のスマホ</code></pre>
-<p class="note">登録できるパスキーは置き場（個人・海）ごとに3つ、同時に使える端末は3台までです。端末を替えたら、古い端末のパスキーを <code>passkey-remove</code> で外してから招待し直します。</p>
+<p class="note">移された端末は、次に合わせたとき手元の個人をその人の個人に入れ替えます（前の中身は端末の中に控えとして残ります）。</p>
+<p class="note">登録できるパスキーは置き場（人ごとの個人・海）ごとに3つ、同時に使える端末は3台までです。端末を替えたら、古い端末のパスキーを <code>passkey-remove</code> で外してから招待し直します。</p>
 
 <h2 id="csv">8. 引っ越し（CSV の書き出し・読み込み）</h2>
 <p>記録をまるごと1つの CSV ファイルにして、別の端末へ移せます。対象は、いま開いている海の記録です。todo だけでなく、きっかけ・すきまの枠・タグ・急ぐ／大事の印・着手の記録・作業メモの履歴も入ります。</p>

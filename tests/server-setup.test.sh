@@ -88,7 +88,7 @@ if grep -q "__" "$T/etc/caddy/Caddyfile"; then fail "Caddyfile に埋め残し�
 grep -q "_SYSTEMD_UNIT=bubbles-todo.service" "$T/etc/fail2ban/filter.d/bubbles.conf" || fail "fail2ban の filter"
 [[ -f "$T/etc/fail2ban/jail.d/bubbles.conf" ]] || fail "fail2ban の jail"
 grep -q "住所:         https://bubbles.example.org" <<<"$out" || { echo "$out"; fail "住所が出ない"; }
-grep -q "invite-add 自分のスマホ me,share" <<<"$out" || fail "最初の端末の招待の手順が出ない"
+grep -q "invite-add 自分のスマホ me:1,share" <<<"$out" || fail "自分の端末の招待の手順が出ない"
 if grep -qi "tailscale" <<<"$out"; then fail "出力に Tailscale が残っている"; fi
 pass "Caddy と fail2ban の設定を置き、住所と招待の手順を出す（Tailscale は出ない）"
 
