@@ -696,6 +696,8 @@ function closeAsk(restoreFocus) {
 
        （バブル本体）              ← 画面の上部
        ● タグ名  ● タグ名        ← 色だけを手がかりにしない（1.4.1）
+       名前      [編集できる]
+       本文      [入口]          ← 押すと別の面で書く（Issue #8）
        作業メモ  [編集できる]
        次の一手  [編集できる]
        リンク    [押せる] [編集]
@@ -751,6 +753,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   /* 作業メモは盤に入力欄を持たない。入口のボタンと、別の面と、その中身 */
   let memoBtn = null, memoPane = null, memoArea = null, memoSaid = null;
   let memoDraft = '';
+  /* 本文（Issue #8）も入口と別の面。作業メモと違い、記録には積まず、閉じるときに書き替える */
+  let detailBtn = null, detailPane = null, detailArea = null;
+  let detailDraft = '';
   let draft0 = null;            /* 開いた時点の入力欄の中身（触ったかを見るため） */
   let urlLink = null, urlLinkTx = null, urlEdit = null;
   let histBtn = null, hist = null, histList = null, histClose = null;
@@ -815,6 +820,26 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     wrap.appendChild(lb);
     wrap.appendChild(nameIn);
     fields.appendChild(wrap);
+  }
+
+  /* ---- 本文（Issue #8）----
+     名前は泡に出る短い呼び名（泡では18字で切れる）。何を・どこで・条件のような
+     **変わらない説明**を書く場所が無く、名前に詰めるか、作業メモ（積む記録）に
+     書くしかなかった。そのための欄。
+     ・書くのは任意。思いつきを吐き出す入口（海の入力欄）には足さない
+     ・盤には入口だけ（作業メモと同じ。長くなるものは盤を押し広げない）
+     ・記録には積まない。閉じるとき（面の [閉じる]・盤を閉じる・[OK]）に書き替える
+     預け先に setDetail が無い版では出さない。 */
+  if (fields && typeof (a || {}).setDetail === 'function') {
+    detailDraft = String(ask(a, 'detail', id) || '');
+    const drow = el('div', 'bc-row');
+    drow.appendChild(el('span', 'bc-lb', '本文'));
+    detailBtn = el('button', 'bc-memo-open bc-detail-open');
+    detailBtn.type = 'button';
+    detailBtn.addEventListener('click', ev => { ev.preventDefault(); openDetail(); });
+    drow.appendChild(detailBtn);
+    fields.appendChild(drow);
+    syncDetailBtn();
   }
 
   /* ---- お気に入りの印（F7・利用者の指示 2026-09-24）----
@@ -1375,6 +1400,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (saveDays) { saveDays(); did = true; }        /* いつの日 */
     saveUrl();                                       /* リンク */
     if (saveName()) did = true;                      /* 名前 */
+    if (saveDetail()) did = true;                    /* 本文 */
 
     if (!stepIn) return did ? '書き留めた' : null;
     const next = stepIn.value.trim();
@@ -1398,6 +1424,13 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const v = nameIn.value.trim();
     if (!v) { nameIn.value = String(ask(a, 'text', id) || ''); return false; }   /* 空は戻す */
     return ask(a, 'setText', id, v) === true;
+  }
+
+  /* 本文。空は「本文なし」として通す（名前と違う）。同じなら store が弾く -> 変わったか */
+  function saveDetail() {
+    if (!detailBtn) return false;
+    if (detailPane && !detailPane.hidden && detailArea) detailDraft = detailArea.value;
+    return ask(a, 'setDetail', id, detailDraft) === true;
   }
 
   function saveUrl() {
@@ -1654,6 +1687,74 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     return true;
   }
 
+  /* ---- 本文の面（Issue #8）----
+     作業メモの面と同じ入れ替え方・同じ形（.bc-memo / .bm-*）。
+     違うのは [作業メモを保存] が無いこと。本文は積む記録ではないので、
+     [閉じる] で書き替える（盤を閉じたとき・[OK] のときも同じ）。 */
+  function syncDetailBtn() {
+    if (!detailBtn) return;
+    const t = detailDraft.trim();
+    detailBtn.textContent = t ? trimTx(t.split('\n')[0], 16) : '書く';
+    detailBtn.classList.toggle('is-empty', !t);
+    detailBtn.setAttribute('aria-label', t ? '本文を書き替える' : '本文を書く');
+  }
+
+  function buildDetail() {
+    detailPane = el('div', 'bc-memo bc-detail');
+    detailPane.setAttribute('role', 'group');
+    detailPane.setAttribute('aria-label', '本文');
+    detailPane.hidden = true;
+
+    const head = el('div', 'bm-head');
+    head.appendChild(el('span', 'bm-title', '本文'));
+    const close = el('button', 'bm-close', '閉じる');
+    close.type = 'button';
+    close.addEventListener('click', ev => { ev.preventDefault(); closeDetail(true); });
+    head.appendChild(close);
+    detailPane.appendChild(head);
+
+    /* 何の本文なのかを、書く前に読めるようにする（いまの名前） */
+    const ctx = el('p', 'bm-ctx');
+    detailPane.appendChild(ctx);
+    detailPane._ctx = ctx;
+
+    detailArea = document.createElement('textarea');
+    detailArea.className = 'bm-in';
+    detailArea.rows = 6;
+    detailArea.placeholder = '何を・どこで・気をつけること など';
+    detailArea.setAttribute('aria-label', '本文');
+    detailArea.addEventListener('input', () => { detailDraft = detailArea.value; });
+    detailPane.appendChild(detailArea);
+
+    const note = el('p', 'bm-said', '閉じると残る。履歴には積まない');
+    detailPane.appendChild(note);
+
+    root.appendChild(detailPane);
+  }
+
+  function openDetail() {
+    if (!detailPane) buildDetail();
+    const nm = nameIn ? nameIn.value.trim() : String(ask(a, 'text', id) || '');
+    detailPane._ctx.textContent = nm ? '名前：' + nm : '';
+    detailArea.value = detailDraft;
+    detailPane.hidden = false;
+    if (fields) fields.hidden = true;
+    relayout();
+    detailArea.focus({ preventScroll: true });
+  }
+
+  /* 戻り値：閉じたかどうか（Escape の受け手が「自分で処理した」を知るため） */
+  function closeDetail(restoreFocus) {
+    if (!detailPane || detailPane.hidden) return false;
+    saveDetail();                                 /* 閉じたら書き替える */
+    detailPane.hidden = true;
+    if (fields) fields.hidden = false;
+    syncDetailBtn();
+    relayout();
+    if (restoreFocus && detailBtn && detailBtn.isConnected) detailBtn.focus({ preventScroll: true });
+    return true;
+  }
+
   function openHistory() {
     const rows = stepsNow();                   /* 開くたびに読み直す（古い順のまま） */
     if (!rows.length) {                        /* 外で消えていたら、ボタンごと引っ込める */
@@ -1698,7 +1799,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
     /* バブルの下に置く箱は、いま出ているほう（盤 か 履歴）ひとつだけ */
     const lower = (hist && !hist.hidden) ? hist
-      : ((memoPane && !memoPane.hidden) ? memoPane : fields);
+      : ((memoPane && !memoPane.hidden) ? memoPane
+        : ((detailPane && !detailPane.hidden) ? detailPane : fields));
 
     if (lower) {
       lower.style.left = cx + 'px';
@@ -1720,6 +1822,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const cap = Math.max(160, barTop - CENTER_M - lowerTop) + 'px';
       if (hist) hist.style.maxHeight = cap;
       if (memoPane) memoPane.style.maxHeight = cap;
+      if (detailPane) detailPane.style.maxHeight = cap;
       if (fields) {
         fields.style.maxHeight = cap;
         /* 入りきらないときだけ、下端をぼかして「続きがある」を出す。
@@ -1762,7 +1865,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        （外れているものに日は付かない＝ store が弾く） */
     flush() {
       if (memoPane && !memoPane.hidden && memoArea) memoDraft = memoArea.value;
-      saveStep(); saveUrl(); saveName();
+      saveStep(); saveUrl(); saveName(); saveDetail();
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
       if (saveFav) saveFav();                 /* 印はタグの後ろ。順に意味は無い */
@@ -1782,7 +1885,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     },
     /* Escape をここで先に受ける。履歴が開いていれば、閉じるのは履歴だけ
        （中央から抜けない）。開いていなければ false を返し、中央が閉じる。 */
-    handleEscape() { return closeMemo(true) || closeHistory(true); },
+    handleEscape() { return closeMemo(true) || closeDetail(true) || closeHistory(true); },
   };
 }
 

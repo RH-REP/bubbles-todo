@@ -19,6 +19,8 @@
                            キーが無ければ未着手。時間帯（slots）では記録しない
      firstStep: string     「最初の一手」のメモ。既定 ''
      url:       string     参照リンク。http/https に限る。既定 ''
+     detail:    string     本文（名前とは別の、変わらない説明。Issue #8）。改行を含んでよい。
+                           前後の空白だけ落とす。既定 ''。記録（steps）には積まない
      gap:       boolean    すきま時間（移動中など）にできる。既定 false
      plan:      boolean    きっかけの画面に属する。既定 false。
                            まだどのアンカーにもぶら下げていないもの（未分類）の置き場を
@@ -958,6 +960,8 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
        入っていた場合に、画面へ渡さないため） */
     firstStep: typeof t.firstStep === 'string' ? t.firstStep.trim() : '',
     url: safeUrl(t.url) || '',
+    /* 本文（Issue #8）。旧データには無いので '' から始まる */
+    detail: typeof t.detail === 'string' ? t.detail.trim() : '',
     gap,
     /* 枠は**配列**（利用者の指示で複数ぶら下げられるようになった）。
        前の版は単数の gapSlot だったので、そこからも読み込む。
@@ -1402,6 +1406,7 @@ export const store = {
       started: {},
       firstStep: '',
       url: '',
+      detail: '',
       gap: false,
       gapSlots: [],
       gapAt: {},
@@ -2127,6 +2132,25 @@ export const store = {
     return (t && typeof t.url === 'string') ? t.url : '';
   },
 
+  /* 本文（Issue #8）。名前とは別の、変わらない説明（何を・どこで・条件など）。
+     名前と違って空にできる（空＝本文なし）。改行は残し、前後の空白だけ落とす。
+     **記録には積まない**——作業メモ（steps）は「やったこと」を積むもの、
+     本文は書き替えるもの。過去の本文は残らない -> 変化したか */
+  setDetail(id, text) {
+    const t = store.get(id);
+    if (!t) return false;
+    const next = String(text == null ? '' : text).trim();
+    if ((t.detail || '') === next) return false;
+    t.detail = next;
+    persist(); emit();
+    return true;
+  },
+
+  detailOf(id) {
+    const t = store.get(id);
+    return (t && typeof t.detail === 'string') ? t.detail : '';
+  },
+
   /* すきま時間にできる印。on を省くとトグル -> 変化したか */
   setGap(id, on) {
     const t = store.get(id);
@@ -2676,7 +2700,7 @@ export const store = {
         id: uid(), text, days: [], hold: false, holdUntil: null, createdAt: Date.now(),
         fx: 0.15 + Math.random() * 0.7, fy: 0.15 + Math.random() * 0.6,
         slots: [], anchors: [], anchorAt: {}, started: {},
-        firstStep: '', url: '', gap: false, gapSlots: [], gapAt: {}, plan: false,
+        firstStep: '', url: '', detail: '', gap: false, gapSlots: [], gapAt: {}, plan: false,
         steps: [], draft: { did: '', next: '' },
         tags: [], done: false, doneAt: null, trashed: false, trashedAt: null,
       }));
@@ -2989,7 +3013,7 @@ export const store = {
 export const WRITE_METHODS = [
   'add', 'remove', 'untrash', 'complete', 'uncomplete', 'restore', 'setDay', 'setToday', 'setHold', 'setHoldUntil',
   'setFav', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
-  'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setFirstStep', 'setUrl', 'setGap',
+  'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
   'commitStep', 'editStep', 'amendLastStep', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',

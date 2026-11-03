@@ -4145,6 +4145,27 @@ await test('名前を変えても、着手ログと一手の記録の本文は�
   assert.equal(store.stepsOf(t.id).length, 1, '記録は増えも減りもしない');
 });
 
+/* --- 本文（名前とは別の説明。Issue #8）--- */
+
+await test('本文: 旧データは空。setDetail で書け、改行は残り、空にもでき、記録には積まない', async () => {
+  let store = await open({ raw: { v: 2, todos: [{ id: 'd1', text: '灯油', createdAt: NOW - 1e6 }], lastDay: '2026-08-20' }, now: NOW });
+  assert.equal(store.detailOf('d1'), '', '旧データには無い＝空');
+  assert.equal(store.get('d1').detail, '');
+  assert.equal(store.setDetail('d1', '  18L を2つ\n赤いポリタンク  '), true);
+  assert.equal(store.detailOf('d1'), '18L を2つ\n赤いポリタンク', '前後の空白だけ落とし、改行は残す');
+  assert.equal(saved().todos[0].detail, '18L を2つ\n赤いポリタンク', '保存に残る');
+  assert.equal(store.get('d1').text, '灯油', '名前は変わらない');
+  assert.equal(store.stepsOf('d1').length, 0, '記録には積まない');
+  assert.equal(store.setDetail('d1', '18L を2つ\n赤いポリタンク'), false, '同じなら変わらない');
+  assert.equal(store.setDetail('nope', 'x'), false, '無い項目');
+  store = await open({ now: NOW });
+  assert.equal(store.detailOf('d1'), '18L を2つ\n赤いポリタンク', '開き直しても残る');
+  assert.equal(store.setDetail('d1', '   '), true, '空にできる（本文なし）');
+  assert.equal(store.detailOf('d1'), '');
+  const t = store.add('新しいもの');
+  assert.equal(store.get(t.id).detail, '', '作ったときは空');
+});
+
 await test('優先度: 旧データは「まだ」。setPriority は片方だけ変えられ、区分は両方そろって出る', async () => {
   const store = await open({ raw: { v: 2, todos: [{ id: 'p1', text: '灯油', createdAt: NOW - 1e6 }], lastDay: '2026-08-20' }, now: NOW });
   const t = store.get('p1');

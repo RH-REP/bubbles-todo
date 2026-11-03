@@ -704,6 +704,9 @@ setCenterHandler({
   /* 本文（名前）。盤の「名前」欄が読み書きする。無ければ欄を出さない */
   text:         (id) => { const t = store.get(id); return t ? t.text : ''; },
   setText:      (id, v) => (has('setText') ? store.setText(id, v) : false),
+  /* 本文（Issue #8）。名前とは別の説明。盤の「本文」の入口と面が読み書きする。無ければ出さない */
+  detail:       (id) => (has('detailOf') ? store.detailOf(id) : ''),
+  setDetail:    (id, v) => (has('setDetail') ? store.setDetail(id, v) : false),
 
   /* お気に入りの印（F7）。盤の ☆ が読み書きする。無ければ盤は ☆ を出さない */
   isFav:        (id) => (has('isFav') ? store.isFav(id) : false),
