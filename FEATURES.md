@@ -27,7 +27,7 @@
 | 命令形の文言を使わない | 同上 |
 | 「はじめた」を立てるのは押したボタン。時計は判定しない | `js/focus.js` 冒頭、HANDOFF「はじめた」の記録 |
 | 集中中のタイマーは止まらない。停止ボタンは作らない | `js/focus.js` 決めごと |
-| 通信は一切しない（`fetch` も `XHR` も無い。例外は右上の ! が GitHub の Issue 画面を開くことだけ） | README 「作り」「改善のコメント」 |
+| 住所・キーを入れない既定状態では通信は一切しない（例外は右上の ! の GitHub Issue 画面と、設定の「ヘルプ」で API キーを入れたときだけの AI 呼び出し） | README 「作り」「改善のコメント」「AI に訊く」 |
 | `focus.js` / `bubble.js` は store を触らない（app.js が差し込む） | `js/app.js` 配線の節 |
 
 ---
@@ -55,6 +55,7 @@
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
 | **最新の版を確認する**（設定の中のボタン。押すと service worker に新しい版を取りに行かせ、見つかれば入れ替えて読み直す） | `js/update.js`、`js/screens/settings.js` updateBox、`sw.js` の `message` 口 | 2026-11-02（利用者の指示）。iOS のホーム画面アプリは「閉じて開き直す」だけでは新しい版に気づかないことがある（WebKit の既知の挙動）。ふだんは呼ばない `skipWaiting()` を、このボタンを押したときだけ呼ぶ。前面に戻ったときの自動の取りに行き（入れ替えなし、10分に1回まで）は `js/sw-register.js`（Issue #6） |
 | **改善のコメント（右上の !）**（GitHub の新しい Issue 画面を、画面 ID とコメントを書き込んで開く） | `js/feedback.js`（issue_hub の正本の写し）、`js/app.js` 末尾、各板の `data-screen` | 2026-10-22。バブルの本文が写るので写真は初めは付けない（`screenshot: 'off'`。チェックを入れれば付く、2026-10-23）。記録の欄は出さない（`log: false`）。右上の隅に歯車と同じ 44px で置き、歯車・海のカレンダーを左へずらした（2026-10-23）。バブルの本文は送らない（画面と件数だけ）。iPhone の GitHub アプリが Issue の画面を空欄で開くことがある件（iOS の Universal Links。Issue #5）への備えとして、押した時点で題名とコメント（題名・空行・コメントだけ。題名はコメントの最初の1文）をクリップボードにも置き、iOS では長押しで Safari へ開けると案内する（2026-11-02） |
+| **AI に訊く（ヘルプ）**（設定の「ヘルプ」。API キーの欄、ブラウザから Anthropic へ直接質問、会話は端末のメモリにだけ） | `js/ai.js`、`js/help.js`、`css/help.css`、`js/screens/settings.js` helpAiBox | 2026-11-04（利用者の指示 Issue #9）。送るのは質問の文・app の説明・版/画面/件数だけ。バブルの本文は送らない。キーは `bubble_todo_ai_key`（CSV・サーバー同期・改善のコメントには混ざらない。`tests/ai.test.mjs`） |
 | Android（Capacitor 6） | `android/`、`tools/build-www.mjs` | ビルドは開発側（この repo）で |
 | 保存は localStorage。サーバーの住所を入れたときだけ、自分のサーバーと記録を合わせる | `js/store.js` `KEY = 'bubble_todo_v1'`・`stamps`、`js/merge.js`、`js/sync.js`、`server.py`、設定の「サーバー」 | 2026-10-23。記録ごとに新しく書き換えたほうが残る。消したものは消した時刻で比べる。ファイルへの書き出し・読み込みは CSV（下の行） |
 | 引っ越し（CSV の書き出し・読み込み。読み込むときに「足す」か「同じものは上書き」を選ぶ） | `js/csvio.js`、`js/screens/settings.js` csvBox・askMode | 2026-10-24。記録をまるごと1つの CSV（1行1件。data が JSON の正本）。共有では読むだけの間は読み込まない。スマホの書き出しは共有シート、ファイル名に時刻、読み込みの窓に書き出した時刻・端末・件数（Issue #7） |

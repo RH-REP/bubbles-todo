@@ -385,9 +385,11 @@ def open_spaces(data_dir: Path):
 LOOPBACK = {'127.0.0.1', '::1'}
 # 配るページの守り。外のスクリプト・外への接続・よそのページへの埋め込みを許さない。
 # style は 'unsafe-inline'（画面が要素の style を使う。スクリプトほど危なくない）
+# connect-src に api.anthropic.com を足した（2026-11-04 Issue #9・#14）。設定で API キーを
+# 入れたときだけ、ヘルプ画面からブラウザが直接呼ぶ（js/ai.js）。ほかの外部サービスへは広げない。
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
-       "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
-       "frame-ancestors 'none'")
+       "connect-src 'self' https://api.anthropic.com; font-src 'self'; object-src 'none'; base-uri 'self'; "
+       "form-action 'self'; frame-ancestors 'none'")
 
 
 def log_event(kind: str, ip: str, detail: str = ''):

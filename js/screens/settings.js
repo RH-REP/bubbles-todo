@@ -12,6 +12,8 @@ import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMod
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
 import { seaName } from '../spacelist.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
+import { getKey, setKey, hasKey } from '../ai.js';
+import { openHelp } from '../help.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -191,6 +193,10 @@ export default {
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
        （WebKit の既知の挙動）。その逃げ道として、押した人だけがその場で確かめて入れ替えられる */
     box.appendChild(updateBox());
+
+    /* --- ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）---
+       repo の URL・API キーの欄・「AI に訊く」ボタン。キーが無くてもここまでは見える */
+    box.appendChild(helpAiBox());
 
     /* --- 画面の大きさの記録（不具合を調べる用。2026-10-25）---
        立ち上げ直後に下のタブが隠れる件で、実機の値を見るため。js/boot-dvh.js が測った値を出し、写せる */
@@ -661,6 +667,90 @@ function updateBox() {
   });
   row.appendChild(btn);
   wrap.appendChild(row);
+  return wrap;
+}
+
+/* ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）。
+   repo の URL・API キーの欄（伏せ字・保存・消す）・「AI に訊く」ボタン。
+   キーは js/ai.js が localStorage の別の箱（bubble_todo_ai_key）に持つ。ここでは読み書きするだけ。
+   「AI に訊く」は js/help.js の画面を開くだけで、質問や会話はここでは持たない。 */
+const REPO = 'RH-REP/bubbles-todo';
+
+function helpAiBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, 'ヘルプ'));
+
+  const repoRow = el('p', 'note');
+  const repoLink = el('a', null, 'GitHub: ' + REPO);
+  repoLink.href = 'https://github.com/' + REPO;
+  repoLink.target = '_blank';
+  repoLink.rel = 'noopener noreferrer';
+  repoRow.appendChild(repoLink);
+  wrap.appendChild(repoRow);
+
+  wrap.appendChild(el(
+    'p', 'note',
+    'AI（Anthropic・Claude）に使い方や不具合っぽい動きを尋ねられる。'
+    + 'API キーを入れると使える。質問の文とこの app の説明・版・画面だけを送る（バブルの本文は送らない）。'
+    + '会話はこの端末のメモリにだけ置き、閉じると消える。'
+  ));
+
+  const keyRow = el('div', 'row');
+  keyRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
+  const keyIn = document.createElement('input');
+  keyIn.type = 'password';
+  keyIn.autocomplete = 'off';
+  keyIn.placeholder = 'sk-ant-... (Anthropic の API キー)';
+  keyIn.setAttribute('aria-label', 'Anthropic の API キー');
+  keyIn.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:14px;min-height:44px;'
+    + 'padding:0 12px;border-radius:10px;border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
+  keyIn.value = getKey();
+  keyRow.appendChild(keyIn);
+
+  const saveBtn = el('button', 'btn', '保存');
+  saveBtn.type = 'button';
+  saveBtn.addEventListener('click', () => {
+    if (setKey(keyIn.value)) { toast(keyIn.value.trim() ? 'キーを保存した' : 'キーを消した'); askBtn.disabled = !hasKey(); }
+    else toast('保存できなかった');
+  });
+  keyRow.appendChild(saveBtn);
+
+  const clearBtn = el('button', 'btn', '消す');
+  clearBtn.type = 'button';
+  clearBtn.addEventListener('click', () => {
+    keyIn.value = '';
+    setKey('');
+    toast('キーを消した');
+    askBtn.disabled = true;
+  });
+  keyRow.appendChild(clearBtn);
+  wrap.appendChild(keyRow);
+
+  const askRow = el('div', 'row');
+  askRow.style.cssText = 'margin-top:10px';
+  const askBtn = el('button', 'btn', 'AI に訊く');
+  askBtn.type = 'button';
+  askBtn.disabled = !hasKey();
+  askBtn.addEventListener('click', () => {
+    openHelp({
+      repo: REPO, app: 'bubble_todo', version: '0.1.0', was: askBtn,
+      getContext: () => {
+        const n = (f) => { try { const a = f(); return Array.isArray(a) ? a.length : '?'; } catch (err) { return '?'; } };
+        return {
+          summary: '版 ' + (window.BUBBLES_VERSION || '?') + ' ・ 画面 settings'
+            + ' ・ 海 ' + n(() => store.floating())
+            + ' ・ 今日 ' + n(() => store.todays())
+            + ' ・ 長期保留 ' + n(() => store.holds())
+            + ' ・ 完了 ' + n(() => store.doneItems())
+            + ' ・ タグ ' + n(() => store.tags()),
+        };
+      },
+    });
+  });
+  askRow.appendChild(askBtn);
+  wrap.appendChild(askRow);
+  if (!hasKey()) wrap.appendChild(el('p', 'note', 'キーを入れると「AI に訊く」が押せる。'));
+
   return wrap;
 }
 

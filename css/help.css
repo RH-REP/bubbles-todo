@@ -1,0 +1,62 @@
+/* ヘルプ画面（2026-11-04。利用者の指示 Issue #9）。
+   海の引き（seamap）と同じ形の板にする——このアプリで既に使っている「全画面の板」の作法に合わせる。 */
+.help-back {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--text) 34%, transparent);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.help {
+  width: min(480px, 100%); max-height: 100%; overflow-y: auto;
+  background: var(--surface); color: var(--text);
+  border-radius: 18px; padding: 14px 14px 16px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.28);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.help-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.help-head .tt { flex: 1; font-size: 15px; font-weight: 600; }
+.help-head .cl {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  min-height: 44px; padding: 0 12px; border: 0; background: transparent;
+  color: var(--text-2); font-size: 12.5px; font-weight: 600; border-radius: 10px;
+}
+.help-head .cl:hover { color: var(--text); }
+
+.help-toc { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.help-toc h3, .help-chat h3 {
+  font-size: 12px; font-weight: 500; color: var(--text-2);
+  margin: 0 0 8px; letter-spacing: .07em;
+}
+.help-toclist { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.help-toclist li a {
+  display: block; min-height: 40px; padding: 9px 2px;
+  font-size: 14px; color: var(--accent-a); text-decoration: none;
+}
+.help-toclist li a:hover { text-decoration: underline; }
+
+.help-chat { margin-top: 14px; }
+.help-chat .note { font-size: 12px; color: var(--text-2); margin: 0 0 10px; line-height: 1.7; }
+
+.help-log {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 260px; overflow-y: auto; margin-bottom: 10px;
+}
+.help-msg {
+  margin: 0; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.6;
+  max-width: 88%; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.help-msg.is-user { align-self: flex-end; background: var(--today-fill); color: var(--text); }
+.help-msg.is-ai { align-self: flex-start; background: var(--surface-2); color: var(--text); }
+.help-msg.is-system { align-self: center; background: transparent; color: var(--text-2); font-size: 12.5px; }
+
+.help-form { display: flex; gap: 8px; align-items: flex-end; }
+.help-form textarea {
+  flex: 1; min-width: 0; font: inherit; font-size: 14px; resize: vertical;
+  padding: 10px 12px; border-radius: 10px; min-height: 44px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+}
+.help-form textarea:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.help-send { flex: none; }
+
+.help-issuerow { margin-top: 10px; display: flex; justify-content: flex-end; }

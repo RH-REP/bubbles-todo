@@ -30,7 +30,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-03b';
+const VERSION = '2026-11-04a';
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [
@@ -49,6 +49,7 @@ const ASSETS = [
   './css/screens/gap.css',
   './css/screens/review.css',
   './css/screens/stub.css',
+  './css/help.css',       /* ヘルプ画面（2026-11-04 Issue #9） */
   './css/space.css',
   /* 本体（実際に import されている20本＋ feedback.js。todo.js / stub.js は誰も読まない） */
   './js/app.js',
@@ -59,6 +60,8 @@ const ASSETS = [
   './js/drift.js',
   './js/feedback.js',   /* 画面の !（改善のコメント）。module ではなく普通の script */
   './js/focus.js',
+  './js/ai.js',          /* Anthropic を呼ぶ薄い層（2026-11-04 Issue #9） */
+  './js/help.js',        /* ヘルプ画面（同上） */
   './js/screens/cardlist.js',
   './js/screens/gap.js',
   './js/screens/plan.js',
