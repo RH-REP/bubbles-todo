@@ -60,3 +60,60 @@
 .help-send { flex: none; }
 
 .help-issuerow { margin-top: 10px; display: flex; justify-content: flex-end; }
+
+/* ---- 先の予定（AI。js/upcoming.js。2026-11-04 Issue #13）----
+   ヘルプと同じ板（.help-back / .help）に載せる。赤は使わない（責める色にしない） */
+.help.up { width: min(560px, 100%); }
+/* 右上の !（改善のコメント。どの板より上の固定の 26px）に「閉じる」が隠れないよう、見出しの右を空ける */
+.help-head { padding-right: 30px; }
+.up-cond { margin: 0 0 8px; border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; }
+.up-cond > summary {
+  min-height: 44px; display: flex; align-items: center; cursor: pointer;
+  font-size: 13px; color: var(--text-2); list-style: none;
+}
+.up-cond > summary::-webkit-details-marker { display: none; }
+.up-cond > summary::before { content: '▸'; margin-right: 8px; transition: transform .15s; }
+.up-cond[open] > summary::before { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .up-cond > summary::before { transition: none; } }
+.up-note { font-size: 12px; color: var(--text-2); margin: 0 0 10px; line-height: 1.7; }
+.up-topics { border: 0; margin: 0 0 8px; padding: 0; display: grid; gap: 2px; }
+.up-topics legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.up-listhead {
+  font-size: 12px; font-weight: 500; color: var(--text-2); letter-spacing: .07em; margin: 0 0 6px; padding: 0;
+}
+.up-group { font-size: 11.5px; color: var(--text-2); margin: 8px 0 0; }
+.up-topic { display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 14px; cursor: pointer; }
+.up-topic input { width: 20px; height: 20px; flex: none; margin: 0; }
+.up-topic span { flex: 1; }
+.up-topic small { color: var(--text-2); font-size: 11.5px; }
+.up-words { display: grid; gap: 6px; margin: 6px 0 12px; font-size: 12px; color: var(--text-2); }
+.up-words input {
+  font: inherit; font-size: 14px; min-height: 44px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+}
+.up-askrow, .up-addrow { display: flex; justify-content: flex-end; margin: 4px 0 8px; }
+.up-addrow {
+  position: sticky; bottom: -16px; padding: 10px 0 4px;
+  background: linear-gradient(transparent, var(--surface) 30%);
+}
+.up-list { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 2px; }
+.up-row {
+  display: grid; grid-template-columns: 24px 74px 1fr; grid-template-areas: "cb date body" ". . tail";
+  align-items: center; column-gap: 8px; row-gap: 4px;
+  padding: 8px 2px; border-bottom: 1px solid var(--line);
+}
+.up-row > input { grid-area: cb; width: 20px; height: 20px; margin: 0; }
+.up-date { grid-area: date; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.up-body { grid-area: body; display: grid; gap: 2px; min-width: 0; }
+.up-title { font-size: 14px; overflow-wrap: anywhere; }
+.up-meta { display: flex; gap: 10px; align-items: center; font-size: 11.5px; color: var(--text-2); }
+.up-st { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-strong); }
+.up-row.is-confirmed .up-st { background: var(--today-fill); border-color: transparent; color: var(--text); }
+.up-row.is-rumor .up-st { border-style: dashed; }
+.up-src { color: var(--accent-a); }
+.up-tail { grid-area: tail; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-2); }
+.up-tail select {
+  font: inherit; font-size: 13px; min-height: 36px; padding: 0 8px; border-radius: 8px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+}
+.up-row.is-added { opacity: .55; }

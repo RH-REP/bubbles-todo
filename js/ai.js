@@ -76,3 +76,57 @@ export async function ask(system, messages) {
   const block = Array.isArray(data.content) ? data.content.find(b => b.type === 'text') : null;
   return (block && block.text) || '';
 }
+
+/* ---- Web で調べて答える（2026-11-04。Issue #13「先の予定」）----
+   Anthropic の Web 検索ツール（サーバー側で Anthropic が検索する。ブラウザからよそへは繋がない
+   ので、CSP の connect-src は api.anthropic.com のまま）。
+   料金: 検索 1 回ごとに課金（1,000 回で $10）＋トークン代。1 回押すごとの検索は SEARCH_MAX_USES まで。
+   返事が長くなって pause_turn で止まったら、そこまでの中身を渡して続けさせる（PAUSE_MAX 回まで）。
+   戻り値は返事の文字（text の塊をつないだもの）。 */
+const SEARCH_TOOL = 'web_search_20250305';
+export const SEARCH_MAX_USES = 5;
+const SEARCH_MAX_TOKENS = 4096;
+const PAUSE_MAX = 3;
+
+async function post(body) {
+  const key = getKey();
+  if (!key) throw new Error('API キーが入っていない');
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': ANTHROPIC_VERSION,
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = 'AI に届かなかった（' + res.status + '）';
+    try { const j = await res.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch (e) { /* 読めなくてもよい */ }
+    if (res.status === 401) msg = 'API キーが正しくない';
+    if (res.status === 429) msg = '混み合っている（しばらくして試す）';
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function askWithSearch(system, userText) {
+  if (!getKey()) throw new Error('API キーが入っていない');
+  const messages = [{ role: 'user', content: String(userText || '') }];
+  const texts = [];
+  for (let i = 0; i <= PAUSE_MAX; i++) {
+    const data = await post({
+      model: MODEL,
+      max_tokens: SEARCH_MAX_TOKENS,
+      system: String(system || ''),
+      messages,
+      tools: [{ type: SEARCH_TOOL, name: 'web_search', max_uses: SEARCH_MAX_USES }],
+    });
+    const content = Array.isArray(data.content) ? data.content : [];
+    content.forEach(b => { if (b && b.type === 'text' && b.text) texts.push(b.text); });
+    if (data.stop_reason !== 'pause_turn') break;
+    messages.push({ role: 'assistant', content });
+  }
+  return texts.join('');
+}

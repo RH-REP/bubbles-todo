@@ -14,6 +14,7 @@ import { seaName } from '../spacelist.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { getKey, setKey, hasKey } from '../ai.js';
 import { openHelp } from '../help.js';
+import { openUpcoming, lastLine } from '../upcoming.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -197,6 +198,10 @@ export default {
     /* --- ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）---
        repo の URL・API キーの欄・「AI に訊く」ボタン。キーが無くてもここまでは見える */
     box.appendChild(helpAiBox());
+
+    /* --- 先の予定（AI。2026-11-04。利用者の指示 Issue #13）---
+       日付が先に分かっている予定を AI に Web で調べさせ、長期保留のバブルにする。押したときだけ調べる */
+    box.appendChild(upcomingBox());
 
     /* --- 画面の大きさの記録（不具合を調べる用。2026-10-25）---
        立ち上げ直後に下のタブが隠れる件で、実機の値を見るため。js/boot-dvh.js が測った値を出し、写せる */
@@ -751,6 +756,29 @@ function helpAiBox() {
   wrap.appendChild(askRow);
   if (!hasKey()) wrap.appendChild(el('p', 'note', 'キーを入れると「AI に訊く」が押せる。'));
 
+  return wrap;
+}
+
+/* 先の予定（AI。2026-11-04。利用者の指示 Issue #13）。
+   説明・前に調べた日・「先の予定を開く」だけ。中身（トピック・調べる・一覧・入れる）は js/upcoming.js の板。
+   キーが無くても開ける（トピックを選んでおける）。調べるボタンはキーが無いと押せない */
+function upcomingBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, '先の予定（AI）'));
+  wrap.appendChild(el('p', 'note',
+    'FOMC・決算日・セール・新型・中国の連休・各国の休日など、日付が先に分かっている予定を AI が Web で調べる。'
+    + '選んだものは長期保留に入り、その何日か前に今日へ出てくる。値動きの予想はしない。'));
+  const last = el('p', 'note');
+  const refresh = () => { last.textContent = lastLine(store.todayKey()); };
+  refresh();
+  wrap.appendChild(last);
+  const row = el('div', 'row');
+  row.style.cssText = 'margin-top:10px';
+  const btn = el('button', 'btn', '先の予定を開く');
+  btn.type = 'button';
+  btn.addEventListener('click', () => openUpcoming({ was: btn, onClose: refresh }));
+  row.appendChild(btn);
+  wrap.appendChild(row);
   return wrap;
 }
 
