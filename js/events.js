@@ -40,6 +40,22 @@ export const TOPICS = [
     ask: 'dポイント・楽天ポイント・Vポイント・Pontaポイント・PayPayポイントの増量・倍率アップ・交換レート優遇のキャンペーン（期間・エントリーの要否・上限）' },
 ];
 
+/* キーワード（2026-11-04 追加。利用者の指示 Issue #13「sbi の投資信託のキャンペーン・楽天のお買い物マラソンの期間」）。
+   見るもののカードとは別に、欄に書いた言葉を 1 つずつ調べる。返事の topic は 'kw' */
+export const KW_TOPIC = { id: 'kw', group: 'キーワード', label: 'キーワード', sub: '', lead: 7, ask: '' };
+export const KW_MAX = 5;
+export const KW_LEN = 40;
+
+/* 欄の文字 -> キーワードの並び（、 , 改行 で分ける。空・重なりを落とし、最大 KW_MAX 個） */
+export function parseKeywords(s) {
+  const out = [];
+  String(s || '').split(/[,、，\n;；]+/).forEach(w => {
+    const t = Array.from(w.replace(/\s+/g, ' ').trim()).slice(0, KW_LEN).join('');
+    if (t && !out.includes(t) && out.length < KW_MAX) out.push(t);
+  });
+  return out;
+}
+
 export const DEFAULT_TOPICS = ['fomc', 'earnings', 'sale', 'console', 'china', 'pay', 'points'];
 /* 見るものの版。上げたときに足したトピック（前の版で保存した端末にも、既定で付ける） */
 export const TOPICS_VER = 2;
@@ -54,7 +70,7 @@ export const MARK = '先の予定: ';                /* 本文の最後の行の
 
 const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-export function topicOf(id) { return TOPICS.find(t => t.id === id) || null; }
+export function topicOf(id) { return id === 'kw' ? KW_TOPIC : (TOPICS.find(t => t.id === id) || null); }
 
 /* 'YYYY-MM-DD' に n 日足す（ローカル時刻の正午で数える。夏時間でも日が飛ばない） */
 export function addDays(key, n) {
@@ -86,8 +102,9 @@ export function normTitle(s) {
 export function eventKey(ev) { return ev.date + '|' + normTitle(ev.title); }
 
 /* AI に渡す文（system と user）。送るのは選んだトピックと、書いた銘柄・商品だけ */
-export function buildPrompt(topicIds, words, today) {
-  const ts = (topicIds || []).map(topicOf).filter(Boolean);
+export function buildPrompt(topicIds, words, today, keywords) {
+  const ts = (topicIds || []).map(topicOf).filter(t => t && t.id !== 'kw');
+  const kws = Array.isArray(keywords) ? keywords : parseKeywords(keywords);
   const end = addDays(today, HORIZON_DAYS);
   const system = [
     'あなたは「日付が先に決まっている予定」を Web で調べて一覧にする係。',
@@ -95,31 +112,76 @@ export function buildPrompt(topicIds, words, today) {
     '今日は ' + today + '。' + today + ' から ' + end + ' までに始まる予定だけ。日付が日まで分からないものは入れない。',
     '期間もの（キャンペーン・セール・連休）は date に始まりの日、end に終わりの日を入れる。',
     'すでに始まっていて ' + today + ' 以降に終わるキャンペーンも入れる（date は始まった日のまま）。',
-    '答えは JSON の配列だけ（前後に説明を書かない）。各要素は次の形:',
+    '調べ終えたら、最後に答えを ```json の囲いの中に JSON の配列で 1 つだけ書く（説明は短く。配列の外に [ ] を書かない）。各要素は次の形:',
     '{"date":"YYYY-MM-DD","end":"YYYY-MM-DD か null","title":"日本語で30字以内","topic":"トピックID",'
       + '"status":"confirmed|planned|rumor","entry":true|false,"note":"条件・上限など20字以内","source":"根拠のURL"}',
     'status: 公式に発表済み=confirmed、例年や暫定の見込み=planned、報道・リーク=rumor。',
     'entry: 参加にエントリー（申し込み）が要るなら true。',
     '同じキャンペーンを店や対象ごとに分けず、1件にまとめる。最大 ' + MAX_EVENTS + ' 件。',
+    '見つからなければ空の配列 [] を書く。',
   ].join('\n');
   const lines = ts.map(t => '- ' + t.id + ': ' + t.ask);
+  kws.forEach(k => lines.push('- kw: 「' + k + '」に当たる予定・キャンペーン・セールの日程（期間・エントリーの要否・条件）。topic は kw'));
   const w = String(words || '').trim();
   const user = '次のトピックの予定を調べて。\n' + lines.join('\n')
     + (w ? '\n銘柄・商品・使っている支払い（決算日・新型・キャンペーンはこれに関わるものを優先）: ' + w : '');
   return { system, user };
 }
 
-/* AI の返事（文字）から JSON の配列を取り出す。```json の囲いや前置きがあっても拾う */
+/* AI の返事（文字）から JSON の配列を取り出す。
+   2026-11-04 Issue #13「何回やっても一覧にできない」で強くした:
+   - Web 検索のときは、検索の前後に説明の文（「[FOMC] を調べます」など）が混ざる。最初の [ から最後の ] までを
+     読む前のやり方では、説明の中の括弧で壊れていた → 文字列の中を飛ばして括弧の対を数え、配列の候補を全部拾う
+   - 返事が途中で切れた（max_tokens）ときは、閉じている要素までを拾う
+   - 末尾の余分な , は許す
+   候補のうち、要素がオブジェクトの配列で、いちばん長いものを返す。拾えなければ null */
+function tryParse(t) {
+  try { return JSON.parse(t); } catch (e) { /* 次へ */ }
+  try { return JSON.parse(t.replace(/,\s*([\]}])/g, '$1')); } catch (e) { return undefined; }
+}
+
+/* s[i] が '[' のところから、対になる ']' まで（文字列の中は飛ばす）。
+   閉じなければ { text: 閉じた要素までを ] で閉じたもの, cut: true } */
+function scanArray(s, i) {
+  let depth = 0, inStr = false, esc = false, lastTop = -1;
+  for (let j = i; j < s.length; j++) {
+    const c = s[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '[' || c === '{') depth++;
+    else if (c === ']' || c === '}') {
+      depth--;
+      if (depth === 1 && c === '}') lastTop = j;      /* 配列の直下の要素が閉じた */
+      if (depth === 0) return { text: s.slice(i, j + 1), cut: false, end: j };
+    }
+  }
+  return { text: lastTop > 0 ? s.slice(i, lastTop + 1) + ']' : '', cut: true, end: s.length };
+}
+
 export function extractJsonArray(text) {
   const s = String(text || '');
-  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(s);
-  const body = fence ? fence[1] : s;
-  const a = body.indexOf('['), b = body.lastIndexOf(']');
-  if (a < 0 || b <= a) return null;
-  try {
-    const v = JSON.parse(body.slice(a, b + 1));
-    return Array.isArray(v) ? v : null;
-  } catch (e) { return null; }
+  let best = null;
+  const consider = v => {
+    if (!Array.isArray(v)) return;
+    if (v.length && !v.some(x => x && typeof x === 'object' && !Array.isArray(x))) return;
+    if (!best || v.length > best.length) best = v;
+  };
+  for (let i = s.indexOf('['); i >= 0; ) {
+    /* 配列の頭らしいところだけ（[ のあとが { か ]） */
+    if (/^\[\s*[{\]]/.test(s.slice(i, i + 64))) {
+      const r = scanArray(s, i);
+      if (r.text) consider(tryParse(r.text));
+      i = s.indexOf('[', r.cut ? i + 1 : r.end + 1);
+    } else {
+      i = s.indexOf('[', i + 1);
+    }
+  }
+  return best;
 }
 
 function clip(s, n) {

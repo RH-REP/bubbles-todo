@@ -232,6 +232,48 @@ await test('askWithSearch: Web 検索ツールを max_uses 付きで送り、pau
   assert.equal(seen[1].messages[1].role, 'assistant');
 });
 
+await test('返事の取り出し（Issue #13 の不具合）: 説明の中の括弧・途中で切れた返事・末尾の , ・いちばん長い候補', () => {
+  const t1 = '[FOMC] と [日銀] を調べます。\n検索しました。\n```json\n[{"date":"2026-12-10","title":"FOMC"},{"date":"2026-12-19","title":"日銀"}]\n```';
+  assert.equal(E.extractJsonArray(t1).length, 2, '説明の中の [ ] で壊れない');
+  const t2 = '結果: [{"date":"2026-12-10","title":"a]b"},{"date":"2026-12-11","title":"c"},{"date":"2026-12-1';
+  assert.deepEqual(E.extractJsonArray(t2).map(x => x.title), ['a]b', 'c'], '途中で切れても閉じた要素までを拾う');
+  assert.equal(E.extractJsonArray('[{"date":"2026-12-10"},]').length, 1, '末尾の , を許す');
+  assert.equal(E.extractJsonArray('例 [] のあと [{"a":1},{"a":2}]').length, 2, '長いほうの候補');
+  assert.deepEqual(E.extractJsonArray('見つからなかった。\n```json\n[]\n```'), []);
+  assert.equal(E.extractJsonArray('[1, 2, 3]'), null, 'オブジェクトでない配列は拾わない');
+});
+
+await test('キーワード: 区切り・重なり・上限。送る文に 1 つずつ入り、topic kw の返事を残す', () => {
+  assert.deepEqual(E.parseKeywords(' SBI 投資信託 キャンペーン、楽天  お買い物マラソン,SBI 投資信託 キャンペーン\n , '),
+    ['SBI 投資信託 キャンペーン', '楽天 お買い物マラソン']);
+  assert.equal(E.parseKeywords('a,b,c,d,e,f,g').length, E.KW_MAX);
+  const p = E.buildPrompt([], '', TODAY, 'SBI 投資信託 キャンペーン、楽天 お買い物マラソン');
+  assert.ok(p.user.includes('「SBI 投資信託 キャンペーン」') && p.user.includes('「楽天 お買い物マラソン」'));
+  assert.ok(!p.user.includes('fomc'));
+  const out = E.normalizeEvents([{ date: '2026-11-20', end: '2026-11-27', title: 'お買い物マラソン', topic: 'kw', status: 'confirmed' }], TODAY);
+  assert.equal(out[0].topic, 'kw');
+  assert.equal(E.defaultLead(out[0], TODAY), 'e3');
+  assert.ok(E.detailText(out[0], TODAY).includes('見るもの: キーワード'));
+});
+
+await test('askWithSearchFull: 途中で切れた・検索のエラーを返し、検索の回数を変えられる（上限あり）', async () => {
+  mem.clear();
+  const ai = await import(AI_URL + '?ev=2');
+  ai.setKey('sk-ant-TEST');
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push(JSON.parse(init.body));
+    return { ok: true, json: async () => ({ stop_reason: 'max_tokens', content: [
+      { type: 'web_search_tool_result', tool_use_id: 's1', content: { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' } },
+      { type: 'text', text: '[{"date":' }] }) };
+  };
+  const r = await ai.askWithSearchFull('s', 'u', { maxUses: 99 });
+  assert.equal(r.stop, 'max_tokens');
+  assert.equal(r.searchError, 'max_uses_exceeded');
+  assert.equal(seen[0].tools[0].max_uses, ai.SEARCH_USES_CAP);
+  assert.ok(seen[0].max_tokens >= 16000, '考える分と検索の結果で JSON が切れないだけの長さ');
+});
+
 console.log('');
 console.log(`${pass} passed, ${failed.length} failed`);
 if (failed.length) process.exit(1);

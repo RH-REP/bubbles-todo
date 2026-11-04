@@ -83,9 +83,13 @@ export async function ask(system, messages) {
    料金: 検索 1 回ごとに課金（1,000 回で $10）＋トークン代。1 回押すごとの検索は SEARCH_MAX_USES まで。
    返事が長くなって pause_turn で止まったら、そこまでの中身を渡して続けさせる（PAUSE_MAX 回まで）。
    戻り値は返事の文字（text の塊をつないだもの）。 */
-const SEARCH_TOOL = 'web_search_20250305';
+const SEARCH_TOOL = 'web_search_20250305';   /* Haiku は基本の版（dynamic filtering の版は Opus・Sonnet だけ） */
 export const SEARCH_MAX_USES = 5;
-const SEARCH_MAX_TOKENS = 4096;
+export const SEARCH_USES_CAP = 10;            /* キーワードを足したときの上限 */
+/* 2026-11-04 Issue #13「何回やっても一覧にできない」: 4096 では、考える分（Haiku 5.5 は既定で考える）と
+   検索の結果を読む分に食われ、JSON が途中で切れていた（stop_reason: max_tokens）。
+   ストリームでない呼び方の目安の 16000 にする */
+const SEARCH_MAX_TOKENS = 16000;
 const PAUSE_MAX = 3;
 
 async function post(body) {
@@ -111,22 +115,39 @@ async function post(body) {
   return res.json();
 }
 
-export async function askWithSearch(system, userText) {
+/* -> { text, stop, searchError }
+   text = text の塊をつないだもの。stop = 最後の stop_reason（'max_tokens' なら途中で切れた）。
+   searchError = 検索ツールが返したエラーの印（例 'max_uses_exceeded'。HTTP は 200 のまま返る） */
+export async function askWithSearchFull(system, userText, opts) {
   if (!getKey()) throw new Error('API キーが入っていない');
+  const o = opts || {};
+  const uses = Math.max(1, Math.min(SEARCH_USES_CAP, Number(o.maxUses) || SEARCH_MAX_USES));
   const messages = [{ role: 'user', content: String(userText || '') }];
   const texts = [];
+  let stop = '';
+  let searchError = '';
   for (let i = 0; i <= PAUSE_MAX; i++) {
     const data = await post({
       model: MODEL,
       max_tokens: SEARCH_MAX_TOKENS,
       system: String(system || ''),
       messages,
-      tools: [{ type: SEARCH_TOOL, name: 'web_search', max_uses: SEARCH_MAX_USES }],
+      tools: [{ type: SEARCH_TOOL, name: 'web_search', max_uses: uses }],
     });
     const content = Array.isArray(data.content) ? data.content : [];
-    content.forEach(b => { if (b && b.type === 'text' && b.text) texts.push(b.text); });
-    if (data.stop_reason !== 'pause_turn') break;
+    content.forEach(b => {
+      if (b && b.type === 'text' && b.text) texts.push(b.text);
+      if (b && b.type === 'web_search_tool_result' && b.content && !Array.isArray(b.content) && b.content.error_code) {
+        searchError = String(b.content.error_code);
+      }
+    });
+    stop = String(data.stop_reason || '');
+    if (stop !== 'pause_turn') break;
     messages.push({ role: 'assistant', content });
   }
-  return texts.join('');
+  return { text: texts.join(''), stop, searchError };
+}
+
+export async function askWithSearch(system, userText, opts) {
+  return (await askWithSearchFull(system, userText, opts)).text;
 }

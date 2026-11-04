@@ -14,9 +14,9 @@
 
 import { el, toast, fromFeedback } from './ui.js';
 import { store } from './store.js';
-import { askWithSearch, hasKey, SEARCH_MAX_USES } from './ai.js';
+import { askWithSearchFull, hasKey, SEARCH_MAX_USES, SEARCH_USES_CAP } from './ai.js';
 import {
-  TOPICS, DEFAULT_TOPICS, TOPICS_VER, TOPICS_ADDED, STATUS, buildPrompt, extractJsonArray, normalizeEvents,
+  TOPICS, DEFAULT_TOPICS, KW_MAX, parseKeywords, TOPICS_VER, TOPICS_ADDED, STATUS, buildPrompt, extractJsonArray, normalizeEvents,
   defaultLead, leadOptions, triggerDay, isRunning, md, addedKeys, addEvents,
 } from './events.js';
 
@@ -40,6 +40,7 @@ export function loadPrefs() {
   return {
     topics,
     words: typeof p.words === 'string' ? p.words : '',
+    keywords: typeof p.keywords === 'string' ? p.keywords : '',
     lastDay: typeof p.lastDay === 'string' ? p.lastDay : '',
     events: Array.isArray(p.events) ? p.events : [],
   };
@@ -121,7 +122,7 @@ export function openUpcoming(opts) {
   [
     '入れたものは長期保留に入り、選んだ日に今日の水面へ出てくる。',
     '今日へ出す日の既定: 予定は見るものごとの日数前、キャンペーンは終わる3日前、エントリーが要るものは始まる日。',
-    '調べるのは「調べる」を押したときだけ（Web 検索は 1 回に ' + SEARCH_MAX_USES + ' 回まで。料金はこのキーの持ち主に掛かる）。',
+    '調べるのは「調べる」を押したときだけ（Web 検索は 1 回に ' + SEARCH_MAX_USES + ' 回まで。キーワード 1 つごとに 1 回足す。料金はこのキーの持ち主に掛かる）。',
     '値動きの予想はしない。日付は AI が読み取ったものなので、出典で確かめる。',
     '送るのは見るものと下の欄の文字だけ。バブルの本文は送らない。',
   ].forEach(s => how.appendChild(el('p', 'up-note', s)));
@@ -177,6 +178,20 @@ export function openUpcoming(opts) {
   wordsIn.addEventListener('change', () => { remember(); syncSummary(); });
   wordsLb.appendChild(wordsTx); wordsLb.appendChild(wordsIn);
   cond.appendChild(wordsLb);
+
+  /* キーワード（2026-11-04 追加。Issue #13）。見るものに無いものを、言葉で 1 つずつ調べる */
+  const kwLb = el('label', 'up-words');
+  const kwTx = el('span');
+  kwTx.textContent = 'キーワードで調べる（任意。「、」で区切って ' + KW_MAX + ' つまで。見るものを選ばなくても調べられる）';
+  const kwIn = document.createElement('input');
+  kwIn.type = 'text';
+  kwIn.autocomplete = 'off';
+  kwIn.placeholder = '例: SBI 投資信託 キャンペーン、楽天 お買い物マラソン';
+  kwIn.value = prefs.keywords;
+  kwIn.addEventListener('input', () => { syncAsk(); });
+  kwIn.addEventListener('change', () => { remember(); syncSummary(); syncAsk(); });
+  kwLb.appendChild(kwTx); kwLb.appendChild(kwIn);
+  cond.appendChild(kwLb);
   scroller.appendChild(cond);
 
   /* ---- 2. 状態の1行（待っている・失敗・キーが無い など） ---- */
@@ -220,20 +235,22 @@ export function openUpcoming(opts) {
   const rowState = new Map();
 
   function remember() {
-    savePrefs({ ver: TOPICS_VER, topics: Array.from(chosen), words: wordsIn.value.trim(), lastDay: prefs.lastDay, events });
+    savePrefs({ ver: TOPICS_VER, topics: Array.from(chosen), words: wordsIn.value.trim(), keywords: kwIn.value.trim(), lastDay: prefs.lastDay, events });
   }
 
   /* 畳んだときの見出し: 見るもの N 件・銘柄（あれば） */
   function syncSummary() {
     const w = wordsIn.value.trim();
-    condSum.textContent = '見るもの ' + chosen.size + '件' + (w ? '・' + (w.length > 24 ? w.slice(0, 24) + '…' : w) : '');
+    const k = parseKeywords(kwIn.value).length;
+    condSum.textContent = '見るもの ' + chosen.size + '件' + (k ? '・キーワード ' + k + 'つ' : '') + (w ? '・' + (w.length > 24 ? w.slice(0, 24) + '…' : w) : '');
   }
 
   /* 状態の1行と、下のボタンの主従。
      結果が無い → 「調べる」が主（塗り）。結果がある → 「入れる」が主、「調べ直す」は従 */
   let busy = false;
   function syncAsk() {
-    const ok = chosen.size && hasKey();
+    const any = chosen.size || parseKeywords(kwIn.value).length;
+    const ok = any && hasKey();
     askBtn.disabled = !ok || busy;
     askBtn.textContent = busy ? '調べている…' : (events.length || prefs.lastDay ? '調べ直す' : '調べる');
     askBtn.classList.toggle('is-primary', !events.length);
@@ -241,7 +258,7 @@ export function openUpcoming(opts) {
     askNote.classList.remove('is-error');
     askNote.textContent = !hasKey()
       ? 'API キーを設定の「ヘルプと AI」に入れると調べられる。'
-      : !chosen.size ? '見るものを 1 つ以上選ぶ。'
+      : !any ? '見るものを 1 つ以上選ぶか、キーワードを書く。'
       : !prefs.lastDay ? '見るものを選んで「調べる」。10〜60 秒ほどかかる。'
       : '';
   }
@@ -269,6 +286,16 @@ export function openUpcoming(opts) {
     renderList();
   });
 
+  /* 一覧にできなかったときの理由（2026-11-04 Issue #13。前は理由が分からず、同じ文だけが出ていた） */
+  function failReason(r) {
+    const head = '返事を一覧にできなかった。';
+    if (r.stop === 'max_tokens') return head + '返事が長すぎて途中で切れた。見るものを減らして調べ直す。';
+    if (r.stop === 'refusal') return head + 'AI が答えなかった。見るものかキーワードを変えて調べ直す。';
+    if (r.searchError) return head + 'Web 検索が使えなかった（' + r.searchError + '）。Anthropic Console の組織の設定で Web 検索が許されているかを見る。';
+    if (!String(r.text || '').trim()) return head + 'AI の返事が空だった。もう一度「調べ直す」を押す。';
+    return head + 'AI の返事に一覧の形が無かった。もう一度「調べ直す」を押す。';
+  }
+
   /* 'YYYY-MM-DD' -> 'YYYY年M月'（一覧の見出し） */
   function monthOf(key) { const m = /^(\d{4})-(\d{2})/.exec(key); return m ? (+m[1]) + '年' + (+m[2]) + '月' : ''; }
 
@@ -282,10 +309,11 @@ export function openUpcoming(opts) {
     askNote.appendChild(document.createTextNode(' Web を調べている（10〜60 秒ほど）。閉じると結果は受け取れない。'));
     scroller.scrollTop = 0;
     try {
-      const p = buildPrompt(Array.from(chosen), wordsIn.value, today);
-      const text = await askWithSearch(p.system, p.user);
-      const arr = extractJsonArray(text);
-      if (!arr) throw new Error('返事を一覧にできなかった。もう一度「調べ直す」を押す。');
+      const kws = parseKeywords(kwIn.value);
+      const p = buildPrompt(Array.from(chosen), wordsIn.value, today, kws);
+      const r = await askWithSearchFull(p.system, p.user, { maxUses: Math.min(SEARCH_USES_CAP, SEARCH_MAX_USES + kws.length) });
+      const arr = extractJsonArray(r.text);
+      if (!arr) throw new Error(failReason(r));
       events = normalizeEvents(arr, today);
       prefs.lastDay = today;
       remember();
