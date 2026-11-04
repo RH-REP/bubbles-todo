@@ -766,7 +766,8 @@ function upcomingBox() {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, '先の予定（AI）'));
   wrap.appendChild(el('p', 'note',
-    'FOMC・決算日・セール・新型・中国の連休・各国の休日など、日付が先に分かっている予定を AI が Web で調べる。'
+    'FOMC・決算日・セール・新型・中国の連休・各国の休日、支払いの還元やポイント増量のキャンペーンなど、'
+    + '日付が先に分かっている予定を AI が Web で調べる。'
     + '選んだものは長期保留に入り、その何日か前に今日へ出てくる。値動きの予想はしない。'));
   const last = el('p', 'note');
   const refresh = () => { last.textContent = lastLine(store.todayKey()); };

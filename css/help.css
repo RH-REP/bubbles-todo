@@ -117,3 +117,15 @@
   border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
 }
 .up-row.is-added { opacity: .55; }
+/* 期間もの（キャンペーン）。終わりの日を太く、開催中は小さな印。赤は使わない */
+.up-date { display: grid; gap: 1px; line-height: 1.35; }
+.up-date b { font-weight: 600; color: var(--text); }
+.up-run {
+  justify-self: start; font-size: 10.5px; padding: 0 6px; border-radius: 999px;
+  background: var(--today-fill); color: var(--text);
+}
+.up-st.is-entry { border-color: var(--accent-a); color: var(--accent-a); }
+.up-cond-tx { overflow-wrap: anywhere; }
+.up-meta { flex-wrap: wrap; row-gap: 4px; }
+.up-tail { flex-wrap: wrap; row-gap: 2px; }
+.up-when { white-space: nowrap; }

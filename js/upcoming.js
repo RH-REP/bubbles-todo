@@ -16,8 +16,8 @@ import { el, toast, fromFeedback } from './ui.js';
 import { store } from './store.js';
 import { askWithSearch, hasKey, SEARCH_MAX_USES } from './ai.js';
 import {
-  TOPICS, DEFAULT_TOPICS, LEADS, STATUS, buildPrompt, extractJsonArray, normalizeEvents,
-  defaultLead, triggerDay, md, addedKeys, addEvents,
+  TOPICS, DEFAULT_TOPICS, TOPICS_VER, TOPICS_ADDED, STATUS, buildPrompt, extractJsonArray, normalizeEvents,
+  defaultLead, leadOptions, triggerDay, isRunning, md, addedKeys, addEvents,
 } from './events.js';
 
 const PREF_KEY = 'bubble_todo_upcoming';
@@ -28,8 +28,17 @@ export function loadPrefs() {
   let p = null;
   try { p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); } catch (e) { p = null; }
   p = (p && typeof p === 'object') ? p : {};
+  let topics = Array.isArray(p.topics) ? p.topics.filter(id => TOPICS.some(t => t.id === id)) : DEFAULT_TOPICS.slice();
+  /* 前の版で保存した端末には、あとから足したトピック（お得など）を既定で付ける。
+     付けるのは版を上げたときの1回だけ（自分で外したものは、次からは外れたまま） */
+  const ver = Number(p.ver) || 1;
+  if (Array.isArray(p.topics) && ver < TOPICS_VER) {
+    for (let v = ver + 1; v <= TOPICS_VER; v++) {
+      (TOPICS_ADDED[v] || []).forEach(id => { if (!topics.includes(id)) topics.push(id); });
+    }
+  }
   return {
-    topics: Array.isArray(p.topics) ? p.topics.filter(id => TOPICS.some(t => t.id === id)) : DEFAULT_TOPICS.slice(),
+    topics,
     words: typeof p.words === 'string' ? p.words : '',
     lastDay: typeof p.lastDay === 'string' ? p.lastDay : '',
     events: Array.isArray(p.events) ? p.events : [],
@@ -98,7 +107,8 @@ export function openUpcoming(opts) {
   box.appendChild(head);
 
   box.appendChild(el('p', 'up-note',
-    '日付が先に分かっている予定を AI が Web で調べる。入れたものは長期保留に入り、選んだ日数だけ前に今日へ出てくる。'
+    '日付が先に分かっている予定や、期間の決まったキャンペーンを AI が Web で調べる。入れたものは長期保留に入り、'
+    + '選んだ日（キャンペーンは既定で終わる3日前、エントリーが要るものは始まる日）に今日へ出てくる。'
     + '値動きの予想はしない。'));
 
   /* ---- 1. 見るもの（畳める。結果があるときは畳んで、一覧を上に出す） ---- */
@@ -125,7 +135,7 @@ export function openUpcoming(opts) {
     const tx = el('span');
     tx.textContent = t.label;
     const ld = el('small');
-    ld.textContent = t.lead + '日前';
+    ld.textContent = t.group === 'お得' ? '終わる' + t.lead + '日前' : t.lead + '日前';
     lb.appendChild(cb); lb.appendChild(tx); lb.appendChild(ld);
     pick.appendChild(lb);
   });
@@ -133,11 +143,11 @@ export function openUpcoming(opts) {
 
   const wordsLb = el('label', 'up-words');
   const wordsTx = el('span');
-  wordsTx.textContent = '銘柄・商品（任意。決算日や新型・セールを調べるときに使う）';
+  wordsTx.textContent = '銘柄・商品・使っている支払い（任意。決算日・新型・キャンペーンを絞るときに使う）';
   const wordsIn = document.createElement('input');
   wordsIn.type = 'text';
   wordsIn.autocomplete = 'off';
-  wordsIn.placeholder = '例: GOOG, AAPL, NVDA, PS5, Meta Quest';
+  wordsIn.placeholder = '例: GOOG, NVDA, PS5, d払い, エアウォレット';
   wordsIn.value = prefs.words;
   wordsIn.addEventListener('change', () => { remember(); syncSummary(); });
   wordsLb.appendChild(wordsTx); wordsLb.appendChild(wordsIn);
@@ -182,7 +192,7 @@ export function openUpcoming(opts) {
   const rowState = new Map();
 
   function remember() {
-    savePrefs({ topics: Array.from(chosen), words: wordsIn.value.trim(), lastDay: prefs.lastDay, events });
+    savePrefs({ ver: TOPICS_VER, topics: Array.from(chosen), words: wordsIn.value.trim(), lastDay: prefs.lastDay, events });
   }
 
   /* 畳んだときの見出し: 見るもの N 件・銘柄（あれば） */
@@ -215,7 +225,7 @@ export function openUpcoming(opts) {
       ? '見つかった予定（' + (prefs.lastDay ? md(prefs.lastDay) + ' に調べた。' : '') + '日付は出典で確かめる）'
       : (prefs.lastDay ? '見つかった予定は無い。' : '');
     events.forEach(ev => {
-      if (!rowState.has(ev.key)) rowState.set(ev.key, { on: ev.status !== 'rumor', lead: defaultLead(ev.topic) });
+      if (!rowState.has(ev.key)) rowState.set(ev.key, { on: ev.status !== 'rumor', lead: defaultLead(ev, today) });
       const st = rowState.get(ev.key);
       const done = have.has(ev.key);
       const li = el('li', 'up-row' + (done ? ' is-added' : '') + ' is-' + ev.status);
@@ -228,7 +238,17 @@ export function openUpcoming(opts) {
       cb.addEventListener('change', () => { st.on = cb.checked; syncAdd(); });
 
       const date = el('span', 'up-date');
-      date.textContent = md(ev.date) + '（' + wd(ev.date) + '）';
+      /* 期間ものは「M/D〜M/D」。開催中なら頭に「開催中」（終わりの日だけ太く見せる） */
+      if (ev.end) {
+        if (isRunning(ev, today)) date.appendChild(el('span', 'up-run', '開催中'));
+        const s = el('span');
+        s.textContent = md(ev.date) + '〜';
+        const e = el('b');
+        e.textContent = md(ev.end) + '（' + wd(ev.end) + '）';
+        date.appendChild(s); date.appendChild(e);
+      } else {
+        date.textContent = md(ev.date) + '（' + wd(ev.date) + '）';
+      }
       const body = el('span', 'up-body');
       const ttl = el('span', 'up-title');
       ttl.textContent = ev.title;             /* AI の返事。innerHTML には入れない */
@@ -236,6 +256,12 @@ export function openUpcoming(opts) {
       const badge = el('span', 'up-st');
       badge.textContent = STATUS[ev.status];
       meta.appendChild(badge);
+      if (ev.entry) meta.appendChild(el('span', 'up-st is-entry', 'エントリー要'));
+      if (ev.note) {
+        const nt = el('span', 'up-cond-tx');
+        nt.textContent = ev.note;             /* AI の返事。innerHTML には入れない */
+        meta.appendChild(nt);
+      }
       if (ev.source) {
         const a = el('a', 'up-src');
         a.textContent = '出典';
@@ -252,17 +278,21 @@ export function openUpcoming(opts) {
       } else {
         const sel = document.createElement('select');
         sel.setAttribute('aria-label', ev.title + ' を今日へ出す日');
-        LEADS.forEach(n => {
+        const opts = leadOptions(ev, today);
+        opts.forEach(x => {
           const op = document.createElement('option');
-          op.value = String(n);
-          op.textContent = n ? n + '日前' : '当日';
+          op.value = x.id;
+          op.textContent = x.label;
           sel.appendChild(op);
         });
-        if (!LEADS.includes(st.lead)) st.lead = 7;
-        sel.value = String(st.lead);
+        if (!opts.some(x => x.id === st.lead)) st.lead = defaultLead(ev, today);
+        sel.value = st.lead;
         const when = el('small', 'up-when');
-        const upd = () => { when.textContent = '→ ' + md(triggerDay(ev.date, st.lead, today)) + ' に今日へ'; };
-        sel.addEventListener('change', () => { st.lead = Number(sel.value); upd(); });
+        const upd = () => {
+          const d = triggerDay(ev, st.lead, today);
+          when.textContent = d === today ? '→ すぐ今日に置く' : '→ ' + md(d) + ' に今日へ';
+        };
+        sel.addEventListener('change', () => { st.lead = sel.value; upd(); });
         upd();
         tail.appendChild(sel); tail.appendChild(when);
       }

@@ -80,8 +80,80 @@ await test('今日へ出す日 = 予定の日 − 何日前。過ぎていれば
   assert.equal(E.triggerDay('2026-11-06', 7, TODAY), TODAY);
   assert.equal(E.triggerDay('2026-11-06', 0, TODAY), '2026-11-06');
   assert.equal(E.addDays('2026-03-01', -1), '2026-02-28');
-  assert.equal(E.defaultLead('fomc'), 14);
-  assert.equal(E.defaultLead('other'), 7);
+  assert.equal(E.defaultLead('fomc'), 's14');
+  assert.equal(E.defaultLead('other'), 's7');
+  assert.equal(E.defaultLead({ date: '2026-12-10', topic: 'fomc' }, TODAY), 's14');
+  assert.equal(E.defaultLead({ date: '2026-12-10', topic: 'macro' }, TODAY), 's3');
+});
+
+await test('キャンペーン（期間もの）: 開催中も残し、終わったものは落とす。end が変なら期間ものにしない', () => {
+  const raw = [
+    { date: '2026-11-01', end: '2026-11-30', title: 'エアウォレット 15% 還元', topic: 'pay', status: 'confirmed',
+      entry: true, note: '上限 1,000 円／要エントリー', source: 'https://airwallet.example/cp' },
+    { date: '2026-10-01', end: '2026-11-03', title: '終わったキャンペーン', topic: 'pay', status: 'confirmed' },
+    { date: '2026-12-01', end: '2026-12-25', title: 'dポイント 増量', topic: 'points', status: 'planned', entry: 'yes' },
+    { date: '2026-11-20', end: '2026-11-10', title: '終わりが前', topic: 'pay' },
+    { date: '2026-11-04', end: '2026-11-04', title: '今日だけ', topic: 'pay' },
+  ];
+  const out = E.normalizeEvents(raw, TODAY);
+  assert.deepEqual(out.map(e => e.title), ['エアウォレット 15% 還元', '今日だけ', '終わりが前', 'dポイント 増量']);
+  const [air, oneDay, badEnd, dp] = out;
+  assert.equal(air.end, '2026-11-30');
+  assert.equal(air.entry, true);
+  assert.equal(air.note, '上限 1,000 円／要エントリー');
+  assert.equal(E.isRunning(air, TODAY), true, '始まっていて終わっていない＝開催中');
+  assert.equal(E.isRunning(oneDay, TODAY), true);
+  assert.equal(badEnd.end, null, '終わりが始まりより前なら、日だけのものとして扱う');
+  assert.equal(dp.entry, false, 'true 以外はエントリー不要');
+  assert.equal(E.isRunning(dp, TODAY), false);
+  assert.equal(E.span(air), '11/1〜11/30');
+  assert.equal(E.bubbleText(air), 'エアウォレット 15% 還元（11/1〜11/30）');
+});
+
+await test('キャンペーンの今日へ出す日: 既定は終わる3日前、エントリーが要るものは始まる日（始まっていれば今日）', () => {
+  const air = { date: '2026-11-01', end: '2026-11-30', entry: false, topic: 'pay' };
+  const airEntry = Object.assign({}, air, { entry: true });
+  const dp = { date: '2026-12-01', end: '2026-12-25', entry: true, topic: 'points' };
+  assert.equal(E.defaultLead(air, TODAY), 'e3');
+  assert.equal(E.triggerDay(air, 'e3', TODAY), '2026-11-27');
+  assert.equal(E.triggerDay(air, 'e0', TODAY), '2026-11-30');
+  assert.equal(E.defaultLead(airEntry, TODAY), 's0');
+  assert.equal(E.triggerDay(airEntry, 's0', TODAY), TODAY, 'もう始まっていれば今日');
+  assert.equal(E.defaultLead(dp, TODAY), 's0');
+  assert.equal(E.triggerDay(dp, 's0', TODAY), '2026-12-01');
+  assert.equal(E.triggerDay(dp, 's3', TODAY), '2026-11-28');
+  assert.equal(E.triggerDay(dp, 'e7', TODAY), '2026-12-18');
+  /* 選べるもの: 始まっているものは「始まる前」を出さない */
+  const ids = o => E.leadOptions(o, TODAY).map(x => x.id);
+  assert.deepEqual(ids(air), ['s0', 'e7', 'e3', 'e1', 'e0']);
+  assert.deepEqual(ids(dp), ['s7', 's3', 's0', 'e7', 'e3', 'e1', 'e0']);
+  assert.deepEqual(ids({ date: '2026-12-10' }), ['s0', 's3', 's7', 's14', 's30']);
+});
+
+await test('キャンペーンを入れる: 名前に期間、本文にエントリー・条件。終わる3日前に今日の水面へ', async () => {
+  mem.clear();
+  const store = await openStore(ms(2026, 11, 4));
+  const [air] = E.normalizeEvents([{ date: '2026-11-01', end: '2026-11-30', title: 'エアウォレット 15% 還元',
+    topic: 'pay', status: 'confirmed', entry: true, note: '上限 1,000 円', source: 'https://airwallet.example/cp' }], TODAY);
+  const [t] = E.addEvents(store, [{ ev: air, lead: 'e3' }], TODAY).added;
+  assert.equal(t.text, 'エアウォレット 15% 還元（11/1〜11/30）');
+  assert.equal(store.holdUntil(t.id), '2026-11-27');
+  const d = store.detailOf(t.id);
+  assert.ok(d.includes('期間: 2026-11-01 〜 2026-11-30'));
+  assert.ok(d.includes('エントリーが要る'));
+  assert.ok(d.includes('条件: 上限 1,000 円'));
+  const later = await openStore(ms(2026, 11, 27, 7));
+  later.sweepHolds();
+  assert.equal(later.todays().some(x => x.text.startsWith('エアウォレット')), true);
+});
+
+await test('送る文: 期間もの・開催中のもの・エントリー・条件を頼み、お得のトピックを渡せる', () => {
+  const p = E.buildPrompt(['pay', 'points'], 'd払い, エアウォレット', TODAY);
+  assert.ok(p.system.includes('"end"') && p.system.includes('"entry"') && p.system.includes('"note"'));
+  assert.ok(p.system.includes('すでに始まっていて'));
+  assert.ok(p.user.includes('pay:') && p.user.includes('points:') && p.user.includes('エアウォレット'));
+  assert.ok(E.DEFAULT_TOPICS.includes('pay') && E.DEFAULT_TOPICS.includes('points'));
+  assert.deepEqual(E.TOPICS_ADDED[E.TOPICS_VER], ['pay', 'points']);
 });
 
 await test('入れると長期保留＋その日に置かれ、その日に今日の水面へ出る', async () => {
