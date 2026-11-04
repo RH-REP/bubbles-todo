@@ -106,10 +106,26 @@ export function openUpcoming(opts) {
   head.appendChild(closeBtn);
   box.appendChild(head);
 
-  box.appendChild(el('p', 'up-note',
-    '日付が先に分かっている予定や、期間の決まったキャンペーンを AI が Web で調べる。入れたものは長期保留に入り、'
-    + '選んだ日（キャンペーンは既定で終わる3日前、エントリーが要るものは始まる日）に今日へ出てくる。'
-    + '値動きの予想はしない。'));
+  /* 中身だけが流れ、見出しと下のボタン（調べる／入れる）は留まる（ヘルプと同じ3段） */
+  box.classList.add('has-chat');
+  const scroller = el('div', 'help-scroll');
+  box.appendChild(scroller);
+
+  /* 説明は 1 行だけ。決まりごとは「しくみ」に畳む（前は 4 行の説明が毎回いちばん上に出ていた） */
+  scroller.appendChild(el('p', 'up-lead', '日付の決まった予定やキャンペーンを AI が調べ、その少し前に今日へ出す。'));
+  const how = document.createElement('details');
+  how.className = 'up-how';
+  const howSum = document.createElement('summary');
+  howSum.textContent = 'しくみ';
+  how.appendChild(howSum);
+  [
+    '入れたものは長期保留に入り、選んだ日に今日の水面へ出てくる。',
+    '今日へ出す日の既定: 予定は見るものごとの日数前、キャンペーンは終わる3日前、エントリーが要るものは始まる日。',
+    '調べるのは「調べる」を押したときだけ（Web 検索は 1 回に ' + SEARCH_MAX_USES + ' 回まで。料金はこのキーの持ち主に掛かる）。',
+    '値動きの予想はしない。日付は AI が読み取ったものなので、出典で確かめる。',
+    '送るのは見るものと下の欄の文字だけ。バブルの本文は送らない。',
+  ].forEach(s => how.appendChild(el('p', 'up-note', s)));
+  scroller.appendChild(how);
 
   /* ---- 1. 見るもの（畳める。結果があるときは畳んで、一覧を上に出す） ---- */
   const cond = document.createElement('details');
@@ -119,25 +135,34 @@ export function openUpcoming(opts) {
   const pick = el('fieldset', 'up-topics');
   pick.appendChild(el('legend', null, '見るもの'));
   const chosen = new Set(prefs.topics);
-  let group = '';
-  TOPICS.forEach(t => {
-    if (t.group !== group) { group = t.group; pick.appendChild(el('p', 'up-group', group)); }
-    const lb = el('label', 'up-topic');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = chosen.has(t.id);
-    cb.addEventListener('change', () => {
-      if (cb.checked) chosen.add(t.id); else chosen.delete(t.id);
-      remember();
-      syncAsk();
-      syncSummary();
+  const groups = [];
+  TOPICS.forEach(t => { if (!groups.includes(t.group)) groups.push(t.group); });
+  groups.forEach(g => {
+    pick.appendChild(el('p', 'up-group', g));
+    const grid = el('div', 'up-chips');
+    TOPICS.filter(t => t.group === g).forEach(t => {
+      const lb = el('label', 'up-chip');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = chosen.has(t.id);
+      cb.addEventListener('change', () => {
+        if (cb.checked) chosen.add(t.id); else chosen.delete(t.id);
+        remember();
+        syncAsk();
+        syncSummary();
+      });
+      const tx = el('span', 'up-chip-tx');
+      const nm = el('b');
+      nm.textContent = t.label;
+      tx.appendChild(nm);
+      if (t.sub) { const sb = el('small'); sb.textContent = t.sub; tx.appendChild(sb); }
+      const ld = el('small', 'up-chip-ld');
+      ld.textContent = t.group === 'お得' ? '終わる' + t.lead + '日前' : t.lead + '日前';
+      tx.appendChild(ld);
+      lb.appendChild(cb); lb.appendChild(tx);
+      grid.appendChild(lb);
     });
-    const tx = el('span');
-    tx.textContent = t.label;
-    const ld = el('small');
-    ld.textContent = t.group === 'お得' ? '終わる' + t.lead + '日前' : t.lead + '日前';
-    lb.appendChild(cb); lb.appendChild(tx); lb.appendChild(ld);
-    pick.appendChild(lb);
+    pick.appendChild(grid);
   });
   cond.appendChild(pick);
 
@@ -152,29 +177,32 @@ export function openUpcoming(opts) {
   wordsIn.addEventListener('change', () => { remember(); syncSummary(); });
   wordsLb.appendChild(wordsTx); wordsLb.appendChild(wordsIn);
   cond.appendChild(wordsLb);
-  box.appendChild(cond);
+  scroller.appendChild(cond);
 
-  /* ---- 2. 調べる ---- */
-  const askRow = el('div', 'up-askrow');
-  const askBtn = el('button', 'btn up-ask', '調べる');
-  askBtn.type = 'button';
-  const askNote = el('p', 'up-note');
-  askRow.appendChild(askBtn);
-  box.appendChild(askRow);
-  box.appendChild(askNote);
+  /* ---- 2. 状態の1行（待っている・失敗・キーが無い など） ---- */
+  const askNote = el('p', 'up-status');
+  askNote.setAttribute('role', 'status');
+  scroller.appendChild(askNote);
 
   /* ---- 3. 一覧 ---- */
+  const listBar = el('div', 'up-listbar');
   const listHead = el('p', 'up-listhead');
-  const list = el('ul', 'up-list');
-  box.appendChild(listHead);
-  box.appendChild(list);
+  const allBtn = el('button', 'help-link up-all', 'すべて選ぶ');
+  allBtn.type = 'button';
+  listBar.appendChild(listHead); listBar.appendChild(allBtn);
+  const list = el('div', 'up-list');
+  scroller.appendChild(listBar);
+  scroller.appendChild(list);
 
-  /* ---- 4. 入れる ---- */
-  const addRow = el('div', 'up-addrow');
+  /* ---- 4. 下に留まるボタン。結果が無いうちは「調べる」が主、あるときは「入れる」が主 ---- */
+  const foot = el('div', 'help-foot up-foot');
+  const askBtn = el('button', 'btn up-ask', '調べる');
+  askBtn.type = 'button';
   const addBtn = el('button', 'btn up-add', '入れる');
   addBtn.type = 'button';
-  addRow.appendChild(addBtn);
-  box.appendChild(addRow);
+  const addRow = addBtn;   /* 前の名前（hidden を付け外しする相手） */
+  foot.appendChild(askBtn); foot.appendChild(addBtn);
+  box.appendChild(foot);
 
   back.appendChild(box);
   back.addEventListener('pointerdown', ev => { if (ev.target === back) closeUpcoming(true); });
@@ -201,54 +229,123 @@ export function openUpcoming(opts) {
     condSum.textContent = '見るもの ' + chosen.size + '件' + (w ? '・' + (w.length > 24 ? w.slice(0, 24) + '…' : w) : '');
   }
 
+  /* 状態の1行と、下のボタンの主従。
+     結果が無い → 「調べる」が主（塗り）。結果がある → 「入れる」が主、「調べ直す」は従 */
+  let busy = false;
   function syncAsk() {
-    askBtn.disabled = !chosen.size || !hasKey();
+    const ok = chosen.size && hasKey();
+    askBtn.disabled = !ok || busy;
+    askBtn.textContent = busy ? '調べている…' : (events.length || prefs.lastDay ? '調べ直す' : '調べる');
+    askBtn.classList.toggle('is-primary', !events.length);
+    if (busy) return;
+    askNote.classList.remove('is-error');
     askNote.textContent = !hasKey()
-      ? 'API キーを設定の「ヘルプ」に入れると調べられる。'
+      ? 'API キーを設定の「ヘルプと AI」に入れると調べられる。'
       : !chosen.size ? '見るものを 1 つ以上選ぶ。'
-      : '押したときだけ調べる（Web 検索は 1 回に ' + SEARCH_MAX_USES + ' 回まで。料金はこのキーの持ち主に掛かる）。'
-        + (prefs.lastDay ? ' 前に調べた日: ' + md(prefs.lastDay) : '');
+      : !prefs.lastDay ? '見るものを選んで「調べる」。10〜60 秒ほどかかる。'
+      : '';
+  }
+
+  function pickable() {
+    const have = addedKeys(store.all());
+    return events.filter(e => !have.has(e.key));
   }
 
   function syncAdd() {
-    const have = addedKeys(store.all());
-    const n = events.filter(e => !have.has(e.key) && rowState.get(e.key) && rowState.get(e.key).on).length;
-    addBtn.textContent = n ? '選んだ ' + n + ' 件を入れる' : '入れる';
+    const left = pickable();
+    const n = left.filter(e => rowState.get(e.key) && rowState.get(e.key).on).length;
+    addBtn.textContent = n ? n + ' 件を入れる' : '入れる';
     addBtn.disabled = !n;
     addRow.hidden = !events.length;
+    addBtn.classList.toggle('is-primary', !!events.length);
+    allBtn.hidden = !left.length;
+    allBtn.textContent = left.length && n === left.length ? '選ぶのをやめる' : 'すべて選ぶ';
   }
 
+  allBtn.addEventListener('click', () => {
+    const left = pickable();
+    const all = left.every(e => rowState.get(e.key) && rowState.get(e.key).on);
+    left.forEach(e => { const st = rowState.get(e.key); if (st) st.on = !all; });
+    renderList();
+  });
+
+  /* 'YYYY-MM-DD' -> 'YYYY年M月'（一覧の見出し） */
+  function monthOf(key) { const m = /^(\d{4})-(\d{2})/.exec(key); return m ? (+m[1]) + '年' + (+m[2]) + '月' : ''; }
+
+  askBtn.addEventListener('click', async () => {
+    if (askBtn.disabled) return;
+    busy = true;
+    syncAsk();
+    askNote.classList.remove('is-error');
+    askNote.textContent = '';
+    askNote.appendChild(el('span', 'up-spin'));
+    askNote.appendChild(document.createTextNode(' Web を調べている（10〜60 秒ほど）。閉じると結果は受け取れない。'));
+    scroller.scrollTop = 0;
+    try {
+      const p = buildPrompt(Array.from(chosen), wordsIn.value, today);
+      const text = await askWithSearch(p.system, p.user);
+      const arr = extractJsonArray(text);
+      if (!arr) throw new Error('返事を一覧にできなかった。もう一度「調べ直す」を押す。');
+      events = normalizeEvents(arr, today);
+      prefs.lastDay = today;
+      remember();
+      busy = false;
+      if (root) { if (events.length) cond.open = false; renderList(); syncAsk(); }
+      toast(events.length ? events.length + '件見つかった' : '予定は見つからなかった');
+    } catch (err) {
+      busy = false;
+      if (root) {
+        syncAsk();
+        askNote.textContent = (err && err.message) || '調べられなかった';
+        askNote.classList.add('is-error');
+      }
+    }
+  });
+
+  addBtn.addEventListener('click', () => {
+    const picks = pickable().filter(e => rowState.get(e.key) && rowState.get(e.key).on)
+      .map(e => ({ ev: e, lead: rowState.get(e.key).lead }));
+    if (!picks.length) return;
+    if (store.readOnly && store.readOnly()) { toast('繋がると入れられる（いまは読むだけの間）'); return; }
+    const r = addEvents(store, picks, today);
+    renderList();
+    toast(r.added.length
+      ? r.added.length + '件を長期保留に入れた（その日になると今日へ出る）'
+      : '入れられなかった');
+  });
+
+  /* 一覧。開催中のものを先頭の「開催中」にまとめ、ほかは始まる月ごとに見出しを付ける。
+     行全体が選ぶ印の label（どこを押しても選べる）。出典と日の選び欄は、押しても選び直しにならない */
   function renderList() {
     list.textContent = '';
     const have = addedKeys(store.all());
-    listHead.textContent = events.length
-      ? '見つかった予定（' + (prefs.lastDay ? md(prefs.lastDay) + ' に調べた。' : '') + '日付は出典で確かめる）'
-      : (prefs.lastDay ? '見つかった予定は無い。' : '');
+    const n = events.length;
+    listBar.hidden = !n && !prefs.lastDay;
+    listHead.textContent = n
+      ? n + '件見つかった' + (prefs.lastDay ? '（' + md(prefs.lastDay) + ' に調べた）' : '')
+      : (prefs.lastDay ? '見つかった予定は無い。見るものを変えて調べ直す。' : '');
+    let section = '';
     events.forEach(ev => {
       if (!rowState.has(ev.key)) rowState.set(ev.key, { on: ev.status !== 'rumor', lead: defaultLead(ev, today) });
       const st = rowState.get(ev.key);
       const done = have.has(ev.key);
-      const li = el('li', 'up-row' + (done ? ' is-added' : '') + ' is-' + ev.status);
+      const sec = isRunning(ev, today) ? '開催中' : monthOf(ev.date);
+      if (sec !== section) { section = sec; list.appendChild(el('p', 'up-sec', sec)); }
 
+      const row = el('label', 'up-row' + (done ? ' is-added' : '') + ' is-' + ev.status + (st.on && !done ? ' is-on' : ''));
       const cb = document.createElement('input');
       cb.type = 'checkbox';
+      cb.className = 'up-cb';
       cb.checked = !done && st.on;
       cb.disabled = done;
-      cb.setAttribute('aria-label', ev.title + ' を入れる');
-      cb.addEventListener('change', () => { st.on = cb.checked; syncAdd(); });
+      cb.addEventListener('change', () => { st.on = cb.checked; row.classList.toggle('is-on', cb.checked); syncAdd(); });
 
       const date = el('span', 'up-date');
-      /* 期間ものは「M/D〜M/D」。開催中なら頭に「開催中」（終わりの日だけ太く見せる） */
-      if (ev.end) {
-        if (isRunning(ev, today)) date.appendChild(el('span', 'up-run', '開催中'));
-        const s = el('span');
-        s.textContent = md(ev.date) + '〜';
-        const e = el('b');
-        e.textContent = md(ev.end) + '（' + wd(ev.end) + '）';
-        date.appendChild(s); date.appendChild(e);
-      } else {
-        date.textContent = md(ev.date) + '（' + wd(ev.date) + '）';
-      }
+      const b = el('b');
+      const w = el('span');
+      if (ev.end) { w.textContent = md(ev.date) + '〜'; b.textContent = md(ev.end) + '（' + wd(ev.end) + '）'; date.appendChild(w); date.appendChild(b); }
+      else { b.textContent = md(ev.date); w.textContent = '（' + wd(ev.date) + '）'; date.appendChild(b); date.appendChild(w); }
+
       const body = el('span', 'up-body');
       const ttl = el('span', 'up-title');
       ttl.textContent = ev.title;             /* AI の返事。innerHTML には入れない */
@@ -257,24 +354,25 @@ export function openUpcoming(opts) {
       badge.textContent = STATUS[ev.status];
       meta.appendChild(badge);
       if (ev.entry) meta.appendChild(el('span', 'up-st is-entry', 'エントリー要'));
-      if (ev.note) {
-        const nt = el('span', 'up-cond-tx');
-        nt.textContent = ev.note;             /* AI の返事。innerHTML には入れない */
-        meta.appendChild(nt);
-      }
       if (ev.source) {
         const a = el('a', 'up-src');
         a.textContent = '出典';
         a.href = ev.source;
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
+        a.setAttribute('aria-label', ev.title + ' の出典を開く');
         meta.appendChild(a);
       }
       body.appendChild(ttl); body.appendChild(meta);
+      if (ev.note) {
+        const nt = el('span', 'up-cond-tx');
+        nt.textContent = ev.note;             /* AI の返事。innerHTML には入れない */
+        body.appendChild(nt);
+      }
 
       const tail = el('span', 'up-tail');
       if (done) {
-        tail.textContent = '入れてある';
+        tail.appendChild(el('span', 'up-done', '✓ 入れてある'));
       } else {
         const sel = document.createElement('select');
         sel.setAttribute('aria-label', ev.title + ' を今日へ出す日');
@@ -290,55 +388,20 @@ export function openUpcoming(opts) {
         const when = el('small', 'up-when');
         const upd = () => {
           const d = triggerDay(ev, st.lead, today);
-          when.textContent = d === today ? '→ すぐ今日に置く' : '→ ' + md(d) + ' に今日へ';
+          when.textContent = d === today ? 'すぐ今日へ' : md(d) + ' に今日へ';
         };
         sel.addEventListener('change', () => { st.lead = sel.value; upd(); });
         upd();
         tail.appendChild(sel); tail.appendChild(when);
       }
 
-      li.appendChild(cb); li.appendChild(date); li.appendChild(body); li.appendChild(tail);
-      list.appendChild(li);
+      row.appendChild(cb); row.appendChild(date); row.appendChild(body); row.appendChild(tail);
+      /* 行（label）のどこを押しても選べる。選び欄・出典は「操作できる中身」なので、
+         押しても label は印を切り替えない（HTML の決まり。tests の画面確認で見ている） */
+      list.appendChild(row);
     });
     syncAdd();
   }
-
-  askBtn.addEventListener('click', async () => {
-    if (askBtn.disabled) return;
-    askBtn.disabled = true;
-    const was = askBtn.textContent;
-    askBtn.textContent = '調べている…';
-    askNote.textContent = 'Web を調べている（10〜60 秒ほど）。閉じてもよいが、結果はこの板でしか受け取れない。';
-    try {
-      const p = buildPrompt(Array.from(chosen), wordsIn.value, today);
-      const text = await askWithSearch(p.system, p.user);
-      const arr = extractJsonArray(text);
-      if (!arr) throw new Error('返事を一覧にできなかった。もう一度調べる');
-      events = normalizeEvents(arr, today);
-      prefs.lastDay = today;
-      remember();
-      if (root) { if (events.length) cond.open = false; renderList(); syncAsk(); }
-      toast(events.length ? events.length + '件の予定が見つかった' : '予定は見つからなかった');
-    } catch (err) {
-      if (root) askNote.textContent = (err && err.message) || '調べられなかった';
-    } finally {
-      askBtn.textContent = was;
-      if (root) syncAsk();
-    }
-  });
-
-  addBtn.addEventListener('click', () => {
-    const have = addedKeys(store.all());
-    const picks = events.filter(e => !have.has(e.key) && rowState.get(e.key) && rowState.get(e.key).on)
-      .map(e => ({ ev: e, lead: rowState.get(e.key).lead }));
-    if (!picks.length) return;
-    if (store.readOnly && store.readOnly()) { toast('繋がると入れられる（いまは読むだけの間）'); return; }
-    const r = addEvents(store, picks, today);
-    renderList();
-    toast(r.added.length
-      ? r.added.length + '件を長期保留に入れた（その日になると今日へ出る）'
-      : '入れられなかった');
-  });
 
   cond.open = !events.length;
   syncSummary();

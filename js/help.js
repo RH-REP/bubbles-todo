@@ -52,13 +52,35 @@ export function closeHelp(restoreFocus) {
   return true;
 }
 
+/* よくある質問の例（押すと、そのまま訊く）。使い方の記事の目次と同じ範囲から */
+const EXAMPLES = [
+  '次の一手はどこで書く？',
+  '長期保留の「もどってくる日」はどう使う？',
+  '別の端末と記録を合わせるには？',
+];
+
+/* AI の返事の Markdown の飾り（**太字**・# 見出し・`コード`・行頭の - * ）を落として、素の文にする。
+   HTML としては扱わない（textContent で出す）——飾りの記号が残って読みにくいのを直すだけ */
+export function plainReply(s) {
+  return String(s || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/```[a-z]*\n?/gi, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '・')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /* opts = { getContext() -> { summary }, repo, app, version, was } */
 export function openHelp(opts) {
   const o = opts || {};
   if (root) closeHelp(false);
 
   const back = el('div', 'help-back');
-  const box = el('div', 'help');
+  const box = el('div', 'help has-chat');
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-modal', 'true');
   box.setAttribute('aria-label', 'ヘルプ');
@@ -72,9 +94,17 @@ export function openHelp(opts) {
   head.appendChild(closeBtn);
   box.appendChild(head);
 
-  /* ---- 使い方の目次（読むだけ） ---- */
-  const tocBox = el('div', 'help-toc');
-  tocBox.appendChild(el('h3', null, '使い方の記事'));
+  /* 中身（目次＋会話）だけが流れ、見出しと入力欄は板の上下に留まる */
+  const scroller = el('div', 'help-scroll');
+  box.appendChild(scroller);
+
+  /* ---- 使い方の目次（読むだけ。畳める。会話が始まったら畳む） ---- */
+  const tocBox = document.createElement('details');
+  tocBox.className = 'help-toc';
+  tocBox.open = true;
+  const tocSum = document.createElement('summary');
+  tocSum.textContent = '使い方の記事（' + TOC.length + '）';
+  tocBox.appendChild(tocSum);
   const tocList = el('ul', 'help-toclist');
   TOC.forEach(([id, label]) => {
     const li = document.createElement('li');
@@ -86,41 +116,67 @@ export function openHelp(opts) {
     tocList.appendChild(li);
   });
   tocBox.appendChild(tocList);
-  box.appendChild(tocBox);
+  scroller.appendChild(tocBox);
 
   /* ---- チャット（会話はメモリにだけ。閉じると消える） ---- */
   const chatBox = el('div', 'help-chat');
   chatBox.appendChild(el('h3', null, 'AI に訊く'));
   chatBox.appendChild(el('p', 'note',
-    '使い方や、不具合っぽい動きについて尋ねられる。送るのは質問の文とこの app の説明・版・画面だけ。'
-    + 'バブルの本文は送らない。会話はこの画面を閉じると消える。'));
+    '送るのは質問の文とこの app の説明・版・画面だけ（バブルの本文は送らない）。会話は閉じると消える。'));
+
+  /* キーが無いときは、入力欄の前に「どこで入れるか」をはっきり出す（打ってから断られないように） */
+  if (!hasKey()) {
+    chatBox.appendChild(el('p', 'help-nokey',
+      'API キーがまだ入っていない。設定の「ヘルプと AI」の欄に Anthropic の API キーを入れると訊ける。'));
+  }
+
+  /* 例の質問（会話がまだ無いときだけ出す） */
+  const examples = el('div', 'help-examples');
+  EXAMPLES.forEach(q => {
+    const b = el('button', 'help-ex');
+    b.type = 'button';
+    b.textContent = q;
+    b.disabled = !hasKey();
+    b.addEventListener('click', () => { input.value = q; form.requestSubmit(); });
+    examples.appendChild(b);
+  });
+  chatBox.appendChild(examples);
 
   const log = el('div', 'help-log');
   log.setAttribute('role', 'log');
   log.setAttribute('aria-live', 'polite');
   chatBox.appendChild(log);
+  scroller.appendChild(chatBox);
 
   const history = [];   /* { role, content } の配列。メモリにだけ。閉じたら破棄 */
 
+  /* ---- 下に留まる欄（入力・送る・Issue） ---- */
+  const foot = el('div', 'help-foot');
   const form = el('form', 'help-form');
   const input = document.createElement('textarea');
-  input.rows = 2;
-  input.placeholder = hasKey() ? '質問を書く' : 'API キーを設定に入れると訊ける';
+  input.rows = 1;
+  input.placeholder = hasKey() ? '質問を書く' : 'キーを入れると訊ける';
+  input.title = 'Enter で改行、⌘/Ctrl+Enter で送る';
   input.setAttribute('aria-label', 'AI への質問');
+  input.disabled = !hasKey();
   const send = el('button', 'btn help-send', '送る');
   send.type = 'submit';
   form.appendChild(input);
   form.appendChild(send);
-  chatBox.appendChild(form);
+  foot.appendChild(form);
 
+  /* 会話ができてから出す（それまでは押しても何もできないので見せない） */
   const issueRow = el('div', 'help-issuerow');
-  const issueBtn = el('button', 'btn', 'この内容で改善の Issue を書く');
+  issueRow.hidden = true;
+  const issueBtn = el('button', 'help-link', 'この会話から改善の Issue を書く');
   issueBtn.type = 'button';
-  issueBtn.disabled = true;   /* 会話が無いうちは押せない */
+  const issueMsg = el('span', 'help-issuemsg');
+  issueMsg.setAttribute('role', 'status');
   issueRow.appendChild(issueBtn);
-  chatBox.appendChild(issueRow);
+  issueRow.appendChild(issueMsg);
+  foot.appendChild(issueRow);
+  box.appendChild(foot);
 
-  box.appendChild(chatBox);
   back.appendChild(box);
   back.addEventListener('pointerdown', ev => { if (ev.target === back) closeHelp(true); });
 
@@ -135,48 +191,97 @@ export function openHelp(opts) {
   document.body.appendChild(back);
   root = { back, box, onKey, was: o.was };
 
+  function scrollDown() { scroller.scrollTop = scroller.scrollHeight; }
+
   function addBubble(role, text) {
     const b = el('p', 'help-msg is-' + role);
-    b.textContent = text;
+    b.textContent = text;            /* 利用者の文・AI の返事。innerHTML には入れない */
     log.appendChild(b);
-    log.scrollTop = log.scrollHeight;
+    scrollDown();
     return b;
   }
+
+  /* 待っている間の印（3つの点。動きを減らす設定なら止まった点） */
+  function addWaiting() {
+    const b = el('p', 'help-msg is-ai is-wait');
+    b.setAttribute('aria-label', '返事を待っている');
+    for (let i = 0; i < 3; i++) b.appendChild(el('span', 'dot'));
+    log.appendChild(b);
+    scrollDown();
+    return b;
+  }
+
+  /* 失敗したとき。質問は入力欄に戻し、「もう一度」で同じ質問を送り直せる */
+  function addError(msg, text) {
+    const b = el('div', 'help-msg is-system is-error');
+    const p = el('span');
+    p.textContent = msg;
+    b.appendChild(p);
+    const retry = el('button', 'help-link', 'もう一度送る');
+    retry.type = 'button';
+    retry.addEventListener('click', () => { b.remove(); input.value = text; form.requestSubmit(); });
+    b.appendChild(retry);
+    log.appendChild(b);
+    scrollDown();
+  }
+
+  /* 入力欄は中身に合わせて伸びる（5行まで） */
+  function fit() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 132) + 'px';
+  }
+  input.addEventListener('input', fit);
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey) && !ev.isComposing) {
+      ev.preventDefault();
+      form.requestSubmit();
+    }
+  });
 
   function systemPrompt() {
     const ctx = (() => { try { return (o.getContext && o.getContext()) || {}; } catch (err) { return {}; } })();
     return APP_SUMMARY + '\n今の状態: ' + (ctx.summary || '');
   }
 
+  let busy = false;
   form.addEventListener('submit', async ev => {
     ev.preventDefault();
+    if (busy) return;
     const text = input.value.trim();
     if (!text) return;
     if (!hasKey()) {
-      addBubble('system', 'API キーが入っていない。設定の「ヘルプ」で入れてから訊いてください。');
+      addBubble('system', 'API キーが入っていない。設定の「ヘルプと AI」で入れてから訊いてください。');
       return;
     }
+    /* 会話が始まったら、目次と例は畳む（会話の場所を広く使う） */
+    tocBox.open = false;
+    examples.hidden = true;
     addBubble('user', text);
     history.push({ role: 'user', content: text });
     input.value = '';
+    fit();
+    busy = true;
     send.disabled = true;
-    const waiting = addBubble('ai', '…');
+    send.textContent = '待っている…';
+    const waiting = addWaiting();
     try {
       const reply = await ask(systemPrompt(), history);
-      waiting.textContent = reply || '（返事が空だった）';
+      waiting.remove();
+      addBubble('ai', plainReply(reply) || '（返事が空だった）');
       history.push({ role: 'assistant', content: reply || '' });
-      issueBtn.disabled = false;
+      issueRow.hidden = false;
     } catch (err) {
       waiting.remove();
-      addBubble('system', (err && err.message) || '届かなかった');
+      history.pop();                         /* 届かなかった質問は、会話の続きに入れない */
+      log.lastChild && log.lastChild.classList.contains('is-user') && log.lastChild.remove();
+      addError((err && err.message) || '届かなかった', text);
     } finally {
+      busy = false;
       send.disabled = false;
-      input.focus();
+      send.textContent = '送る';
+      if (root) input.focus();
     }
   });
-
-  const issueMsg = el('p', 'note');
-  chatBox.appendChild(issueMsg);
 
   issueBtn.addEventListener('click', async () => {
     if (!window.AppFeedback) return;
@@ -198,6 +303,8 @@ export function openHelp(opts) {
     } catch (err) { issueMsg.textContent = 'GitHub を開いた。'; }
   });
 
-  setTimeout(() => input.focus(), 0);
+  /* 開いた直後は入力欄に焦点を置かない（スマホでキーボードが出て、目次と例が隠れるため）。
+     焦点は見出しの「閉じる」へ。会話を始めてからは入力欄へ戻す */
+  setTimeout(() => { try { closeBtn.focus({ preventScroll: true }); } catch (e) { /* そのまま */ } }, 0);
   return true;
 }

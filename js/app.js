@@ -18,6 +18,8 @@ import { toast, holdRing, fromFeedback } from './ui.js';
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
 import { setCenterHandler, centerBubble } from './bubble.js';
 import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
+import { closeHelp } from './help.js';
+import { closeUpcoming } from './upcoming.js';
 import sea from './screens/sea.js';
 import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
@@ -783,6 +785,10 @@ function pushBack() {
 function closeTopOverlay() {
   /* 引き出し（F7）。いちばん手前なので最初に畳む */
   if (drawer) { closeDrawer(); return true; }
+  /* 設定から開く板（ヘルプ・先の予定。2026-11-04 Issue #9・#13）。
+     前は戻るで閉じず、裏の画面だけが海へ切り替わっていた */
+  if (closeHelp(true)) return true;
+  if (closeUpcoming(true)) return true;
   /* 記録を直す板（bubble.js が作る素の要素。閉じるのは外すだけ） */
   const stepEdit = document.querySelector('.bh-edit-back');
   if (stepEdit) { stepEdit.remove(); return true; }

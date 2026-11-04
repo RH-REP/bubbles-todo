@@ -196,7 +196,7 @@ export default {
     box.appendChild(updateBox());
 
     /* --- ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）---
-       repo の URL・API キーの欄・「AI に訊く」ボタン。キーが無くてもここまでは見える */
+       「ヘルプを開く」（キーが無くても押せる）・API キー・repo の URL */
     box.appendChild(helpAiBox());
 
     /* --- 先の予定（AI。2026-11-04。利用者の指示 Issue #13）---
@@ -676,14 +676,83 @@ function updateBox() {
 }
 
 /* ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）。
-   repo の URL・API キーの欄（伏せ字・保存・消す）・「AI に訊く」ボタン。
+   「ヘルプを開く」・API キー（入っていれば末尾4字だけ・変える・消す）・repo の URL。
    キーは js/ai.js が localStorage の別の箱（bubble_todo_ai_key）に持つ。ここでは読み書きするだけ。
-   「AI に訊く」は js/help.js の画面を開くだけで、質問や会話はここでは持たない。 */
+   「ヘルプを開く」は js/help.js の画面を開くだけで、質問や会話はここでは持たない。 */
 const REPO = 'RH-REP/bubbles-todo';
+
+/* 2026-11-04 UI 見直し（Issue #9）:
+   ・「ヘルプを開く」はキーが無くても押せる（使い方の記事の目次はキー無しで読める。前はキーが無いと押せず、目次にも辿り着けなかった）
+   ・キーは「入っている（…末尾4字）」の1行＋「変える」「消す」。入っていないときだけ入力欄（Enter でも保存）
+   ・キーはヘルプと先の予定の両方で使うので、節の名前を「ヘルプと AI」にした */
+function maskKey(k) { const s = String(k || ''); return s ? '…' + s.slice(-4) : ''; }
 
 function helpAiBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'ヘルプ'));
+  wrap.appendChild(el('h3', null, 'ヘルプと AI'));
+
+  const askRow = el('div', 'row');
+  askRow.style.cssText = 'margin-top:4px';
+  const askBtn = el('button', 'btn', 'ヘルプを開く');
+  askBtn.type = 'button';
+  askRow.appendChild(askBtn);
+  wrap.appendChild(askRow);
+  wrap.appendChild(el('p', 'note',
+    '使い方の記事の目次と、AI（Anthropic・Claude）への質問。AI は下の API キーで動く（先の予定でも使う）。'
+    + '送るのは質問の文とこの app の説明・版・画面だけ（バブルの本文は送らない）。'));
+
+  /* --- API キー --- */
+  const keyBox = el('div', 'aikey');
+  wrap.appendChild(keyBox);
+  function renderKey(editing) {
+    keyBox.textContent = '';
+    const row = el('div', 'row');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
+    if (hasKey() && !editing) {
+      const st = el('span', 'aikey-st');
+      st.textContent = 'API キー: 入っている（' + maskKey(getKey()) + '）';
+      st.style.cssText = 'flex:1;min-width:160px;font-size:13.5px';
+      const ch = el('button', 'btn', '変える');
+      ch.type = 'button';
+      ch.addEventListener('click', () => renderKey(true));
+      const rm = el('button', 'btn', '消す');
+      rm.type = 'button';
+      rm.addEventListener('click', () => { setKey(''); toast('キーを消した'); renderKey(false); });
+      row.appendChild(st); row.appendChild(ch); row.appendChild(rm);
+      keyBox.appendChild(row);
+      return;
+    }
+    const keyIn = document.createElement('input');
+    keyIn.type = 'password';
+    keyIn.autocomplete = 'off';
+    keyIn.placeholder = 'sk-ant-…（Anthropic Console で発行）';
+    keyIn.setAttribute('aria-label', 'Anthropic の API キー');
+    keyIn.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:16px;min-height:44px;'
+      + 'padding:0 12px;border-radius:10px;border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
+    const save = () => {
+      const v = keyIn.value.trim();
+      if (!v) { toast('キーを貼り付けてから保存する'); return; }
+      if (!setKey(v)) { toast('保存できなかった'); return; }
+      toast(/^sk-ant-/.test(v) ? 'キーを保存した' : 'キーを保存した（sk-ant- で始まっていない。違うキーかもしれない）');
+      renderKey(false);
+    };
+    keyIn.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); save(); } });
+    const sv = el('button', 'btn', '保存');
+    sv.type = 'button';
+    sv.addEventListener('click', save);
+    row.appendChild(keyIn); row.appendChild(sv);
+    if (editing) {
+      const cancel = el('button', 'btn', 'やめる');
+      cancel.type = 'button';
+      cancel.addEventListener('click', () => renderKey(false));
+      row.appendChild(cancel);
+    }
+    keyBox.appendChild(row);
+    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ置く（サーバー・CSV・同期には入らない）。'
+      + 'Anthropic Console で、この app 専用のワークスペースと使える上限額を決めておくと安心。'));
+    if (editing) setTimeout(() => keyIn.focus(), 0);
+  }
+  renderKey(false);
 
   const repoRow = el('p', 'note');
   const repoLink = el('a', null, 'GitHub: ' + REPO);
@@ -693,49 +762,6 @@ function helpAiBox() {
   repoRow.appendChild(repoLink);
   wrap.appendChild(repoRow);
 
-  wrap.appendChild(el(
-    'p', 'note',
-    'AI（Anthropic・Claude）に使い方や不具合っぽい動きを尋ねられる。'
-    + 'API キーを入れると使える。質問の文とこの app の説明・版・画面だけを送る（バブルの本文は送らない）。'
-    + '会話はこの端末のメモリにだけ置き、閉じると消える。'
-  ));
-
-  const keyRow = el('div', 'row');
-  keyRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
-  const keyIn = document.createElement('input');
-  keyIn.type = 'password';
-  keyIn.autocomplete = 'off';
-  keyIn.placeholder = 'sk-ant-... (Anthropic の API キー)';
-  keyIn.setAttribute('aria-label', 'Anthropic の API キー');
-  keyIn.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:14px;min-height:44px;'
-    + 'padding:0 12px;border-radius:10px;border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
-  keyIn.value = getKey();
-  keyRow.appendChild(keyIn);
-
-  const saveBtn = el('button', 'btn', '保存');
-  saveBtn.type = 'button';
-  saveBtn.addEventListener('click', () => {
-    if (setKey(keyIn.value)) { toast(keyIn.value.trim() ? 'キーを保存した' : 'キーを消した'); askBtn.disabled = !hasKey(); }
-    else toast('保存できなかった');
-  });
-  keyRow.appendChild(saveBtn);
-
-  const clearBtn = el('button', 'btn', '消す');
-  clearBtn.type = 'button';
-  clearBtn.addEventListener('click', () => {
-    keyIn.value = '';
-    setKey('');
-    toast('キーを消した');
-    askBtn.disabled = true;
-  });
-  keyRow.appendChild(clearBtn);
-  wrap.appendChild(keyRow);
-
-  const askRow = el('div', 'row');
-  askRow.style.cssText = 'margin-top:10px';
-  const askBtn = el('button', 'btn', 'AI に訊く');
-  askBtn.type = 'button';
-  askBtn.disabled = !hasKey();
   askBtn.addEventListener('click', () => {
     openHelp({
       repo: REPO, app: 'bubble_todo', version: '0.1.0', was: askBtn,
@@ -752,9 +778,6 @@ function helpAiBox() {
       },
     });
   });
-  askRow.appendChild(askBtn);
-  wrap.appendChild(askRow);
-  if (!hasKey()) wrap.appendChild(el('p', 'note', 'キーを入れると「AI に訊く」が押せる。'));
 
   return wrap;
 }
@@ -766,9 +789,7 @@ function upcomingBox() {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, '先の予定（AI）'));
   wrap.appendChild(el('p', 'note',
-    'FOMC・決算日・セール・新型・中国の連休・各国の休日、支払いの還元やポイント増量のキャンペーンなど、'
-    + '日付が先に分かっている予定を AI が Web で調べる。'
-    + '選んだものは長期保留に入り、その何日か前に今日へ出てくる。値動きの予想はしない。'));
+    'FOMC・決算日・セール・支払いの還元・ポイント増量など、日付の決まった予定を AI が調べ、その少し前に今日へ出す。'));
   const last = el('p', 'note');
   const refresh = () => { last.textContent = lastLine(store.todayKey()); };
   refresh();

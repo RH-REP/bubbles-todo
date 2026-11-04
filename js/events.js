@@ -16,27 +16,27 @@
 
 /* 見るもの（トピック）。lead = 何日前に今日へ出すか（既定） */
 export const TOPICS = [
-  { id: 'fomc',     group: '投資',   label: 'FOMC・日銀の会合',             lead: 14,
+  { id: 'fomc',     group: '投資',   label: '金融政策', sub: 'FOMC・日銀', lead: 14,
     ask: 'FOMC（米連邦公開市場委員会）と日本銀行の金融政策決定会合の日程' },
-  { id: 'macro',    group: '投資',   label: '米国の CPI・雇用統計',          lead: 3,
+  { id: 'macro',    group: '投資',   label: '米国の指標', sub: 'CPI・雇用統計', lead: 3,
     ask: '米国 CPI と雇用統計の発表日' },
-  { id: 'earnings', group: '投資',   label: '下の銘柄の決算発表',            lead: 7,
+  { id: 'earnings', group: '投資',   label: '決算発表', sub: '下の欄に書いた銘柄', lead: 7,
     ask: '「銘柄・商品」に書いた銘柄の決算発表日' },
-  { id: 'election', group: '投資',   label: '選挙（米国・日本）',            lead: 14,
+  { id: 'election', group: '投資',   label: '選挙', sub: '米国・日本', lead: 14,
     ask: '米国と日本の国政選挙の投票日' },
-  { id: 'sale',     group: 'せどり', label: 'Amazon・楽天の大型セール',      lead: 7,
+  { id: 'sale',     group: 'せどり', label: '大型セール', sub: 'Amazon・楽天', lead: 7,
     ask: 'Amazon（プライムデー・ブラックフライデーなど）と楽天（スーパーセール・お買い物マラソン）の大型セールの開始日' },
-  { id: 'console',  group: 'せどり', label: 'ゲーム機・VR のセール・新型・値上げ', lead: 7,
+  { id: 'console',  group: 'せどり', label: 'ゲーム機・VR', sub: 'セール・新型・値上げ', lead: 7,
     ask: 'PlayStation 5・Meta Quest・Nintendo Switch など、ゲーム機と VR 機の公式セール・新型の発売日・価格改定の実施日' },
-  { id: 'china',    group: 'せどり', label: '中国の連休・商戦（春節・618・双11）', lead: 7,
+  { id: 'china',    group: 'せどり', label: '中国の連休・商戦', sub: '春節・618・双11', lead: 7,
     ask: '中国の春節・労働節・国慶節の連休の始まりと、618・双11 の商戦の日' },
-  { id: 'holiday',  group: '休日',   label: '休日（日本・米国・中国・UAE）', lead: 3,
+  { id: 'holiday',  group: '休日',   label: '各国の休日', sub: '日本・米国・中国・UAE', lead: 3,
     ask: '日本・米国・中国・アラブ首長国連邦（ドバイ）の祝日と、東京・米国・上海の市場の休場日' },
   /* お得（2026-11-04 追加。利用者の指示）。期間もの（始まり〜終わり）が中心。
      既定は「終わる3日前」に今日へ（使い忘れを防ぐ）。エントリーが要るものは「始まる日」に今日へ */
-  { id: 'pay',      group: 'お得',   label: '支払いのキャンペーン（PayPay・d払い・楽天ペイ・au PAY・エアウォレットなど）', lead: 3,
+  { id: 'pay',      group: 'お得',   label: '支払いの還元', sub: 'PayPay・d払い・楽天ペイ・au PAY・エアウォレットなど', lead: 3,
     ask: 'PayPay・d払い・楽天ペイ・au PAY・メルペイ・エアウォレット・クレジットカードなど、日本のキャッシュレス決済の還元・割引キャンペーン（期間・エントリーの要否・上限）' },
-  { id: 'points',   group: 'お得',   label: 'ポイント増量（dポイント・楽天・V・Ponta など）', lead: 3,
+  { id: 'points',   group: 'お得',   label: 'ポイント増量', sub: 'dポイント・楽天・V・Ponta など', lead: 3,
     ask: 'dポイント・楽天ポイント・Vポイント・Pontaポイント・PayPayポイントの増量・倍率アップ・交換レート優遇のキャンペーン（期間・エントリーの要否・上限）' },
 ];
 

@@ -96,6 +96,18 @@ await test('ask() は x-api-key と anthropic-dangerous-direct-browser-access �
   assert.equal(JSON.stringify(seen.body.messages).includes('質問だよ'), true);
 });
 
+await test('ヘルプの返事: Markdown の飾り（**・#・`・行頭の -）を落として素の文にする', async () => {
+  /* help.js が DOM を触るのは openHelp の中だけ。ただし読み込む ui.js が読み込み時に window を見るので、
+     その分だけ小さな代わりを置く */
+  globalThis.window = globalThis.window || { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: false }) };
+  const { plainReply } = await import(new URL('../js/help.js', import.meta.url).href);
+  assert.equal(plainReply('## 見出し\n**次の一手**は `盤` に書く。\n- ひとつ\n* ふたつ\n\n\n\n終わり'),
+    '見出し\n次の一手は 盤 に書く。\n・ひとつ\n・ふたつ\n\n終わり');
+  assert.equal(plainReply('<b>そのまま</b>'), '<b>そのまま</b>', 'HTML は落とさない（textContent で出すので文字のまま）');
+  assert.equal(plainReply(''), '');
+  assert.equal(plainReply(null), '');
+});
+
 console.log('');
 console.log(`${pass} passed, ${failed.length} failed`);
 if (failed.length) process.exit(1);

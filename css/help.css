@@ -23,24 +23,64 @@
 }
 .help-head .cl:hover { color: var(--text); }
 
-.help-toc { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-.help-toc h3, .help-chat h3 {
-  font-size: 12px; font-weight: 500; color: var(--text-2);
-  margin: 0 0 8px; letter-spacing: .07em;
+/* ヘルプは「見出し／流れる中身／下に留まる入力欄」の3段（2026-11-04 UI 見直し。Issue #9）。
+   前は板ごと流れていて、会話が伸びると入力欄が画面の外へ出た */
+.help.has-chat { display: flex; flex-direction: column; overflow: hidden; height: min(720px, 100%); padding-bottom: 10px; }
+.help.has-chat .help-head { flex: none; margin-bottom: 4px; }
+.help-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
+.help-foot { flex: none; padding-top: 8px; border-top: 1px solid var(--line); }
+
+/* 目次は畳める（会話が始まると畳む）。2列にして縦の長さを半分に */
+.help-toc { padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.help-toc > summary {
+  min-height: 44px; display: flex; align-items: center; cursor: pointer; list-style: none;
+  font-size: 12px; font-weight: 500; color: var(--text-2); letter-spacing: .07em;
 }
-.help-toclist { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.help-toc > summary::-webkit-details-marker { display: none; }
+.help-toc > summary::before { content: '▸'; margin-right: 8px; transition: transform .15s; }
+.help-toc[open] > summary::before { transform: rotate(90deg); }
+.help-chat h3 {
+  font-size: 12px; font-weight: 500; color: var(--text-2);
+  margin: 0 0 6px; letter-spacing: .07em;
+}
+.help-toclist { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; margin: 0; padding: 0; list-style: none; }
 .help-toclist li a {
-  display: block; min-height: 40px; padding: 9px 2px;
-  font-size: 14px; color: var(--accent-a); text-decoration: none;
+  display: flex; align-items: center; min-height: 44px; padding: 4px 2px;
+  font-size: 13px; line-height: 1.4; color: var(--accent-a); text-decoration: none;
 }
 .help-toclist li a:hover { text-decoration: underline; }
 
 .help-chat { margin-top: 14px; }
 .help-chat .note { font-size: 12px; color: var(--text-2); margin: 0 0 10px; line-height: 1.7; }
+.help-nokey {
+  margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.6;
+  background: var(--surface-2); color: var(--text);
+}
+.help-examples { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.help-ex {
+  appearance: none; font: inherit; font-size: 12.5px; cursor: pointer; min-height: 36px;
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line-strong);
+  background: transparent; color: var(--text); text-align: left;
+}
+.help-ex:disabled { opacity: .5; cursor: default; }
 
-.help-log {
-  display: flex; flex-direction: column; gap: 8px;
-  max-height: 260px; overflow-y: auto; margin-bottom: 10px;
+.help-log { display: flex; flex-direction: column; gap: 8px; padding-bottom: 6px; }
+.help-msg.is-wait { display: inline-flex; gap: 5px; align-items: center; min-height: 36px; }
+.help-msg.is-wait .dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-2);
+  animation: help-blink 1.2s infinite ease-in-out;
+}
+.help-msg.is-wait .dot:nth-child(2) { animation-delay: .2s; }
+.help-msg.is-wait .dot:nth-child(3) { animation-delay: .4s; }
+@keyframes help-blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.help-msg.is-error { display: grid; gap: 4px; justify-items: center; text-align: center; max-width: 100%; }
+.help-link {
+  appearance: none; font: inherit; font-size: 12.5px; cursor: pointer; min-height: 36px;
+  padding: 4px 6px; border: 0; background: transparent; color: var(--accent-a); text-decoration: underline;
+}
+@media (prefers-reduced-motion: reduce) {
+  .help-msg.is-wait .dot { animation: none; opacity: .6; }
+  .help-toc > summary::before { transition: none; }
 }
 .help-msg {
   margin: 0; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.6;
@@ -51,21 +91,66 @@
 .help-msg.is-system { align-self: center; background: transparent; color: var(--text-2); font-size: 12.5px; }
 
 .help-form { display: flex; gap: 8px; align-items: flex-end; }
+/* 16px 未満だと iOS が入力のたびに画面を拡大するので 16px */
 .help-form textarea {
-  flex: 1; min-width: 0; font: inherit; font-size: 14px; resize: vertical;
-  padding: 10px 12px; border-radius: 10px; min-height: 44px;
+  flex: 1; min-width: 0; font: inherit; font-size: 16px; line-height: 1.4; resize: none;
+  padding: 11px 12px; border-radius: 12px; min-height: 44px; max-height: 132px;
   border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
 }
+.help-form textarea:disabled { opacity: .6; }
 .help-form textarea:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
-.help-send { flex: none; }
+.help-send { flex: none; min-width: 64px; }
 
-.help-issuerow { margin-top: 10px; display: flex; justify-content: flex-end; }
+.help-issuerow { margin-top: 2px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px; }
+.help-issuemsg { font-size: 11.5px; color: var(--text-2); }
 
 /* ---- 先の予定（AI。js/upcoming.js。2026-11-04 Issue #13）----
    ヘルプと同じ板（.help-back / .help）に載せる。赤は使わない（責める色にしない） */
 .help.up { width: min(560px, 100%); }
+/* ---- 先の予定の UI 見直し（2026-11-04。Issue #13）----
+   ・説明は1行＋「しくみ」に畳む
+   ・見るものは2列のカード（名前・中身・何日前）
+   ・一覧は月ごと／開催中の見出し、行全体で選べる、選んだ行は色が付く
+   ・下のボタンは留まる。結果が無ければ「調べる」、あれば「入れる」が主 */
+.up-lead { font-size: 13.5px; line-height: 1.6; margin: 0 0 2px; }
+.up-how > summary, .up-cond > summary { -webkit-tap-highlight-color: transparent; }
+.up-how { margin: 0 0 10px; }
+.up-how > summary {
+  min-height: 36px; display: inline-flex; align-items: center; cursor: pointer; list-style: none;
+  font-size: 12px; color: var(--accent-a);
+}
+.up-how > summary::-webkit-details-marker { display: none; }
+.up-how > summary::after { content: ' ▾'; }
+.up-how[open] > summary::after { content: ' ▴'; }
+.up-how .up-note { font-size: 12px; color: var(--text-2); margin: 0 0 10px; line-height: 1.7; }
+.up-topics { border: 0; margin: 0 0 8px; padding: 0; }
+.up-topics legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.up-group { font-size: 11.5px; color: var(--text-2); margin: 8px 0 6px; }
+.up-words { display: grid; gap: 6px; margin: 10px 0 12px; font-size: 12px; color: var(--text-2); }
+.up-words input {
+  font: inherit; font-size: 16px; min-height: 44px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+}
+.up-listhead {
+  font-size: 12px; font-weight: 500; color: var(--text-2); letter-spacing: .07em; margin: 0 0 6px; padding: 0;
+}
+.up-list { margin: 0 0 4px; padding: 0; }
+.up-st { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 11px; }
+.up-row.is-confirmed .up-st:first-child { background: var(--today-fill); border-color: transparent; color: var(--text); }
+.up-row.is-rumor .up-st:first-child { border-style: dashed; }
+.up-src { color: var(--accent-a); font-size: 12px; }
+.up-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: var(--text-2); }
+.up-tail select {
+  font: inherit; font-size: 13px; min-height: 36px; padding: 0 8px; border-radius: 8px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+}
+.up-row.is-added { opacity: .55; }
+.up-note { font-size: 12px; color: var(--text-2); margin: 0 0 10px; line-height: 1.7; }
+
 /* 右上の !（改善のコメント。どの板より上の固定の 26px）に「閉じる」が隠れないよう、見出しの右を空ける */
 .help-head { padding-right: 30px; }
+
+/* 見るもの（畳める） */
 .up-cond { margin: 0 0 8px; border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; }
 .up-cond > summary {
   min-height: 44px; display: flex; align-items: center; cursor: pointer;
@@ -74,58 +159,62 @@
 .up-cond > summary::-webkit-details-marker { display: none; }
 .up-cond > summary::before { content: '▸'; margin-right: 8px; transition: transform .15s; }
 .up-cond[open] > summary::before { transform: rotate(90deg); }
-@media (prefers-reduced-motion: reduce) { .up-cond > summary::before { transition: none; } }
-.up-note { font-size: 12px; color: var(--text-2); margin: 0 0 10px; line-height: 1.7; }
-.up-topics { border: 0; margin: 0 0 8px; padding: 0; display: grid; gap: 2px; }
-.up-topics legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.up-listhead {
-  font-size: 12px; font-weight: 500; color: var(--text-2); letter-spacing: .07em; margin: 0 0 6px; padding: 0;
+
+/* 見るものの2列カード（名前・中身・何日前） */
+.up-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 0 4px; }
+.up-chip {
+  display: flex; gap: 8px; align-items: flex-start; cursor: pointer; min-height: 44px;
+  padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line);
 }
-.up-group { font-size: 11.5px; color: var(--text-2); margin: 8px 0 0; }
-.up-topic { display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 14px; cursor: pointer; }
-.up-topic input { width: 20px; height: 20px; flex: none; margin: 0; }
-.up-topic span { flex: 1; }
-.up-topic small { color: var(--text-2); font-size: 11.5px; }
-.up-words { display: grid; gap: 6px; margin: 6px 0 12px; font-size: 12px; color: var(--text-2); }
-.up-words input {
-  font: inherit; font-size: 14px; min-height: 44px; padding: 0 12px; border-radius: 10px;
-  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+.up-chip:has(input:checked) { border-color: var(--bub-edge); background: color-mix(in srgb, var(--today-fill) 60%, transparent); }
+.up-chip input { width: 18px; height: 18px; margin: 1px 0 0; flex: none; }
+.up-chip-tx { display: grid; gap: 1px; min-width: 0; }
+.up-chip-tx b { font-size: 13.5px; font-weight: 600; }
+.up-chip-tx small { font-size: 11px; color: var(--text-2); line-height: 1.4; }
+.up-chip-tx .up-chip-ld { color: var(--accent-a); }
+
+/* 状態の1行（待っている・失敗・キーが無い） */
+.up-status { font-size: 12.5px; color: var(--text-2); margin: 4px 0 8px; line-height: 1.6; }
+.up-status:empty { display: none; }
+.up-status.is-error { padding: 8px 12px; border-radius: 10px; background: var(--surface-2); color: var(--text); }
+.up-spin {
+  display: inline-block; width: 12px; height: 12px; vertical-align: -1px; border-radius: 50%;
+  border: 2px solid var(--line-strong); border-top-color: var(--accent-a); animation: up-rot .8s linear infinite;
 }
-.up-askrow, .up-addrow { display: flex; justify-content: flex-end; margin: 4px 0 8px; }
-.up-addrow {
-  position: sticky; bottom: -16px; padding: 10px 0 4px;
-  background: linear-gradient(transparent, var(--surface) 30%);
+@keyframes up-rot { to { transform: rotate(360deg); } }
+
+/* 一覧の頭と、月／開催中の見出し（流しても上に留まる） */
+.up-listbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 2px; }
+.up-listbar .up-listhead { margin: 0; }
+.up-sec {
+  position: sticky; top: 0; z-index: 1; margin: 8px 0 0; padding: 6px 2px;
+  font-size: 11.5px; font-weight: 600; color: var(--text-2); letter-spacing: .06em; background: var(--surface);
 }
-.up-list { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 2px; }
-.up-row {
-  display: grid; grid-template-columns: 24px 74px 1fr; grid-template-areas: "cb date body" ". . tail";
-  align-items: center; column-gap: 8px; row-gap: 4px;
-  padding: 8px 2px; border-bottom: 1px solid var(--line);
+
+/* 1行: [印][日付][題名・印・条件] / [  ][    ][今日へ出す日]。行全体が label */
+.up-list .up-row {
+  display: grid; grid-template-columns: 22px 78px minmax(0, 1fr); grid-template-areas: "cb date body" ". . tail";
+  column-gap: 10px; row-gap: 6px; align-items: start; cursor: pointer;
+  padding: 10px 8px; margin: 4px 0; border-radius: 12px; border: 1px solid var(--line);
 }
-.up-row > input { grid-area: cb; width: 20px; height: 20px; margin: 0; }
-.up-date { grid-area: date; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-2); }
-.up-body { grid-area: body; display: grid; gap: 2px; min-width: 0; }
-.up-title { font-size: 14px; overflow-wrap: anywhere; }
-.up-meta { display: flex; gap: 10px; align-items: center; font-size: 11.5px; color: var(--text-2); }
-.up-st { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-strong); }
-.up-row.is-confirmed .up-st { background: var(--today-fill); border-color: transparent; color: var(--text); }
-.up-row.is-rumor .up-st { border-style: dashed; }
-.up-src { color: var(--accent-a); }
-.up-tail { grid-area: tail; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-2); }
-.up-tail select {
-  font: inherit; font-size: 13px; min-height: 36px; padding: 0 8px; border-radius: 8px;
-  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+.up-list .up-row.is-on { border-color: var(--bub-edge); background: color-mix(in srgb, var(--today-fill) 45%, transparent); }
+.up-list .up-row > .up-cb { grid-area: cb; width: 20px; height: 20px; margin: 1px 0 0; }
+.up-list .up-date { grid-area: date; display: grid; font-size: 12px; line-height: 1.35; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.up-list .up-date b { font-size: 14px; font-weight: 600; color: var(--text); }
+.up-list .up-body { grid-area: body; display: grid; gap: 4px; min-width: 0; }
+.up-list .up-title { font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.up-list .up-cond-tx { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.up-list .up-tail { grid-area: tail; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.up-list .up-when { font-size: 12px; color: var(--text); white-space: nowrap; }
+.up-done { font-size: 12px; color: var(--text-2); }
+.up-list .up-src { min-height: 28px; display: inline-flex; align-items: center; }
+
+/* 下に留まるボタン。主は塗り、従は線だけ */
+.up-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.up-foot .btn { min-width: 96px; }
+.btn.is-primary { background: var(--text); color: var(--surface); border-color: var(--text); font-weight: 600; }
+.up-foot .btn:disabled { opacity: .45; }
+@media (prefers-reduced-motion: reduce) {
+  .up-spin { animation: none; }
+  .up-cond > summary::before { transition: none; }
 }
-.up-row.is-added { opacity: .55; }
-/* 期間もの（キャンペーン）。終わりの日を太く、開催中は小さな印。赤は使わない */
-.up-date { display: grid; gap: 1px; line-height: 1.35; }
-.up-date b { font-weight: 600; color: var(--text); }
-.up-run {
-  justify-self: start; font-size: 10.5px; padding: 0 6px; border-radius: 999px;
-  background: var(--today-fill); color: var(--text);
-}
-.up-st.is-entry { border-color: var(--accent-a); color: var(--accent-a); }
-.up-cond-tx { overflow-wrap: anywhere; }
-.up-meta { flex-wrap: wrap; row-gap: 4px; }
-.up-tail { flex-wrap: wrap; row-gap: 2px; }
-.up-when { white-space: nowrap; }
