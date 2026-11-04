@@ -109,7 +109,8 @@
 - **キー**: 設定の「ヘルプと AI」に API キーの欄がある。入っていれば「入っている（…末尾4字）」と「変える」「消す」だけを出し、
   入っていないときだけ入力欄（Enter でも保存）。Anthropic Console で発行したキーを入れる。ヘルプと先の予定の両方で使う。
   キーは端末の `localStorage`（`bubble_todo_ai_key`）にだけ置く。**サーバーへは送らない**
-  （CSV の書き出し・サーバー同期・改善のコメント・エラーの記録のどれにも混ざらない。`tests/ai.test.mjs`）
+  （CSV の書き出し・サーバー同期・改善のコメント・エラーの記録のどれにも混ざらない。
+  保存の箱と CSV は `tests/ai.test.mjs`、同期・改善のコメント・エラーの記録は `tests/key-leak.test.mjs`）
 - **発行のしかた（利用者の運用。Issue #14）**: このキーは暗号化しても「端末の中で悪いコードが動く」場合は守れない
   （呼ぶときにこの app 自身が平文へ戻して使うため）。代わりに、漏れたときの被害を小さくする:
   - Anthropic Console で、この app 専用のワークスペースを作り、そこで発行したキーを使う（ほかの用途と上限額を分ける）
@@ -118,6 +119,11 @@
   - 使わないときは設定の「消す」でこの端末から消す
 - **送り先**: ブラウザから Anthropic の API（`api.anthropic.com`）へ直接。server.py を介さない
   （`anthropic-dangerous-direct-browser-access` ヘッダを付けて呼ぶ。鍵は使う人が自分の端末に置く前提の、Anthropic 自身の仕組み）
+- **送り先の制限（CSP の connect-src）が効く所・効かない所**（Issue #14 の見直し）: 制限は server.py が付けるヘッダーなので、
+  **server.py が配るページだけ**に効く（`'self'` と `api.anthropic.com` のほかへは繋がない）。
+  GitHub Pages のお試し版と Android 版（`www/`）にはヘッダーが付かず、制限が無い。そこでは、アプリの中で悪いコードが動いたときに
+  キーをよそへ送り出せる。同期の住所を利用者が自由に入れるので、ページの中に固定の制限（`<meta>`）を書くと同期が繋がらなくなる。
+  どうするかは Issue #14 で決める
 - **送る中身**: 書いた質問の文・この app の使い方の要約（README の目次ぶん）・版と今の画面 ID・件数（海・今日・長期保留・完了・タグ）だけ。
   **バブルの本文・作業メモは送らない**
 - **画面**（2026-11-04 UI 見直し）: 見出し／流れる中身／下に留まる入力欄の3段。入力欄は会話が伸びても画面の外へ出ない。
@@ -233,6 +239,7 @@ node tests/spacelist.test.mjs
 node tests/sea.test.mjs
 node tests/csvio.test.mjs
 node tests/ai.test.mjs
+node tests/key-leak.test.mjs
 python3 -m unittest tests/test_server.py
 bash tests/server-setup.test.sh
 ```
