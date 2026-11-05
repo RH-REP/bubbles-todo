@@ -755,6 +755,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let memoDraft = '';
   /* 本文（Issue #8）も入口と別の面。作業メモと違い、記録には積まず、閉じるときに書き替える */
   let detailBtn = null, detailPane = null, detailArea = null;
+  let detailView = null, detailEdit = null, detailNote = null;   /* 読む面と [編集]（Issue #16） */
   let detailDraft = '';
   let draft0 = null;            /* 開いた時点の入力欄の中身（触ったかを見るため） */
   let urlLink = null, urlLinkTx = null, urlEdit = null;
@@ -1690,13 +1691,37 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   /* ---- 本文の面（Issue #8）----
      作業メモの面と同じ入れ替え方・同じ形（.bc-memo / .bm-*）。
      違うのは [作業メモを保存] が無いこと。本文は積む記録ではないので、
-     [閉じる] で書き替える（盤を閉じたとき・[OK] のときも同じ）。 */
+     [閉じる] で書き替える（盤を閉じたとき・[OK] のときも同じ）。
+
+     ■ 読む面と書く面（Issue #16）
+     前は入口を押すとすぐ入力欄に焦点が入り、スマホではキーボードが立ち上がって
+     本文の半分が隠れた。本文は「書き替える」より「読み返す」ほうが多い。
+     だから本文があるときは、まず**読む面**で開く（焦点は入力欄に入れない＝キーボードは出ない）。
+     読む面は画面の上から下タブの手前まで広げ（泡の上にも重ねる）、横幅も広げる。
+     書き替えるときは見出しの [編集] を押す。そこで初めて入力欄が出て焦点が入る。
+     本文がまだ無いときは読むものが無いので、いままでどおり書く面で開く。 */
   function syncDetailBtn() {
     if (!detailBtn) return;
     const t = detailDraft.trim();
     detailBtn.textContent = t ? trimTx(t.split('\n')[0], 16) : '書く';
     detailBtn.classList.toggle('is-empty', !t);
-    detailBtn.setAttribute('aria-label', t ? '本文を書き替える' : '本文を書く');
+    detailBtn.setAttribute('aria-label', t ? '本文を読む' : '本文を書く');
+  }
+
+  /* 読む面か書く面かを切り替える。editing=true で入力欄を出す */
+  function setDetailMode(editing) {
+    if (!detailPane) return;
+    detailPane.classList.toggle('is-reading', !editing);
+    detailView.hidden = editing;
+    detailArea.hidden = !editing;
+    detailEdit.hidden = editing;
+    detailNote.textContent = editing ? '閉じると残る。履歴には積まない' : '';
+    detailNote.hidden = !editing;
+    if (!editing) detailView.textContent = detailDraft;   /* 改行は CSS の pre-wrap で出す */
+  }
+
+  function isDetailReading() {
+    return !!(detailPane && !detailPane.hidden && detailPane.classList.contains('is-reading'));
   }
 
   function buildDetail() {
@@ -1707,16 +1732,36 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
     const head = el('div', 'bm-head');
     head.appendChild(el('span', 'bm-title', '本文'));
+    const btns = el('div', 'bm-btns');
+    detailEdit = el('button', 'bm-close bm-edit', '編集');
+    detailEdit.type = 'button';
+    detailEdit.setAttribute('aria-label', '本文を編集');
+    detailEdit.addEventListener('click', ev => {
+      ev.preventDefault();
+      setDetailMode(true);
+      relayout();
+      detailArea.focus({ preventScroll: true });
+    });
+    btns.appendChild(detailEdit);
     const close = el('button', 'bm-close', '閉じる');
     close.type = 'button';
     close.addEventListener('click', ev => { ev.preventDefault(); closeDetail(true); });
-    head.appendChild(close);
+    btns.appendChild(close);
+    head.appendChild(btns);
     detailPane.appendChild(head);
+    detailPane._close = close;
 
     /* 何の本文なのかを、書く前に読めるようにする（いまの名前） */
     const ctx = el('p', 'bm-ctx');
     detailPane.appendChild(ctx);
     detailPane._ctx = ctx;
+
+    /* 読む面。入力欄ではないのでキーボードは出ない。長いときはこの中だけでスクロール */
+    detailView = el('div', 'bm-view');
+    detailView.tabIndex = 0;                      /* キーボードでもスクロールできるように */
+    detailView.setAttribute('role', 'document');
+    detailView.setAttribute('aria-label', '本文');
+    detailPane.appendChild(detailView);
 
     detailArea = document.createElement('textarea');
     detailArea.className = 'bm-in';
@@ -1726,8 +1771,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailArea.addEventListener('input', () => { detailDraft = detailArea.value; });
     detailPane.appendChild(detailArea);
 
-    const note = el('p', 'bm-said', '閉じると残る。履歴には積まない');
-    detailPane.appendChild(note);
+    detailNote = el('p', 'bm-said', '閉じると残る。履歴には積まない');
+    detailPane.appendChild(detailNote);
 
     root.appendChild(detailPane);
   }
@@ -1737,10 +1782,16 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const nm = nameIn ? nameIn.value.trim() : String(ask(a, 'text', id) || '');
     detailPane._ctx.textContent = nm ? '名前：' + nm : '';
     detailArea.value = detailDraft;
+    const editing = !detailDraft.trim();          /* 本文が無いときだけ、すぐ書く面 */
+    setDetailMode(editing);
     detailPane.hidden = false;
     if (fields) fields.hidden = true;
     relayout();
-    detailArea.focus({ preventScroll: true });
+    if (editing) detailArea.focus({ preventScroll: true });
+    else {
+      detailView.scrollTop = 0;
+      detailPane._close.focus({ preventScroll: true });   /* 入力欄に入れない＝キーボードを出さない */
+    }
   }
 
   /* 戻り値：閉じたかどうか（Escape の受け手が「自分で処理した」を知るため） */
@@ -1801,6 +1852,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const lower = (hist && !hist.hidden) ? hist
       : ((memoPane && !memoPane.hidden) ? memoPane
         : ((detailPane && !detailPane.hidden) ? detailPane : fields));
+
+    /* 本文の読む面（Issue #16）は大きく読む面。泡の下に収めず、
+       画面の上の縁から下タブの手前まで、横は画面の真ん中に置く */
+    if (isDetailReading() && vh) {
+      detailPane.style.left = (vw ? vw / 2 : cx) + 'px';
+      detailPane.style.top = CENTER_M + 'px';
+      detailPane.style.maxHeight = Math.max(160, barTop - 2 * CENTER_M) + 'px';
+      return;
+    }
 
     if (lower) {
       lower.style.left = cx + 'px';

@@ -963,6 +963,25 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
   background: var(--cell);
   resize: none;
 }
+/* ---------- 本文の読む面（Issue #16） ----------
+   本文があるときは、まず読むだけの面で開く（入力欄に焦点を入れない＝キーボードが出ない）。
+   画面の上から下タブの手前まで、横も広げて読む。書き替えは見出しの [編集] から。
+   高さ・位置は JS（place）が書く。 */
+.bub-center .bc-memo.is-reading {
+  width: min(640px, calc(100vw - 16px));
+  height: auto;
+  z-index: 2;                                  /* 泡の上に重ねて読む */
+}
+.bub-center .bm-btns { display: flex; gap: 6px; }
+.bub-center .bm-view {
+  flex: 1 1 auto; min-height: 120px;
+  margin: 8px 12px 12px; padding: 4px 2px;
+  font-size: 16px; line-height: 1.8; color: var(--text);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.bub-center .bm-view:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .bub-center .bm-in::placeholder { color: var(--text-2); }
 .bub-center .bm-in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -1px; }
 
