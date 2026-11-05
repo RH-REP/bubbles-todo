@@ -18,6 +18,8 @@
 
 import { el, clamp, fromFeedback } from './ui.js';
 import { QUADRANTS, quadrantFor } from './priority.js';
+import { askFull, askWithSearchFull, hasKey } from './ai.js';
+import { buildResearchPrompt, buildTidyPrompt, cleanText, appendSection, lostUrls, failLine } from './research.js';
 
 export const MIN_D = 78;      /* バブルの最小直径 px（文字量で決まるとき） */
 export const MAX_D = 200;     /* 同 最大 */
@@ -151,6 +153,13 @@ export const RM = window.matchMedia
 let centerAdapter = null;
 export function setCenterHandler(a) {
   centerAdapter = (a && typeof a === 'object') ? a : null;
+}
+
+/* 端末の今日（YYYY-MM-DD）。預け先が todayKey を返さない版の控え */
+function localDay() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 }
 
 /* 預け先が壊れていても中央は閉じない（focus.js の ask() と同じ） */
@@ -1774,7 +1783,155 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailNote = el('p', 'bm-said', '閉じると残る。履歴には積まない');
     detailPane.appendChild(detailNote);
 
+    buildAi();
     root.appendChild(detailPane);
+  }
+
+  /* ---- 本文の面の AI（Issue #17）----
+     「AI で調べる」… 名前と本文を読み、Web で調べてまとめたものを、本文の末尾に足す案として見せる。
+     「AI で整理」 … 本文を見出しと箇条書きに整えた案を見せる（置き換えるので、押したときだけ入れる）。
+     どちらも案を見せてから [本文に足す]／[置き換える] で入れる。入れたあとは [元に戻す] が出る。
+     書き込みは本文のほかの書き方と同じく、面を閉じるとき（saveDetail）。
+     キーが無いときもボタンは押せて、押すと「どこで入れるか」を出す（押して何も起きない、にしない）。 */
+  function buildAi() {
+    const box = el('div', 'bm-ai');
+    const row = el('div', 'bm-ai-row');
+    const research = el('button', 'bm-ai-btn', 'AI で調べる');
+    research.type = 'button';
+    const tidy = el('button', 'bm-ai-btn', 'AI で整理');
+    tidy.type = 'button';
+    row.appendChild(research);
+    row.appendChild(tidy);
+    box.appendChild(row);
+    const said = el('p', 'bm-ai-said');
+    said.setAttribute('role', 'status');
+    said.setAttribute('aria-live', 'polite');
+    box.appendChild(said);
+
+    const pre = el('div', 'bm-ai-pre');
+    pre.hidden = true;
+    const preTx = el('div', 'bm-ai-tx');
+    preTx.tabIndex = 0;
+    preTx.setAttribute('aria-label', 'AI の案');
+    const preWarn = el('p', 'bm-ai-warn');
+    preWarn.hidden = true;
+    const preBtns = el('div', 'bm-ai-row');
+    const apply = el('button', 'bm-ai-btn is-main');
+    apply.type = 'button';
+    const cancel = el('button', 'bm-ai-btn', 'やめる');
+    cancel.type = 'button';
+    preBtns.appendChild(apply);
+    preBtns.appendChild(cancel);
+    pre.appendChild(preTx);
+    pre.appendChild(preWarn);
+    pre.appendChild(preBtns);
+    box.appendChild(pre);
+
+    const undo = el('button', 'bm-ai-btn bm-ai-undo', '元に戻す');
+    undo.type = 'button';
+    undo.hidden = true;
+    box.appendChild(undo);
+
+    const note = el('p', 'bm-ai-note',
+      '押すと、この泡の名前と本文を Anthropic へ送る（料金はキーの持ち主に掛かる）。');
+    box.appendChild(note);
+    detailPane.appendChild(box);
+
+    let busy = false;
+    let proposal = null;     /* { kind, text } 入れる前の案 */
+    let before = null;       /* 入れる前の本文（元に戻す用） */
+
+    const curText = () => ((detailArea && !detailArea.hidden) ? detailArea.value : detailDraft);
+    const curName = () => (nameIn ? nameIn.value.trim() : String(ask(a, 'text', id) || ''));
+    const setBusy = b => {
+      busy = b;
+      research.disabled = b; tidy.disabled = b;
+      box.classList.toggle('is-busy', b);
+    };
+    const putText = t => {
+      detailDraft = t;
+      if (detailArea) detailArea.value = t;
+      if (detailView && !detailView.hidden) detailView.textContent = t;
+      syncDetailBtn();
+    };
+    const hidePre = () => { proposal = null; pre.hidden = true; relayout(); };
+
+    async function run(kind) {
+      if (busy) return;
+      undo.hidden = true;
+      hidePre();
+      if (!hasKey()) {
+        said.textContent = 'API キーがまだ入っていない。設定の「ヘルプと AI」に Anthropic の API キーを入れると使える。';
+        relayout();
+        return;
+      }
+      const text = curText();
+      const name = curName();
+      if (kind === 'tidy' && !text.trim()) {
+        said.textContent = '整える本文がまだ無い。先に本文を書くか、「AI で調べる」を押す。';
+        relayout();
+        return;
+      }
+      setBusy(true);
+      said.textContent = kind === 'tidy' ? '整えている…' : '調べている…（数十秒かかることがある）';
+      relayout();
+      try {
+        const today = String(ask(a, 'todayKey') || '') || localDay();
+        let r;
+        if (kind === 'tidy') {
+          const p = buildTidyPrompt(name, text);
+          r = await askFull(p.system, p.user, { maxTokens: 8000 });
+        } else {
+          const p = buildResearchPrompt(name, text, today);
+          r = await askWithSearchFull(p.system, p.user, { maxUses: 3 });
+        }
+        if (!box.isConnected) return;               /* 盤が閉じていたら捨てる */
+        const out = cleanText(r.text);
+        if (!out || r.stop === 'max_tokens' || r.stop === 'refusal') {
+          said.textContent = failLine(kind, r.stop, r.searchError);
+          return;
+        }
+        proposal = { kind, text: kind === 'tidy' ? out : appendSection(curText(), out, today) };
+        preTx.textContent = out;
+        const lost = kind === 'tidy' ? lostUrls(text, out) : [];
+        preWarn.textContent = lost.length ? '元の本文にあった URL が案に無い: ' + lost.join(' ') : '';
+        preWarn.hidden = !lost.length;
+        apply.textContent = kind === 'tidy' ? '置き換える' : '本文に足す';
+        said.textContent = kind === 'tidy' ? '整えた案。置き換えるまで本文は変わらない。' : '調べた結果。足すまで本文は変わらない。';
+        pre.hidden = false;
+        preTx.scrollTop = 0;
+      } catch (e) {
+        if (box.isConnected) said.textContent = 'うまくいかなかった: ' + ((e && e.message) || e);
+      } finally {
+        setBusy(false);
+        if (box.isConnected) relayout();
+      }
+    }
+
+    research.addEventListener('click', ev => { ev.preventDefault(); run('research'); });
+    tidy.addEventListener('click', ev => { ev.preventDefault(); run('tidy'); });
+    apply.addEventListener('click', ev => {
+      ev.preventDefault();
+      if (!proposal) return;
+      const kind = proposal.kind;
+      before = curText();
+      putText(proposal.text);
+      said.textContent = kind === 'tidy' ? '置き換えた。閉じると残る。' : '本文の終わりに足した。閉じると残る。';
+      undo.hidden = false;
+      hidePre();
+      const v = (detailView && !detailView.hidden) ? detailView : detailArea;
+      if (v) v.scrollTop = kind === 'tidy' ? 0 : v.scrollHeight;   /* 足したところを見せる */
+    });
+    cancel.addEventListener('click', ev => { ev.preventDefault(); said.textContent = ''; hidePre(); });
+    undo.addEventListener('click', ev => {
+      ev.preventDefault();
+      if (before == null) return;
+      putText(before);
+      before = null;
+      undo.hidden = true;
+      said.textContent = '元に戻した。';
+      relayout();
+    });
   }
 
   function openDetail() {

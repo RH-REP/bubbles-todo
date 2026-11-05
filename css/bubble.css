@@ -982,6 +982,55 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
   -webkit-overflow-scrolling: touch;
 }
 .bub-center .bm-view:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* ---------- 本文の面の AI（Issue #17） ----------
+   面の下に留める（本文が長くても押せる）。案は面の中だけでスクロールする。 */
+.bub-center .bm-ai {
+  flex: none;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--line);
+}
+.bub-center .bm-ai-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.bub-center .bm-ai-btn {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  min-height: 44px; padding: 0 14px;
+  font: inherit; font-size: 14px;
+  border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--surface-2); color: var(--text);
+}
+.bub-center .bm-ai-btn.is-main { border-color: var(--bub-edge); font-weight: 600; }
+.bub-center .bm-ai-btn:hover, .bub-center .bm-ai-btn:active { background: var(--bg); }
+.bub-center .bm-ai-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.bub-center .bm-ai-btn:disabled { color: var(--text-2); cursor: default; }
+.bub-center .bm-ai-undo { align-self: flex-start; }
+.bub-center .bm-ai-said,
+.bub-center .bm-ai-note,
+.bub-center .bm-ai-warn {
+  margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.bub-center .bm-ai-said:empty { display: none; }
+.bub-center .bm-ai-warn { color: var(--text); }
+.bub-center .bm-ai.is-busy .bm-ai-said::before {
+  content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px;
+  border: 2px solid var(--line-strong); border-top-color: var(--bub-edge); border-radius: 50%;
+  vertical-align: -1px; animation: bm-ai-spin .9s linear infinite;
+}
+@keyframes bm-ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .bub-center .bm-ai.is-busy .bm-ai-said::before { animation: none; } }
+.bub-center .bm-ai-pre {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--cell);
+}
+.bub-center .bm-ai-pre[hidden] { display: none; }
+.bub-center .bm-ai-tx {
+  max-height: 34vh; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  font-size: 14px; line-height: 1.7; color: var(--text);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.bub-center .bm-ai-tx:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .bub-center .bm-in::placeholder { color: var(--text-2); }
 .bub-center .bm-in:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -1px; }
 

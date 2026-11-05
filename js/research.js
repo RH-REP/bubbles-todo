@@ -1,0 +1,102 @@
+/* 1件の todo について AI に「調べる」「整理する」を頼む、その計算だけ（2026-11-05。Issue #17）。
+   DOM・保存・通信は触らない（呼ぶのは js/bubble.js の本文の面、通信は js/ai.js）。
+
+   ■ 何をするか
+   - 調べる: 名前と本文を読んで、取りかかるのに役立つことを Web で調べ、短くまとめる。
+     本文の末尾に「── AI で調べた（M/D）──」の見出しを付けて**足す**（書いてあったものは消さない）。
+   - 整理する: 本文を見出しと箇条書きに並べ替える。事実・数字・URL・日付は残し、新しい事実は足さない。
+     本文を**置き換える**ので、先に見せて押したときだけ入れる。元の URL が消えていたら知らせる。
+
+   ■ 送るもの
+   押したときだけ、その泡の名前と本文（と今日の日付）を Anthropic へ送る。
+   ほかの泡・作業メモ・タグ・記録は送らない。 */
+
+export const SEND_MAX = 4000;          /* 送る本文の上限（字）。長すぎる本文は頭から切って送る */
+export const SECTION_HEAD = '── AI で調べた';
+
+function chars(s) { return Array.from(String(s == null ? '' : s)); }
+
+export function clipSend(s, n) {
+  const a = chars(s);
+  const m = n || SEND_MAX;
+  return a.length > m ? a.slice(0, m).join('') + '\n（ここから先は長いので送っていない）' : a.join('');
+}
+
+function md(today) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(today || ''));
+  return m ? (+m[2]) + '/' + (+m[3]) : '';
+}
+
+const PLAIN = '書式はプレーンテキスト。Markdown の #・**・表は使わない。見出しは【】、箇条書きは行頭の「・」。';
+
+/* 調べる。-> { system, user } */
+export function buildResearchPrompt(name, detail, today) {
+  const system = [
+    'あなたは todo の1件について、取りかかるのに役立つ情報を Web で調べて、短く整理する係。',
+    '今日は ' + today + '。',
+    '書くこと: 手順・必要なもの・期限や受付時間・費用の目安・気をつけること・公式の窓口 のうち、この todo に関わるものだけ。',
+    '本文にすでに書いてあることは繰り返さない。調べて分からなかったことは書かない（推測で埋めない）。',
+    '医療・法律・税・投資は一般的な情報に留め、個別の判断や売買の助言はしない。',
+    '命令形（〜しなさい・〜しましょう）を使わない。',
+    PLAIN,
+    '全体で 600 字以内。最後の行は「出典: 」に続けて、根拠にした URL を3つまで（空白で区切る）。',
+    '前置き（「調べます」など）やあとがきは書かず、まとめだけを返す。',
+  ].join('\n');
+  const d = String(detail || '').trim();
+  const user = '名前: ' + String(name || '').trim()
+    + '\n本文:\n' + (d ? clipSend(d) : '（まだ無い）');
+  return { system, user };
+}
+
+/* 整理する。-> { system, user } */
+export function buildTidyPrompt(name, detail) {
+  const system = [
+    'あなたは todo の本文を読みやすく整える係。',
+    '書かれている事実・数字・日付・URL・固有名詞はすべて残す。新しい事実は足さない。意味を変えない。',
+    '重なりをまとめ、見出しと箇条書きに並べ替える。「── AI で調べた（…）──」の区切りがあれば、その中身も同じように整えてよい。',
+    PLAIN,
+    '返すのは整えた本文だけ（前置き・あとがき・説明は書かない）。',
+  ].join('\n');
+  const user = '名前: ' + String(name || '').trim() + '\n本文:\n' + clipSend(String(detail || '').trim());
+  return { system, user };
+}
+
+/* AI の返事を、本文に入れられる形にそろえる（Markdown の印を外す）。 */
+export function cleanText(text) {
+  let s = String(text || '').replace(/\r\n?/g, '\n');
+  s = s.replace(/^```[^\n]*\n?/gm, '');                       /* 囲いの線 */
+  s = s.replace(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/gm, '【$1】'); /* # 見出し -> 【】 */
+  s = s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1');
+  s = s.replace(/^(\s*)[-*+]\s+/gm, '$1・');                  /* - 箇条 -> ・ */
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1 $2');  /* [字](URL) -> 字 URL */
+  s = s.split('\n').map(l => l.replace(/\s+$/, '')).join('\n');
+  s = s.replace(/\n{3,}/g, '\n\n');
+  return s.trim();
+}
+
+/* 調べた結果を本文の末尾に足す。本文が空なら見出しから始める */
+export function appendSection(detail, text, today) {
+  const d = String(detail || '').replace(/\s+$/, '');
+  const t = String(text || '').trim();
+  if (!t) return d;
+  const head = SECTION_HEAD + (md(today) ? '（' + md(today) + '）' : '') + ' ──';
+  return (d ? d + '\n\n' : '') + head + '\n' + t;
+}
+
+function urls(s) {
+  return String(s || '').match(/https?:\/\/[^\s)\]」』>、。]+/g) || [];
+}
+
+/* 整理の前にあった URL のうち、整理のあとに無いもの（置き換える前に知らせるため） */
+export function lostUrls(before, after) {
+  const have = new Set(urls(after));
+  return Array.from(new Set(urls(before))).filter(u => !have.has(u));
+}
+
+/* 失敗の理由を、画面に出す1行にする */
+export function failLine(kind, stop, searchError) {
+  if (stop === 'max_tokens') return '返事が途中で切れた。本文が長いと起きる。もう一度押すか、本文を短くして試す。';
+  if (searchError) return 'Web 検索が使えなかった（' + searchError + '）。しばらくして試す。';
+  if (stop === 'refusal') return 'AI が答えなかった。';
+  return kind === 'tidy' ? '整えた本文が返ってこなかった。' : '調べた結果が返ってこなかった。';
+}

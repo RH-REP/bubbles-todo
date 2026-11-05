@@ -5,6 +5,8 @@
    - 送るのはユーザーが書いた質問の文・この app の使い方の説明（1行の要約）・
      版・今の画面 ID・件数（海・今日・長期保留・完了・タグ）だけ。
      **バブルの本文は送らない。**（おすすめの案 a）
+     例外（2026-11-05 Issue #17。利用者の頼み「本文を読んで関連情報を集める・整理する」）:
+     本文の面の「AI で調べる」「AI で整理」を押したときだけ、その泡の名前と本文を送る（js/research.js）。
    - 送り先はブラウザから Anthropic の API へ直接（server.py を介さない。おすすめの案 a）。
      キーは端末の localStorage にだけ置く（サーバーへは一切送らない。sync.js の同期対象にも入れない）。
    - 会話は端末のメモリにだけ置く。閉じたら消える（保存しない）。
@@ -146,6 +148,23 @@ export async function askWithSearchFull(system, userText, opts) {
     messages.push({ role: 'assistant', content });
   }
   return { text: texts.join(''), stop, searchError };
+}
+
+/* 検索なしで1回だけ訊く。-> { text, stop }（2026-11-05 Issue #17「整理する」。
+   本文を書き直して返すので、ask の 1024 では長い本文が切れる。切れたかを stop で知る） */
+export async function askFull(system, userText, opts) {
+  const o = opts || {};
+  const data = await post({
+    model: MODEL,
+    max_tokens: Math.max(256, Math.min(SEARCH_MAX_TOKENS, Number(o.maxTokens) || MAX_TOKENS)),
+    system: String(system || ''),
+    messages: [{ role: 'user', content: String(userText || '') }],
+  });
+  const content = Array.isArray(data.content) ? data.content : [];
+  return {
+    text: content.filter(b => b && b.type === 'text' && b.text).map(b => b.text).join(''),
+    stop: String(data.stop_reason || ''),
+  };
 }
 
 export async function askWithSearch(system, userText, opts) {

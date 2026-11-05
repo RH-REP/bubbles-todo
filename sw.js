@@ -30,7 +30,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-05b';
+const VERSION = '2026-11-05c';
 const CACHE = 'bubbles-' + VERSION;
 
 const ASSETS = [
@@ -64,6 +64,7 @@ const ASSETS = [
   './js/help.js',        /* ヘルプ画面（同上） */
   './js/events.js',      /* 先の予定の計算（2026-11-04 Issue #13） */
   './js/upcoming.js',    /* 先の予定の板（同上） */
+  './js/research.js',    /* 本文の面の AI で調べる・整理（2026-11-05 Issue #17） */
   './js/screens/cardlist.js',
   './js/screens/gap.js',
   './js/screens/plan.js',
