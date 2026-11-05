@@ -152,8 +152,64 @@ await test('送る文: 期間もの・開催中のもの・エントリー・条
   assert.ok(p.system.includes('"end"') && p.system.includes('"entry"') && p.system.includes('"note"'));
   assert.ok(p.system.includes('すでに始まっていて'));
   assert.ok(p.user.includes('pay:') && p.user.includes('points:') && p.user.includes('エアウォレット'));
-  assert.ok(E.DEFAULT_TOPICS.includes('pay') && E.DEFAULT_TOPICS.includes('points'));
-  assert.deepEqual(E.TOPICS_ADDED[E.TOPICS_VER], ['pay', 'points']);
+  assert.deepEqual(E.TOPICS_ADDED[2], ['pay', 'points']);
+});
+
+await test('見るものは既定ですべて外す。前の版で保存した選びは 1 回だけ空にし、v3 以降の選びは残す', () => {
+  assert.deepEqual(E.DEFAULT_TOPICS, []);
+  assert.deepEqual(E.migrateTopics(null), []);
+  assert.deepEqual(E.migrateTopics({ ver: 2, topics: ['fomc', 'pay', 'points'] }), [], '前の既定（全部に印）は外す');
+  assert.deepEqual(E.migrateTopics({ topics: ['fomc'] }), [], 'ver の無い古い保存も外す');
+  assert.deepEqual(E.migrateTopics({ ver: E.TOPICS_VER, topics: ['fomc', 'nope'] }), ['fomc'], '外したあとに選んだものは残す');
+});
+
+await test('送って調べる: 書いた文を 1 つの頼みとして送り、ほかのトピックを混ぜない。長さは MSG_MAX まで', () => {
+  const p = E.buildPrompt([], '', TODAY, [], '  楽天   お買い物マラソンの次の期間 ');
+  assert.ok(p.user.includes('「楽天 お買い物マラソンの次の期間」'));
+  assert.ok(p.user.includes('topic は kw'));
+  assert.ok(!p.user.includes('fomc:') && !p.user.includes('pay:'));
+  assert.equal(Array.from(E.cleanMessage('あ'.repeat(500))).length, E.MSG_MAX);
+  assert.ok(p.system.includes('最大 ' + E.ASK_MAX + ' 件'));
+});
+
+await test('説明: 投資は意味・予想・上回った/下回ったときの一般的な傾向、キャンペーンは概要・注意を頼み、本文に書く', () => {
+  const p = E.buildPrompt(['macro', 'pay'], '', TODAY);
+  ['"about"', '"forecast"', '"beat"', '"miss"', '"caution"'].forEach(k => assert.ok(p.system.includes(k), k));
+  assert.ok(p.system.includes('一般に') && p.system.includes('断定しない'));
+  const [pay, cpi] = E.normalizeEvents([   /* 始まりの近い順（PayPay 11/1 が先） */
+    { date: '2026-11-12', title: '米国 CPI（10月分）', topic: 'macro', status: 'confirmed',
+      about: '消費者物価の伸び。インフレの強さを表す', forecast: '前年比 2.9%',
+      beat: '利下げが遠のくとみられ、株価は下がりやすい', miss: '利下げ期待で株価は上がりやすい', caution: 'null' },
+    { date: '2026-11-01', end: '2026-11-30', title: 'PayPay 20% 還元', topic: 'pay', status: 'confirmed', entry: true,
+      about: '対象の店で PayPay 払いが 20% 戻る', beat: 'なし', miss: null, note: '上限 1,000 円/回', caution: '付与は翌月。対象外の店あり' },
+  ], TODAY);
+  assert.equal(cpi.caution, '', '「null」と文字で書いてきたものは空');
+  assert.equal(pay.beat, '', '「なし」も空');
+  const d1 = E.detailText(cpi, TODAY);
+  assert.ok(d1.includes('説明: 消費者物価の伸び') && d1.includes('予想: 前年比 2.9%'));
+  assert.ok(d1.includes('予想を上回ったら: 利下げが遠のく') && d1.includes('予想を下回ったら: 利下げ期待'));
+  assert.ok(d1.includes('一般的な傾向で、今回の予測ではない'));
+  assert.ok(d1.endsWith(E.MARK + cpi.key), '重なりの印は最後の行のまま');
+  const d2 = E.detailText(pay, TODAY);
+  assert.ok(d2.includes('説明: 対象の店で') && d2.includes('条件: 上限 1,000 円/回') && d2.includes('注意: 付与は翌月'));
+  assert.ok(!d2.includes('予想を上回ったら') && !d2.includes('今回の予測ではない'));
+});
+
+await test('送るたびに一覧へ足す: 前の結果を残し、同じものは新しい返事を使い、増えた分を返す', () => {
+  const old = E.normalizeEvents([
+    { date: '2026-12-10', title: 'FOMC', topic: 'fomc', about: '古い説明' },
+    { date: '2026-11-20', title: 'お買い物マラソン', topic: 'kw' },
+  ], TODAY);
+  const got = E.normalizeEvents([
+    { date: '2026-12-10', title: 'FOMC', topic: 'fomc', about: '新しい説明' },
+    { date: '2026-11-12', title: '米国 CPI', topic: 'kw' },
+  ], TODAY);
+  const m = E.mergeEvents(got, old, TODAY);
+  assert.deepEqual(m.events.map(e => e.title), ['米国 CPI', 'お買い物マラソン', 'FOMC']);
+  assert.equal(m.events[2].about, '新しい説明');
+  assert.deepEqual(Array.from(m.fresh), [got[0].key], '増えたのは CPI だけ');
+  const many = Array.from({ length: 80 }, (_, i) => ({ date: E.addDays(TODAY, i + 1), title: 'x' + i }));
+  assert.equal(E.mergeEvents(many, [], TODAY).events.length, E.KEEP_MAX);
 });
 
 await test('入れると長期保留＋その日に置かれ、その日に今日の水面へ出る', async () => {
@@ -253,7 +309,7 @@ await test('キーワード: 区切り・重なり・上限。送る文に 1 つ
   const out = E.normalizeEvents([{ date: '2026-11-20', end: '2026-11-27', title: 'お買い物マラソン', topic: 'kw', status: 'confirmed' }], TODAY);
   assert.equal(out[0].topic, 'kw');
   assert.equal(E.defaultLead(out[0], TODAY), 'e3');
-  assert.ok(E.detailText(out[0], TODAY).includes('見るもの: キーワード'));
+  assert.ok(E.detailText(out[0], TODAY).includes('見るもの: 送って調べたもの'));
 });
 
 await test('askWithSearchFull: 途中で切れた・検索のエラーを返し、検索の回数を変えられる（上限あり）', async () => {

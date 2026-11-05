@@ -1,10 +1,14 @@
 /* 先の予定（AI）の板（2026-11-04。利用者の指示 Issue #13）。
 
-   設定の「先の予定（AI）」から開く。上から順に:
-     1. 見るもの（投資・せどり・休日のトピック）と、銘柄・商品の欄
-     2. 「調べる」……押したときだけ AI（Anthropic の Web 検索）に訊く。起動時・定期には訊かない
-     3. 見つかった予定の一覧……日付・題名・確定/予定/噂・何日前に今日へ・出典
-     4. 「選んだ N 件を入れる」……長期保留のバブルにする（その日になると今日へ出る。js/events.js addEvents）
+   設定の「先の予定（AI）」から開く（2026-11-05 の見直し。利用者の指示 Issue #13）:
+     1. 調べ方の主は、下に留まる欄に「調べたいこと」を書いて送る（ヘルプと同じ形）。送ったときだけ AI
+        （Anthropic の Web 検索）に訊く。起動時・定期には訊かない。例の文を押すとそのまま調べる
+     2. 「まとめて調べる」（畳んである）……見るもののカード（既定はすべて外す）・すべて選ぶ／外す・銘柄の欄・
+        「選んだ N 件を調べる」。押したときだけ調べる（前は「調べ直す」が選び直す前に始まってしまった）
+     3. 見つかった予定の一覧……送るたびに足していく。日付・題名・説明・確定/予定/噂・何日前に今日へ・出典。
+        既定ではどれも選ばない
+     4. 「N 件を入れる」……長期保留のバブルにする（その日になると今日へ出る。js/events.js addEvents）。
+        本文に説明（指標の意味・予想を上回った／下回ったときの一般的な傾向、キャンペーンの概要・上限・注意）を書く
 
    決めごと:
    - 予測はしない。日付と出来事だけ（js/events.js の頭）
@@ -16,8 +20,8 @@ import { el, toast, fromFeedback } from './ui.js';
 import { store } from './store.js';
 import { askWithSearchFull, hasKey, SEARCH_MAX_USES, SEARCH_USES_CAP } from './ai.js';
 import {
-  TOPICS, DEFAULT_TOPICS, KW_MAX, parseKeywords, TOPICS_VER, TOPICS_ADDED, STATUS, buildPrompt, extractJsonArray, normalizeEvents,
-  defaultLead, leadOptions, triggerDay, isRunning, md, addedKeys, addEvents,
+  TOPICS, TOPICS_VER, migrateTopics, MSG_MAX, KEEP_MAX, cleanMessage, STATUS, buildPrompt, extractJsonArray, normalizeEvents,
+  mergeEvents, defaultLead, leadOptions, triggerDay, isRunning, md, addedKeys, addEvents,
 } from './events.js';
 
 const PREF_KEY = 'bubble_todo_upcoming';
@@ -28,19 +32,11 @@ export function loadPrefs() {
   let p = null;
   try { p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); } catch (e) { p = null; }
   p = (p && typeof p === 'object') ? p : {};
-  let topics = Array.isArray(p.topics) ? p.topics.filter(id => TOPICS.some(t => t.id === id)) : DEFAULT_TOPICS.slice();
-  /* 前の版で保存した端末には、あとから足したトピック（お得など）を既定で付ける。
-     付けるのは版を上げたときの1回だけ（自分で外したものは、次からは外れたまま） */
-  const ver = Number(p.ver) || 1;
-  if (Array.isArray(p.topics) && ver < TOPICS_VER) {
-    for (let v = ver + 1; v <= TOPICS_VER; v++) {
-      (TOPICS_ADDED[v] || []).forEach(id => { if (!topics.includes(id)) topics.push(id); });
-    }
-  }
+  /* 既定はどれも選ばない。前の版（全部に印が付いていた）で保存した選びは 1 回だけ空にする（js/events.js migrateTopics） */
+  const topics = migrateTopics(p);
   return {
     topics,
     words: typeof p.words === 'string' ? p.words : '',
-    keywords: typeof p.keywords === 'string' ? p.keywords : '',
     lastDay: typeof p.lastDay === 'string' ? p.lastDay : '',
     events: Array.isArray(p.events) ? p.events : [],
   };
@@ -113,22 +109,41 @@ export function openUpcoming(opts) {
   box.appendChild(scroller);
 
   /* 説明は 1 行だけ。決まりごとは「しくみ」に畳む（前は 4 行の説明が毎回いちばん上に出ていた） */
-  scroller.appendChild(el('p', 'up-lead', '日付の決まった予定やキャンペーンを AI が調べ、その少し前に今日へ出す。'));
+  scroller.appendChild(el('p', 'up-lead', '調べたい予定やキャンペーンを下の欄に書いて送る。AI が日付と説明を調べ、選んだものをその少し前に今日へ出す。'));
   const how = document.createElement('details');
   how.className = 'up-how';
   const howSum = document.createElement('summary');
   howSum.textContent = 'しくみ';
   how.appendChild(howSum);
   [
-    '入れたものは長期保留に入り、選んだ日に今日の水面へ出てくる。',
+    '入れたものは長期保留に入り、選んだ日に今日の水面へ出てくる。本文に説明（指標の意味と、予想を上回った／下回ったときの一般的な値動き。キャンペーンの概要・上限・注意）が入る。',
     '今日へ出す日の既定: 予定は見るものごとの日数前、キャンペーンは終わる3日前、エントリーが要るものは始まる日。',
-    '調べるのは「調べる」を押したときだけ（Web 検索は 1 回に ' + SEARCH_MAX_USES + ' 回まで。キーワード 1 つごとに 1 回足す。料金はこのキーの持ち主に掛かる）。',
-    '値動きの予想はしない。日付は AI が読み取ったものなので、出典で確かめる。',
-    '送るのは見るものと下の欄の文字だけ。バブルの本文は送らない。',
+    '調べるのは送ったとき・「選んだものを調べる」を押したときだけ（Web 検索は 1 回に ' + SEARCH_MAX_USES + ' 回まで。料金はこのキーの持ち主に掛かる）。',
+    '値動きの説明は一般的な傾向で、今回どうなるかの予想ではない。日付は AI が読み取ったものなので、出典で確かめる。',
+    '送るのは書いた文・選んだ見るもの・銘柄の欄の文字だけ。バブルの本文は送らない。',
   ].forEach(s => how.appendChild(el('p', 'up-note', s)));
   scroller.appendChild(how);
 
-  /* ---- 1. 見るもの（畳める。結果があるときは畳んで、一覧を上に出す） ---- */
+  /* 例の文（押すとそのまま調べる。ヘルプの例と同じ） */
+  const examples = el('div', 'up-examples');
+  examples.appendChild(el('p', 'up-group', '例（押すとそのまま調べる）'));
+  const exRow = el('div', 'up-exrow');
+  [
+    '楽天 お買い物マラソンの次の期間',
+    'SBI証券 投資信託のキャンペーン',
+    '次の米国 CPI と雇用統計',
+    'FOMC と日銀の次の会合',
+    'PayPay・d払いの今月のキャンペーン',
+  ].forEach(q => {
+    const b = el('button', 'help-ex up-ex', q);
+    b.type = 'button';
+    b.addEventListener('click', () => { if (busy || !hasKey()) return; msgIn.value = q; runSearch({ message: q }); });
+    exRow.appendChild(b);
+  });
+  examples.appendChild(exRow);
+  scroller.appendChild(examples);
+
+  /* ---- まとめて調べる（畳んである。見るもののカードは既定ですべて外す） ---- */
   const cond = document.createElement('details');
   cond.className = 'up-cond';
   const condSum = document.createElement('summary');
@@ -136,6 +151,13 @@ export function openUpcoming(opts) {
   const pick = el('fieldset', 'up-topics');
   pick.appendChild(el('legend', null, '見るもの'));
   const chosen = new Set(prefs.topics);
+  const topicBar = el('div', 'up-listbar');
+  topicBar.appendChild(el('p', 'up-group', '見るものを選んで、まとめて調べる'));
+  const topicAll = el('button', 'help-link up-tall', 'すべて選ぶ');
+  topicAll.type = 'button';
+  topicBar.appendChild(topicAll);
+  pick.appendChild(topicBar);
+  const boxes = [];
   const groups = [];
   TOPICS.forEach(t => { if (!groups.includes(t.group)) groups.push(t.group); });
   groups.forEach(g => {
@@ -146,12 +168,13 @@ export function openUpcoming(opts) {
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = chosen.has(t.id);
+      cb.dataset.topic = t.id;
       cb.addEventListener('change', () => {
         if (cb.checked) chosen.add(t.id); else chosen.delete(t.id);
         remember();
-        syncAsk();
-        syncSummary();
+        syncTopics();
       });
+      boxes.push(cb);
       const tx = el('span', 'up-chip-tx');
       const nm = el('b');
       nm.textContent = t.label;
@@ -175,48 +198,56 @@ export function openUpcoming(opts) {
   wordsIn.autocomplete = 'off';
   wordsIn.placeholder = '例: GOOG, NVDA, PS5, d払い, エアウォレット';
   wordsIn.value = prefs.words;
-  wordsIn.addEventListener('change', () => { remember(); syncSummary(); });
+  wordsIn.addEventListener('change', () => { remember(); syncTopics(); });
   wordsLb.appendChild(wordsTx); wordsLb.appendChild(wordsIn);
   cond.appendChild(wordsLb);
 
-  /* キーワード（2026-11-04 追加。Issue #13）。見るものに無いものを、言葉で 1 つずつ調べる */
-  const kwLb = el('label', 'up-words');
-  const kwTx = el('span');
-  kwTx.textContent = 'キーワードで調べる（任意。「、」で区切って ' + KW_MAX + ' つまで。見るものを選ばなくても調べられる）';
-  const kwIn = document.createElement('input');
-  kwIn.type = 'text';
-  kwIn.autocomplete = 'off';
-  kwIn.placeholder = '例: SBI 投資信託 キャンペーン、楽天 お買い物マラソン';
-  kwIn.value = prefs.keywords;
-  kwIn.addEventListener('input', () => { syncAsk(); });
-  kwIn.addEventListener('change', () => { remember(); syncSummary(); syncAsk(); });
-  kwLb.appendChild(kwTx); kwLb.appendChild(kwIn);
-  cond.appendChild(kwLb);
+  /* 押したときだけ調べる（前の「調べ直す」は選び直す前に始まってしまった。Issue #13 2026-11-04 のコメント） */
+  const topicRun = el('div', 'up-trun');
+  const topicAsk = el('button', 'btn up-task', '選んだものを調べる');
+  topicAsk.type = 'button';
+  topicRun.appendChild(topicAsk);
+  cond.appendChild(topicRun);
   scroller.appendChild(cond);
 
-  /* ---- 2. 状態の1行（待っている・失敗・キーが無い など） ---- */
+  /* ---- 状態の1行（待っている・失敗・キーが無い・見つかった件数 など） ---- */
   const askNote = el('p', 'up-status');
   askNote.setAttribute('role', 'status');
   scroller.appendChild(askNote);
 
-  /* ---- 3. 一覧 ---- */
+  /* ---- 一覧（送るたびに足していく） ---- */
   const listBar = el('div', 'up-listbar');
   const listHead = el('p', 'up-listhead');
+  const listBtns = el('span', 'up-listbtns');
   const allBtn = el('button', 'help-link up-all', 'すべて選ぶ');
   allBtn.type = 'button';
-  listBar.appendChild(listHead); listBar.appendChild(allBtn);
+  const clearBtn = el('button', 'help-link up-clear', '一覧を消す');
+  clearBtn.type = 'button';
+  listBtns.appendChild(allBtn); listBtns.appendChild(clearBtn);
+  listBar.appendChild(listHead); listBar.appendChild(listBtns);
   const list = el('div', 'up-list');
   scroller.appendChild(listBar);
   scroller.appendChild(list);
 
-  /* ---- 4. 下に留まるボタン。結果が無いうちは「調べる」が主、あるときは「入れる」が主 ---- */
+  /* ---- 下に留まる欄。「N 件を入れる」（一覧があるとき）と、調べたいことを書いて送る欄 ---- */
   const foot = el('div', 'help-foot up-foot');
-  const askBtn = el('button', 'btn up-ask', '調べる');
-  askBtn.type = 'button';
-  const addBtn = el('button', 'btn up-add', '入れる');
+  const addRow = el('div', 'up-addrow');
+  const addBtn = el('button', 'btn up-add is-primary', '入れる');
   addBtn.type = 'button';
-  const addRow = addBtn;   /* 前の名前（hidden を付け外しする相手） */
-  foot.appendChild(askBtn); foot.appendChild(addBtn);
+  addRow.appendChild(addBtn);
+  foot.appendChild(addRow);
+  const form = el('form', 'help-form up-form');
+  const msgIn = document.createElement('input');
+  msgIn.type = 'text';
+  msgIn.autocomplete = 'off';
+  msgIn.maxLength = MSG_MAX;
+  msgIn.setAttribute('enterkeyhint', 'search');
+  msgIn.setAttribute('aria-label', '調べたいこと');
+  msgIn.placeholder = hasKey() ? '調べたいことを書く' : 'キーを入れると調べられる';
+  const sendBtn = el('button', 'btn help-send up-send', '調べる');
+  sendBtn.type = 'submit';
+  form.appendChild(msgIn); form.appendChild(sendBtn);
+  foot.appendChild(form);
   box.appendChild(foot);
 
   back.appendChild(box);
@@ -231,35 +262,56 @@ export function openUpcoming(opts) {
   root = { back, onKey, was: o.was, onClose: o.onClose };
 
   /* 行ごとの状態。key -> { on, lead } */
-  let events = normalizeEvents(prefs.events, today);
+  let events = normalizeEvents(prefs.events, today, KEEP_MAX);
   const rowState = new Map();
+  let freshKeys = new Set();   /* いちばん新しく送った分で増えたもの（一覧で印を付ける） */
 
   function remember() {
-    savePrefs({ ver: TOPICS_VER, topics: Array.from(chosen), words: wordsIn.value.trim(), keywords: kwIn.value.trim(), lastDay: prefs.lastDay, events });
+    savePrefs({ ver: TOPICS_VER, topics: Array.from(chosen), words: wordsIn.value.trim(), lastDay: prefs.lastDay, events });
   }
 
-  /* 畳んだときの見出し: 見るもの N 件・銘柄（あれば） */
-  function syncSummary() {
-    const w = wordsIn.value.trim();
-    const k = parseKeywords(kwIn.value).length;
-    condSum.textContent = '見るもの ' + chosen.size + '件' + (k ? '・キーワード ' + k + 'つ' : '') + (w ? '・' + (w.length > 24 ? w.slice(0, 24) + '…' : w) : '');
-  }
-
-  /* 状態の1行と、下のボタンの主従。
-     結果が無い → 「調べる」が主（塗り）。結果がある → 「入れる」が主、「調べ直す」は従 */
+  /* 畳んだときの見出しと、まとめて調べるボタン */
   let busy = false;
+  function syncTopics() {
+    const w = wordsIn.value.trim();
+    condSum.textContent = 'まとめて調べる' + (chosen.size
+      ? '（見るもの ' + chosen.size + '件' + (w ? '・' + (w.length > 16 ? w.slice(0, 16) + '…' : w) : '') + '）'
+      : '（見るものから選ぶ）');
+    topicAll.textContent = chosen.size === TOPICS.length ? 'すべて外す' : 'すべて選ぶ';
+    topicAsk.textContent = busy ? '調べている…' : (chosen.size ? '選んだ ' + chosen.size + ' 件を調べる' : '選んだものを調べる');
+    topicAsk.disabled = busy || !chosen.size || !hasKey();
+  }
+
+  topicAll.addEventListener('click', () => {
+    const on = chosen.size !== TOPICS.length;
+    chosen.clear();
+    if (on) TOPICS.forEach(t => chosen.add(t.id));
+    boxes.forEach(cb => { cb.checked = chosen.has(cb.dataset.topic); });
+    remember();
+    syncTopics();
+  });
+
+  /* 送る欄。書いてあるときだけ「調べる」が主（塗り） */
+  function syncSend() {
+    const has = !!cleanMessage(msgIn.value);
+    msgIn.disabled = !hasKey();
+    sendBtn.disabled = busy || !hasKey() || !has;
+    sendBtn.textContent = busy ? '調べている…' : '調べる';
+    sendBtn.classList.toggle('is-primary', has);
+  }
+  msgIn.addEventListener('input', syncSend);
+
+  /* 状態の1行 */
   function syncAsk() {
-    const any = chosen.size || parseKeywords(kwIn.value).length;
-    const ok = any && hasKey();
-    askBtn.disabled = !ok || busy;
-    askBtn.textContent = busy ? '調べている…' : (events.length || prefs.lastDay ? '調べ直す' : '調べる');
-    askBtn.classList.toggle('is-primary', !events.length);
+    syncSend();
+    syncTopics();
+    examples.classList.toggle('is-off', busy || !hasKey());
+    exRow.querySelectorAll('button').forEach(b => { b.disabled = busy || !hasKey(); });
     if (busy) return;
     askNote.classList.remove('is-error');
     askNote.textContent = !hasKey()
       ? 'API キーを設定の「ヘルプと AI」に入れると調べられる。'
-      : !any ? '見るものを 1 つ以上選ぶか、キーワードを書く。'
-      : !prefs.lastDay ? '見るものを選んで「調べる」。10〜60 秒ほどかかる。'
+      : !events.length && !prefs.lastDay ? '1 回調べるのに 10〜60 秒ほどかかる。'
       : '';
   }
 
@@ -271,12 +323,12 @@ export function openUpcoming(opts) {
   function syncAdd() {
     const left = pickable();
     const n = left.filter(e => rowState.get(e.key) && rowState.get(e.key).on).length;
-    addBtn.textContent = n ? n + ' 件を入れる' : '入れる';
+    addBtn.textContent = n ? n + ' 件を入れる' : '入れるものを一覧で選ぶ';
     addBtn.disabled = !n;
-    addRow.hidden = !events.length;
-    addBtn.classList.toggle('is-primary', !!events.length);
+    addRow.hidden = !left.length;
     allBtn.hidden = !left.length;
     allBtn.textContent = left.length && n === left.length ? '選ぶのをやめる' : 'すべて選ぶ';
+    clearBtn.hidden = !events.length;
   }
 
   allBtn.addEventListener('click', () => {
@@ -286,40 +338,67 @@ export function openUpcoming(opts) {
     renderList();
   });
 
+  /* 送るたびに足していくので、要らなくなったら消せる（入れたバブルは消えない） */
+  clearBtn.addEventListener('click', () => {
+    events = [];
+    freshKeys = new Set();
+    rowState.clear();
+    remember();
+    renderList();
+    syncAsk();
+  });
+
   /* 一覧にできなかったときの理由（2026-11-04 Issue #13。前は理由が分からず、同じ文だけが出ていた） */
   function failReason(r) {
     const head = '返事を一覧にできなかった。';
-    if (r.stop === 'max_tokens') return head + '返事が長すぎて途中で切れた。見るものを減らして調べ直す。';
-    if (r.stop === 'refusal') return head + 'AI が答えなかった。見るものかキーワードを変えて調べ直す。';
+    if (r.stop === 'max_tokens') return head + '返事が長すぎて途中で切れた。調べることを絞ってもう一度送る。';
+    if (r.stop === 'refusal') return head + 'AI が答えなかった。書き方を変えてもう一度送る。';
     if (r.searchError) return head + 'Web 検索が使えなかった（' + r.searchError + '）。Anthropic Console の組織の設定で Web 検索が許されているかを見る。';
-    if (!String(r.text || '').trim()) return head + 'AI の返事が空だった。もう一度「調べ直す」を押す。';
-    return head + 'AI の返事に一覧の形が無かった。もう一度「調べ直す」を押す。';
+    if (!String(r.text || '').trim()) return head + 'AI の返事が空だった。もう一度送る。';
+    return head + 'AI の返事に一覧の形が無かった。もう一度送る。';
   }
 
   /* 'YYYY-MM-DD' -> 'YYYY年M月'（一覧の見出し） */
   function monthOf(key) { const m = /^(\d{4})-(\d{2})/.exec(key); return m ? (+m[1]) + '年' + (+m[2]) + '月' : ''; }
 
-  askBtn.addEventListener('click', async () => {
-    if (askBtn.disabled) return;
+  /* 調べる。what = { message } か { topics: true }。結果は一覧に足す（前の結果は残す） */
+  async function runSearch(what) {
+    if (busy || !hasKey()) return;
+    const message = what.message ? cleanMessage(what.message) : '';
+    const ids = what.topics ? Array.from(chosen) : [];
+    if (!message && !ids.length) return;
     busy = true;
     syncAsk();
     askNote.classList.remove('is-error');
     askNote.textContent = '';
     askNote.appendChild(el('span', 'up-spin'));
-    askNote.appendChild(document.createTextNode(' Web を調べている（10〜60 秒ほど）。閉じると結果は受け取れない。'));
-    scroller.scrollTop = 0;
+    askNote.appendChild(document.createTextNode(' ' + (message ? '「' + message + '」を' : '選んだ見るものを')
+      + ' Web で調べている（10〜60 秒ほど）。閉じると結果は受け取れない。'));
+    scroller.scrollTop = Math.max(0, askNote.offsetTop - 8);
     try {
-      const kws = parseKeywords(kwIn.value);
-      const p = buildPrompt(Array.from(chosen), wordsIn.value, today, kws);
-      const r = await askWithSearchFull(p.system, p.user, { maxUses: Math.min(SEARCH_USES_CAP, SEARCH_MAX_USES + kws.length) });
+      const p = buildPrompt(ids, what.topics ? wordsIn.value : '', today, [], message);
+      const r = await askWithSearchFull(p.system, p.user, { maxUses: Math.min(SEARCH_USES_CAP, SEARCH_MAX_USES) });
       const arr = extractJsonArray(r.text);
       if (!arr) throw new Error(failReason(r));
-      events = normalizeEvents(arr, today);
+      const got = normalizeEvents(arr, today);
+      const m = mergeEvents(got, events, today);
+      events = m.events;
+      freshKeys = m.fresh;
       prefs.lastDay = today;
       remember();
       busy = false;
-      if (root) { if (events.length) cond.open = false; renderList(); syncAsk(); }
-      toast(events.length ? events.length + '件見つかった' : '予定は見つからなかった');
+      if (!root) return;
+      if (message && cleanMessage(msgIn.value) === message) msgIn.value = '';
+      if (what.topics) cond.open = false;
+      renderList();
+      syncAsk();
+      const n = got.length;
+      const old = n - got.filter(e => m.fresh.has(e.key)).length;
+      askNote.textContent = (message ? '「' + message + '」: ' : '') + (n
+        ? n + '件見つかった' + (old ? '（うち ' + old + ' 件は前から一覧にある）' : '') + '。入れるものを選ぶ。'
+        : '予定は見つからなかった。書き方を変えて送る。');
+      const first = list.querySelector('.up-row.is-fresh');
+      if (first && first.scrollIntoView) first.scrollIntoView({ block: 'nearest' });
     } catch (err) {
       busy = false;
       if (root) {
@@ -328,7 +407,14 @@ export function openUpcoming(opts) {
         askNote.classList.add('is-error');
       }
     }
+  }
+
+  form.addEventListener('submit', ev => {
+    ev.preventDefault();
+    if (sendBtn.disabled) return;
+    runSearch({ message: msgIn.value });
   });
+  topicAsk.addEventListener('click', () => { if (!topicAsk.disabled) runSearch({ topics: true }); });
 
   addBtn.addEventListener('click', () => {
     const picks = pickable().filter(e => rowState.get(e.key) && rowState.get(e.key).on)
@@ -349,18 +435,19 @@ export function openUpcoming(opts) {
     const have = addedKeys(store.all());
     const n = events.length;
     listBar.hidden = !n && !prefs.lastDay;
-    listHead.textContent = n
-      ? n + '件見つかった' + (prefs.lastDay ? '（' + md(prefs.lastDay) + ' に調べた）' : '')
-      : (prefs.lastDay ? '見つかった予定は無い。見るものを変えて調べ直す。' : '');
+    listBar.hidden = !n;
+    listHead.textContent = n ? '一覧 ' + n + '件' + (prefs.lastDay ? '（' + md(prefs.lastDay) + ' に調べた）' : '') : '';
     let section = '';
     events.forEach(ev => {
-      if (!rowState.has(ev.key)) rowState.set(ev.key, { on: ev.status !== 'rumor', lead: defaultLead(ev, today) });
+      /* 既定ではどれも選ばない（2026-11-05 利用者の指示「デフォルトで全部チェック外して」） */
+      if (!rowState.has(ev.key)) rowState.set(ev.key, { on: false, lead: defaultLead(ev, today) });
       const st = rowState.get(ev.key);
       const done = have.has(ev.key);
       const sec = isRunning(ev, today) ? '開催中' : monthOf(ev.date);
       if (sec !== section) { section = sec; list.appendChild(el('p', 'up-sec', sec)); }
 
-      const row = el('label', 'up-row' + (done ? ' is-added' : '') + ' is-' + ev.status + (st.on && !done ? ' is-on' : ''));
+      const row = el('label', 'up-row' + (done ? ' is-added' : '') + ' is-' + ev.status + (st.on && !done ? ' is-on' : '')
+        + (freshKeys.has(ev.key) ? ' is-fresh' : ''));
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.className = 'up-cb';
@@ -392,6 +479,12 @@ export function openUpcoming(opts) {
         meta.appendChild(a);
       }
       body.appendChild(ttl); body.appendChild(meta);
+      if (ev.about) {
+        const ab = el('span', 'up-about');
+        ab.textContent = ev.about;            /* AI の返事。innerHTML には入れない */
+        body.appendChild(ab);
+      }
+      if (freshKeys.has(ev.key)) meta.insertBefore(el('span', 'up-st is-new', '新しく見つかった'), meta.firstChild.nextSibling);
       if (ev.note) {
         const nt = el('span', 'up-cond-tx');
         nt.textContent = ev.note;             /* AI の返事。innerHTML には入れない */
@@ -431,8 +524,7 @@ export function openUpcoming(opts) {
     syncAdd();
   }
 
-  cond.open = !events.length;
-  syncSummary();
+  cond.open = false;
   renderList();
   syncAsk();
   setTimeout(() => { try { closeBtn.focus({ preventScroll: true }); } catch (e) { /* そのまま */ } }, 0);

@@ -789,7 +789,7 @@ function upcomingBox() {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, '先の予定（AI）'));
   wrap.appendChild(el('p', 'note',
-    'FOMC・決算日・セール・支払いの還元・ポイント増量など、日付の決まった予定を AI が調べ、その少し前に今日へ出す。'));
+    '調べたい予定やキャンペーン（FOMC・決算日・セール・支払いの還元など）を書いて送ると、AI が日付と説明を調べ、その少し前に今日へ出す。'));
   const last = el('p', 'note');
   const refresh = () => { last.textContent = lastLine(store.todayKey()); };
   refresh();

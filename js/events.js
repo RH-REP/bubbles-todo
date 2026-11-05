@@ -12,7 +12,11 @@
      本文は同期・CSV に乗るので、ほかの端末で入れたものも重ならない
    - **期間もの**（キャンペーン・セール・連休。end を持つ）は、もう始まっていても終わっていなければ出す。
      今日へ出す日は「始まる◯日前／始まる日／終わる◯日前／終わる日」から選ぶ（leadOptions）。
-     エントリーが要るもの（entry）は既定で「始まる日」——還元はエントリーした日から数えるものが多いため */
+     エントリーが要るもの（entry）は既定で「始まる日」——還元はエントリーした日から数えるものが多いため
+   - 調べ方の主は「調べたいことを 1 つ書いて送る」（2026-11-05 利用者の指示）。見るもののカードは既定ですべて外す
+   - 1件ごとに短い説明を持ち、バブルの本文に書く（2026-11-05 利用者の指示）:
+     投資の予定は「何の指標・出来事か」「予想値」「予想を上回った／下回ったときに一般に株価がどう動きやすいか」（一般論。予測ではない）。
+     セール・キャンペーンは「概要」「上限・条件」「注意事項」 */
 
 /* 見るもの（トピック）。lead = 何日前に今日へ出すか（既定） */
 export const TOPICS = [
@@ -42,7 +46,7 @@ export const TOPICS = [
 
 /* キーワード（2026-11-04 追加。利用者の指示 Issue #13「sbi の投資信託のキャンペーン・楽天のお買い物マラソンの期間」）。
    見るもののカードとは別に、欄に書いた言葉を 1 つずつ調べる。返事の topic は 'kw' */
-export const KW_TOPIC = { id: 'kw', group: 'キーワード', label: 'キーワード', sub: '', lead: 7, ask: '' };
+export const KW_TOPIC = { id: 'kw', group: 'キーワード', label: '送って調べたもの', sub: '', lead: 7, ask: '' };
 export const KW_MAX = 5;
 export const KW_LEN = 40;
 
@@ -56,11 +60,43 @@ export function parseKeywords(s) {
   return out;
 }
 
-export const DEFAULT_TOPICS = ['fomc', 'earnings', 'sale', 'console', 'china', 'pay', 'points'];
+/* 既定ではどれも選ばない（2026-11-05 利用者の指示「デフォルトで全部チェック外して、基本はメッセージ送信で調べる」） */
+export const DEFAULT_TOPICS = [];
 /* 見るものの版。上げたときに足したトピック（前の版で保存した端末にも、既定で付ける） */
-export const TOPICS_VER = 2;
+export const TOPICS_VER = 3;
 export const TOPICS_ADDED = { 2: ['pay', 'points'] };
-export const NOTE_MAX = 40;
+/* この版より前に保存した選びは 1 回だけ空にする（前の既定で全部に印が付いていたため。v3 = 2026-11-05） */
+export const TOPICS_RESET_VER = 3;
+
+/* 保存してあった選び（p = localStorage の中身）から、今の選びを出す */
+export function migrateTopics(p) {
+  const q = (p && typeof p === 'object') ? p : {};
+  if (!Array.isArray(q.topics)) return DEFAULT_TOPICS.slice();
+  let topics = q.topics.filter(id => TOPICS.some(t => t.id === id));
+  const ver = Number(q.ver) || 1;
+  if (ver < TOPICS_RESET_VER) return [];
+  for (let v = ver + 1; v <= TOPICS_VER; v++) {
+    (TOPICS_ADDED[v] || []).forEach(id => { if (!topics.includes(id)) topics.push(id); });
+  }
+  return topics;
+}
+
+/* 送って調べる文（2026-11-05。下の欄に書いて送る）。空白をそろえ、MSG_MAX 字まで */
+export const MSG_MAX = 200;
+export function cleanMessage(s) {
+  return Array.from(String(s || '').replace(/\s+/g, ' ').trim()).slice(0, MSG_MAX).join('');
+}
+
+/* 説明の欄の長さ（バブルの本文に書く） */
+export const ABOUT_MAX = 120;
+export const FORECAST_MAX = 40;
+export const MOVE_MAX = 80;
+export const CAUTION_MAX = 100;
+/* 1 回に頼む件数（説明が付いて 1 件が長くなったので、返事が切れないように 40 → 15） */
+export const ASK_MAX = 15;
+/* 送るたびに一覧へ足していくときの上限 */
+export const KEEP_MAX = 60;
+export const NOTE_MAX = 60;
 export const LEADS = [0, 3, 7, 14, 30];        /* 行ごとに選べる「何日前」 */
 export const HORIZON_DAYS = 180;                /* 今日からどこまで先を見るか */
 export const MAX_EVENTS = 40;
@@ -101,27 +137,36 @@ export function normTitle(s) {
 
 export function eventKey(ev) { return ev.date + '|' + normTitle(ev.title); }
 
-/* AI に渡す文（system と user）。送るのは選んだトピックと、書いた銘柄・商品だけ */
-export function buildPrompt(topicIds, words, today, keywords) {
+/* AI に渡す文（system と user）。送るのは選んだトピックと、書いた銘柄・商品・調べたいことの文だけ */
+export function buildPrompt(topicIds, words, today, keywords, message) {
   const ts = (topicIds || []).map(topicOf).filter(t => t && t.id !== 'kw');
   const kws = Array.isArray(keywords) ? keywords : parseKeywords(keywords);
+  const msg = cleanMessage(message);
   const end = addDays(today, HORIZON_DAYS);
   const system = [
     'あなたは「日付が先に決まっている予定」を Web で調べて一覧にする係。',
-    '株価・価格・相場の予測や、売買の助言は一切しない。日付と出来事だけを書く。',
+    '株価・価格・相場の予測や、売買の助言は一切しない。日付と出来事と、その意味の説明だけを書く。',
+    'ただし指標・金融政策・決算などは、結果が市場の予想を上回ったとき・下回ったときに、株価が一般にどう動きやすいかの'
+      + '教科書的な傾向は書いてよい（「一般に〜しやすい」と書き、断定しない。今回どうなるかは書かない）。',
     '今日は ' + today + '。' + today + ' から ' + end + ' までに始まる予定だけ。日付が日まで分からないものは入れない。',
     '期間もの（キャンペーン・セール・連休）は date に始まりの日、end に終わりの日を入れる。',
     'すでに始まっていて ' + today + ' 以降に終わるキャンペーンも入れる（date は始まった日のまま）。',
     '調べ終えたら、最後に答えを ```json の囲いの中に JSON の配列で 1 つだけ書く（説明は短く。配列の外に [ ] を書かない）。各要素は次の形:',
     '{"date":"YYYY-MM-DD","end":"YYYY-MM-DD か null","title":"日本語で30字以内","topic":"トピックID",'
-      + '"status":"confirmed|planned|rumor","entry":true|false,"note":"条件・上限など20字以内","source":"根拠のURL"}',
+      + '"status":"confirmed|planned|rumor","entry":true|false,"note":"条件・上限など30字以内",'
+      + '"about":"何の予定か・概要を60字以内","forecast":"市場の予想値（分かれば。無ければ null）",'
+      + '"beat":"予想を上回ったときの株価の一般的な傾向40字以内（投資の予定だけ。ほかは null）",'
+      + '"miss":"予想を下回ったときの株価の一般的な傾向40字以内（同上）",'
+      + '"caution":"注意事項（対象外・上限・エントリー忘れ・支払い方法の条件など）50字以内。無ければ null","source":"根拠のURL"}',
+    'about は、投資の予定なら「何を表す指標・会合か」、セール・キャンペーンなら「何がどれだけお得になるか」を書く。',
     'status: 公式に発表済み=confirmed、例年や暫定の見込み=planned、報道・リーク=rumor。',
     'entry: 参加にエントリー（申し込み）が要るなら true。',
-    '同じキャンペーンを店や対象ごとに分けず、1件にまとめる。最大 ' + MAX_EVENTS + ' 件。',
+    '同じキャンペーンを店や対象ごとに分けず、1件にまとめる。最大 ' + ASK_MAX + ' 件。',
     '見つからなければ空の配列 [] を書く。',
   ].join('\n');
   const lines = ts.map(t => '- ' + t.id + ': ' + t.ask);
   kws.forEach(k => lines.push('- kw: 「' + k + '」に当たる予定・キャンペーン・セールの日程（期間・エントリーの要否・条件）。topic は kw'));
+  if (msg) lines.push('- kw: 利用者の頼み「' + msg + '」に当たる予定（指標・会合・決算・セール・キャンペーンなど）の日程と説明。topic は kw');
   const w = String(words || '').trim();
   const user = '次のトピックの予定を調べて。\n' + lines.join('\n')
     + (w ? '\n銘柄・商品・使っている支払い（決算日・新型・キャンペーンはこれに関わるものを優先）: ' + w : '');
@@ -184,6 +229,12 @@ export function extractJsonArray(text) {
   return best;
 }
 
+/* 説明の欄。AI が「null」「なし」と文字で書いてきたものは空にする */
+function opt(s, n) {
+  const t = String(s == null ? '' : s).trim();
+  return /^(null|none|n\/a|なし|無し|特になし|不明|-|―|—)$/i.test(t) ? '' : clip(t, n);
+}
+
 function clip(s, n) {
   const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   return Array.from(t).length > n ? Array.from(t).slice(0, n).join('') + '…' : t;
@@ -193,7 +244,7 @@ function clip(s, n) {
    落とすもの: 日付の形が違う・過ぎた（期間ものは終わった）・見る範囲より先に始まる・題名が空・同じものの2つ目
    end が date より前・形が違うときは、期間ものとして扱わない（end を落とす）
    -> [{ date, end, title, topic, status, entry, note, source, key }]（始まりの近い順。始まっているものが先） */
-export function normalizeEvents(raw, today) {
+export function normalizeEvents(raw, today, max) {
   const horizon = addDays(today, HORIZON_DAYS);
   const seen = new Set();
   const out = [];
@@ -209,14 +260,24 @@ export function normalizeEvents(raw, today) {
     const topic = topicOf(r.topic) ? r.topic : 'other';
     const status = STATUS[r.status] ? r.status : 'planned';
     const ev = { date, end: end || null, title, topic, status, entry: r.entry === true,
-      note: clip(r.note, NOTE_MAX), source: safeUrl(r.source) };
+      note: opt(r.note, NOTE_MAX), source: safeUrl(r.source),
+      about: opt(r.about, ABOUT_MAX), forecast: opt(r.forecast, FORECAST_MAX),
+      beat: opt(r.beat, MOVE_MAX), miss: opt(r.miss, MOVE_MAX), caution: opt(r.caution, CAUTION_MAX) };
     ev.key = eventKey(ev);
     if (seen.has(ev.key)) return;
     seen.add(ev.key);
     out.push(ev);
   });
   out.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
-  return out.slice(0, MAX_EVENTS);
+  return out.slice(0, max || MAX_EVENTS);
+}
+
+/* 送るたびに一覧へ足す（2026-11-05）。同じものは新しい返事のほうを残す。
+   -> { events, fresh: 新しく増えた key の Set } */
+export function mergeEvents(fresh, old, today) {
+  const before = new Set((Array.isArray(old) ? old : []).map(e => e && e.key));
+  const events = normalizeEvents([].concat(Array.isArray(fresh) ? fresh : [], Array.isArray(old) ? old : []), today, KEEP_MAX);
+  return { events, fresh: new Set(events.filter(e => !before.has(e.key)).map(e => e.key)) };
 }
 
 /* いま開催中か（始まっていて、終わっていない期間もの） */
@@ -280,8 +341,14 @@ export function detailText(ev, today) {
   const t = topicOf(ev.topic);
   return [
     (ev.end ? '期間: ' + ev.date + ' 〜 ' + ev.end : '日付: ' + ev.date) + '（' + (STATUS[ev.status] || '予定') + '）',
+    ev.about ? '説明: ' + ev.about : '',
+    ev.forecast ? '予想: ' + ev.forecast : '',
+    ev.beat ? '予想を上回ったら: ' + ev.beat : '',
+    ev.miss ? '予想を下回ったら: ' + ev.miss : '',
+    (ev.beat || ev.miss) ? '（値動きは一般的な傾向で、今回の予測ではない）' : '',
     ev.entry ? 'エントリーが要る' : '',
     ev.note ? '条件: ' + ev.note : '',
+    ev.caution ? '注意: ' + ev.caution : '',
     t ? '見るもの: ' + t.label : '',
     ev.source ? '出典: ' + ev.source : '',
     '調べた日: ' + today + '（AI が Web で調べた。日付は出典で確かめる）',

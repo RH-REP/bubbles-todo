@@ -218,3 +218,26 @@
   .up-spin { animation: none; }
   .up-cond > summary::before { transition: none; }
 }
+
+/* ---- 先の予定: 送って調べる形（2026-11-05。Issue #13）----
+   下に留まる欄は「N 件を入れる」の行＋調べたいことを書く欄。見るもののカードは「まとめて調べる」に畳む */
+.up-examples { margin: 0 0 10px; }
+.up-examples .up-group { margin-top: 0; }
+.up-exrow { display: flex; flex-wrap: wrap; gap: 6px; }
+.up-examples.is-off .help-ex { opacity: .5; }
+.up-form input {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px; line-height: 1.4;
+  padding: 11px 12px; border-radius: 12px; min-height: 44px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+}
+.up-form input:disabled { opacity: .6; }
+.up-form input:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.up-foot { flex-direction: column; align-items: stretch; }
+.up-foot .up-form { width: 100%; }
+.up-addrow { display: flex; justify-content: flex-end; }
+.up-addrow[hidden] { display: none; }
+.up-listbtns { display: inline-flex; gap: 4px 12px; flex-wrap: wrap; justify-content: flex-end; }
+.up-trun { display: flex; justify-content: flex-end; margin: 0 0 12px; }
+.up-trun .btn:disabled { opacity: .45; }
+.up-list .up-about { font-size: 12.5px; line-height: 1.55; color: var(--text); overflow-wrap: anywhere; }
+.up-st.is-new { border-color: var(--bub-edge); color: var(--text); }
