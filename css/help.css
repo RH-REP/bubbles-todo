@@ -241,3 +241,11 @@
 .up-trun .btn:disabled { opacity: .45; }
 .up-list .up-about { font-size: 12.5px; line-height: 1.55; color: var(--text); overflow-wrap: anywhere; }
 .up-st.is-new { border-color: var(--bub-edge); color: var(--text); }
+
+/* ---- 先の予定: 支払いルート（2026-11-05。Issue #13）---- */
+.up-route .up-note { margin: 0 0 4px; }
+.up-words textarea {
+  font: inherit; font-size: 16px; line-height: 1.5; padding: 8px 12px; border-radius: 10px; resize: vertical;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+}
+.up-list .up-routeline { font-size: 13px; line-height: 1.55; color: var(--text); overflow-wrap: anywhere; font-weight: 500; }

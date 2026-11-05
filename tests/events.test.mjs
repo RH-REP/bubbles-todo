@@ -110,23 +110,25 @@ await test('キャンペーン（期間もの）: 開催中も残し、終わっ
   assert.equal(E.bubbleText(air), 'エアウォレット 15% 還元（11/1〜11/30）');
 });
 
-await test('キャンペーンの今日へ出す日: 既定は終わる3日前、エントリーが要るものは始まる日（始まっていれば今日）', () => {
+await test('キャンペーンの今日へ出す日: 既定は期間中ずっと（2026-11-05）。ほかに終わる3日前・始まる日なども選べる', () => {
   const air = { date: '2026-11-01', end: '2026-11-30', entry: false, topic: 'pay' };
   const airEntry = Object.assign({}, air, { entry: true });
   const dp = { date: '2026-12-01', end: '2026-12-25', entry: true, topic: 'points' };
-  assert.equal(E.defaultLead(air, TODAY), 'e3');
+  assert.equal(E.defaultLead(air, TODAY), 'p0');
+  assert.equal(E.triggerDay(air, 'p0', TODAY), TODAY, '開催中なら今日から');
   assert.equal(E.triggerDay(air, 'e3', TODAY), '2026-11-27');
   assert.equal(E.triggerDay(air, 'e0', TODAY), '2026-11-30');
-  assert.equal(E.defaultLead(airEntry, TODAY), 's0');
+  assert.equal(E.defaultLead(airEntry, TODAY), 'p0');
   assert.equal(E.triggerDay(airEntry, 's0', TODAY), TODAY, 'もう始まっていれば今日');
-  assert.equal(E.defaultLead(dp, TODAY), 's0');
+  assert.equal(E.defaultLead(dp, TODAY), 'p0');
+  assert.equal(E.triggerDay(dp, 'p0', TODAY), '2026-12-01', '先のものは始まる日から');
   assert.equal(E.triggerDay(dp, 's0', TODAY), '2026-12-01');
   assert.equal(E.triggerDay(dp, 's3', TODAY), '2026-11-28');
   assert.equal(E.triggerDay(dp, 'e7', TODAY), '2026-12-18');
   /* 選べるもの: 始まっているものは「始まる前」を出さない */
   const ids = o => E.leadOptions(o, TODAY).map(x => x.id);
-  assert.deepEqual(ids(air), ['s0', 'e7', 'e3', 'e1', 'e0']);
-  assert.deepEqual(ids(dp), ['s7', 's3', 's0', 'e7', 'e3', 'e1', 'e0']);
+  assert.deepEqual(ids(air), ['p0', 's0', 'e7', 'e3', 'e1', 'e0']);
+  assert.deepEqual(ids(dp), ['p0', 's7', 's3', 's0', 'e7', 'e3', 'e1', 'e0']);
   assert.deepEqual(ids({ date: '2026-12-10' }), ['s0', 's3', 's7', 's14', 's30']);
 });
 
@@ -308,7 +310,7 @@ await test('キーワード: 区切り・重なり・上限。送る文に 1 つ
   assert.ok(!p.user.includes('fomc'));
   const out = E.normalizeEvents([{ date: '2026-11-20', end: '2026-11-27', title: 'お買い物マラソン', topic: 'kw', status: 'confirmed' }], TODAY);
   assert.equal(out[0].topic, 'kw');
-  assert.equal(E.defaultLead(out[0], TODAY), 'e3');
+  assert.equal(E.defaultLead(out[0], TODAY), 'p0');
   assert.ok(E.detailText(out[0], TODAY).includes('見るもの: 送って調べたもの'));
 });
 
@@ -328,6 +330,75 @@ await test('askWithSearchFull: 途中で切れた・検索のエラーを返し�
   assert.equal(r.searchError, 'max_uses_exceeded');
   assert.equal(seen[0].tools[0].max_uses, ai.SEARCH_USES_CAP);
   assert.ok(seen[0].max_tokens >= 16000, '考える分と検索の結果で JSON が切れないだけの長さ');
+});
+
+await test('期間中ずっと: 始まる日（開催中なら今日）から終わる日まで毎日の今日に置き、その日ごとに今日の水面へ出る', async () => {
+  mem.clear();
+  const store = await openStore(ms(2026, 11, 4));
+  const [run, later] = E.normalizeEvents([
+    { date: '2026-11-01', end: '2026-11-07', title: '開催中の還元', topic: 'pay', status: 'confirmed' },
+    { date: '2026-11-20', end: '2026-11-22', title: '先のセール', topic: 'sale', status: 'confirmed' },
+  ], TODAY);
+  assert.deepEqual(E.floatDays(run, 'p0', TODAY), ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07']);
+  assert.deepEqual(E.floatDays(run, 'e3', TODAY), ['2026-11-04'], 'ほかの選び方は 1 日だけ');
+  assert.equal(E.floatDays({ date: TODAY, end: '2027-03-01' }, 'p0', TODAY).length, E.FLOAT_MAX, '長い期間は上限まで');
+  const [a, b] = E.addEvents(store, [{ ev: run, lead: 'p0' }, { ev: later, lead: 'p0' }], TODAY).added;
+  assert.equal(store.todays().some(t => t.id === a.id), true);
+  assert.equal(store.isHold(b.id), true);
+  assert.equal(store.holdUntil(b.id), '2026-11-20');
+  for (const [d, h, inA, inB] of [[6, 9, true, false], [8, 9, false, false], [21, 9, false, true], [23, 9, false, false]]) {
+    const s2 = await openStore(ms(2026, 11, d, h));
+    s2.sweepHolds();
+    const ids = s2.todays().map(t => t.id);
+    assert.equal(ids.includes(a.id), inA, '開催中の還元 11/' + d);
+    assert.equal(ids.includes(b.id), inB, '先のセール 11/' + d);
+  }
+});
+
+await test('支払いルート: 持っているカードと参考のサイトだけを送り、ルート・還元率・上限を一覧と本文に持つ', () => {
+  const p = E.buildRoutePrompt('三井住友ゴールドNL, マネックスカード', 'https://toyama-go-z-house.com/\njavascript:alert(1)\nhttps://poinmy.com/?p=798', TODAY);
+  assert.ok(p.user.includes('三井住友ゴールドNL, マネックスカード'));
+  assert.ok(p.user.includes('- https://toyama-go-z-house.com/') && p.user.includes('- https://poinmy.com/?p=798'));
+  assert.ok(!p.user.includes('javascript:'));
+  ['"steps"', '"rate"', '"cap"', '"end"', '"caution"'].forEach(k => assert.ok(p.system.includes(k), k));
+  assert.deepEqual(E.parseSites(E.DEFAULT_SITES), ['https://toyama-go-z-house.com/', 'https://poinmy.com/?p=798']);
+  const out = E.normalizeRoutes([
+    { title: 'NL → ANA Pay → 楽天ペイ', card: '三井住友ゴールドNL', steps: ['三井住友ゴールドNL', 'Revolut', 'ANA Pay', '楽天Edy', '楽天キャッシュ', '楽天ペイ'],
+      rate: '1.5%', cap: '1回1円', date: null, end: null, note: '年100万円修行中', caution: '改悪の予定あり', status: 'confirmed', source: 'https://poinmy.com/?p=798' },
+    { title: 'マネックス → JAL Pay → nanaco', steps: ['マネックスカード', 'JAL Pay', 'nanaco'], rate: '1.2%',
+      date: '2026-10-01', end: '2026-11-15', status: 'confirmed' },
+  ], TODAY);
+  const fixed = out.find(e => E.isFixedRoute(e));
+  const timed = out.find(e => !E.isFixedRoute(e));
+  assert.equal(fixed.date, TODAY, '常設は今日の予定');
+  assert.equal(E.routeLine(fixed), '三井住友ゴールドNL → Revolut → ANA Pay → 楽天Edy → 楽天キャッシュ → 楽天ペイ');
+  assert.deepEqual(E.leadOptions(fixed, TODAY).map(x => x.id), ['s0']);
+  assert.equal(E.bubbleText(fixed), 'NL → ANA Pay → 楽天ペイ', '常設は名前に日付を付けない');
+  assert.equal(timed.date, TODAY, 'もう始まっているものは今日から');
+  assert.equal(timed.end, '2026-11-15');
+  assert.equal(E.defaultLead(timed, TODAY), 'p0');
+  const d = E.detailText(fixed, TODAY);
+  assert.ok(d.includes('ルート: 三井住友ゴールドNL → Revolut') && d.includes('還元率: 1.5%') && d.includes('上限: 1回1円'));
+  assert.ok(d.includes('注意: 改悪の予定あり') && d.includes('常設のルート'));
+  const m = E.mergeEvents(out, [], TODAY);
+  assert.equal(E.routeLine(m.events.find(E.isFixedRoute)).split(' → ').length, 6, '一覧に足しても（保存し直しても）ルートが残る');
+});
+
+await test('モデル: 既定は Haiku。設定で選んだものを使い、知らない名前は既定に戻す', async () => {
+  mem.clear();
+  const ai = await import(AI_URL + '?ev=3');
+  ai.setKey('sk-ant-TEST');
+  assert.equal(ai.getModel(), ai.DEFAULT_MODEL);
+  assert.equal(ai.DEFAULT_MODEL, 'claude-haiku-5-5');
+  const seen = [];
+  globalThis.fetch = async (url, init) => { seen.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '[]' }] }) }; };
+  assert.equal(ai.setModel('claude-sonnet-5-5'), true);
+  await ai.askWithSearchFull('s', 'u');
+  assert.equal(seen[0].model, 'claude-sonnet-5-5');
+  ai.setModel('nope');
+  assert.equal(ai.getModel(), ai.DEFAULT_MODEL);
+  await ai.askWithSearchFull('s', 'u');
+  assert.equal(seen[1].model, 'claude-haiku-5-5');
 });
 
 console.log('');

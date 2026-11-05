@@ -106,7 +106,67 @@ export const MARK = '先の予定: ';                /* 本文の最後の行の
 
 const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-export function topicOf(id) { return id === 'kw' ? KW_TOPIC : (TOPICS.find(t => t.id === id) || null); }
+/* 支払いルート（2026-11-05 追加。利用者の指示 Issue #13「今どの支払いがお得か調べる機能」）。
+   クレカ → チャージ → 支払い の流れ（例: カード → Revolut → ANA Pay → Edy → 楽天キャッシュ → 楽天ペイ）を、
+   還元率・条件・上限・期間と一緒にまとめる。返事の topic は 'route' */
+export const ROUTE_TOPIC = { id: 'route', group: 'お得', label: '支払いルート', sub: '', lead: 0, ask: '' };
+export const ROUTE_ASK_MAX = 8;
+export const STEP_MAX = 8;
+export const STEP_LEN = 24;
+export const DEFAULT_SITES = 'https://toyama-go-z-house.com/\nhttps://poinmy.com/?p=798';
+
+export function topicOf(id) {
+  if (id === 'kw') return KW_TOPIC;
+  if (id === 'route') return ROUTE_TOPIC;
+  return TOPICS.find(t => t.id === id) || null;
+}
+
+/* 欄の文字 -> http(s) の URL の並び（5 つまで） */
+export function parseSites(s) {
+  const out = [];
+  String(s || '').split(/[\s,、]+/).forEach(u => { const v = safeUrl(u); if (v && !out.includes(v) && out.length < 5) out.push(v); });
+  return out;
+}
+
+/* 支払いルートを調べる文。送るのは持っているカード・支払いの欄と、参考にするサイトの URL だけ */
+export function buildRoutePrompt(cards, sites, today) {
+  const c = cleanMessage(cards);
+  const ss = parseSites(sites);
+  const system = [
+    'あなたは日本のキャッシュレス決済の「お得な支払いルート」を Web で調べてまとめる係。',
+    'ルートとは、クレジットカードから電子マネー・プリペイド・コード決済へチャージを重ね、最後に支払うまでの流れ'
+      + '（例: 三井住友カード ゴールド（NL） → Revolut → ANA Pay → 楽天Edy → 楽天キャッシュ → 楽天ペイ）。',
+    '今日は ' + today + '。今使えるルートと、' + today + ' 以降に始まると発表済みのものだけ。終わったもの・改悪で使えなくなったものは入れない。',
+    '投資や売買の助言はしない。還元の仕組みと条件だけを書く。',
+    '調べ終えたら、最後に答えを ```json の囲いの中に JSON の配列で 1 つだけ書く（配列の外に [ ] を書かない）。各要素は次の形:',
+    '{"title":"ルートの名前 30字以内","card":"起点のカード・支払い","steps":["起点","チャージ先",…,"最後の支払い"],'
+      + '"rate":"全体の還元率（例: 1.5%）","cap":"上限（例: 月5万円まで・1回1円）。無ければ null",'
+      + '"date":"YYYY-MM-DD（期間があれば始まり。常設なら null）","end":"YYYY-MM-DD（終わり。常設なら null）",'
+      + '"entry":true|false,"note":"条件 30字以内","about":"なぜお得か 60字以内","caution":"注意（改悪の予定・対象外・手数料など）50字以内",'
+      + '"status":"confirmed|planned|rumor","source":"根拠のURL"}',
+    'steps は 2〜' + STEP_MAX + ' 個。1 つは ' + STEP_LEN + ' 字以内。還元率の高い順に、最大 ' + ROUTE_ASK_MAX + ' 件。',
+    '見つからなければ空の配列 [] を書く。',
+  ].join('\n');
+  const user = '今お得な支払いルートを調べて。'
+    + (c ? '\n持っているカード・支払い（これを起点・経由にするルートを優先）: ' + c : '\n持っているカードの指定は無い。よく使われるルートを広く。')
+    + (ss.length ? '\n参考にするサイト（まずここを読む。古い記事は今も使えるか確かめる）:\n' + ss.map(u => '- ' + u).join('\n') : '');
+  return { system, user };
+}
+
+/* 支払いルートの返事 -> 一覧の形（予定と同じ形。steps・rate・cap・card は normalizeEvents が持つ）。
+   期間の無いもの（常設）と、もう始まっているものは、始まりを今日にする */
+export function normalizeRoutes(raw, today) {
+  const rows = (Array.isArray(raw) ? raw : []).map(r => {
+    if (!r || typeof r !== 'object') return null;
+    const d0 = String(r.date || '').trim();
+    return Object.assign({}, r, { date: validDay(d0) && d0 > today ? d0 : today, topic: 'route' });
+  }).filter(Boolean);
+  return normalizeEvents(rows, today);
+}
+
+export function isFixedRoute(ev) { return !!(ev && ev.topic === 'route' && !ev.end); }
+
+export function routeLine(ev) { return (ev && Array.isArray(ev.steps) && ev.steps.length) ? ev.steps.join(' → ') : ''; }
 
 /* 'YYYY-MM-DD' に n 日足す（ローカル時刻の正午で数える。夏時間でも日が飛ばない） */
 export function addDays(key, n) {
@@ -262,7 +322,10 @@ export function normalizeEvents(raw, today, max) {
     const ev = { date, end: end || null, title, topic, status, entry: r.entry === true,
       note: opt(r.note, NOTE_MAX), source: safeUrl(r.source),
       about: opt(r.about, ABOUT_MAX), forecast: opt(r.forecast, FORECAST_MAX),
-      beat: opt(r.beat, MOVE_MAX), miss: opt(r.miss, MOVE_MAX), caution: opt(r.caution, CAUTION_MAX) };
+      beat: opt(r.beat, MOVE_MAX), miss: opt(r.miss, MOVE_MAX), caution: opt(r.caution, CAUTION_MAX),
+      /* 支払いルートの欄（ほかの予定では空） */
+      steps: (Array.isArray(r.steps) ? r.steps : []).map(x => clip(x, STEP_LEN)).filter(Boolean).slice(0, STEP_MAX),
+      rate: opt(r.rate, 20), cap: opt(r.cap, 40), card: opt(r.card, 30) };
     ev.key = eventKey(ev);
     if (seen.has(ev.key)) return;
     seen.add(ev.key);
@@ -287,18 +350,20 @@ export function isRunning(ev, today) { return !!(ev && ev.end && ev.date <= toda
    数だけ渡されたら 's<n>'（前の版の形） */
 function parseLead(lead) {
   if (typeof lead === 'number' && Number.isFinite(lead)) return { base: 's', days: Math.max(0, lead) };
-  const m = /^([se])(\d{1,3})$/.exec(String(lead || ''));
+  const m = /^([sep])(\d{1,3})$/.exec(String(lead || ''));
   return m ? { base: m[1], days: +m[2] } : { base: 's', days: 7 };
 }
 
 /* 行ごとに選べる決め方。期間ものは「始まる前／始まる日／終わる前／終わる日」、
    日だけのものは「当日〜30日前」。すでに始まっている期間ものは、終わりを基準にしたものだけ */
 export function leadOptions(ev, today) {
+  if (ev && ev.topic === 'route' && !ev.end) return [{ id: 's0', label: '今日' }];   /* 常設のルート */
   if (ev && ev.end) {
     const started = !!today && ev.date <= today;
     /* 始まっているものの 's0' は、今日へ出す日が過ぎているので「今日」になる */
     const s = started ? [['s0', 'すぐ（開催中）']] : [['s7', '始まる7日前'], ['s3', '始まる3日前'], ['s0', '始まる日']];
-    return s.concat([['e7', '終わる7日前'], ['e3', '終わる3日前'], ['e1', '終わる前の日'], ['e0', '終わる日']])
+    /* 'p0' = 期間中ずっと今日に（2026-11-05 利用者の指示）。始まる日（開催中なら今日）から終わる日まで毎日 */
+    return [['p0', started ? '終わるまで毎日今日に' : '期間中ずっと今日に']].concat(s).concat([['e7', '終わる7日前'], ['e3', '終わる3日前'], ['e1', '終わる前の日'], ['e0', '終わる日']])
       .map(([id, label]) => ({ id, label }));
   }
   return LEADS.map(n => ({ id: 's' + n, label: n ? n + '日前' : '当日' }));
@@ -311,7 +376,7 @@ export function leadOptions(ev, today) {
    ev の代わりにトピック ID を渡すと 's<日数>' */
 export function defaultLead(ev, today) {
   if (typeof ev === 'string') { const t = topicOf(ev); return 's' + (t ? t.lead : 7); }
-  if (ev && ev.end) return ev.entry ? 's0' : 'e3';
+  if (ev && ev.end) return 'p0';   /* 期間中ずっと今日に浮かべる（2026-11-05 利用者の指示。前は終わる3日前／エントリー要は始まる日） */
   const t = topicOf(ev && ev.topic);
   const want = t ? t.lead : 7;
   return 's' + (LEADS.includes(want) ? want : 7);
@@ -326,6 +391,17 @@ export function triggerDay(ev, lead, today) {
   return (!d || d < today) ? today : d;
 }
 
+/* 今日に置く日の並び。'p'（期間中ずっと）なら今日へ出す日から終わる日まで毎日（FLOAT_MAX 日まで）。
+   ほかは今日へ出す日の 1 日だけ */
+export const FLOAT_MAX = 62;
+export function floatDays(ev, lead, today) {
+  const first = triggerDay(ev, lead, today);
+  if (parseLead(lead).base !== 'p' || !ev || !ev.end || ev.end < first) return [first];
+  const out = [];
+  for (let d = first; d <= ev.end && out.length < FLOAT_MAX; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
 /* 'YYYY-MM-DD' -> 'M/D' */
 export function md(key) {
   const m = DAY_RE.exec(String(key || ''));
@@ -335,12 +411,16 @@ export function md(key) {
 /* 一覧と名前に出す日付。期間ものは 'M/D〜M/D' */
 export function span(ev) { return ev.end ? md(ev.date) + '〜' + md(ev.end) : md(ev.date); }
 
-export function bubbleText(ev) { return ev.title + '（' + span(ev) + '）'; }
+export function bubbleText(ev) { return ev.topic === 'route' && !ev.end ? ev.title : ev.title + '（' + span(ev) + '）'; }
 
 export function detailText(ev, today) {
   const t = topicOf(ev.topic);
   return [
-    (ev.end ? '期間: ' + ev.date + ' 〜 ' + ev.end : '日付: ' + ev.date) + '（' + (STATUS[ev.status] || '予定') + '）',
+    (ev.topic === 'route' && !ev.end ? '常設のルート（' + today + ' に使えた）'
+      : (ev.end ? '期間: ' + ev.date + ' 〜 ' + ev.end : '日付: ' + ev.date)) + '（' + (STATUS[ev.status] || '予定') + '）',
+    routeLine(ev) ? 'ルート: ' + routeLine(ev) : '',
+    ev.rate ? '還元率: ' + ev.rate : '',
+    ev.cap ? '上限: ' + ev.cap : '',
     ev.about ? '説明: ' + ev.about : '',
     ev.forecast ? '予想: ' + ev.forecast : '',
     ev.beat ? '予想を上回ったら: ' + ev.beat : '',
@@ -378,13 +458,14 @@ export function addEvents(store, picks, today) {
   const have = addedKeys(store.all ? store.all() : []);
   (picks || []).forEach(({ ev, lead }) => {
     if (!ev || have.has(ev.key)) { skipped++; return; }
-    const day = triggerDay(ev, lead, today);      /* ev ごと渡す（期間ものは終わりの日も見る） */
+    const days = floatDays(ev, lead, today);      /* ev ごと渡す（期間ものは終わりの日も見る） */
+    const day = days[0];
     const t = store.add(bubbleText(ev));
     if (!t) { skipped++; return; }
     store.setDetail(t.id, detailText(ev, today));
     if (ev.source) store.setUrl(t.id, ev.source);
     if (day > today) store.setHold(t.id, true, day);
-    store.setDay(t.id, day, true);
+    days.forEach(d => store.setDay(t.id, d, true));   /* 期間中ずっと: 終わる日まで毎日の今日に置く */
     have.add(ev.key);
     added.push(t);
   });

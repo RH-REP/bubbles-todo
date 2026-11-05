@@ -22,6 +22,7 @@ import { askWithSearchFull, hasKey, SEARCH_MAX_USES, SEARCH_USES_CAP } from './a
 import {
   TOPICS, TOPICS_VER, migrateTopics, MSG_MAX, KEEP_MAX, cleanMessage, STATUS, buildPrompt, extractJsonArray, normalizeEvents,
   mergeEvents, defaultLead, leadOptions, triggerDay, isRunning, md, addedKeys, addEvents,
+  buildRoutePrompt, normalizeRoutes, routeLine, isFixedRoute, DEFAULT_SITES,
 } from './events.js';
 
 const PREF_KEY = 'bubble_todo_upcoming';
@@ -37,6 +38,8 @@ export function loadPrefs() {
   return {
     topics,
     words: typeof p.words === 'string' ? p.words : '',
+    cards: typeof p.cards === 'string' ? p.cards : '',
+    sites: typeof p.sites === 'string' ? p.sites : DEFAULT_SITES,
     lastDay: typeof p.lastDay === 'string' ? p.lastDay : '',
     events: Array.isArray(p.events) ? p.events : [],
   };
@@ -140,6 +143,10 @@ export function openUpcoming(opts) {
     b.addEventListener('click', () => { if (busy || !hasKey()) return; msgIn.value = q; runSearch({ message: q }); });
     exRow.appendChild(b);
   });
+  const exRoute = el('button', 'help-ex up-ex', '今お得な支払いルート');
+  exRoute.type = 'button';
+  exRoute.addEventListener('click', () => { if (busy || !hasKey()) return; remember(); runSearch({ route: true }); });
+  exRow.appendChild(exRoute);
   examples.appendChild(exRow);
   scroller.appendChild(examples);
 
@@ -210,6 +217,42 @@ export function openUpcoming(opts) {
   cond.appendChild(topicRun);
   scroller.appendChild(cond);
 
+  /* ---- 支払いルート（畳んである。2026-11-05 利用者の指示「今どの支払いがお得か調べる機能」） ----
+     持っているカードと参考にするサイトを書いて「お得なルートを調べる」。結果は同じ一覧に入る */
+  const route = document.createElement('details');
+  route.className = 'up-cond up-route';
+  const routeSum = document.createElement('summary');
+  routeSum.textContent = '今お得な支払いルートを調べる';
+  route.appendChild(routeSum);
+  route.appendChild(el('p', 'up-note', 'カード → チャージ → 支払い の流れを、還元率・条件・上限・期間と一緒にまとめる。'));
+  const cardsLb = el('label', 'up-words');
+  const cardsTx = el('span');
+  cardsTx.textContent = '持っているカード・支払い（任意。これを起点にするルートを優先）';
+  const cardsIn = document.createElement('input');
+  cardsIn.type = 'text';
+  cardsIn.autocomplete = 'off';
+  cardsIn.placeholder = '例: 三井住友ゴールドNL, マネックスカード, 楽天みずほ';
+  cardsIn.value = prefs.cards;
+  cardsIn.addEventListener('change', () => remember());
+  cardsLb.appendChild(cardsTx); cardsLb.appendChild(cardsIn);
+  route.appendChild(cardsLb);
+  const sitesLb = el('label', 'up-words');
+  const sitesTx = el('span');
+  sitesTx.textContent = '参考にするサイト（1 行に 1 つ。5 つまで）';
+  const sitesIn = document.createElement('textarea');
+  sitesIn.rows = 2;
+  sitesIn.autocomplete = 'off';
+  sitesIn.value = prefs.sites;
+  sitesIn.addEventListener('change', () => remember());
+  sitesLb.appendChild(sitesTx); sitesLb.appendChild(sitesIn);
+  route.appendChild(sitesLb);
+  const routeRun = el('div', 'up-trun');
+  const routeAsk = el('button', 'btn up-rask', 'お得なルートを調べる');
+  routeAsk.type = 'button';
+  routeRun.appendChild(routeAsk);
+  route.appendChild(routeRun);
+  scroller.appendChild(route);
+
   /* ---- 状態の1行（待っている・失敗・キーが無い・見つかった件数 など） ---- */
   const askNote = el('p', 'up-status');
   askNote.setAttribute('role', 'status');
@@ -267,7 +310,8 @@ export function openUpcoming(opts) {
   let freshKeys = new Set();   /* いちばん新しく送った分で増えたもの（一覧で印を付ける） */
 
   function remember() {
-    savePrefs({ ver: TOPICS_VER, topics: Array.from(chosen), words: wordsIn.value.trim(), lastDay: prefs.lastDay, events });
+    savePrefs({ ver: TOPICS_VER, topics: Array.from(chosen), words: wordsIn.value.trim(),
+      cards: cardsIn.value.trim(), sites: sitesIn.value.trim(), lastDay: prefs.lastDay, events });
   }
 
   /* 畳んだときの見出しと、まとめて調べるボタン */
@@ -280,6 +324,8 @@ export function openUpcoming(opts) {
     topicAll.textContent = chosen.size === TOPICS.length ? 'すべて外す' : 'すべて選ぶ';
     topicAsk.textContent = busy ? '調べている…' : (chosen.size ? '選んだ ' + chosen.size + ' 件を調べる' : '選んだものを調べる');
     topicAsk.disabled = busy || !chosen.size || !hasKey();
+    routeAsk.textContent = busy ? '調べている…' : 'お得なルートを調べる';
+    routeAsk.disabled = busy || !hasKey();
   }
 
   topicAll.addEventListener('click', () => {
@@ -361,26 +407,27 @@ export function openUpcoming(opts) {
   /* 'YYYY-MM-DD' -> 'YYYY年M月'（一覧の見出し） */
   function monthOf(key) { const m = /^(\d{4})-(\d{2})/.exec(key); return m ? (+m[1]) + '年' + (+m[2]) + '月' : ''; }
 
-  /* 調べる。what = { message } か { topics: true }。結果は一覧に足す（前の結果は残す） */
+  /* 調べる。what = { message } か { topics: true } か { route: true }。結果は一覧に足す（前の結果は残す） */
   async function runSearch(what) {
     if (busy || !hasKey()) return;
     const message = what.message ? cleanMessage(what.message) : '';
     const ids = what.topics ? Array.from(chosen) : [];
-    if (!message && !ids.length) return;
+    if (!message && !ids.length && !what.route) return;
     busy = true;
     syncAsk();
     askNote.classList.remove('is-error');
     askNote.textContent = '';
     askNote.appendChild(el('span', 'up-spin'));
-    askNote.appendChild(document.createTextNode(' ' + (message ? '「' + message + '」を' : '選んだ見るものを')
+    askNote.appendChild(document.createTextNode(' ' + (message ? '「' + message + '」を' : what.route ? 'お得な支払いルートを' : '選んだ見るものを')
       + ' Web で調べている（10〜60 秒ほど）。閉じると結果は受け取れない。'));
     scroller.scrollTop = Math.max(0, askNote.offsetTop - 8);
     try {
-      const p = buildPrompt(ids, what.topics ? wordsIn.value : '', today, [], message);
+      const p = what.route ? buildRoutePrompt(cardsIn.value, sitesIn.value, today)
+        : buildPrompt(ids, what.topics ? wordsIn.value : '', today, [], message);
       const r = await askWithSearchFull(p.system, p.user, { maxUses: Math.min(SEARCH_USES_CAP, SEARCH_MAX_USES) });
       const arr = extractJsonArray(r.text);
       if (!arr) throw new Error(failReason(r));
-      const got = normalizeEvents(arr, today);
+      const got = what.route ? normalizeRoutes(arr, today) : normalizeEvents(arr, today);
       const m = mergeEvents(got, events, today);
       events = m.events;
       freshKeys = m.fresh;
@@ -390,11 +437,12 @@ export function openUpcoming(opts) {
       if (!root) return;
       if (message && cleanMessage(msgIn.value) === message) msgIn.value = '';
       if (what.topics) cond.open = false;
+      if (what.route) route.open = false;
       renderList();
       syncAsk();
       const n = got.length;
       const old = n - got.filter(e => m.fresh.has(e.key)).length;
-      askNote.textContent = (message ? '「' + message + '」: ' : '') + (n
+      askNote.textContent = (message ? '「' + message + '」: ' : what.route ? '支払いルート: ' : '') + (n
         ? n + '件見つかった' + (old ? '（うち ' + old + ' 件は前から一覧にある）' : '') + '。入れるものを選ぶ。'
         : '予定は見つからなかった。書き方を変えて送る。');
       const first = list.querySelector('.up-row.is-fresh');
@@ -415,6 +463,7 @@ export function openUpcoming(opts) {
     runSearch({ message: msgIn.value });
   });
   topicAsk.addEventListener('click', () => { if (!topicAsk.disabled) runSearch({ topics: true }); });
+  routeAsk.addEventListener('click', () => { if (!routeAsk.disabled) { remember(); runSearch({ route: true }); } });
 
   addBtn.addEventListener('click', () => {
     const picks = pickable().filter(e => rowState.get(e.key) && rowState.get(e.key).on)
@@ -438,12 +487,13 @@ export function openUpcoming(opts) {
     listBar.hidden = !n;
     listHead.textContent = n ? '一覧 ' + n + '件' + (prefs.lastDay ? '（' + md(prefs.lastDay) + ' に調べた）' : '') : '';
     let section = '';
-    events.forEach(ev => {
+    /* 常設の支払いルートは日付が無いので、いちばん上に「支払いルート」としてまとめる */
+    events.filter(isFixedRoute).concat(events.filter(e => !isFixedRoute(e))).forEach(ev => {
       /* 既定ではどれも選ばない（2026-11-05 利用者の指示「デフォルトで全部チェック外して」） */
       if (!rowState.has(ev.key)) rowState.set(ev.key, { on: false, lead: defaultLead(ev, today) });
       const st = rowState.get(ev.key);
       const done = have.has(ev.key);
-      const sec = isRunning(ev, today) ? '開催中' : monthOf(ev.date);
+      const sec = isFixedRoute(ev) ? '支払いルート' : isRunning(ev, today) ? '開催中' : monthOf(ev.date);
       if (sec !== section) { section = sec; list.appendChild(el('p', 'up-sec', sec)); }
 
       const row = el('label', 'up-row' + (done ? ' is-added' : '') + ' is-' + ev.status + (st.on && !done ? ' is-on' : '')
@@ -458,7 +508,8 @@ export function openUpcoming(opts) {
       const date = el('span', 'up-date');
       const b = el('b');
       const w = el('span');
-      if (ev.end) { w.textContent = md(ev.date) + '〜'; b.textContent = md(ev.end) + '（' + wd(ev.end) + '）'; date.appendChild(w); date.appendChild(b); }
+      if (isFixedRoute(ev)) { b.textContent = ev.rate || '常設'; w.textContent = ev.rate ? '還元' : ''; date.appendChild(b); date.appendChild(w); }
+      else if (ev.end) { w.textContent = md(ev.date) + '〜'; b.textContent = md(ev.end) + '（' + wd(ev.end) + '）'; date.appendChild(w); date.appendChild(b); }
       else { b.textContent = md(ev.date); w.textContent = '（' + wd(ev.date) + '）'; date.appendChild(b); date.appendChild(w); }
 
       const body = el('span', 'up-body');
@@ -479,6 +530,11 @@ export function openUpcoming(opts) {
         meta.appendChild(a);
       }
       body.appendChild(ttl); body.appendChild(meta);
+      if (routeLine(ev)) {
+        const rt = el('span', 'up-routeline');
+        rt.textContent = routeLine(ev) + (ev.rate && !isFixedRoute(ev) ? '（' + ev.rate + '）' : '') + (ev.cap ? '・上限 ' + ev.cap : '');
+        body.appendChild(rt);
+      }
       if (ev.about) {
         const ab = el('span', 'up-about');
         ab.textContent = ev.about;            /* AI の返事。innerHTML には入れない */

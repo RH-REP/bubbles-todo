@@ -12,7 +12,7 @@ import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMod
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
 import { seaName } from '../spacelist.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
-import { getKey, setKey, hasKey } from '../ai.js';
+import { getKey, setKey, hasKey, MODELS, getModel, setModel } from '../ai.js';
 import { openHelp } from '../help.js';
 import { openUpcoming, lastLine } from '../upcoming.js';
 
@@ -753,6 +753,23 @@ function helpAiBox() {
     if (editing) setTimeout(() => keyIn.focus(), 0);
   }
   renderKey(false);
+
+  /* --- モデル（2026-11-05 Issue #13「使っているモデルはなに？どうやって変える？」） --- */
+  const modelRow = el('label', 'row');
+  modelRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center;font-size:13.5px';
+  modelRow.appendChild(el('span', null, 'AI のモデル'));
+  const modelSel = document.createElement('select');
+  modelSel.setAttribute('aria-label', 'AI のモデル');
+  modelSel.style.cssText = 'font:inherit;font-size:16px;min-height:40px;padding:0 8px;border-radius:10px;'
+    + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
+  MODELS.forEach(m => { const op = document.createElement('option'); op.value = m.id; op.textContent = m.label; modelSel.appendChild(op); });
+  modelSel.value = getModel();
+  modelSel.addEventListener('change', () => {
+    toast(setModel(modelSel.value) ? 'モデルを変えた（次に訊くときから）' : '保存できなかった');
+  });
+  modelRow.appendChild(modelSel);
+  wrap.appendChild(modelRow);
+  wrap.appendChild(el('p', 'note', 'ヘルプ・先の予定・本文の AI のどれもこのモデルで動く。上ほど賢いが、1 回ごとの料金も上がる。この端末にだけ置く。'));
 
   const repoRow = el('p', 'note');
   const repoLink = el('a', null, 'GitHub: ' + REPO);

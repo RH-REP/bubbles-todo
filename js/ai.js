@@ -26,7 +26,28 @@
    既定は Haiku 系（速い・安い）。ヘルプの受け答えに十分な力で足りる。 */
 
 const KEY_STORE = 'bubble_todo_ai_key';
-const MODEL = 'claude-haiku-5-5';
+/* モデルは設定の「ヘルプと AI」で選べる（2026-11-05 利用者の質問 Issue #13）。
+   端末の localStorage 'bubble_todo_ai_model' にだけ置く（キーと同じく同期・CSV に乗らない）。
+   既定は Haiku（速い・安い）。上ほど賢いが、1 回ごとの料金も上がる（料金はキーの持ち主に掛かる） */
+const MODEL_STORE = 'bubble_todo_ai_model';
+export const MODELS = [
+  { id: 'claude-haiku-5-5',  label: 'Haiku 5.5（既定。速い・安い）' },
+  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5（中くらい）' },
+  { id: 'claude-opus-5-5',   label: 'Opus 5.5（いちばん賢い・高い）' },
+];
+export const DEFAULT_MODEL = MODELS[0].id;
+export function getModel() {
+  let v = '';
+  try { v = localStorage.getItem(MODEL_STORE) || ''; } catch (e) { v = ''; }
+  return MODELS.some(m => m.id === v) ? v : DEFAULT_MODEL;
+}
+export function setModel(id) {
+  try {
+    if (MODELS.some(m => m.id === id) && id !== DEFAULT_MODEL) localStorage.setItem(MODEL_STORE, id);
+    else localStorage.removeItem(MODEL_STORE);
+    return true;
+  } catch (e) { return false; }
+}
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const MAX_TOKENS = 1024;
@@ -61,7 +82,7 @@ export async function ask(system, messages) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: getModel(),
       max_tokens: MAX_TOKENS,
       system: String(system || ''),
       messages: (messages || []).map(m => ({ role: m.role, content: String(m.content || '') })),
@@ -130,7 +151,7 @@ export async function askWithSearchFull(system, userText, opts) {
   let searchError = '';
   for (let i = 0; i <= PAUSE_MAX; i++) {
     const data = await post({
-      model: MODEL,
+      model: getModel(),
       max_tokens: SEARCH_MAX_TOKENS,
       system: String(system || ''),
       messages,
@@ -155,7 +176,7 @@ export async function askWithSearchFull(system, userText, opts) {
 export async function askFull(system, userText, opts) {
   const o = opts || {};
   const data = await post({
-    model: MODEL,
+    model: getModel(),
     max_tokens: Math.max(256, Math.min(SEARCH_MAX_TOKENS, Number(o.maxTokens) || MAX_TOKENS)),
     system: String(system || ''),
     messages: [{ role: 'user', content: String(userText || '') }],
