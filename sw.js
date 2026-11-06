@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-07d';
+const VERSION = '2026-11-07e';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -56,6 +56,7 @@ const ASSETS = [
   './css/bubble.css',
   './css/focus.css',
   './css/quad.css',
+  './css/deadline.css',  /* 日付で見る（2026-11-07 Issue #24） */
   './css/screens/sea.css',
   './css/screens/today.css',
   './css/screens/plan.css',
@@ -95,6 +96,8 @@ const ASSETS = [
   './js/store.js',
   './js/priority.js',
   './js/quadview.js',
+  './js/deadline.js',      /* 日付で見る（2026-11-07 Issue #24） */
+  './js/deadlineview.js',
   './js/version.js',
   './js/sync.js',
   './js/ui.js',

@@ -33,6 +33,7 @@ import { playComplete, playSfx } from '../sound.js';
    today.js は sea.js を読まないので、循環にはならない。 */
 import { dropDay } from './today.js';
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
+import { createDeadlineView, deadlineButton, syncDeadlineButton } from '../deadlineview.js';
 
 /* --- 海に出すバブルの上限（利用者の指示）---
 
@@ -234,6 +235,9 @@ let gathering = false;
 let gridMode = 'list';
 let quad = null;                  /* 四つに分けた眺め（js/quadview.js） */
 let quadBtn = null;               /* 四つに分ける切り替え（フィルターの隣） */
+/* 'days'＝日付で見る（終了日の近い順。2026-11-07 Issue #24）。これも**リスト表示のもう1つの形** */
+let dl = null;                    /* 日付で見る表（js/deadlineview.js） */
+let dlBtn = null;                 /* その切り替え（四つに分けるの隣） */
 
 /* ---- 海のズーム（利用者の指示）----
 
@@ -2264,8 +2268,10 @@ function setGathering(on) {
   if (!on) gridMode = 'list';
   grid.hidden = !on || gridMode !== 'list';
   if (quad) quad.el.hidden = !on || gridMode !== 'quad';
+  if (dl) dl.el.hidden = !on || gridMode !== 'days';
   stage.classList.toggle('is-gathering', on);
   stage.classList.toggle('is-quad', on && gridMode === 'quad');
+  stage.classList.toggle('is-days', on && gridMode === 'days');
 
   /* 整列中は、海の物理側のバブルを画面から降ろす。
      グリッドが全件を並べるので、浮遊ぶんを出したままだと同じものが2つ見える。
@@ -2285,6 +2291,7 @@ function setGathering(on) {
   } else {
     clearGrid();
     clearQuad();
+    if (dl) dl.clear();
     syncFaces();
     liveFaces().forEach(f => {
       const fl = faces[f].field;
@@ -2409,6 +2416,7 @@ function openNarrowPop() {
 
 function syncNarrowBtn() {
   syncQuadButton(quadBtn, gathering && gridMode === 'quad');
+  syncDeadlineButton(dlBtn, gathering && gridMode === 'days');
   if (!narrowBtn) return;
   if (pruneNarrow()) syncFaces();          /* 消えたタグを選んだままにしない */
   /* 中央（ぜんぶ）の海にだけ置く。タグの海には出さない（絞る意味が無い）。
@@ -2790,6 +2798,7 @@ function onRowDown(ev, row, id) {
 
 function renderGrid() {
   if (gridMode === 'quad') { renderQuad(); return; }
+  if (gridMode === 'days') { renderDays(); return; }
   const q = normQ(gridQ);
   /* 中身は listItems() が決める。**フィルターも長期保留・完了の扱いも、
      海の側（centerItems / faceItems）が持っている規則をそのまま使う**——
@@ -2884,21 +2893,36 @@ function renderGrid() {
    箱・泡の出し入れ・当たり・書き込みは js/quadview.js。ここは「リスト表示のもう1つの形」として
    出し入れするだけ（海の物理を降ろす・滑らせない・ズームしない、が gathering ひとつで効くため）。
    中身は listItems()——フィルター・長期保留・完了の扱いは海と同じ規則のまま。 */
-function setQuadView(on) {
-  if (on) {
-    gridMode = 'quad';
-    if (gridQ) { gridQ = ''; if (gridFind) gridFind.value = ''; }
-    if (gathering) {
-      clearGrid();
-      grid.hidden = true;
-      quad.el.hidden = false;
-      stage.classList.add('is-quad');
-      renderQuad();
-      renderChrome();
-    } else setGathering(true);
-    return;
-  }
-  setGathering(false);
+function setQuadView(on) { setGridMode(on ? 'quad' : null); }
+
+/* リスト表示の形を切り替える。'quad'／'days'。null は海へもどす。
+   並べている最中なら、いまの形を片づけてから新しい形を出す（海の物理は降ろしたまま） */
+function setGridMode(mode) {
+  if (!mode) { setGathering(false); return; }
+  gridMode = mode;
+  if (gridQ) { gridQ = ''; if (gridFind) gridFind.value = ''; }
+  if (!gathering) { setGathering(true); return; }
+  clearGrid();
+  if (mode !== 'quad') clearQuad();
+  if (mode !== 'days' && dl) dl.clear();
+  grid.hidden = true;
+  quad.el.hidden = mode !== 'quad';
+  if (dl) dl.el.hidden = mode !== 'days';
+  stage.classList.toggle('is-quad', mode === 'quad');
+  stage.classList.toggle('is-days', mode === 'days');
+  renderGrid();
+  renderChrome();
+}
+
+/* ---------------- 日付で見る（終了日の近い順。2026-11-07 Issue #24）----------------
+   表と計算は js/deadlineview.js・js/deadline.js。並べるのは**どの海のものも**（長期保留も）——
+   先の予定（AI）で入れたものは長期保留で待っているので、海ごとに切ると肝心のものが見えない。
+   完了したもの・先の日付の無いものは出さない。名前を押すと、ふだんと同じ盤 */
+function setDaysView(on) { setGridMode(on ? 'days' : null); }
+
+function renderDays() {
+  if (!dl) return;
+  dl.render(store.all());
 }
 
 function clearQuad() { if (quad) quad.clear(); }
@@ -3399,6 +3423,8 @@ export default {
     tools.appendChild(narrowBtn);
     quadBtn = quadButton(() => setQuadView(!(gathering && gridMode === 'quad')));
     tools.appendChild(quadBtn);
+    dlBtn = deadlineButton(() => setDaysView(!(gathering && gridMode === 'days')));
+    tools.appendChild(dlBtn);
     stage.appendChild(tools);
 
     /* --- ランダムスタート（いま開いている面から1つ、無作為に） --- */
@@ -3452,6 +3478,10 @@ export default {
        下の帯に「まだ分けていない」。中身は renderQuad が組む */
     quad = createQuadView(stage, { className: 'sea-quad', bind: (node, id) => bindNode(node, id, () => quad.el) });
     quad.el.dataset.screen = 'sea.quad';
+
+    /* --- 日付で見る（終了日の近い順。2026-11-07 Issue #24）--- */
+    dl = createDeadlineView(stage, { className: 'sea-days', open: (id, node) => menuFor(id, node) });
+    dl.el.dataset.screen = 'sea.days';
 
     /* overflow:clip を知らないブラウザでは、ステージがスクロール容器のままになる。
        中のバブルに focus が当たると勝手にスクロールして中身が丸ごとずれるので、戻す。 */

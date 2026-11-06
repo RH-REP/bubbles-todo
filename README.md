@@ -285,6 +285,7 @@ node tests/research.test.mjs
 node --test tests/rollback.test.mjs
 node --test tests/undo.test.mjs
 node --test tests/related.test.mjs
+node --test tests/deadline.test.mjs
 python3 -m unittest tests/test_server.py
 bash tests/server-setup.test.sh
 ```
@@ -398,6 +399,19 @@ bash tests/server-setup.test.sh
 - 設定の音の節の下「似ている泡を近くに寄せる」で切れる（既定オン。端末にだけ置く `bubble_todo_affinity_v1`）。「視差効果を減らす」のときは漂いが止まるので寄せもしない
 - やっていないこと: 手で泡どうしを紐付ける欄（タグで足りるため。記録の形と同期が変わる）、AI で関わりを見つけること（泡の名前を外へ送ることになるため）
 - 作り: `js/related.js`（似ている度合いと寄せる力。DOM・保存を触らない）、`js/drift.js`（`setItems` で組を数え、`tick` で `pullStep`）、`js/screens/settings.js`。テスト: `node --test tests/related.test.mjs`
+
+### 日付で見る（終了日の近い順。2026-11-07。Issue #24）
+
+海の「リスト表示」の**もう1つの形**。フィルターの隣の「⊞（四つに分ける）」のさらに隣、**▤** で切り替える（もう一度押すか「もどす」で海へ）。
+縦に泡を**終了日の近い順**、横に今日からの日付（2週間〜60日。遠い終了日まで。先は右端に →）。左の列に名前と「今日／あした／あと N日」。
+
+- **泡に「終了日」の欄は無い**ので、今ある日付から読む：盤の「いつの日」で置いた日のうち**今日から先の最後の日**と、
+  先の予定（AI）で入れた泡の本文の `期間: A 〜 B` の B・`日付: A` の A（行の頭にあるものだけ）。遅いほうを終了日にする
+- 表の印: ● 終了日 ／ ○ 置いた日 ／ 帯 期間（先の予定の期間もの）
+- 並べるのは**どの海のものも**（長期保留も。先の予定は長期保留で待っているため）。完了したもの・先の日付の無いものは出さない。フィルターは掛けない
+- **過ぎた日は数えない**（「期限切れ」「◯日過ぎ」を出さない）。赤は使わない。名前を押すと、ふだんと同じ盤
+- 記録には何も足さない（読むだけの形。同期・CSV は変わらない）
+- 作り: `js/deadline.js`（計算だけ）、`js/deadlineview.js`（表）、`css/deadline.css`。テスト: `node --test tests/deadline.test.mjs`
 
 ### 前の版に戻す（2026-11-07。Issue #21）
 

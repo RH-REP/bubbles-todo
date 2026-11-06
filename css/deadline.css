@@ -1,0 +1,63 @@
+/* 日付で見る（終了日の近い順。2026-11-07 Issue #24）— js/deadlineview.js の形。
+   置き場（上下の余白・重なりの順）は画面の css が決める（.sea-days）。
+   赤は使わない。印の色は泡の縁の色（--bub-edge）の濃淡だけ */
+
+.dl-view {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  background-color: var(--bg);
+  background-image: linear-gradient(180deg, var(--sea-1), var(--sea-2) 46%, var(--sea-3) 82%, var(--bg));
+}
+.dl-cap, .dl-empty { margin: 0; font-size: 12.5px; letter-spacing: .04em; color: var(--text-2); }
+.dl-legend { margin: 0; display: flex; gap: 12px; font-size: 11.5px; color: var(--text-2); }
+.dl-lg { display: inline-flex; align-items: center; gap: 4px; }
+.dl-scroll {
+  flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain;
+  border-radius: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.dl-table {
+  --dl-name: 9.5em; --dl-w: 28px;
+  display: grid; grid-template-columns: var(--dl-name) repeat(var(--dl-cols, 14), var(--dl-w));
+  width: max-content;
+}
+.dl-row { display: contents; }
+.dl-name, .dl-col, .dl-cell { border-bottom: 1px solid var(--line); }
+/* 名前の列は横に流しても残る */
+.dl-name {
+  position: sticky; left: 0; z-index: 2;
+  appearance: none; font: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  min-height: 44px; padding: 4px 8px; border: 0; border-bottom: 1px solid var(--line);
+  background: var(--surface); color: var(--text);
+  box-shadow: 1px 0 0 var(--line);
+}
+.dl-name:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+.dl-tx { font-size: 13px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-left { font-size: 11.5px; color: var(--text-2); }
+.dl-left.is-today { color: var(--text); font-weight: 600; }
+.dl-head > * { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.dl-head > .dl-corner { z-index: 3; cursor: default; }
+.dl-col {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  padding: 2px 0 3px; font-size: 10.5px; line-height: 1.2; color: var(--text-2);
+}
+.dl-col .dl-m { min-height: 1.2em; font-size: 10px; white-space: nowrap; }
+.dl-col .dl-d { font-size: 12px; font-weight: 600; color: var(--text); }
+.dl-col.is-sun .dl-wd, .dl-col.is-sat .dl-wd { color: var(--text-3); }
+.dl-col.is-today .dl-d { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.dl-cell { position: relative; display: flex; align-items: center; justify-content: center; }
+.dl-col.is-sun, .dl-cell.is-sun { background-color: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+.dl-col.is-month, .dl-cell.is-month { box-shadow: inset 1px 0 0 var(--line-strong, var(--line)); }
+.dl-cell.is-today { background-color: color-mix(in srgb, var(--bub-edge) 10%, transparent); }
+
+/* 印 */
+.dl-mk { display: inline-block; flex: none; }
+.dl-mk.is-end { width: 14px; height: 14px; border-radius: 50%; background: var(--bub-edge); }
+.dl-mk.is-day { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--bub-edge); background: var(--surface); }
+.dl-mk.is-span { width: 100%; height: 6px; background: color-mix(in srgb, var(--bub-edge) 35%, transparent); }
+.dl-legend .dl-mk.is-span { width: 16px; }
+.dl-bar { position: absolute; left: 0; right: 0; top: 50%; height: 6px; margin-top: -3px; background: color-mix(in srgb, var(--bub-edge) 35%, transparent); }
+.dl-cell .dl-mk { position: relative; }
+@media (max-width: 420px) { .dl-table { --dl-name: 7.5em; --dl-w: 26px; } }
+.dl-more { position: absolute; right: 1px; font-size: 11px; color: var(--text-2); }

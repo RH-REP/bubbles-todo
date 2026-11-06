@@ -504,6 +504,10 @@
 .sea-quad { z-index: 6; padding: 104px 24px 10px; }
 /* 隣の海の札は、掴んでいる間だけ出す（ふだんは右の区分の見出しに重なるため） */
 .sea-stage.is-quad:not(.is-bubdrag) > .sea-edge { visibility: hidden; }
+/* ---------- 日付で見る（終了日の近い順。2026-11-07 Issue #24）----------
+   形は css/deadline.css。ここは海の上での置き場だけ（上の余白は四つに分けると同じ） */
+.sea-days { z-index: 6; padding: 104px 24px 10px; }
+.sea-stage.is-days:not(.is-bubdrag) > .sea-edge { visibility: hidden; }
 
 .sea-grid-cap,
 .sea-grid-empty {
@@ -778,7 +782,7 @@
    `syncNarrowBtn` は直したのに、**この規則が `!important` で消していた**——
    JS では `hidden=false`、CSS では `display:none`。決めたはずの機能に手が届かない。
    **ここに足し忘れると、JS 側でいくら出しても画面には出ない。** */
-.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-gather):not(.sea-tools):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal) {
+.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-days):not(.sea-gather):not(.sea-tools):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal) {
   display: none !important;
 }
 
