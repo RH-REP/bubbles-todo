@@ -284,6 +284,7 @@ node tests/key-leak.test.mjs
 node tests/research.test.mjs
 node --test tests/rollback.test.mjs
 node --test tests/undo.test.mjs
+node --test tests/related.test.mjs
 python3 -m unittest tests/test_server.py
 bash tests/server-setup.test.sh
 ```
@@ -383,6 +384,20 @@ bash tests/server-setup.test.sh
 - 戻したら「戻した：…（あと N つ戻せる）」と出る。取り消しでないボタンのトースト（「ぜんぶ見る」）は `undo: false` で積み重ねに入れない
 - 作り: `js/undo.js`（計算）、`js/ui.js` の `toast`・`undoLast`、`js/app.js` の keydown。テスト: `node --test tests/undo.test.mjs`
 - 指だけの端末（キーボードの無いスマホ）では、今までどおりトーストのボタンだけ
+
+### 似ている泡を近くに寄せる（2026-11-07。Issue #23）
+
+海と今日の漂う面で、**似ている泡どうしがゆっくり互いに近づく**。束ねる・まとめるはせず、記録には何も書かない（紐付けの欄は持たない）。
+同じようなものが近くに浮いているので、1つを見たときに隣の似たものに気づける、という形にした。
+
+- 似ているの決め方（端末の中だけで計算し、どこへも送らない）: 名前の2文字ずつの組の重なり（Dice 係数）と、同じタグ。
+  ひらがなだけの組（「する」「を」など）は数えない（送りがなだけで似ていることにしない）。
+  その面の泡すべてに付いているタグは数えない（タグの海は全部が同じタグなので、数えると全部が1つに固まる）
+- 寄せ方: 1つの泡が引かれる相手は、似ているほうから2つまで。近づく速さは 8px/s まで（漂う速さの半分）、隙間が 18px より狭ければ引かない。
+  ぶつかり・重力・漂いのゆらぎはそのまま効くので、くっつかず近くに居るだけになる。掴んでいる・升目にはまっている泡は動かさない
+- 設定の音の節の下「似ている泡を近くに寄せる」で切れる（既定オン。端末にだけ置く `bubble_todo_affinity_v1`）。「視差効果を減らす」のときは漂いが止まるので寄せもしない
+- やっていないこと: 手で泡どうしを紐付ける欄（タグで足りるため。記録の形と同期が変わる）、AI で関わりを見つけること（泡の名前を外へ送ることになるため）
+- 作り: `js/related.js`（似ている度合いと寄せる力。DOM・保存を触らない）、`js/drift.js`（`setItems` で組を数え、`tick` で `pullStep`）、`js/screens/settings.js`。テスト: `node --test tests/related.test.mjs`
 
 ### 前の版に戻す（2026-11-07。Issue #21）
 

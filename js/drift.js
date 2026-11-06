@@ -32,6 +32,7 @@
 import { store } from './store.js';
 import { clamp, el } from './ui.js';
 import { makeBubble, updateBubble, attachGestures, RM } from './bubble.js';
+import { relatedPairs, pullStep, isAffinityOn } from './related.js';
 
 const SPEED = 16;      /* 漂う速さ px/秒 のおおよそ */
 
@@ -274,6 +275,9 @@ export function createField(host, opts = {}) {
 
   const bubbles = new Map();   /* id -> {id, el, d, cx, cy, vx, vy, held, rest, pad, placed, order, well, pin, detach} */
   let wells = [];              /* 引力のあるセル [{id,x,y,w,h,cx,cy}]（追補5 §1） */
+  /* 似ている泡の組（Issue #23。js/related.js）。setItems のたびに数え直す。
+     bodies は組の添字が指す泡の並び */
+  let related = { pairs: [], bodies: [] };
   const fx = new Map();        /* id -> はまった合図を外すタイマー */
   let raf = 0, lastT = 0, running = false;
   let lastW = 0, lastH = 0;
@@ -722,6 +726,14 @@ export function createField(host, opts = {}) {
 
     markRest(list, h);
 
+    /* 似ている泡どうしを、ゆっくり近くへ（Issue #23）。速度に弱く足すだけで、
+       ぶつかり・重力・ゆらぎはこのあといつもどおり効く。
+       掴んでいる・はまっている・寄せている・セルの中のものは動かさない */
+    if (related.pairs.length && isAffinityOn()) {
+      related.bodies.forEach(b => { b.free = !b.held && !b.pin && !b.snap && !b.well; });
+      pullStep(related.pairs, related.bodies, dt);
+    }
+
     list.forEach(b => {
       /* 掴んでいる間は引力も寄せも掛けない。指が位置を持っている */
       if (b.held) { b.pin = false; clearSnap(b); return; }
@@ -1126,6 +1138,10 @@ export function createField(host, opts = {}) {
       }
       b.order = i;
     });
+
+    /* 似ている泡の組を数え直す（Issue #23）。面に居る泡の並びのまま渡す */
+    const bodies = list.map(item => bubbles.get(item.id)).filter(Boolean);
+    related = { pairs: relatedPairs(bodies.map(b => b.item)), bodies };
 
     if (gathering) gatherLayout();
     if (RM.matches) settle();

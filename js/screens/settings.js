@@ -7,6 +7,7 @@
 import { el, toast, escapeHtml } from '../ui.js';
 import { store } from '../store.js';
 import { isOn, setOn, isSfxOn, setSfxOn, playSfx } from '../sound.js';
+import { isAffinityOn, setAffinityOn } from '../related.js';
 import { sync, checkUrl } from '../sync.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode } from '../passkey.js';
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
@@ -198,6 +199,19 @@ export default {
       + '端末が消音のとき（iPhone の消音スイッチなど）や、'
       + '「視差効果を減らす」をオンにしているときは鳴らない。'
     ));
+
+    /* 似ている泡を近くに寄せる（2026-11-07 Issue #23）。端末にだけ置く */
+    const affRow = el('label', 'setrow');
+    const affCb = document.createElement('input');
+    affCb.type = 'checkbox';
+    affCb.checked = isAffinityOn();
+    affCb.addEventListener('change', () => {
+      setAffinityOn(affCb.checked);
+      toast(affCb.checked ? '似ている泡を近くに寄せる' : '似ている泡を寄せない');
+    });
+    affRow.appendChild(affCb);
+    affRow.appendChild(el('span', null, '似ている泡（名前が似ている・同じタグ）を、海と今日でゆっくり近くに寄せる'));
+    box.appendChild(affRow);
 
     /* --- サーバー（複数の端末で同じ記録を使う）--- */
     box.appendChild(serverBox(this));
