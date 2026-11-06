@@ -282,6 +282,7 @@ node tests/csvio.test.mjs
 node tests/ai.test.mjs
 node tests/key-leak.test.mjs
 node tests/research.test.mjs
+node --test tests/rollback.test.mjs
 python3 -m unittest tests/test_server.py
 bash tests/server-setup.test.sh
 ```
@@ -369,6 +370,25 @@ bash tests/server-setup.test.sh
 - あわせて、画面が前面に戻るたび（10分に1回まで）`js/sw-register.js` が `reg.update()` を呼び、新しい版があれば取ってきて**待機させておく**（入れ替えはしない。Issue #6）。ボタンを押したときに取りに行く手間が減り、次に本当に開いたときにも効く
 - それでも更新されないときは、**iPhone本体を再起動する**か、**Safari で改めて「ホーム画面に追加」をやり直す**
   （古い登録とは別の、新しい service worker の登録になるため、最新の版を取り直す）
+
+### 前の版に戻す（2026-11-07。Issue #21）
+
+新しい版に不具合があったり重くなったりしたとき、**その端末だけ1つ前の版**に戻して使い続けられる。
+設定の「前の版（v…）に戻す」で戻し、戻している間は画面の上に帯（「前の版 v… を使っている」）が出る。帯の「最新に戻る」で戻る。
+次の新しい版が届いたとき（直した版が入ったとき）も、自動で最新に戻る。
+
+- 戻せるのは**1つ前の版だけ**。`sw.js` は新しい版が入るとき、それまでの版の箱を1つだけ消さずに残す（2つ前より古い箱は消す）。
+  この仕組みが入った版（2026-11-07b）より前の箱は、入れ替わったときに消えているので、最初に戻せるのは 2026-11-07b が入る前の版（2026-11-07a）から
+- 前の版の箱から出すのは同じ住所の中だけ（`index.html`・`css/`・`js/`・`icons/`）。`sw.js` は戻さない（いつも最新の `sw.js` が前の版の箱から出す）
+- **記録を守る決めごと**: 前の版のコードは、新しい版で足した欄を知らず、読み込むときに落として保存する（`js/store.js` の `normalizeTodo` など）。そこで
+  1. 戻す前に、端末の記録（`localStorage` の `bubble_todo…`。API キーは除く）の写しを `bubble_todo_rollback_snapshot_v1` に取る
+  2. 戻している間は、サーバーへの書き込み（`/api/` への GET 以外。よそのオリジンのサーバーも）を `sw.js` が 503 で止める。前の版の同期は「送れない」になる。欄を落とした記録をほかの端末へ広げないため
+  3. 最新に戻って立ち上がったとき（`index.html` の head の `js/rollback.js`。`store.js` が読む前）、写しにあって今の記録に無い欄だけを埋め戻し、写しを消す。戻している間に書いた変更・足した泡・消した泡はそのまま
+- 作り: `js/rollback.js`（計算と画面の側。`sw.js` も `importScripts` で読む）、`js/screens/settings.js` の `rollbackBox`、`sw.js`（`activate`・`fetch`）。戻している印は箱 `bubbles-meta` の `__rollback_pin`
+- 取り出しは今の版の箱だけから引く（前は `caches.match` ですべての箱を探していた。前の箱を残すと古いファイルが混ざるため変えた）
+- テスト: `node --test tests/rollback.test.mjs`（`sw.js` を偽の caches・fetch の上で動かし、箱の残し方・戻している間の出し方・書き込みの停止・印の外れ方を見る）
+- service worker の無い環境（`file://`・登録できないブラウザ）と、前の版の箱がまだ無い端末では、設定にそう出るだけ
+- まだ確かめていない: 本物の端末（iPhone のホーム画面アプリ・Android の APK）で戻して戻る一巡
 
 ## 使い方の記事
 

@@ -209,6 +209,8 @@ export default {
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
        （WebKit の既知の挙動）。その逃げ道として、押した人だけがその場で確かめて入れ替えられる */
     box.appendChild(updateBox());
+    /* --- 前の版に戻す（2026-11-07。Issue #21）--- */
+    box.appendChild(rollbackBox());
 
     /* --- ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）---
        「ヘルプを開く」（キーが無くても押せる）・API キー・repo の URL */
@@ -687,6 +689,42 @@ function updateBox() {
   });
   row.appendChild(btn);
   wrap.appendChild(row);
+  return wrap;
+}
+
+/* 前の版に戻す（2026-11-07。Issue #21。仕組みは js/rollback.js と sw.js）。
+   新しい版に不具合があったとき、その端末だけ1つ前の版で使い続けられる。
+   戻している間は上に帯が出て、そこの「最新に戻る」で戻る。次の新しい版が届いても戻る。
+   前の版の箱が残っていない（新しい版が入ったばかりでない端末・service worker の無い環境）ときは、そう書くだけ */
+function rollbackBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, '前の版に戻す'));
+  const note = el('p', 'note', '新しい版で困ったとき（不具合・重い）に、この端末だけ1つ前の版に戻す。');
+  wrap.appendChild(note);
+  const RB = window.BubblesRollback;
+  const status = el('p', 'note', '確かめている…');
+  wrap.appendChild(status);
+  if (!RB) { status.textContent = 'このブラウザでは戻せない。'; return wrap; }
+  RB.available().then((prev) => {
+    if (!prev) {
+      status.textContent = '戻せる前の版はまだ無い（次に新しい版が入ると、今の版を1つだけ残す）。';
+      return;
+    }
+    status.textContent = '戻すと、戻している間はサーバーへ送らない（この端末の中だけで書く）。'
+      + '記録はそのまま使い、戻す前に写しを取る。最新に戻ったとき、前の版が落とした欄を写しから埋め戻す。'
+      + '上の帯の「最新に戻る」か、次の新しい版が届くと最新に戻る。';
+    const row = el('div', 'row');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+    const btn = el('button', 'btn', '前の版（v' + prev + '）に戻す');
+    btn.type = 'button';
+    btn.addEventListener('click', () => {
+      if (!window.confirm('この端末を前の版 v' + prev + ' に戻す？\n戻している間はサーバーへ送らない。上の帯の「最新に戻る」で戻せる。')) return;
+      btn.disabled = true;
+      RB.rollbackTo(prev).catch((e) => { toast((e && e.message) || '戻せなかった'); btn.disabled = false; });
+    });
+    row.appendChild(btn);
+    wrap.appendChild(row);
+  }).catch(() => { status.textContent = '戻せる版を確かめられなかった。'; });
   return wrap;
 }
 
