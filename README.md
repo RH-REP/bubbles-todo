@@ -451,6 +451,19 @@ server.py も Android 版（`www/`）も docs/ を配る。service worker の箱
 | `.env` | Android ビルド用の実値（あれば。`.gitignore` で除外） |
 | `.claude/` | ローカルの Claude Code 設定（あれば。`.gitignore` で除外） |
 
+## 枝の扱い（2026-11-07。利用者の指示 Issue #20）
+
+ふだんの作業は `main` にじかに積む（利用側の clone とサーバーは `main` を `git pull --ff-only` で取り込む）。
+別の枝を作るのは、試作（例: 公開・パスキーの形）と見比べ用の候補（例: Issue #2 の A・B・C）だけ。
+
+- **点検**: `node tools/branches.mjs`（origin を fetch して、main 以外の枝ごとに main より先・遅れの数と目安を出す。書き換えはしない）。
+  Issue を直すセッションの終わりに回し、枝が残っていたら下のとおり片付ける
+- **取り込み済み**（main より先が 0）: `archive/<枝の名前>` の札（tag）を付けて push し、手元と origin の枝を消す
+- **未取り込み**: 中身が要るなら main に取り込む（早送りか merge）。見比べ用など main に入れないと決まったもの（Issue が閉じた候補など）は、札を付けて消す
+- 消した枝は札から戻せる: `git switch -c <枝の名前> archive/<枝の名前>`
+
+いまの札: `archive/dev/public-passkey`（2026-10-25 に main へ取り込み済み）、`archive/issue-2-candidates`（Issue #2 の A・B・C の見比べ。C を main に入れた）。
+
 ## いまの状態
 
 試作です。**まだ実機で触っていません**（検証はすべて合成イベント）。
