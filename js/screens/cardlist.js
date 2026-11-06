@@ -33,7 +33,7 @@ import {
   attachGestures,
   openMenu as openBubbleMenu,
 } from '../bubble.js';
-import { playComplete } from '../sound.js';
+import { playComplete, playSfx } from '../sound.js';
 
 /* この画面が触る「軸」。きっかけならアンカー、すきまなら枠。
    ここを通さずに store のアンカー関数を直に呼ばないこと——呼んだ瞬間に
@@ -361,7 +361,7 @@ function makeDetail(todo, anchorId, key) {
   doneBtn.addEventListener('click', ev => {
     ev.stopPropagation();
     if (isStarted(todo.id, anchorId)) store.unstart(todo.id, startKey(anchorId));
-    else store.start(todo.id, startKey(anchorId));
+    else { store.start(todo.id, startKey(anchorId)); playSfx('start'); }
     syncDone();
   });
   node.appendChild(doneBtn);
@@ -487,7 +487,7 @@ function openItemMenu(todo, anchor, key, node) {
   openBubbleMenu(node, {
     onDetail() { toggleDetail(key); },
     onFocus()  { startFive(todo, anchor); },
-    onStarted() { store.start(todo.id, startKey(anchor ? anchor.id : null)); },
+    onStarted() { store.start(todo.id, startKey(anchor ? anchor.id : null)); playSfx('start'); },
     onComplete() { completeItem(todo); },
     onDelete()  { deleteItem(todo); },
   });
@@ -1674,6 +1674,7 @@ function makeComposer() {
        ここで生まれたものは必ず未分類に落ちる。枠へ載せるのは、そのあとのドラッグ。 */
     const t = store.add(text);
     if (t && t.id) {
+      playSfx('add');
       setPlan(t.id, true);
       if (typeof store.setTag === 'function') {
         picked.forEach(tg => { try { store.setTag(t.id, tg, true); } catch (e) { /* 無いタグ */ } });

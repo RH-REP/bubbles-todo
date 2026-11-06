@@ -14,6 +14,7 @@ import './sync.js';
 /* 海の切り替え（space.js。2026-11-02 Issue #4 で名前を付けて複数作れる海に）。薄い帯の表示と、引き出しの頭の切り替え。持ち主は store が開くときに決まっている */
 import { spaceSwitcher } from './space.js';
 import { toast, holdRing, fromFeedback } from './ui.js';
+import { playSfx } from './sound.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
 import { setCenterHandler, centerBubble } from './bubble.js';
@@ -210,6 +211,7 @@ function putToday(t) {
   const until = wasHold ? (has('holdUntil') ? store.holdUntil(t.id) : null) : null;
   if (wasHold) store.setHold(t.id, false);
   if (!store.setDay(t.id, key, true)) { if (wasHold) store.setHold(t.id, true, until); return; }
+  playSfx('place');
   toast('「' + trimText(t.text) + '」を今日に置いた', {
     label: '取り消す',
     on: () => {
@@ -630,7 +632,8 @@ try {
 /* 集中画面で割り込んできた考えの預け先。海（未分類）に入れる。
    focus.js が store を触らずに済むよう、ここで1回だけ差す。 */
 setCaptureHandler((text) => {
-  store.add(text, { fx: 0.2 + Math.random() * 0.6, fy: 0.2 + Math.random() * 0.6 });
+  const t = store.add(text, { fx: 0.2 + Math.random() * 0.6, fy: 0.2 + Math.random() * 0.6 });
+  if (t) playSfx('add');
 });
 
 /* 集中画面の作業ログ（最後になにをしてたか／次の一手）の出し入れ。

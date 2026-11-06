@@ -17,6 +17,7 @@
    中身のほとんどは js/screens/todo.js から持ち上げたもの。新しく発明していない。 */
 
 import { el, clamp, fromFeedback } from './ui.js';
+import { playSfx } from './sound.js';
 import { QUADRANTS, quadrantFor } from './priority.js';
 import { askFull, askWithSearchFull, hasKey } from './ai.js';
 import { buildResearchPrompt, buildTidyPrompt, cleanText, appendSection, lostUrls, failLine } from './research.js';
@@ -2677,7 +2678,7 @@ export function attachGestures(node, handlers = {}) {
         cy: y - grabDY + rect.height / 2,
       });
       call('onHold', id, false);
-      if (droppedTo) call('onDropToTab', id, droppedTo);
+      if (droppedTo) { playSfx('place'); call('onDropToTab', id, droppedTo); }
     }
 
     function endDrag() {

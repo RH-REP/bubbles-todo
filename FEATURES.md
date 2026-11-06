@@ -52,6 +52,7 @@
 | タブへドラッグ＝状態を足す（移動ではない） | `js/bubble.js`、`js/app.js` | |
 | 集中1回ぶんの控え（**内部のみ。表示しない**） | `js/store.js` `focusLog` / `logFocus` / `focusCount` / `focusMs` | 2026-09-11。出しどころは A-67 |
 | 完了音（WebAudio 合成。既定オン、設定で切れる） | `js/sound.js` | 設定は store とは別の localStorage キー |
+| 効果音（泡を足す「ぽこっ」・はじめた「とん」・タブ／今日に置く「すとん」。完了音とは別のスイッチ、既定オン） | `js/sound.js` `playSfx`・`isSfxOn`、呼ぶのは `sea.js` `today.js` `cardlist.js` `app.js` `bubble.js`、設定は `settings.js` | 2026-11-07（利用者の指示 Issue #18）。消す・戻す・取り消すでは鳴らさない（契約 §6）。完了音より小さく短い1音。キーは `bubble_todo_sfx_v1`。`prefers-reduced-motion` なら鳴らさない（完了音と同じ）。`tests/sound.test.mjs` |
 | ホーム画面に追加・オフライン | `manifest.json`、`sw.js` | |
 | **最新の版を確認する**（設定の中のボタン。押すと service worker に新しい版を取りに行かせ、見つかれば入れ替えて読み直す） | `js/update.js`、`js/screens/settings.js` updateBox、`sw.js` の `message` 口 | 2026-11-02（利用者の指示）。iOS のホーム画面アプリは「閉じて開き直す」だけでは新しい版に気づかないことがある（WebKit の既知の挙動）。ふだんは呼ばない `skipWaiting()` を、このボタンを押したときだけ呼ぶ。前面に戻ったときの自動の取りに行き（入れ替えなし、10分に1回まで）は `js/sw-register.js`（Issue #6） |
 | **改善のコメント（右上の !）**（GitHub の新しい Issue 画面を、画面 ID とコメントを書き込んで開く） | `js/feedback.js`（issue_hub の正本の写し）、`js/app.js` 末尾、各板の `data-screen` | 2026-10-22。バブルの本文が写るので写真は初めは付けない（`screenshot: 'off'`。チェックを入れれば付く、2026-10-23）。記録の欄は出さない（`log: false`）。右上の隅に歯車と同じ 44px で置き、歯車・海のカレンダーを左へずらした（2026-10-23）。バブルの本文は送らない（画面と件数だけ）。iPhone の GitHub アプリが Issue の画面を空欄で開くことがある件（iOS の Universal Links。Issue #5）への備えとして、押した時点で題名とコメント（題名・空行・コメントだけ。題名はコメントの最初の1文）をクリップボードにも置き、iOS では長押しで Safari へ開けると案内する（2026-11-02） |

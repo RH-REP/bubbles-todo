@@ -13,7 +13,7 @@ import { createField } from '../drift.js';
 import { openMenu, attachGestures } from '../bubble.js';
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { el, toast, fromFeedback } from '../ui.js';
-import { playComplete } from '../sound.js';
+import { playComplete, playSfx } from '../sound.js';
 
 /* 詳細の入力を書き終わりまで待たずに保存する間隔（plan.js と同じ） */
 const SAVE_MS = 400;
@@ -99,6 +99,7 @@ function markStarted(id) {
   if (typeof store.start !== 'function') return;
   if (isStarted(id)) return;
   store.start(id, null);
+  playSfx('start');
   const t = store.get(id);
   toast('「' + trim(t ? t.text : '') + '」を ' + DONE_LB + ' にした', {
     label: '取り消す',
@@ -360,6 +361,7 @@ function addFromComposer() {
   if (!body) return;
   const t = store.add(body);
   if (!t) return;
+  playSfx('add');
   /* まず日に置く（日が本体）。そのあとタグを付ける */
   if (typeof store.setDay === 'function') store.setDay(t.id, curDay(), true);
   else store.setToday(t.id, true);
@@ -1007,7 +1009,7 @@ function makeDetail() {
     const id = current();
     if (!id) return;
     if (isStarted(id)) { if (typeof store.unstart === 'function') store.unstart(id, null); }
-    else if (typeof store.start === 'function') store.start(id, null);
+    else if (typeof store.start === 'function') { store.start(id, null); playSfx('start'); }
     syncDone();
     render();
   });

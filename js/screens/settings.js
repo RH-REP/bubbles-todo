@@ -6,7 +6,7 @@
 
 import { el, toast, escapeHtml } from '../ui.js';
 import { store } from '../store.js';
-import { isOn, setOn } from '../sound.js';
+import { isOn, setOn, isSfxOn, setSfxOn, playSfx } from '../sound.js';
 import { sync, checkUrl } from '../sync.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode } from '../passkey.js';
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
@@ -178,10 +178,25 @@ export default {
     soundRow.appendChild(cb);
     soundRow.appendChild(el('span', null, '完了したときに音を鳴らす'));
     box.appendChild(soundRow);
+
+    /* 効果音（2026-11-07 利用者の指示 Issue #18）。完了音とは別のスイッチ */
+    const sfxRow = el('label', 'setrow');
+    const sfxCb = document.createElement('input');
+    sfxCb.type = 'checkbox';
+    sfxCb.checked = isSfxOn();
+    sfxCb.addEventListener('change', () => {
+      setSfxOn(sfxCb.checked);
+      if (sfxCb.checked) playSfx('add');   /* どんな音かをその場で聞かせる */
+      toast(sfxCb.checked ? '効果音を鳴らす' : '効果音を鳴らさない');
+    });
+    sfxRow.appendChild(sfxCb);
+    sfxRow.appendChild(el('span', null, '泡を足す・はじめた・タブに置くときに小さく鳴らす'));
+    box.appendChild(sfxRow);
     box.appendChild(el(
       'p', 'note',
-      '鳴るのは自分で「完了」を押したときだけ。はじめたときには鳴らない。'
-      + '端末が消音のときに鳴るかどうかは、機種によって違う。'
+      '完了の音は自分で「完了」を押したときだけ。消す・戻すときには鳴らない。'
+      + '端末が消音のとき（iPhone の消音スイッチなど）や、'
+      + '「視差効果を減らす」をオンにしているときは鳴らない。'
     ));
 
     /* --- サーバー（複数の端末で同じ記録を使う）--- */

@@ -28,7 +28,7 @@ import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor, DROPPA
 import { createField } from '../drift.js';
 import { openSeaMap, closeSeaMap, isOpen as seaMapOpen } from '../seamap.js';
 import { openCalendar, closeCalendar, isOpen as calOpen } from '../calendar.js';
-import { playComplete } from '../sound.js';
+import { playComplete, playSfx } from '../sound.js';
 /* 「今日」タブの落とし先は、今日の画面がいま映している日（利用者の指示）。
    today.js は sea.js を読まないので、循環にはならない。 */
 import { dropDay } from './today.js';
@@ -882,6 +882,7 @@ function markStarted(id) {
   if (!t) return false;
   if (has('isStarted') && store.isStarted(id, null)) return false;   /* もう記録がある */
   if (store.start(id, null) === false) return false;
+  playSfx('start');
   /* 押した手応えと、戻る道。**今日の画面には前からあったのに、海には無かった**
      ——同じボタンなのに、押しても何も言わない面がある、という状態だった */
   toast('「' + trim(t.text) + '」を ' + DONE_LB + ' にした', {
@@ -904,6 +905,7 @@ function addFromComposer() {
   const added = store.add(text, { fx: 0.35 + Math.random() * 0.3, fy: 0.86 + Math.random() * 0.1 });
   const id = added && typeof added === 'object' ? added.id
     : (typeof added === 'string' ? added : null);
+  if (id) playSfx('add');
   /* 書いたものには、いまいる面のタグが付く。
      中央（ぜんぶ）では何も付かない。完了の海では付けない
      （書いた瞬間に完了になるのは筋が通らない）。 */
