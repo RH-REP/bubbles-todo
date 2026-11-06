@@ -13,7 +13,7 @@ import { store } from './store.js';
 import './sync.js';
 /* 海の切り替え（space.js。2026-11-02 Issue #4 で名前を付けて複数作れる海に）。薄い帯の表示と、引き出しの頭の切り替え。持ち主は store が開くときに決まっている */
 import { spaceSwitcher } from './space.js';
-import { toast, holdRing, fromFeedback } from './ui.js';
+import { toast, holdRing, fromFeedback, undoLast } from './ui.js';
 import { playSfx } from './sound.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
@@ -835,6 +835,26 @@ pushBack();
 /* 開いたまま朝を跨いだとき用。裏から表に戻った一度だけ見る */
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') catchUpDay();
+});
+
+/* ⌘Z／Ctrl+Z で、いちばん新しい取り消しを1つ戻す（2026-11-07 Issue #22。js/undo.js）。
+   塊は「取り消し付きのトーストを出した操作1つ」。トーストが消えたあとも、新しいほうから
+   20 個まで・10分以内なら戻せる。
+   ・字を打つ欄（input・textarea・contenteditable）の中では見送る。そこはブラウザの文字の取り消し
+   ・! の欄でも見送る。⇧ 付き（やり直し）は作らない
+   ・読むだけの間は戻さない（戻す手も書き込みなので） */
+function isTyping(t) {
+  if (!t || !t.closest) return false;
+  return !!t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
+}
+document.addEventListener('keydown', ev => {
+  if (ev.defaultPrevented || ev.isComposing) return;
+  if (!(ev.metaKey || ev.ctrlKey) || ev.shiftKey || ev.altKey) return;
+  if (String(ev.key).toLowerCase() !== 'z') return;
+  if (isTyping(ev.target) || fromFeedback(ev)) return;
+  ev.preventDefault();
+  if (has('readOnly') && store.readOnly()) { toast('繋がると戻せる（いまは読むだけの間）'); return; }
+  undoLast();
 });
 
 /* 「タブへ落とした」の処理は各画面が持つ（取り消し付きのトーストを出したいため）。

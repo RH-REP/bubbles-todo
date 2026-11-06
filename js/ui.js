@@ -16,11 +16,18 @@ export function fromFeedback(ev) {
   return !!(t && t.closest && t.closest('#fbBtn, #fbDlg'));
 }
 
+import { createUndoStack } from './undo.js';
+
 let toastNode = null;
 let toastTimer = 0;
 
+/* 取り消しの積み重ね（Issue #22。js/undo.js）。取り消し付きのトーストを出すたびに控え、
+   トーストが消えたあとも ⌘Z／Ctrl+Z（js/app.js）で新しいほうから戻せる */
+const undoStack = createUndoStack();
+
 /* トースト。action を渡すと取り消しボタンが付く。
-   action = { label:string, on:Function } */
+   action = { label:string, on:Function, undo?:false }
+   取り消しでないボタン（「ぜんぶ見る」など）は undo:false を付けて、積み重ねに入れない */
 export function toast(message, action, ms = 4200) {
   clearTimeout(toastTimer);
   if (toastNode) toastNode.remove();
@@ -30,9 +37,11 @@ export function toast(message, action, ms = 4200) {
   toastNode.appendChild(el('span', null, escapeHtml(message)));
 
   if (action && typeof action.on === 'function') {
+    const entry = action.undo === false ? null : undoStack.push(message, action.on);
     const btn = el('button', null, escapeHtml(action.label || '元に戻す'));
     btn.type = 'button';
     btn.addEventListener('click', () => {
+      if (entry) undoStack.remove(entry);
       hideToast();
       action.on();
     });
@@ -41,6 +50,17 @@ export function toast(message, action, ms = 4200) {
 
   document.body.appendChild(toastNode);
   toastTimer = setTimeout(hideToast, ms);
+}
+
+/* いちばん新しい取り消しを1つ戻す（⌘Z／Ctrl+Z）。戻したら true。
+   戻したことはトーストで言う（そのトーストには取り消しを付けない。やり直しは作らない） */
+export function undoLast() {
+  const e = undoStack.pop();
+  if (!e) { toast('戻せる操作が無い'); return false; }
+  try { e.on(); } catch (err) { console.error(err); toast('戻せなかった'); return false; }
+  const left = undoStack.size();
+  toast('戻した：' + e.message + (left ? '（あと ' + left + ' つ戻せる）' : ''));
+  return true;
 }
 
 export function hideToast() {

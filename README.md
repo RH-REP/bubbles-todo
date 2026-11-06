@@ -283,6 +283,7 @@ node tests/ai.test.mjs
 node tests/key-leak.test.mjs
 node tests/research.test.mjs
 node --test tests/rollback.test.mjs
+node --test tests/undo.test.mjs
 python3 -m unittest tests/test_server.py
 bash tests/server-setup.test.sh
 ```
@@ -370,6 +371,18 @@ bash tests/server-setup.test.sh
 - あわせて、画面が前面に戻るたび（10分に1回まで）`js/sw-register.js` が `reg.update()` を呼び、新しい版があれば取ってきて**待機させておく**（入れ替えはしない。Issue #6）。ボタンを押したときに取りに行く手間が減り、次に本当に開いたときにも効く
 - それでも更新されないときは、**iPhone本体を再起動する**か、**Safari で改めて「ホーム画面に追加」をやり直す**
   （古い登録とは別の、新しい service worker の登録になるため、最新の版を取り直す）
+
+### 取り消しの積み重ね（⌘Z／Ctrl+Z。2026-11-07。Issue #22）
+
+取り消し付きのトースト（「取り消す」「元に戻す」）は数秒で消え、戻せるのはいちばん新しい1つだけだった。
+いまは**トーストを出した操作1つを1つの塊**として控え、トーストが消えたあとも、キーボードの ⌘Z（Windows・Android のキーボードでは Ctrl+Z）で**新しいほうから順に**戻せる。
+
+- 塊の単位: 画面が取り消し付きのトーストを出した操作1つ（完了・消す・今日に置く・タグを付ける／外す・海へ戻す・日を動かす・全部消す など）。戻す手順は各画面がトーストに渡しているものをそのまま使う
+- 控えるのは 20 個まで・10分以内。トーストのボタンで戻したものは外す（二重に戻さない）。海を替えると読み直すので消える
+- 字を打つ欄（名前・本文）の中では見送り、ブラウザの文字の取り消しに任せる。やり直し（⇧⌘Z）は作らない。読むだけの間は戻さない
+- 戻したら「戻した：…（あと N つ戻せる）」と出る。取り消しでないボタンのトースト（「ぜんぶ見る」）は `undo: false` で積み重ねに入れない
+- 作り: `js/undo.js`（計算）、`js/ui.js` の `toast`・`undoLast`、`js/app.js` の keydown。テスト: `node --test tests/undo.test.mjs`
+- 指だけの端末（キーボードの無いスマホ）では、今までどおりトーストのボタンだけ
 
 ### 前の版に戻す（2026-11-07。Issue #21）
 

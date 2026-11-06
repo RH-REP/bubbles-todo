@@ -1054,6 +1054,7 @@ function openSchedule(a) {
     const lb = scheduleLabel(A.get(a.id) || a) || '毎日';
     toast('「' + a.name + '」は ' + lb + '。今日は出ない', {
       label: 'ぜんぶ見る',
+      undo: false,   /* 取り消しではない。⌘Z の積み重ねに入れない（js/undo.js） */
       on: () => setShowAll(true),
     });
   }
