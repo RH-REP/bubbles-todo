@@ -15,6 +15,7 @@ globalThis.localStorage = {
 
 const R = await import(new URL('../js/research.js', import.meta.url).href);
 const AI = await import(new URL('../js/ai.js', import.meta.url).href);
+const D = await import(new URL('../js/deadline.js', import.meta.url).href);
 
 let pass = 0;
 const failed = [];
@@ -155,6 +156,67 @@ await test('右上の ! に「AI で題名」をつなぎ、キーが無けれ�
   assert.ok(src.includes("makeTitleLabel: 'AI で題名'"));
   assert.ok(/makeTitle: async[\s\S]{0,80}if \(!hasKey\(\)\) throw/.test(src), 'キーの確かめが送る前に無い');
   assert.ok(src.includes('buildIssueTitlePrompt(comment)'));
+});
+
+/* ---- 書いて頼む（Issue #15 案 A）---- */
+await test('書いて頼む: 送るのは名前と書いた文だけ（本文は入れようがない形）、JSON の形を頼む', () => {
+  const p = R.buildAskPrompt(' ふるさと納税 ', ' 期限とお得な納税方法を調べて ', '2026-11-07');
+  assert.equal(p.user, '名前: ふるさと納税\n頼みごと: 期限とお得な納税方法を調べて');
+  assert.equal(R.buildAskPrompt.length, 3, '引数に本文が足されている（案 A は本文を送らない）');
+  assert.ok(p.system.includes('今日は 2026-11-07'));
+  assert.ok(p.system.includes('"deadline"') && p.system.includes('"todos"'));
+  assert.ok(p.system.includes('出典: '));
+  assert.equal(Array.from(R.buildAskPrompt('a', 'あ'.repeat(900), '2026-11-07').user.split('頼みごと: ')[1]).length, R.ASK_MAX);
+});
+
+await test('parseAskReply: まとめと JSON を分け、期限・候補をそろえる', () => {
+  const txt = '## 期限\n- **12/31** まで\n出典: https://example.com/a\n\n```json\n'
+    + '{"deadline":"2026-12-31","todos":["・寄付先を選ぶ。","寄付先を選ぶ","ワンストップ特例の申請書を出す","' + 'あ'.repeat(40) + '","","x","y","z"]}\n```';
+  const r = R.parseAskReply(txt, '2026-11-07');
+  assert.equal(r.summary, '【期限】\n・12/31 まで\n出典: https://example.com/a');
+  assert.equal(r.deadline, '2026-12-31');
+  assert.deepEqual(r.todos.slice(0, 2), ['寄付先を選ぶ', 'ワンストップ特例の申請書を出す']);
+  assert.equal(Array.from(r.todos[2]).length, R.TODO_NAME_MAX);
+  assert.equal(r.todos.length, R.TODO_MAX);
+});
+
+await test('parseAskReply: JSON が無い・壊れている・期限が過ぎた・日付でないときは、まとめだけ', () => {
+  assert.deepEqual(R.parseAskReply('まとめだけ', '2026-11-07'), { summary: 'まとめだけ', deadline: null, todos: [] });
+  const bad = R.parseAskReply('本文\n```json\n{"deadline": "2026-12-31", todos: [}\n```', '2026-11-07');
+  assert.equal(bad.summary, '本文'); assert.equal(bad.deadline, null); assert.deepEqual(bad.todos, []);
+  assert.equal(R.parseAskReply('a\n```json\n{"deadline":"2026-10-01","todos":[]}\n```', '2026-11-07').deadline, null);
+  assert.equal(R.parseAskReply('a\n```json\n{"deadline":"2026-02-30","todos":[]}\n```', '2026-11-07').deadline, null);
+  assert.equal(R.parseAskReply('a\n```json\n{"deadline":null,"todos":[1,"b"]}\n```', '2026-11-07').todos.join(), 'b');
+  const bare = R.parseAskReply('まとめ\n{"deadline":"2026-12-31","todos":["申請する"]}', '2026-11-07');
+  assert.equal(bare.summary, 'まとめ'); assert.equal(bare.deadline, '2026-12-31'); assert.deepEqual(bare.todos, ['申請する']);
+});
+
+await test('leadDay: 期限の 3 日前。それが過ぎていれば今日、期限が過ぎていれば null', () => {
+  assert.equal(R.leadDay('2026-12-31', '2026-11-07'), '2026-12-28');
+  assert.equal(R.leadDay('2027-01-02', '2026-11-07'), '2026-12-30');
+  assert.equal(R.leadDay('2026-11-08', '2026-11-07'), '2026-11-07');
+  assert.equal(R.leadDay('2026-11-07', '2026-11-07'), '2026-11-07');
+  assert.equal(R.leadDay('2026-11-06', '2026-11-07'), null);
+  assert.equal(R.leadDay('bad', '2026-11-07'), null);
+});
+
+await test('askSectionText・relatedDetail: 頼んだことと元の名前を残す', () => {
+  assert.equal(R.askSectionText('期限を調べて\n2行目', 'まとめ'), '頼んだこと: 期限を調べて\nまとめ');
+  const withD = R.askSectionText('期限を調べて', 'まとめ', '2026-12-31');
+  assert.equal(withD, '頼んだこと: 期限を調べて\n日付: 2026-12-31（期限）\nまとめ');
+  assert.equal(D.spanFromDetail('前の本文\n\n' + withD).end, '2026-12-31', '日付で見るが期限を読めない');
+  assert.equal(R.askSectionText('x', 'y', 'bad'), '頼んだこと: x\ny');
+  assert.equal(R.relatedDetail('ふるさと納税', '2026-11-07'), '元: ふるさと納税\n（AI の案から作った。11/7）');
+});
+
+await test('本文の面に「送る」欄をつなぎ、送るのは buildAskPrompt(name, request, today) だけ（js/bubble.js）', () => {
+  const src = readFileSync(new URL('../js/bubble.js', import.meta.url), 'utf8');
+  assert.ok(src.includes("run('ask')"));
+  assert.ok(src.includes('buildAskPrompt(name, request, today)'), '書いて頼むで本文を送っている');
+  assert.ok(/cb\.checked = false/.test(src), '候補が既定で選ばれている');
+  assert.ok(!/el\('span', '', label\)/.test(src), 'AI の文を innerHTML に入れている');
+  const app = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  assert.ok(app.includes('addRelated:') && app.includes('removeTodo:'));
 });
 
 console.log('');

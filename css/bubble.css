@@ -1015,6 +1015,21 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bm-ai-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .bub-center .bm-ai-btn:disabled { color: var(--text-2); cursor: default; }
 .bub-center .bm-ai-undo { align-self: flex-start; }
+.bub-center .bm-ai-ask { flex-wrap: nowrap; margin: 0; }
+.bub-center .bm-ai-askin {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 12px;
+  font: inherit; font-size: 16px;            /* 16px 未満だと iPhone が拡大する */
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-2); color: var(--text);
+}
+.bub-center .bm-ai-askin:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.bub-center .bm-ai-opts { display: flex; flex-direction: column; gap: 2px; }
+.bub-center .bm-ai-opts[hidden] { display: none; }
+.bub-center .bm-ai-check {
+  display: flex; align-items: center; gap: 8px; min-height: 40px;
+  font-size: 14px; color: var(--text); cursor: pointer; overflow-wrap: anywhere;
+}
+.bub-center .bm-ai-check input { width: 20px; height: 20px; flex: none; margin: 0; }
 .bub-center .bm-ai-said,
 .bub-center .bm-ai-note,
 .bub-center .bm-ai-warn {

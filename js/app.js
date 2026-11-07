@@ -715,6 +715,21 @@ setCenterHandler({
   /* 本文（Issue #8）。名前とは別の説明。盤の「本文」の入口と面が読み書きする。無ければ出さない */
   detail:       (id) => (has('detailOf') ? store.detailOf(id) : ''),
   setDetail:    (id, v) => (has('setDetail') ? store.setDetail(id, v) : false),
+  /* 関連 TODO（Issue #15）。本文の面の「書いて頼む」が、選んだ候補だけを新しい泡にする。
+     元の泡と同じアンカー・自分で作ったタグに入れ、本文に「元: <名前>」。-> 新しい id か null */
+  addRelated:   (fromId, text, detail) => {
+    const t = store.add(text);
+    if (!t) return null;
+    if (detail) store.setDetail(t.id, detail);
+    if (has('anchorsOf')) store.anchorsOf(fromId).forEach(aid => store.setAnchor(t.id, aid, true));
+    if (has('tagsOf')) {
+      const own = new Set(store.tags().filter(g => !g.special).map(g => g.id));
+      store.tagsOf(fromId).filter(g => own.has(g)).forEach(g => store.setTag(t.id, g, true));
+    }
+    return t.id;
+  },
+  /* [元に戻す] で、いま作った関連 TODO を消す（ほかの消し方と同じく墓石にする） */
+  removeTodo:   (id) => !!store.remove(id),
 
   /* ひとこと（Issue #25。js/notes.js）。個人の海では出さない。
      名前・端末の印・「最後に開いた時刻」はこの端末だけの覚え（記録に入るのは名前と端末の印だけ） */

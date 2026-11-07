@@ -20,7 +20,8 @@ import { el, clamp, fromFeedback } from './ui.js';
 import { playSfx } from './sound.js';
 import { QUADRANTS, quadrantFor } from './priority.js';
 import { askFull, askWithSearchFull, hasKey } from './ai.js';
-import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, applyName, cleanText, appendSection, lostUrls, failLine } from './research.js';
+import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, applyName, cleanText, appendSection, lostUrls, failLine,
+  buildAskPrompt, parseAskReply, askSectionText, leadDay, relatedDetail, ASK_MAX, DEADLINE_LEAD } from './research.js';
 
 export const MIN_D = 78;      /* バブルの最小直径 px（文字量で決まるとき） */
 export const MAX_D = 200;     /* 同 最大 */
@@ -1842,6 +1843,22 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     row.appendChild(research);
     row.appendChild(tidy);
     if (naming) row.appendChild(naming);
+    /* 「書いて頼む」（Issue #15 案 A）… 欄に調べてほしいことを書いて送る。
+       送るのは名前と書いた文だけ（本文は送らない）。まとめは本文に足し、
+       期限が分かれば「期限の数日前の日に置く」、関連 TODO は候補から選んだものだけ作る（既定はどれも選ばない） */
+    const askRow = el('form', 'bm-ai-row bm-ai-ask');
+    const askIn = document.createElement('input');
+    askIn.type = 'text';
+    askIn.className = 'bm-ai-askin';
+    askIn.maxLength = ASK_MAX;
+    askIn.placeholder = '調べてほしいことを書く（例: 期限とお得な方法）';
+    askIn.setAttribute('aria-label', 'AI に調べてほしいこと');
+    askIn.setAttribute('enterkeyhint', 'send');
+    const askBtn = el('button', 'bm-ai-btn', '送る');
+    askBtn.type = 'submit';
+    askRow.appendChild(askIn);
+    askRow.appendChild(askBtn);
+    box.appendChild(askRow);
     box.appendChild(row);
     const said = el('p', 'bm-ai-said');
     said.setAttribute('role', 'status');
@@ -1862,8 +1879,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     cancel.type = 'button';
     preBtns.appendChild(apply);
     preBtns.appendChild(cancel);
+    /* 書いて頼んだときだけ: 期限の日に置くか・関連 TODO の候補（どれも既定で外す） */
+    const preOpts = el('div', 'bm-ai-opts');
+    preOpts.hidden = true;
     pre.appendChild(preTx);
     pre.appendChild(preWarn);
+    pre.appendChild(preOpts);
     pre.appendChild(preBtns);
     box.appendChild(pre);
 
@@ -1873,7 +1894,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     box.appendChild(undo);
 
     const note = el('p', 'bm-ai-note',
-      '押すと、この泡の名前と本文を Anthropic へ送る（料金はキーの持ち主に掛かる）。');
+      '「送る」は、この泡の名前と書いた文だけを Anthropic へ送る（本文は送らない）。下のボタンは名前と本文を送る。料金はキーの持ち主に掛かる。');
     box.appendChild(note);
     detailPane.appendChild(box);
 
@@ -1881,12 +1902,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     let proposal = null;     /* { kind, text } 入れる前の案 */
     let before = null;       /* 入れる前の本文（元に戻す用） */
     let beforeName = null;   /* 入れる前の名前（AI で名前のとき） */
+    let madeIds = [];        /* 書いて頼んだときに作った関連 TODO（元に戻す用） */
+    let placedDay = null;    /* 書いて頼んだときに置いた日（元に戻す用。もとから置いてあった日は入れない） */
 
     const curText = () => ((detailArea && !detailArea.hidden) ? detailArea.value : detailDraft);
     const curName = () => (nameIn ? nameIn.value.trim() : String(ask(a, 'text', id) || ''));
     const setBusy = b => {
       busy = b;
-      research.disabled = b; tidy.disabled = b;
+      research.disabled = b; tidy.disabled = b; askBtn.disabled = b;
       if (naming) naming.disabled = b;
       box.classList.toggle('is-busy', b);
     };
@@ -1896,7 +1919,21 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       if (detailView && !detailView.hidden) detailView.textContent = t;
       syncDetailBtn();
     };
-    const hidePre = () => { proposal = null; pre.hidden = true; relayout(); };
+    const hidePre = () => { proposal = null; pre.hidden = true; preOpts.hidden = true; preOpts.textContent = ''; relayout(); };
+    const checkRow = (label, data) => {
+      const lab = el('label', 'bm-ai-check');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = false;
+      Object.keys(data).forEach(k => { cb.dataset[k] = data[k]; });
+      lab.appendChild(cb);
+      const sp = el('span');
+      sp.textContent = label;                   /* el の第3引数は innerHTML。AI の文は HTML にしない（Issue #14） */
+      lab.appendChild(sp);
+      preOpts.appendChild(lab);
+      return cb;
+    };
+    const mdOf = k => (+k.slice(5, 7)) + '/' + (+k.slice(8, 10));
 
     async function run(kind) {
       if (busy) return;
@@ -1911,6 +1948,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const name = curName();
       if (kind === 'name' && !text.trim() && !name) {
         said.textContent = '名前も本文もまだ無い。';
+        relayout();
+        return;
+      }
+      const request = kind === 'ask' ? askIn.value.trim() : '';
+      if (kind === 'ask' && !request) {
+        said.textContent = '調べてほしいことを欄に書いてから送る。';
         relayout();
         return;
       }
@@ -1931,12 +1974,16 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         } else if (kind === 'tidy') {
           const p = buildTidyPrompt(name, text);
           r = await askFull(p.system, p.user, { maxTokens: 8000 });
+        } else if (kind === 'ask') {
+          const p = buildAskPrompt(name, request, today);      /* 名前と書いた文だけ（案 A） */
+          r = await askWithSearchFull(p.system, p.user, { maxUses: 5 });
         } else {
           const p = buildResearchPrompt(name, text, today);
           r = await askWithSearchFull(p.system, p.user, { maxUses: 3 });
         }
         if (!box.isConnected) return;               /* 盤が閉じていたら捨てる */
-        const out = kind === 'name' ? cleanName(r.text) : cleanText(r.text);
+        const parsed = kind === 'ask' ? parseAskReply(r.text, today) : null;
+        const out = kind === 'name' ? cleanName(r.text) : kind === 'ask' ? parsed.summary : cleanText(r.text);
         if (!out || r.stop === 'max_tokens' || r.stop === 'refusal') {
           said.textContent = failLine(kind, r.stop, r.searchError);
           return;
@@ -1950,6 +1997,25 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           apply.textContent = '名前にする';
           said.textContent = '名前の案。名前にするまで変わらない。';
           pre.hidden = false;
+          return;
+        }
+        if (kind === 'ask') {
+          proposal = { kind, text: appendSection(curText(), askSectionText(request, out, parsed.deadline), today), name, today, day: null, todos: [] };
+          preTx.textContent = out;
+          preWarn.hidden = true;
+          preOpts.textContent = '';
+          const day = parsed.deadline ? leadDay(parsed.deadline, today) : null;
+          if (day) {
+            const dn = day === parsed.deadline ? '期限の日' : '期限の' + DEADLINE_LEAD + '日前';
+            checkRow('期限 ' + mdOf(parsed.deadline) + '。' + (day === today ? '今日' : mdOf(day) + '（' + dn + '）') + 'に置く', { day });
+          }
+          if (parsed.todos.length) preOpts.appendChild(el('p', 'bm-ai-note', '関連 TODO の案（選んだものだけ作る）'));
+          parsed.todos.forEach(t => checkRow(t, { todo: t }));
+          preOpts.hidden = !preOpts.childNodes.length;
+          apply.textContent = '本文に足す';
+          said.textContent = '調べた結果。足すまで本文は変わらない。期限の日・関連 TODO は印を付けたものだけ入れる。';
+          pre.hidden = false;
+          preTx.scrollTop = 0;
           return;
         }
         proposal = { kind, text: kind === 'tidy' ? out : appendSection(curText(), out, today) };
@@ -1970,6 +2036,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     }
 
     research.addEventListener('click', ev => { ev.preventDefault(); run('research'); });
+    askRow.addEventListener('submit', ev => { ev.preventDefault(); run('ask'); });
     if (naming) naming.addEventListener('click', ev => { ev.preventDefault(); run('name'); });
     tidy.addEventListener('click', ev => { ev.preventDefault(); run('tidy'); });
     apply.addEventListener('click', ev => {
@@ -1978,6 +2045,33 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const kind = proposal.kind;
       before = curText();
       beforeName = null;
+      madeIds = [];
+      placedDay = null;
+      if (kind === 'ask') {
+        let made = 0;
+        let placed = '';
+        preOpts.querySelectorAll('input[type=checkbox]').forEach(cb => {
+          if (!cb.checked) return;
+          if (cb.dataset.day) {
+            const had = (ask(a, 'days', id) || []).indexOf(cb.dataset.day) >= 0;
+            ask(a, 'setDay', id, cb.dataset.day, true);
+            if (!had) placedDay = cb.dataset.day;
+            placed = cb.dataset.day;
+          } else if (cb.dataset.todo) {
+            const nid = ask(a, 'addRelated', id, cb.dataset.todo, relatedDetail(proposal.name, proposal.today));
+            if (nid) { madeIds.push(nid); made++; }
+          }
+        });
+        putText(proposal.text);
+        said.textContent = '本文の終わりに足した' + (placed ? '。' + mdOf(placed) + 'に置いた' : '')
+          + (made ? '。関連 TODO を ' + made + ' 件作った' : '') + '。閉じると残る。';
+        askIn.value = '';
+        undo.hidden = false;
+        hidePre();
+        const v = (detailView && !detailView.hidden) ? detailView : detailArea;
+        if (v) v.scrollTop = v.scrollHeight;
+        return;
+      }
       if (kind === 'name') {
         beforeName = nameIn.value;
         nameIn.value = proposal.name;
@@ -2000,6 +2094,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       ev.preventDefault();
       if (before == null) return;
       putText(before);
+      madeIds.forEach(nid => ask(a, 'removeTodo', nid));
+      madeIds = [];
+      if (placedDay) { ask(a, 'setDay', id, placedDay, false); placedDay = null; }
       if (beforeName != null && nameIn) {
         nameIn.value = beforeName;
         if (detailPane._ctx) detailPane._ctx.textContent = beforeName.trim() ? '名前：' + beforeName.trim() : '';
