@@ -23,7 +23,7 @@
    鍵は使う人が自分で発行し、自分の端末にだけ置くので、ここではその前提を踏む。
 
    ■ モデル
-   既定は Haiku 系（速い・安い）。ヘルプの受け答えに十分な力で足りる。 */
+   既定は Opus 5.5（2026-11-07 利用者の指示 Issue #13。前は Haiku 5.5）。設定の「ヘルプと AI」で変えられる。 */
 
 const KEY_STORE = 'bubble_todo_ai_key';
 /* モデルは設定の「ヘルプと AI」で選べる（2026-11-05 利用者の質問 Issue #13）。
@@ -31,11 +31,12 @@ const KEY_STORE = 'bubble_todo_ai_key';
    既定は Haiku（速い・安い）。上ほど賢いが、1 回ごとの料金も上がる（料金はキーの持ち主に掛かる） */
 const MODEL_STORE = 'bubble_todo_ai_model';
 export const MODELS = [
-  { id: 'claude-haiku-5-5',  label: 'Haiku 5.5（既定。速い・安い）' },
+  { id: 'claude-haiku-5-5',  label: 'Haiku 5.5（速い・安い）' },
   { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5（中くらい）' },
-  { id: 'claude-opus-5-5',   label: 'Opus 5.5（いちばん賢い・高い）' },
+  { id: 'claude-opus-5-5',   label: 'Opus 5.5（既定。いちばん賢い・高い）' },
 ];
-export const DEFAULT_MODEL = MODELS[0].id;
+/* 既定は Opus 5.5（2026-11-07 利用者の指示 Issue #13） */
+export const DEFAULT_MODEL = 'claude-opus-5-5';
 export function getModel() {
   let v = '';
   try { v = localStorage.getItem(MODEL_STORE) || ''; } catch (e) { v = ''; }
@@ -43,7 +44,8 @@ export function getModel() {
 }
 export function setModel(id) {
   try {
-    if (MODELS.some(m => m.id === id) && id !== DEFAULT_MODEL) localStorage.setItem(MODEL_STORE, id);
+    /* 既定と同じものも残す（既定が変わっても、自分で選んだものは変わらないように） */
+    if (MODELS.some(m => m.id === id)) localStorage.setItem(MODEL_STORE, id);
     else localStorage.removeItem(MODEL_STORE);
     return true;
   } catch (e) { return false; }

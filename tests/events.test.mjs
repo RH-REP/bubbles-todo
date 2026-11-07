@@ -384,12 +384,12 @@ await test('支払いルート: 持っているカードと参考のサイトだ
   assert.equal(E.routeLine(m.events.find(E.isFixedRoute)).split(' → ').length, 6, '一覧に足しても（保存し直しても）ルートが残る');
 });
 
-await test('モデル: 既定は Haiku。設定で選んだものを使い、知らない名前は既定に戻す', async () => {
+await test('モデル: 既定は Opus 5.5（2026-11-07）。設定で選んだものを使い、知らない名前は既定に戻す', async () => {
   mem.clear();
   const ai = await import(AI_URL + '?ev=3');
   ai.setKey('sk-ant-TEST');
   assert.equal(ai.getModel(), ai.DEFAULT_MODEL);
-  assert.equal(ai.DEFAULT_MODEL, 'claude-haiku-5-5');
+  assert.equal(ai.DEFAULT_MODEL, 'claude-opus-5-5');
   const seen = [];
   globalThis.fetch = async (url, init) => { seen.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '[]' }] }) }; };
   assert.equal(ai.setModel('claude-sonnet-5-5'), true);
@@ -398,7 +398,10 @@ await test('モデル: 既定は Haiku。設定で選んだものを使い、知
   ai.setModel('nope');
   assert.equal(ai.getModel(), ai.DEFAULT_MODEL);
   await ai.askWithSearchFull('s', 'u');
-  assert.equal(seen[1].model, 'claude-haiku-5-5');
+  assert.equal(seen[1].model, 'claude-opus-5-5');
+  ai.setModel('claude-haiku-5-5');
+  assert.equal(localStorage.getItem('bubble_todo_ai_model'), 'claude-haiku-5-5', '自分で選んだ Haiku は既定が変わっても残る');
+  assert.equal(ai.getModel(), 'claude-haiku-5-5');
 });
 
 console.log('');
