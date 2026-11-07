@@ -108,6 +108,25 @@ await test('ヘルプの返事: Markdown の飾り（**・#・`・行頭の -）
   assert.equal(plainReply(null), '');
 });
 
+await test('ヘルプの返事: Issue の候補の区切りを外して、候補として読む（Issue #28）', async () => {
+  globalThis.window = globalThis.window || { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: false }) };
+  const { splitIssue, issueDraft } = await import(new URL('../js/help.js', import.meta.url).href);
+  const r = splitIssue('答えです。\n\n<<<ISSUE\n種類: 不具合\n題名: 長期保留の泡が今日に戻らない\n画面: today\n'
+    + '起きたこと: もどってくる日を過ぎても出ない。\n続きの行。\n期待したこと: その日に今日へ出る。\n>>>');
+  assert.equal(r.text, '答えです。', '区切りは返事から外す');
+  assert.deepEqual(r.issue, {
+    kind: 'bug', title: '長期保留の泡が今日に戻らない', screen: 'today',
+    happened: 'もどってくる日を過ぎても出ない。\n続きの行。', expected: 'その日に今日へ出る。',
+  });
+  assert.equal(splitIssue('x\n<<<ISSUE\n種類：仕様\n題名：ボタンが分かりにくい\n>>>').issue.kind, 'spec', '全角のコロンも読む');
+  assert.deepEqual(splitIssue('ふつうの答え'), { text: 'ふつうの答え', issue: null }, '区切りが無ければ候補なし');
+  assert.deepEqual(splitIssue('答え\n<<<ISSUE\n種類: 不具合\n>>>'), { text: '答え', issue: null }, '題名が無ければ候補なし');
+  assert.deepEqual(splitIssue('答え\n<<<ISSUE\n種類: 不具合\n題名: 途中で切れ'), { text: '答え', issue: null }, '閉じていない区切りも返事から外す');
+  assert.equal(splitIssue('a\n<<<ISSUE\n題名: t\n画面: <b>today</b>\n>>>').issue.screen, 'btodayb', '画面 ID は英数字と - _ だけ');
+  const d = issueDraft({ kind: 'spec', title: 't', screen: 'sea', happened: 'h', expected: 'e' }, '質問');
+  assert.equal(d, 'AI に訊いた内容から（AI が仕様の見直しと判断した下書き）:\n\n画面: sea\n\n起きたこと: h\n\n期待したこと: e\n\n元の質問: 質問');
+});
+
 console.log('');
 console.log(`${pass} passed, ${failed.length} failed`);
 if (failed.length) process.exit(1);
