@@ -20,7 +20,7 @@ import { el, clamp, fromFeedback } from './ui.js';
 import { playSfx } from './sound.js';
 import { QUADRANTS, quadrantFor } from './priority.js';
 import { askFull, askWithSearchFull, hasKey } from './ai.js';
-import { buildResearchPrompt, buildTidyPrompt, cleanText, appendSection, lostUrls, failLine } from './research.js';
+import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, applyName, cleanText, appendSection, lostUrls, failLine } from './research.js';
 
 export const MIN_D = 78;      /* バブルの最小直径 px（文字量で決まるとき） */
 export const MAX_D = 200;     /* 同 最大 */
@@ -1834,8 +1834,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     research.type = 'button';
     const tidy = el('button', 'bm-ai-btn', 'AI で整理');
     tidy.type = 'button';
+    /* 「AI で名前」（Issue #11）… 名前と本文から、泡に収まる（18 字以内の）名前の案を作る。
+       [名前にする] で盤の名前の欄に入れる（書くのはほかと同じく盤を閉じるとき）。
+       本文が空で名前が長ければ、元の名前を本文へ移す（打った全文を失わない） */
+    const naming = nameIn ? el('button', 'bm-ai-btn', 'AI で名前') : null;
+    if (naming) naming.type = 'button';
     row.appendChild(research);
     row.appendChild(tidy);
+    if (naming) row.appendChild(naming);
     box.appendChild(row);
     const said = el('p', 'bm-ai-said');
     said.setAttribute('role', 'status');
@@ -1874,12 +1880,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     let busy = false;
     let proposal = null;     /* { kind, text } 入れる前の案 */
     let before = null;       /* 入れる前の本文（元に戻す用） */
+    let beforeName = null;   /* 入れる前の名前（AI で名前のとき） */
 
     const curText = () => ((detailArea && !detailArea.hidden) ? detailArea.value : detailDraft);
     const curName = () => (nameIn ? nameIn.value.trim() : String(ask(a, 'text', id) || ''));
     const setBusy = b => {
       busy = b;
       research.disabled = b; tidy.disabled = b;
+      if (naming) naming.disabled = b;
       box.classList.toggle('is-busy', b);
     };
     const putText = t => {
@@ -1901,18 +1909,26 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       }
       const text = curText();
       const name = curName();
+      if (kind === 'name' && !text.trim() && !name) {
+        said.textContent = '名前も本文もまだ無い。';
+        relayout();
+        return;
+      }
       if (kind === 'tidy' && !text.trim()) {
         said.textContent = '整える本文がまだ無い。先に本文を書くか、「AI で調べる」を押す。';
         relayout();
         return;
       }
       setBusy(true);
-      said.textContent = kind === 'tidy' ? '整えている…' : '調べている…（数十秒かかることがある）';
+      said.textContent = kind === 'tidy' ? '整えている…' : kind === 'name' ? '名前を考えている…' : '調べている…（数十秒かかることがある）';
       relayout();
       try {
         const today = String(ask(a, 'todayKey') || '') || localDay();
         let r;
-        if (kind === 'tidy') {
+        if (kind === 'name') {
+          const p = buildNamePrompt(name, text);
+          r = await askFull(p.system, p.user, { maxTokens: 2000 });
+        } else if (kind === 'tidy') {
           const p = buildTidyPrompt(name, text);
           r = await askFull(p.system, p.user, { maxTokens: 8000 });
         } else {
@@ -1920,9 +1936,20 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           r = await askWithSearchFull(p.system, p.user, { maxUses: 3 });
         }
         if (!box.isConnected) return;               /* 盤が閉じていたら捨てる */
-        const out = cleanText(r.text);
+        const out = kind === 'name' ? cleanName(r.text) : cleanText(r.text);
         if (!out || r.stop === 'max_tokens' || r.stop === 'refusal') {
           said.textContent = failLine(kind, r.stop, r.searchError);
+          return;
+        }
+        if (kind === 'name') {
+          const nx = applyName(curName(), curText(), out);
+          proposal = { kind, text: nx.detail, name: nx.name };
+          preTx.textContent = out;
+          preWarn.textContent = nx.detail !== curText() ? '本文が空なので、いまの名前は本文へ移す。' : '';
+          preWarn.hidden = !preWarn.textContent;
+          apply.textContent = '名前にする';
+          said.textContent = '名前の案。名前にするまで変わらない。';
+          pre.hidden = false;
           return;
         }
         proposal = { kind, text: kind === 'tidy' ? out : appendSection(curText(), out, today) };
@@ -1943,12 +1970,24 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     }
 
     research.addEventListener('click', ev => { ev.preventDefault(); run('research'); });
+    if (naming) naming.addEventListener('click', ev => { ev.preventDefault(); run('name'); });
     tidy.addEventListener('click', ev => { ev.preventDefault(); run('tidy'); });
     apply.addEventListener('click', ev => {
       ev.preventDefault();
       if (!proposal) return;
       const kind = proposal.kind;
       before = curText();
+      beforeName = null;
+      if (kind === 'name') {
+        beforeName = nameIn.value;
+        nameIn.value = proposal.name;
+        if (proposal.text !== before) putText(proposal.text);
+        if (detailPane._ctx) detailPane._ctx.textContent = '名前：' + proposal.name;
+        said.textContent = '名前を替えた。閉じると残る。';
+        undo.hidden = false;
+        hidePre();
+        return;
+      }
       putText(proposal.text);
       said.textContent = kind === 'tidy' ? '置き換えた。閉じると残る。' : '本文の終わりに足した。閉じると残る。';
       undo.hidden = false;
@@ -1961,6 +2000,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       ev.preventDefault();
       if (before == null) return;
       putText(before);
+      if (beforeName != null && nameIn) {
+        nameIn.value = beforeName;
+        if (detailPane._ctx) detailPane._ctx.textContent = beforeName.trim() ? '名前：' + beforeName.trim() : '';
+        beforeName = null;
+      }
       before = null;
       undo.hidden = true;
       said.textContent = '元に戻した。';

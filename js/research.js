@@ -98,5 +98,44 @@ export function failLine(kind, stop, searchError) {
   if (stop === 'max_tokens') return '返事が途中で切れた。本文が長いと起きる。もう一度押すか、本文を短くして試す。';
   if (searchError) return 'Web 検索が使えなかった（' + searchError + '）。しばらくして試す。';
   if (stop === 'refusal') return 'AI が答えなかった。';
+  if (kind === 'name') return '名前の案が返ってこなかった。';
   return kind === 'tidy' ? '整えた本文が返ってこなかった。' : '調べた結果が返ってこなかった。';
+}
+
+/* ---- 名前を作る（2026-11-07。Issue #11）----
+   泡の名前は 18 字で切れる（js/app.js trimText）。長い名前や本文から、泡に収まる短い名前の案を作らせる。
+   送るのは押したときだけ、その泡の名前と本文（上と同じ）。 */
+export const NAME_MAX = 18;
+
+/* -> { system, user } */
+export function buildNamePrompt(name, detail) {
+  const system = [
+    'あなたは todo の短い名前を付ける係。',
+    '名前と本文を読み、何をする todo かが一目で分かる名前を1つだけ返す。',
+    NAME_MAX + ' 字以内（' + Math.round(NAME_MAX / 2) + '〜' + NAME_MAX + ' 字がよい）。動詞で終えるか、「〜の〜」の形にする。',
+    '固有名詞・日付・数字は、要るものだけ残す。本文に無いことは足さない。',
+    '括弧・引用符・句点・絵文字・前置き・説明は付けず、名前の文字だけを1行で返す。',
+  ].join('\n');
+  const d = String(detail || '').trim();
+  const user = '名前: ' + String(name || '').trim()
+    + '\n本文:\n' + (d ? clipSend(d) : '（まだ無い）');
+  return { system, user };
+}
+
+/* AI の返事を名前1つにそろえる。読めなければ '' */
+export function cleanName(text) {
+  let s = cleanText(text).split('\n').map(l => l.trim()).find(l => l) || '';
+  s = s.replace(/^(名前|案)\s*[:：]\s*/, '').replace(/^・/, '');
+  s = s.replace(/[。．.]+$/, '').replace(/^[「『"'“‘【(（]+|[」』"'”’】)）]+$/g, '').replace(/[。．.]+$/, '').trim();
+  const a = chars(s);
+  return a.length > NAME_MAX ? a.slice(0, NAME_MAX).join('') : s;
+}
+
+/* 名前を案に替えるとき、本文が空なら元の長い名前を本文へ移す（打った全文を失わないため）。
+   -> { name, detail } */
+export function applyName(oldName, detail, newName) {
+  const o = String(oldName || '').trim();
+  const d = String(detail || '');
+  const moved = !d.trim() && chars(o).length > NAME_MAX && o !== newName;
+  return { name: newName, detail: moved ? o : d };
 }

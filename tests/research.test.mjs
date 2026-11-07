@@ -103,9 +103,32 @@ await test('askFull: 本文のテキストと stop を返し、上限の max_tok
   AI.setKey('');
 });
 
+await test('名前: 頼む文に名前・本文・18 字の決めごとがある（Issue #11）', () => {
+  const p = R.buildNamePrompt('来週の水曜までに区役所で住民票を2通とってくる', '');
+  assert.match(p.user, /名前: 来週の水曜までに区役所で住民票を2通とってくる/);
+  assert.match(p.user, /本文:\n（まだ無い）/);
+  assert.match(p.system, /18 字以内/);
+  assert.match(p.system, /本文に無いことは足さない/);
+});
+
+await test('cleanName: 1行目だけ・飾りを落とし・18 字で切る', () => {
+  assert.equal(R.cleanName('「住民票を2通とる」。\n説明'), '住民票を2通とる');
+  assert.equal(R.cleanName('名前: **区役所で住民票**'), '区役所で住民票');
+  assert.equal(R.cleanName('\n\n- パスポート更新'), 'パスポート更新');
+  assert.equal(Array.from(R.cleanName('あ'.repeat(30))).length, R.NAME_MAX);
+  assert.equal(R.cleanName('  \n '), '');
+});
+
+await test('applyName: 本文が空で名前が長いときだけ、元の名前を本文へ移す', () => {
+  const long = '来週の水曜までに区役所で住民票を2通とってくる';
+  assert.deepEqual(R.applyName(long, '', '住民票を2通とる'), { name: '住民票を2通とる', detail: long });
+  assert.deepEqual(R.applyName(long, '書いてある', '住民票を2通とる'), { name: '住民票を2通とる', detail: '書いてある' });
+  assert.deepEqual(R.applyName('短い名前', '', '短い名'), { name: '短い名', detail: '' });
+});
+
 await test('本文の面に AI のボタンがあり、キーが無いときの案内がある（js/bubble.js）', () => {
   const src = readFileSync(new URL('../js/bubble.js', import.meta.url), 'utf8');
-  assert.ok(src.includes("'AI で調べる'") && src.includes("'AI で整理'"));
+  assert.ok(src.includes("'AI で調べる'") && src.includes("'AI で整理'") && src.includes("'AI で名前'"));
   assert.ok(src.includes('設定の「ヘルプと AI」に Anthropic の API キーを入れると使える'));
   const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
   assert.ok(sw.includes("'./js/research.js'"), 'sw.js の ASSETS に js/research.js が無い');
