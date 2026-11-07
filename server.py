@@ -54,6 +54,7 @@ API:
     python3 server.py invite-add <名前> --space me,share   招待コード（1回きり・24時間）を作る
                                                           （--space は me・share・海の ID をコンマで）
     python3 server.py passkey-list / passkey-remove <名前> / invite-list
+    python3 server.py move-remove <名前>   その端末が作った引っ越しの鍵を消す（Issue #19）
     個人は人ごと（2026-11-03 利用者の指示）。人はサーバーに登録した順の番号で分ける（passkey_store.py）。
         --space me      … 新しい人（次の番号）の個人。1 番はサーバーを立てた人（持ち主）で、記録は state.json のまま
         --space me:2    … 2 番の人の、もう1台の端末
@@ -671,7 +672,7 @@ def make_handler(spaces, cfg: Config = None):
                     inv = pk.find_invite(body.get('invite', ''))
                     if not inv:
                         return self.deny('invite')
-                    full = pk.full_spaces(inv['spaces'], inv.get('person'))
+                    full = pk.full_for(inv)
                     if full:
                         return self.send_json(409, {'error': 'full', 'spaces': full, 'max': pk.max_per_space})
                     chal = pk.new_challenge('create', inv['code_hash'])
@@ -699,11 +700,16 @@ def make_handler(spaces, cfg: Config = None):
                     out = pc.verify_registration(cd, pc.b64u_decode(resp.get('attestationObject', '')),
                                                  challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
                                                  require_uv=cfg.require_uv)
-                    full = pk.full_spaces(inv['spaces'], inv.get('person'))
+                    full = pk.full_for(inv)
                     if full:
                         return self.send_json(409, {'error': 'full', 'spaces': full, 'max': pk.max_per_space})
                     if not pk.use_invite(inv['code_hash']):
                         return self.deny('invite-used')
+                    # 引っ越しの鍵（Issue #19）: いっぱいなら、引っ越す前の端末のパスキーを外して空ける
+                    retired = pk.retire_for(inv)
+                    if retired:
+                        cfg.devices.leave(inv.get('from'))
+                        log_event('passkey-retired', self.ip(), f'name={retired}')
                     name = pk.add_passkey(name=inv['name'], spaces=inv['spaces'], cred=out, person=inv.get('person'))
                     tok, exp = pk.new_session(out['cred_id'], inv['spaces'])
                     log_event('passkey-registered', self.ip(), f'name={name}')
@@ -732,6 +738,14 @@ def make_handler(spaces, cfg: Config = None):
                     pk.touch_passkey(row['id'], count)
                     tok, exp = pk.new_session(row['id'], row['spaces'])
                     return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=row['name']))
+                if path == '/api/passkey/move':
+                    # 引っ越しの鍵を作る（Issue #19）。入っている端末だけ。前に作った鍵は使えなくなる
+                    info = self.session()
+                    if not info:
+                        return self.deny('move')
+                    key, exp = pk.add_move_key(info['cred_id'])
+                    log_event('move-key', self.ip())
+                    return self.send_json(200, {'move': key, 'expires': exp})
                 if path == '/api/passkey/logout':
                     got = self.headers.get('Authorization', '')
                     cred = pk.end_session(got[7:] if got.startswith('Bearer ') else '')
@@ -852,7 +866,10 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
         if not rows:
             print('使われていない招待コードはありません')
         for r in rows:
-            print(f"{r['name']}\t{where_of(r)}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}")
+            if r.get('kind') == 'move':   # 引っ越しの鍵（Issue #19）
+                print(f"{r['name']}\t{where_of(r)}\t引っ越しの鍵（作った {time.strftime('%Y-%m-%d', time.localtime(r['created']))}）")
+            else:
+                print(f"{r['name']}\t{where_of(r)}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}")
     elif cmd == 'passkey-list':
         rows = pk.passkeys()
         if not rows:
@@ -878,6 +895,13 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
         if not pk.remove_passkey(name):
             raise SystemExit(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
         print(f'「{name}」のパスキーと通行証を取り消しました。その端末は次の要求から入れません', flush=True)
+        print(f'（「{name}」が作った引っ越しの鍵は残しています。失くした端末の引っ越しに使うため。消すなら move-remove {name}）', flush=True)
+    elif cmd == 'move-remove':
+        n = pk.remove_move_keys(name)
+        if not n:
+            raise SystemExit(f'「{name}」の引っ越しの鍵はありません（invite-list で確かめる）')
+        print(f'「{name}」の引っ越しの鍵を消しました。その鍵の入った引っ越しのファイルでは登録できません'
+              '（記録はファイルから戻せます）', flush=True)
     return 0
 
 
@@ -906,7 +930,8 @@ def main(argv=None):
     ap.add_argument('--device-window', type=int, default=int(os.environ.get('BUBBLE_TODO_DEVICE_WINDOW', '1800')))
     ap.add_argument('command', nargs='?', default='serve',
                     choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
-                             'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person'],
+                             'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person',
+                             'move-remove'],
                     help='serve（既定）か、合言葉・パスキーの操作')
     ap.add_argument('name', nargs='?', default='', help='share-add / share-remove / invite-add / passkey-remove の名前')
     ap.add_argument('value', nargs='?', default='', help='passkey-person の移す先（番号か new）')
@@ -914,8 +939,8 @@ def main(argv=None):
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
-    if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person'):
-        if args.command in ('invite-add', 'passkey-remove', 'passkey-person') and not args.name.strip():
+    if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person', 'move-remove'):
+        if args.command in ('invite-add', 'passkey-remove', 'passkey-person', 'move-remove') and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} 母のスマホ）')
         return passkey_command(data_dir, args.command, args.name, args.space, args.max_passkeys, args.value)
     if args.command != 'serve':

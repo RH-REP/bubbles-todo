@@ -100,6 +100,20 @@ export async function authMode(base) {
   } catch (e) { return null; }
 }
 
+/* 引っ越しの鍵を作る（Issue #19）→ {move, expires}。入っている端末だけ。前に作った鍵は使えなくなる */
+export async function makeMoveKey(base, session) {
+  const res = await fetch(base + '/api/passkey/move', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + session, 'Content-Type': 'application/json' }, body: '{}',
+    cache: 'no-store',
+  });
+  let json = null;
+  try { json = await res.json(); } catch (e) { /* 中身が無い */ }
+  if (res.status === 404) throw new Error('サーバーが引っ越しの鍵を知らない（サーバーを新しくする）');
+  if (res.status === 401) throw new Error('パスキーで入り直す（通行証の期限切れか、取り消された）');
+  if (res.status !== 200 || !json || !json.move) throw new Error('引っ越しの鍵を作れなかった（' + res.status + '）');
+  return json;
+}
+
 export async function logoutPasskey(base, session) {
   try {
     await fetch(base + '/api/passkey/logout', {

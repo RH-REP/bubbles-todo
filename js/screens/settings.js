@@ -9,9 +9,11 @@ import { store } from '../store.js';
 import { isOn, setOn, isSfxOn, setSfxOn, playSfx } from '../sound.js';
 import { isAffinityOn, setAffinityOn } from '../related.js';
 import { sync, checkUrl } from '../sync.js';
-import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode } from '../passkey.js';
+import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode, makeMoveKey } from '../passkey.js';
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
-import { seaName } from '../spacelist.js';
+import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE } from '../spacelist.js';
+import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, moveSummary, moveFileName,
+  boxToState, stateToBox, mergeBox } from '../movefile.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel } from '../ai.js';
 import { openHelp } from '../help.js';
@@ -218,6 +220,8 @@ export default {
 
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
     box.appendChild(csvBox());
+    /* --- 引っ越し（暗号化したファイル。2026-11-07 Issue #19）--- */
+    box.appendChild(moveBox());
 
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
@@ -653,6 +657,245 @@ function csvBox() {
     '読み込むときに「足す」か「同じものは上書き」かを選ぶ。'
     + 'CSV は Excel でも開けるが、data の欄（記録の中身）を書き換えると読み込めなくなることがある。'
   ));
+  return wrap;
+}
+
+/* 引っ越し（暗号化したファイル。2026-11-07 Issue #19）。
+   すべての海の記録・海の一覧・サーバーの住所と入る鍵を1つのファイルにし、app が作った合言葉で暗号化する。
+   新しい端末で開くと、記録が戻り、サーバーにも入り直せる（持ち主に招待コードを頼まなくてよい）。
+   形と暗号は js/movefile.js。サーバーの「引っ越しの鍵」は server.py の /api/passkey/move */
+function moveBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, '引っ越し（暗号化したファイル）'));
+  wrap.appendChild(el(
+    'p', 'note',
+    'すべての海の記録と、サーバーに入る鍵を1つのファイルにして、合言葉で暗号化する。'
+    + '新しい端末でこのファイルを開いて合言葉を入れると、記録が戻り、招かれた海にもそのまま入れる（持ち主に招待を頼まなくてよい）。'
+    + 'ファイルは iCloud Drive・Google Drive など自分の置き場へ。合言葉はファイルと別に書き留める（忘れたら開けない）。'
+  ));
+  const row = el('div', 'row');
+  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  const make = el('button', 'btn', '引っ越しのファイルを作る');
+  make.type = 'button';
+  const save = el('button', 'btn', 'ファイルを保存する');
+  save.type = 'button';
+  save.hidden = true;
+  const openBtn = el('button', 'btn', '引っ越しのファイルを開く');
+  openBtn.type = 'button';
+  row.appendChild(make);
+  row.appendChild(save);
+  row.appendChild(openBtn);
+  wrap.appendChild(row);
+  const passLine = el('p', 'note');
+  passLine.setAttribute('aria-live', 'polite');
+  wrap.appendChild(passLine);
+
+  /* 開く側: 合言葉の欄（ファイルを選んでから出す） */
+  const passForm = el('form', 'tagadd');
+  passForm.hidden = true;
+  const passIn = document.createElement('input');
+  passIn.type = 'text';
+  passIn.autocomplete = 'off';
+  passIn.autocapitalize = 'characters';
+  passIn.spellcheck = false;
+  passIn.placeholder = '合言葉（XXXX-XXXX-…）';
+  passIn.setAttribute('aria-label', '引っ越しのファイルの合言葉');
+  const passGo = el('button', 'btn', '開く');
+  passGo.type = 'submit';
+  passForm.appendChild(passIn);
+  passForm.appendChild(passGo);
+  wrap.appendChild(passForm);
+  const pick = document.createElement('input');
+  pick.type = 'file';
+  pick.accept = '.json,application/json';
+  pick.hidden = true;
+  wrap.appendChild(pick);
+  const line = el('p', 'note');
+  line.setAttribute('aria-live', 'polite');
+  wrap.appendChild(line);
+  /* パスキーを作るのは、押した手の続きでないと断る端末がある（iPhone）。だからボタンで始める */
+  const retry = el('button', 'btn', 'サーバーに入る（この端末のパスキーを作る）');
+  retry.type = 'button';
+  retry.hidden = true;
+  wrap.appendChild(retry);
+
+  let ready = null;      /* 作ったファイル { blob, name } */
+  let fileText = '';
+  let pendingServer = null;
+
+  /* この端末の海の記録。開いている海は store から、ほかは箱から */
+  function collectBoxes() {
+    const boxes = {};
+    ['me'].concat(seaList().map(e => e.id)).forEach(id => {
+      if (id === store.space()) { boxes[id] = store.exportState(); return; }
+      let raw = null;
+      try { raw = JSON.parse(localStorage.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }
+      const st = boxToState(raw);
+      if (st) boxes[id] = st;
+    });
+    return boxes;
+  }
+
+  make.addEventListener('click', async () => {
+    make.disabled = true;
+    save.hidden = true;
+    ready = null;
+    try {
+      try { store.flush(); } catch (e) { /* 作るのは止めない */ }
+      const sec = sync.moveSecrets();
+      let server = null, warn = '';
+      if (sec && sec.session) {
+        try {
+          const got = await makeMoveKey(sec.url, sec.session);
+          server = { url: sec.url, move: got.move };
+        } catch (e) {
+          server = { url: sec.url };
+          warn = '（サーバーに入る鍵は入っていない: ' + e.message + '）';
+        }
+      } else if (sec && ('token' in sec)) {
+        server = { url: sec.url, token: sec.token, shareToken: sec.shareToken };
+      } else if (sec) {
+        server = { url: sec.url };
+        warn = '（パスキーで入っていないので、サーバーに入る鍵は入っていない）';
+      }
+      const now = Date.now();
+      const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
+      const pass = makePassphrase();
+      const payload = buildPayload({ boxes: collectBoxes(), seas: allEntries(), server, at: now, device: dev });
+      const text = await encryptMove(payload, pass);
+      const name = moveFileName(now);
+      ready = { blob: new Blob([text], { type: 'application/json' }), name };
+      const info = moveSummary(payload);
+      passLine.textContent = '合言葉: ' + pass + '　← 書き留めてから「ファイルを保存する」。'
+        + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + warn
+        + (server && server.move ? '。前に作った引っ越しのファイルでは、もうサーバーに入れない（記録は戻せる）' : '');
+      save.hidden = false;
+      save.focus();
+    } catch (e) {
+      toast('作れなかった: ' + ((e && e.message) || e));
+    } finally { make.disabled = false; }
+  });
+
+  /* 保存は押した瞬間に共有シートを出す（暗号の計算のあとだと、iPhone が共有シートを断ることがある） */
+  save.addEventListener('click', () => {
+    if (!ready) return;
+    const { blob, name } = ready;
+    let file = null;
+    try { file = new File([blob], name, { type: 'application/json' }); } catch (e) { file = null; }
+    if (file && navigator.canShare && navigator.share && touchDevice()) {
+      let ok = false;
+      try { ok = navigator.canShare({ files: [file] }); } catch (e) { ok = false; }
+      if (ok) {
+        navigator.share({ files: [file], title: name })
+          .then(() => toast('保存した（' + name + '）'))
+          .catch(e => { if (e && e.name === 'AbortError') toast('保存をやめた'); else download(blob, name); });
+        return;
+      }
+    }
+    download(blob, name);
+  });
+
+  openBtn.addEventListener('click', () => { pick.value = ''; pick.click(); });
+  pick.addEventListener('change', async () => {
+    const f = pick.files && pick.files[0];
+    if (!f) return;
+    try {
+      fileText = await f.text();
+      readMoveHead(fileText);
+    } catch (e) { toast((e && e.message) || '読めない'); fileText = ''; return; }
+    passForm.hidden = false;
+    passIn.value = '';
+    passIn.focus();
+    line.textContent = f.name + ' を開く。書き出したときの合言葉を入れる。';
+  });
+
+  passForm.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!fileText) return;
+    passGo.disabled = true;
+    let p;
+    try { p = await decryptMove(fileText, passIn.value); } catch (e) {
+      toast((e && e.message) || '開けない');
+      passGo.disabled = false;
+      return;
+    }
+    passGo.disabled = false;
+    const info = moveSummary(p);
+    const at = info.at ? new Date(info.at).toLocaleString() : '不明';
+    if (!window.confirm('この端末に戻す？\n書き出した時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
+      + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
+    restore(p);
+    passForm.hidden = true;
+    passIn.value = '';
+    fileText = '';
+  });
+
+  function restore(p) {
+    mergeSeas(p.seas || []);
+    let n = 0;
+    Object.keys(p.boxes || {}).forEach(id => {
+      if (id !== 'me' && !ID_RE.test(id)) return;
+      const fromFile = p.boxes[id];
+      if (id === store.space()) {
+        store.applyState(mergeBox(store.exportState(), fromFile));
+      } else {
+        let raw = null;
+        try { raw = JSON.parse(localStorage.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }
+        try { localStorage.setItem(boxKey(id), JSON.stringify(stateToBox(mergeBox(boxToState(raw), fromFile)))); } catch (e) {
+          toast('入りきらない（端末の空きが足りない）');
+          return;
+        }
+      }
+      n++;
+    });
+    line.textContent = '海 ' + n + ' つの記録を戻した。';
+    pendingServer = p.server && p.server.url ? p.server : null;
+    if (pendingServer && pendingServer.move && !(sync.config().passkey && sync.config().passkey.valid)) {
+      line.textContent += '続けて下のボタンで、サーバーに入る。';
+      retry.hidden = false;
+    } else if (pendingServer) joinServer();
+  }
+
+  /* サーバーに入る。パスキーの形は引っ越しの鍵で、この端末のパスキーを登録する */
+  async function joinServer() {
+    const s = pendingServer;
+    if (!s) return;
+    const cur = sync.config();
+    if (cur.url && cur.url !== s.url) {
+      line.textContent += 'この端末はほかのサーバー（' + cur.url + '）に繋いでいるので、サーバーの設定は変えない。';
+      pendingServer = null;
+      return;
+    }
+    if (s.token || s.shareToken) {
+      sync.configure(s.url, s.token || '', s.shareToken || '');
+      line.textContent += 'サーバーに合言葉で繋いだ。';
+      pendingServer = null;
+      return;
+    }
+    if (!s.move) {
+      line.textContent += 'サーバーに入る鍵は入っていない（住所だけ入れた。持ち主に招待コードを頼む）。';
+      if (!cur.url) sync.configure(s.url, '', '');
+      pendingServer = null;
+      return;
+    }
+    if (cur.passkey && cur.passkey.valid) {
+      line.textContent += 'この端末はもうパスキーで入っている（引っ越しの鍵は使わない）。';
+      pendingServer = null;
+      return;
+    }
+    retry.hidden = true;
+    try {
+      const out = await registerPasskey(s.url, s.move);
+      sync.usePasskeySession(s.url, out);
+      line.textContent += '「' + out.name + '」としてサーバーに入った。この引っ越しの鍵は使い終わったので、'
+        + '次の引っ越しのファイルはこの端末で作り直す。';
+      pendingServer = null;
+    } catch (e) {
+      line.textContent += 'サーバーに入れなかった: ' + ((e && e.message) || e) + '。';
+      retry.hidden = false;
+    }
+  }
+  retry.addEventListener('click', () => joinServer());
   return wrap;
 }
 

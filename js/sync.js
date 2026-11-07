@@ -324,6 +324,13 @@ export const sync = {
     setStatus('off');
     return old;
   },
+  /* 引っ越しのファイルに入れる鍵（Issue #19）。パスキーの形は通行証（引っ越しの鍵を作るためだけに使い、
+     ファイルには入れない）、合言葉の形は合言葉。繋いでいなければ null */
+  moveSecrets() {
+    if (!conf.url) return null;
+    if (conf.session) return { url: conf.url, session: sessionLive() ? conf.session : '' };
+    return { url: conf.url, token: conf.token, shareToken: conf.shareToken };
+  },
   status() { return status; },
   /* いま開いている海 */
   space() { return SPACE; },

@@ -5,6 +5,7 @@
                     公開鍵だけ。秘密の鍵は端末の中にあり、ここには無い
     invites.json    招待コード [{name, spaces, code_hash, expires, created}]
                     コードそのものは置かない（sha256 だけ）。1回使えば消える。期限は既定 24 時間
+                    kind 'move' の行は引っ越しの鍵（Issue #19。from = 作った端末のパスキー。期限 10 年）
     sessions.json   通行証 [{hash, cred_id, spaces, expires}]
                     パスキーで入ったあとに出す。値そのものは置かない（sha256 だけ）。期限は既定 30 日
 
@@ -33,6 +34,8 @@ INVITE_TTL = 24 * 3600
 MAX_PER_SPACE = 3
 SESSION_TTL = 30 * 24 * 3600
 CHALLENGE_TTL = 300
+MOVE_TTL = 10 * 365 * 24 * 3600   # 引っ越しの鍵（Issue #19）。ファイルに入れて長く置くので 10 年
+MOVE_LEN = 24                     # 引っ越しの鍵の字数（32 種の字 × 24 ＝ 120 ビット）
 SPACES = ('me', 'share')   # 前の版からある置き場（ほかに名前を付けた海。valid_space）
 SEA_RE = re.compile(r'^s[0-9a-z]{3,23}$')
 
@@ -168,6 +171,54 @@ class PasskeyStore:
             rows.append(row)
             self._write('invites.json', rows)
         return '-'.join(raw[i:i + 4] for i in range(0, 12, 4)), person
+
+    # --- 引っ越しの鍵（2026-11-07 Issue #19）---
+    def add_move_key(self, cred_id: str):
+        """パスキーで入っている端末が作る、引っ越しの鍵 → (鍵, 期限)。
+        中身は招待コードと同じ行（kind 'move'）で、入れる範囲はそのパスキーと同じ（個人の番号も同じ）。
+        持ち主の手を借りずに、次の端末を登録するために使う。1つのパスキーにつき1つだけ（作り直すと前のは使えない）。
+        登録に使うと消える（使い切り）。引っ越しのファイルに入れて持ち出すので、期限は長い（MOVE_TTL）"""
+        row = self.find_passkey(cred_id)
+        if not row:
+            raise ValueError('このパスキーは登録されていない')
+        raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(MOVE_LEN))
+        with self.lock:
+            now = self.clock()
+            rows = [r for r in self._read('invites.json') if r['expires'] > now and r.get('from') != cred_id]
+            inv = {'name': row['name'], 'spaces': list(row.get('spaces') or []), 'code_hash': _sha(raw),
+                   'expires': now + MOVE_TTL, 'created': now, 'kind': 'move', 'from': cred_id}
+            person = person_of(row)
+            if person is not None:
+                inv['person'] = person
+            rows.append(inv)
+            self._write('invites.json', rows)
+        return '-'.join(raw[i:i + 4] for i in range(0, MOVE_LEN, 4)), inv['expires']
+
+    def full_for(self, inv):
+        """その招待で登録するとき、いっぱいの置き場。
+        引っ越しの鍵は、作った端末（引っ越す前の端末）のパスキーを外せば空くなら、いっぱいとしない"""
+        rows = self.passkeys()
+        if inv.get('kind') == 'move':
+            rows = [r for r in rows if r['id'] != inv.get('from')]
+        return self.full_spaces(inv['spaces'], inv.get('person'), rows)
+
+    def retire_for(self, inv):
+        """引っ越しの鍵で登録する直前。そのままでは置き場がいっぱいなら、引っ越す前の端末のパスキーを外す。
+        外したパスキーの名前（外さなければ None）"""
+        if inv.get('kind') != 'move' or not self.full_spaces(inv['spaces'], inv.get('person')):
+            return None
+        old = self.find_passkey(inv.get('from') or '')
+        if old and self.remove_passkey(old['name']):
+            return old['name']
+        return None
+
+    def remove_move_keys(self, name: str) -> int:
+        """名前のパスキーが作った引っ越しの鍵を消す（ファイルと合言葉が漏れたとき）。消した数"""
+        with self.lock:
+            rows = self._read('invites.json')
+            keep = [r for r in rows if not (r.get('kind') == 'move' and r['name'] == name)]
+            self._write('invites.json', keep)
+            return len(rows) - len(keep)
 
     def find_invite(self, code: str):
         h = _sha(normalize_code(code))

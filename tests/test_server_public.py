@@ -213,6 +213,51 @@ class PublicServerTest(unittest.TestCase):
         self.assertIn('個人 2', cli('passkey-person', '古いスマホ', 'new'))
         self.assertIn('個人 2', cli('invite-add', '古いスマホの2台目', '--space', 'me:2'))
 
+    def test_move_key_registers_next_device_without_owner(self):
+        """Issue #19: 入っている端末が引っ越しの鍵を作り、次の端末はそれで登録する（持ち主の手は要らない）"""
+        own = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('自分のスマホ', ['me', 'share']))[1]
+        mom_dev = FakeAuthenticator('localhost', self.origin)
+        mom = self.register(mom_dev, self.pk.add_invite('母のスマホ', ['me', 'share']))[1]
+        self.assertEqual(mom['person'], 2)
+        self.assertEqual(self.req('POST', '/api/passkey/move', {})[0], 401, '入っていない端末は作れない')
+        hdr = {'Authorization': 'Bearer ' + mom['session']}
+        code, first, _ = self.req('POST', '/api/passkey/move', {}, hdr)
+        self.assertEqual(code, 200)
+        self.assertRegex(first['move'], r'^([A-Z2-9]{4}-){5}[A-Z2-9]{4}$')
+        code, mv, _ = self.req('POST', '/api/passkey/move', {}, hdr)
+        self.assertEqual(self.req('POST', '/api/passkey/register/options', {'invite': first['move']})[0], 401,
+                         '作り直すと前の鍵は使えない')
+        self.assertTrue((self.dir / 'invites.json').read_text().find(mv['move']) < 0, '鍵そのものは置かない')
+        new = self.register(FakeAuthenticator('localhost', self.origin), mv['move'].lower())[1]
+        self.assertEqual((new['spaces'], new['person'], new['owner']), (['me', 'share'], 2, False), '範囲は元の端末と同じ')
+        self.assertEqual(new['name'], '母のスマホ (2)')
+        self.assertEqual(self.data(new['session'], 'share')[0], 200)
+        self.assertEqual(self.data(own['session'], 'me')[0], 200)
+        self.assertEqual(self.login(mom_dev)[0], 200, '空きがあれば元の端末はそのまま')
+        self.assertEqual(self.req('POST', '/api/passkey/register/options', {'invite': mv['move']})[0], 401, '使い切り')
+
+    def test_move_key_retires_old_device_when_full(self):
+        """置き場がいっぱいでも、引っ越しの鍵なら元の端末のパスキーを外して登録する"""
+        devs = {}
+        for n in ('A', 'B', 'C'):
+            devs[n] = FakeAuthenticator('localhost', self.origin)
+            devs[n].out = self.register(devs[n], self.pk.add_invite(n, ['share']))[1]
+        with self.assertRaises(ValueError):
+            self.pk.add_invite('D', ['share'])
+        mv = self.req('POST', '/api/passkey/move', {}, {'Authorization': 'Bearer ' + devs['B'].out['session']})[1]['move']
+        code, out, _ = self.register(FakeAuthenticator('localhost', self.origin), mv)
+        self.assertEqual((code, out['spaces']), (200, ['share']))
+        self.assertEqual(sorted(r['name'] for r in self.pk.passkeys()), ['A', 'B', 'C'], '外した名前をそのまま継ぐ')
+        self.assertNotIn(devs['B'].out and pc.b64u_encode(devs['B'].cred_id), [r['id'] for r in self.pk.passkeys()])
+        self.assertEqual(self.data(devs['B'].out['session'], 'share')[0], 401, '外した端末は入れない')
+        self.assertEqual(self.login(devs['A'])[0], 200, 'ほかの端末はそのまま')
+        # 鍵を作った端末を消しても鍵は残る（失くした端末の引っ越しのため）。move-remove で消せる
+        mv2 = self.req('POST', '/api/passkey/move', {}, {'Authorization': 'Bearer ' + devs['C'].out['session']})[1]['move']
+        self.assertTrue(self.pk.remove_passkey('C'))
+        self.assertIsNotNone(self.pk.find_invite(mv2))
+        self.assertEqual(self.pk.remove_move_keys('C'), 1)
+        self.assertIsNone(self.pk.find_invite(mv2))
+
     def test_invite_is_single_use_and_bad_invite_is_refused(self):
         inv = self.pk.add_invite('父', ['share'])
         self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), inv)[0], 200)
