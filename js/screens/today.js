@@ -863,12 +863,43 @@ function onDropToTab(id, tabId) {
   /* 'today' はこの画面そのもの。何もしない */
 }
 
+/* 完了したものを、まだの状態へ戻す（Issue #29）。
+   完了しても日付の水面に残るので、ここで戻せないと「完了を押し間違えた」
+   「やり直すことになった」ときに、完了の海まで行かないと戻せなかった。
+   前は盤の名前だけ「海にもどす」に入れ替わり、押すと complete() をもう一度呼んで
+   （既に完了なので何も変わらず）音と「完了にした」が出ていた。
+   日付・タグはそのまま残っているので、戻せば同じ水面に「まだ」として浮かぶ。
+   音は鳴らさない（戻すのは達成ではない。海の画面と同じ） */
+function uncompleteWithUndo(id) {
+  if (typeof store.uncomplete !== 'function') return;
+  const t = store.get(id);
+  const name = trim(t ? t.text : '');
+  if (store.uncomplete(id) === false) return;
+  toast('「' + name + '」を未完了にもどした', {
+    label: '取り消す',
+    on: () => { if (typeof store.complete === 'function') store.complete(id); },
+  });
+}
+
+function isDoneId(id) {
+  return typeof store.isDone === 'function' ? !!store.isDone(id) : false;
+}
+
+/* 完了の釦。完了したものの上では「未完了にもどす」になる */
+function toggleComplete(id) {
+  if (isDoneId(id)) { uncompleteWithUndo(id); return; }
+  completeWithUndo(id);
+}
+
+const REOPEN_LABEL = '未完了にもどす';
+
 /* 中央の盤に出す操作。副作用を持たせない（返すだけ） */
 function actionsFor(id) {
   return {
-    isDone: typeof store.isDone === 'function' ? !!store.isDone(id) : false,
+    isDone: isDoneId(id),
+    reopenLabel: REOPEN_LABEL,
     onStarted: () => markStarted(id),
-    onComplete: () => completeWithUndo(id),
+    onComplete: () => toggleComplete(id),
     onDelete: () => removeWithUndo(id),
   };
 }
@@ -887,10 +918,12 @@ function onMenu(id, node) {
   if (!store.get(id)) return;
   closeMenu();
   menuHandle = openMenu(node, {
+    isDone: isDoneId(id),
+    reopenLabel: REOPEN_LABEL,
     onDetail: () => openDetail(id),
     onFocus: () => openFive(id),
     onStarted: () => markStarted(id),
-    onComplete: () => completeWithUndo(id),
+    onComplete: () => toggleComplete(id),
     onDelete: () => removeWithUndo(id),
   });
 }

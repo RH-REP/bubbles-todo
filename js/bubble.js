@@ -600,10 +600,11 @@ function actionRow(actions, run, onOk, onStart) {
   }
   if (top.childNodes.length) box.appendChild(top);
 
-  /* 完了したものの上では「タスク完了」ではなく「海にもどす」。openMenu と同じ入れ替え */
+  /* 完了したものの上では「タスク完了」ではなく「海にもどす」。openMenu と同じ入れ替え。
+     戻した先が海でない画面（今日の水面）は a.reopenLabel で名前を渡す（Issue #29） */
   if (has('onComplete')) {
     box.appendChild(mk('bc-act-done',
-      a.isDone === true ? '海にもどす' : 'タスク完了', 'onComplete'));
+      a.isDone === true ? (a.reopenLabel || '海にもどす') : 'タスク完了', 'onComplete'));
   }
   if (has('onDelete')) box.appendChild(mk('bc-act-del', '消す', 'onDelete'));
   return box;
@@ -3131,7 +3132,7 @@ export function openMenu(node, handlers = {}) {
        完了の海から戻す道が、ここにしか無いため。
        画面側が handlers.isDone を渡してくれたときだけ入れ替える。 */
     const done = (spec.key === 'onComplete') && handlers.isDone === true;
-    tx.textContent = done ? '海にもどす' : spec.label;
+    tx.textContent = done ? (handlers.reopenLabel || '海にもどす') : spec.label;
     btn.appendChild(tx);
     btn.addEventListener('click', () => {
       const fn = handlers[spec.key];
