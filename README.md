@@ -323,7 +323,6 @@ node tests/space.test.mjs
 node tests/spacelist.test.mjs
 node tests/sea.test.mjs
 node tests/csvio.test.mjs
-node tests/session-cards.test.mjs
 node tests/ai.test.mjs
 node tests/key-leak.test.mjs
 node tests/html-sink.test.mjs
@@ -525,33 +524,6 @@ server.py も Android 版（`www/`）も docs/ を配る。service worker の箱
 - 書き出し（Issue #7）: 指で触る端末（iPhone・Android）では共有シートでファイルを渡す（「"ファイル"に保存」）。iPhone のホーム画面アプリは `<a download>` でファイルにならないことがあるため。パソコンはふつうのダウンロード。ファイル名は時刻（時分秒）まで入れ、meta の行に書き出した時刻と端末（iPhone・Mac など）を入れる。読み込みの窓で「書き出した時刻・todo の件数・端末」を見せ、別の端末の CSV の取り違えに気づけるようにする
 - 作り: `js/csvio.js`（toCsv・readCsv・importInto）、`js/screens/settings.js`（csvBox・askMode）。テスト `node tests/csvio.test.mjs`
 
-## Claude のセッションから泡を作る（tools/session-cards.mjs。2026-11-07）
-
-Claude Code で思いつきのまま調べたことを、あとで見返すための道具。セッションの記録から「問いのカード」の候補を取り出し、
-長期保留の泡にする CSV を書く。読み込みは上の「引っ越し（CSV）」の「足す」で行う。app 本体は変えていない（版も上げない）。
-
-- **流れ（3段）**
-  1. `list` … 最終更新が期間内のセッションのうち、まだカードにしていないものを新しい順に出す（題名・最初の質問・質問の数・最初と最後の時刻）。人の質問が0件のものは出さない
-  2. 会話の中で Claude に、候補ごとに「問い」1文と「次の一手」1文へ書き直してもらい、`cards.json` にする（このスクリプトは LLM を呼ばない）
-  3. `csv` … `cards.json` から Bubbles の CSV を書く。泡は長期保留で、もどってくる日は今日＋`--days`（既定 3）日。
-     次の一手は「最初の一手」、本文にはセッションの題名・最初の質問（300 字まで）・session の id の3行が入る
-- **コマンド例**（clone のフォルダで）
-
-  ```bash
-  node tools/session-cards.mjs list                    # 直近 7 日。--since-days 14、--json で JSON
-  node tools/session-cards.mjs csv cards.json --days 3 # --out で書き出し先を変えられる
-  ```
-
-  `cards.json` は `[{"sessionId": "…", "question": "問い", "next": "次の一手"}, {"sessionId": "…", "skip": true}]`。
-  `skip: true` は泡にせず「見送り」として覚えるだけ（次の `list` に出なくなる）
-- **読むもの**: `~/.claude/projects/<フォルダ>/<sessionId>.jsonl`（フォルダの直下だけ。`--projects-dir` で変えられる）。
-  人の質問として数えるのは、人が打った行だけ（差し込み・スラッシュコマンド・ツールの結果・サブエージェントの行は外す）
-- **出力の置き場**: repo 直下の `session_cards/`（`state.json` と `bubbles-sessions-YYYYMMDD-HHMM.csv`。`.gitignore` で外す）。
-  `state.json` はカードにした（`carded`）・見送った（`skipped`）セッションの控えで、`--state` で変えられる
-- **同じセッションは同じ泡**: 泡の id はセッションの id から決まる（`cs-` ＋ 先頭 12 字）。同じ CSV や同じセッションの CSV を2回読んでも増えない
-- **送らない**: セッションの中身はどこにも送らない。CSV は手元に書くだけで、読み込むかどうかは人が決める
-- 作り: `tools/session-cards.mjs`（標準モジュールと `js/csvio.js` の `toCsv`）。テスト `node tests/session-cards.test.mjs`（架空のセッション記録で読む）
-
 ## 引っ越し（暗号化したファイル。2026-11-07 Issue #19）
 
 CSV は開いている海だけで、サーバーに入る鍵も入らないので、端末を変えると共同 TODO（招かれた海）を戻すには持ち主に招待コードを頼むしかなかった。
@@ -642,7 +614,6 @@ CSV は開いている海だけで、サーバーに入る鍵も入らないの�
 | `update.command` | `git pull --ff-only` で開発側のコミットを取り込む |
 | `.env` | Android ビルド用の実値（あれば。`.gitignore` で除外） |
 | `.claude/` | ローカルの Claude Code 設定（あれば。`.gitignore` で除外） |
-| `session_cards/` | `tools/session-cards.mjs` の控え（`state.json`）と書いた CSV（あれば。`.gitignore` で除外） |
 
 ## 枝の扱い（2026-11-07。利用者の指示 Issue #20）
 
