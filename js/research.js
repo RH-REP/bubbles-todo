@@ -139,3 +139,29 @@ export function applyName(oldName, detail, newName) {
   const moved = !d.trim() && chars(o).length > NAME_MAX && o !== newName;
   return { name: newName, detail: moved ? o : d };
 }
+
+/* ---- 改善のコメントの題名を作る（2026-11-07。Issue #10）----
+   右上の ! の「AI で題名」を押したときだけ、そのコメントの文を送る（画面 ID・件数・写真・泡の中身は送らない）。
+   返った題名は欄に入るだけで、直してから GitHub を開く。`[画面ID] ` は js/feedback.js が前に付ける。 */
+export const ISSUE_TITLE_MAX = 40;
+
+/* -> { system, user } */
+export function buildIssueTitlePrompt(comment) {
+  const system = [
+    'あなたは、アプリの改善のコメントから GitHub の Issue の題名を付ける係。',
+    'コメントを読み、何を直してほしいか（どこで・何が）が一目で分かる題名を1つだけ返す。',
+    '15〜30 字（' + ISSUE_TITLE_MAX + ' 字まで）。体言止めか「〜したい」「〜しない」の形にする。',
+    'コメントに無いことは足さない。原因の推測は書かない。',
+    '括弧・引用符・句点・絵文字・前置き・説明は付けず、題名の文字だけを1行で返す。',
+  ].join('\n');
+  return { system, user: 'コメント:\n' + clipSend(String(comment || '').trim()) };
+}
+
+/* AI の返事を題名1つにそろえる。読めなければ '' */
+export function cleanIssueTitle(text) {
+  let s = cleanText(text).split('\n').map(l => l.trim()).find(l => l) || '';
+  s = s.replace(/^(題名|タイトル|案)\s*[:：]\s*/, '').replace(/^・/, '').replace(/^\[[^\]]*\]\s*/, '');
+  s = s.replace(/[。．.]+$/, '').replace(/^[「『"'“‘【(（]+|[」』"'”’】)）]+$/g, '').replace(/[。．.]+$/, '').trim();
+  const a = chars(s);
+  return a.length > ISSUE_TITLE_MAX ? a.slice(0, ISSUE_TITLE_MAX).join('') : s;
+}

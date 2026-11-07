@@ -12,6 +12,8 @@
 //       log: true,                       // false で記録（画面のエラー・getLog）の欄を出さない（個人のデータが混ざりうる app）
 //       getContext: () => ({ summary: "今の状態を1行で", extra: "…" }),   // Issue に書く今の状態（無ければ省く）
 //       getLog: () => "…",               // 画面側の記録（無ければ省く）
+//       makeTitle: async (comment) => "題名",   // 渡すと題名の欄の横にボタンが出て、押したときだけ呼ぶ（AI で要約など。無ければ出さない）
+//       makeTitleLabel: "AI で題名", makeTitleNote: "押すと、コメントの文を…へ送る",   // ボタンの字と、欄の下に出す注意
 //     });
 //   </script>
 // 送り方（既定）: 書き込み済みの「新しい Issue」画面を GitHub で開く。写真は端末に保存し、本人が GitHub で添付して送る
@@ -122,12 +124,18 @@
 
   // ---- Issue の題名と本文（paper_reader の feedback.py・feedback.js と同じ形）----
   // 題名はコメントの要約として、最初の1文（句点・。．！？!? まで）を使う。長ければ 50 字で切って「…」を付ける
-  function issueTitle(r) {
-    const line = (r.comment || "").trim().split("\n")[0].trim();
+  function firstSentence(comment) {
+    const line = (comment || "").trim().split("\n")[0].trim();
     const m = line.match(/^.+?[。．！？!?](?=\s|$|[^。．！？!?])/);
-    let first = (m ? m[0] : line).trim() || "（コメントなし）";
+    let first = (m ? m[0] : line).trim();
     if ([...first].length > 50) first = [...first].slice(0, 50).join("") + "…";
-    return `[${r.screen}] ${first}`;
+    return first;
+  }
+  // 題名の欄（r.title）に書いたものがあればそれを使う（1行・80 字まで）。無ければ最初の1文
+  function issueTitle(r) {
+    let t = String(r.title || "").replace(/\s+/g, " ").trim();
+    if ([...t].length > 80) t = [...t].slice(0, 80).join("") + "…";
+    return `[${r.screen}] ${t || firstSentence(r.comment) || "（コメントなし）"}`;
   }
   // クリップボードに置く文: 題名、空行、コメントだけ（画面・版・時刻などの付記は入れない。Issue #5 利用者の指示）
   function clipText(r) {
@@ -200,6 +208,10 @@
 .fb-warn{color:#a15c00;font-size:12.5px}
 .fb-meta{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .fb-text{width:100%;box-sizing:border-box;font:14px/1.5 -apple-system,sans-serif;padding:8px;border:1px solid #ccc;border-radius:8px;background:#fafafa;color:#222}
+.fb-titlerow{display:flex;gap:6px;align-items:center}
+.fb-title{flex:1;min-width:0;box-sizing:border-box;font:14px -apple-system,sans-serif;padding:5px 8px;border:1px solid #ccc;border-radius:7px;background:#fafafa;color:#222}
+.fb-aititle{flex:none;font:13px -apple-system,sans-serif;padding:5px 10px;border-radius:7px;border:1px solid #bbb;background:#f2f2f2;color:#222;cursor:pointer}
+.fb-aititle:disabled{opacity:.5}
 .fb-row{display:flex;gap:6px;align-items:flex-start}.fb-row input{flex:none;margin:3px 0 0}
 .fb-ctxv{margin:-4px 0 2px 22px}
 .fb-img{max-width:100%;max-height:240px;border:1px solid #ccc;border-radius:6px}
@@ -211,8 +223,8 @@
 @media (prefers-color-scheme: dark){
   .fb-btn{background:rgba(40,40,40,.85);color:#ff8a7a}
   .fb-box{background:#1f1f1f;color:#eee;border-color:#444}.fb-muted{color:#aaa}
-  .fb-text{background:#151515;color:#eee;border-color:#444}.fb-logv pre{background:#151515}
-  .fb-actions button{background:#2a2a2a;color:#eee;border-color:#555}
+  .fb-text,.fb-title{background:#151515;color:#eee;border-color:#444}.fb-logv pre{background:#151515}
+  .fb-actions button,.fb-aititle{background:#2a2a2a;color:#eee;border-color:#555}
 }`;
 
   function deviceText() {
@@ -287,6 +299,8 @@
           そのときは題名とコメントをコピーしてあるので貼り付けてください。ブラウザで開きたいときは、次に出るリンクを長押しして「開く」を選ぶと、次回から Safari で開けます。</div>
         <div class="fb-meta"><div>画面: <code class="fb-screen"></code></div><div class="fb-muted fb-ver"></div></div>
         <textarea class="fb-text" rows="5" placeholder="どこを、どう直したいか（例: ボタンが小さい、ここで止まった）"></textarea>
+        <div class="fb-titlerow"><span class="fb-muted">題名</span><input type="text" class="fb-title" maxlength="120" placeholder="空ならコメントの最初の1文"><button type="button" class="fb-aititle" hidden></button></div>
+        <div class="fb-muted fb-titlemsg" hidden></div>
         <label class="fb-row fb-ctxrow"><input type="checkbox" class="fb-ctx" checked> <span>今の状態を付ける</span></label>
         <div class="fb-muted fb-ctxv"></div>
         <label class="fb-row fb-shotrow"><input type="checkbox" class="fb-shot"> <span>画面の写真を付ける</span></label>
@@ -303,6 +317,7 @@
     $q(".fb-screen").textContent = screen;
     $q(".fb-ver").textContent = `${opts.app} ・ 版 ${opts.version}`;
     $q(".fb-send").textContent = opts.sendLabel || "GitHub に送る";
+    $q(".fb-title").addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
     if (ctxText) $q(".fb-ctxv").textContent = ctxText; else { $q(".fb-ctxrow").hidden = true; $q(".fb-ctxv").hidden = true; }
     $q(".fb-logv pre").textContent = log || "（記録は無し）";
     if (opts.log === false) { $q(".fb-logrow").hidden = true; $q(".fb-logv").hidden = true; $q(".fb-log").checked = false; }
@@ -331,6 +346,34 @@
       r.onload = () => { const im = new Image(); im.onload = () => { const c = document.createElement("canvas"); c.width = im.width; c.height = im.height; c.getContext("2d").drawImage(im, 0, 0); image = c.toDataURL("image/png"); shotChk.checked = true; showImg(); }; im.src = r.result; };
       r.readAsDataURL(f);
     });
+    // 題名の欄: 空のときはコメントの最初の1文を薄く見せ、そのまま使う（今までどおり）
+    const titleIn = $q(".fb-title"), titleMsg = $q(".fb-titlemsg");
+    const showPlaceholder = () => { titleIn.placeholder = firstSentence($q(".fb-text").value) || "空ならコメントの最初の1文"; };
+    $q(".fb-text").addEventListener("input", showPlaceholder);
+    // 題名を作る差し込み口（opts.makeTitle: async (comment) => "題名"）。渡した app だけボタンが出る。
+    // 呼ぶのは押したときだけ（何を送るかは app が決め、opts.makeTitleNote で画面に書く）
+    if (typeof opts.makeTitle === "function") {
+      const aiBtn = $q(".fb-aititle");
+      aiBtn.hidden = false;
+      aiBtn.textContent = opts.makeTitleLabel || "題名を作る";
+      if (opts.makeTitleNote) { titleMsg.textContent = opts.makeTitleNote; titleMsg.hidden = false; }
+      let making = false;
+      aiBtn.onclick = async () => {
+        if (making) return;
+        const comment = $q(".fb-text").value.trim();
+        if (!comment) { titleMsg.hidden = false; titleMsg.textContent = "先にコメントを書いてください"; $q(".fb-text").focus(); return; }
+        making = true; aiBtn.disabled = true;
+        titleMsg.hidden = false; titleMsg.textContent = "題名を作っています…";
+        try {
+          const t = String((await opts.makeTitle(comment)) || "").replace(/\s+/g, " ").trim();
+          if (!t) throw new Error("題名が返ってきませんでした");
+          titleIn.value = t;
+          titleMsg.textContent = "題名の欄に入れました。直してから送れます";
+        } catch (e) {
+          titleMsg.textContent = `題名を作れませんでした: ${(e && e.message) || e}`;
+        } finally { making = false; aiBtn.disabled = false; }
+      };
+    }
     const close = () => dlg.remove();
     $q(".fb-cancel").onclick = close;
     dlg.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") close(); }, true);
@@ -340,7 +383,7 @@
     $q(".fb-send").onclick = async () => {
       const comment = $q(".fb-text").value.trim();
       if (!comment) { $q(".fb-msg").textContent = "コメントを書いてください"; $q(".fb-text").focus(); return; }
-      const payload = { screen, comment, app: opts.app, version: opts.version, at: new Date().toISOString(),
+      const payload = { screen, comment, title: titleIn.value.trim(), app: opts.app, version: opts.version, at: new Date().toISOString(),
                         context: $q(".fb-ctx").checked ? ctx : { device: ctx.device },
                         screenshot: allowShot && shotChk.checked ? image : null,
                         client_log: $q(".fb-log").checked ? log : "", include_log: $q(".fb-log").checked };

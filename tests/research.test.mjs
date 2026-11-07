@@ -134,6 +134,29 @@ await test('本文の面に AI のボタンがあり、キーが無いときの�
   assert.ok(sw.includes("'./js/research.js'"), 'sw.js の ASSETS に js/research.js が無い');
 });
 
+await test('Issue の題名（#10）: 送るのはコメントの文だけで、題名1つ・字数の決めごとがある', () => {
+  const p = R.buildIssueTitlePrompt('  iPhoneから送ると題名が長すぎる。本文の最初の文がそのまま入る  ');
+  assert.equal(p.user, 'コメント:\niPhoneから送ると題名が長すぎる。本文の最初の文がそのまま入る');
+  assert.ok(p.system.includes(R.ISSUE_TITLE_MAX + ' 字まで'));
+  assert.ok(p.system.includes('1つだけ'));
+  assert.ok(Array.from(R.buildIssueTitlePrompt('あ'.repeat(5000)).user).length < 4100, '長いコメントを切っていない');
+});
+
+await test('cleanIssueTitle: 前置き・括弧・句点・[画面ID] を外し、40 字で切る', () => {
+  assert.equal(R.cleanIssueTitle('題名: 「改善のコメントの題名が長い」。\n説明'), '改善のコメントの題名が長い');
+  assert.equal(R.cleanIssueTitle('[sea] **海で泡が重なる**'), '海で泡が重なる');
+  assert.equal(R.cleanIssueTitle('タイトル：CSV の合言葉が分からない'), 'CSV の合言葉が分からない');
+  assert.equal(Array.from(R.cleanIssueTitle('あ'.repeat(60))).length, R.ISSUE_TITLE_MAX);
+  assert.equal(R.cleanIssueTitle(' \n '), '');
+});
+
+await test('右上の ! に「AI で題名」をつなぎ、キーが無ければ送らずに理由を返す（js/app.js）', () => {
+  const src = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  assert.ok(src.includes("makeTitleLabel: 'AI で題名'"));
+  assert.ok(/makeTitle: async[\s\S]{0,80}if \(!hasKey\(\)\) throw/.test(src), 'キーの確かめが送る前に無い');
+  assert.ok(src.includes('buildIssueTitlePrompt(comment)'));
+});
+
 console.log('');
 console.log(pass + ' passed, ' + failed.length + ' failed');
 if (failed.length) process.exit(1);

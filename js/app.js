@@ -22,6 +22,8 @@ import { deviceId, noteName, setNoteName, canRemove, hasUnseen, seenAt, markSeen
 import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import { closeHelp } from './help.js';
 import { closeUpcoming } from './upcoming.js';
+import { askFull, hasKey } from './ai.js';
+import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js';
 import sea from './screens/sea.js';
 import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
@@ -877,7 +879,8 @@ document.addEventListener('keydown', ev => {
    落下先の対応表は契約 §2 にあり、実装は各 screens/*.js の onDropToTab にある。 */
 
 /* ---- 画面の !（改善のコメント） ----
-   js/feedback.js は issue_hub の正本をそのまま写したもの（直すなら正本を直して写し直す）。
+   js/feedback.js は issue_hub の正本を写したもの（直すなら正本を直して写し直す。#5 のクリップボードと
+   #10 の題名の欄・makeTitle は、まだ写しにだけある）。
    index.html が普通の <script> で先に読む。押すと GitHub の「新しい Issue」画面を
    画面 ID（data-screen）とコメントを書き込んだ状態で開くだけで、**この app は送らない**。
    バブルの本文が画面に写る（個人のデータが写る）ので、写真は初めは付けない（'off'。
@@ -891,6 +894,18 @@ if (window.AppFeedback) {
     screenshot: 'off',
     log: false,
     isPublic: true,
+    /* 題名の欄の横の「AI で題名」（Issue #10）。押したときだけ、コメントの文を Anthropic へ送る。
+       キーが無ければ送らずに理由を返す。キーは ai.js の中だけで扱い、feedback.js には渡さない */
+    makeTitleLabel: 'AI で題名',
+    makeTitleNote: '「AI で題名」を押すと、コメントの文だけを Anthropic へ送る（写真・件数・泡の中身は送らない）',
+    makeTitle: async (comment) => {
+      if (!hasKey()) throw new Error('API キーがまだ入っていない。設定の「ヘルプと AI」に入れると使える');
+      const p = buildIssueTitlePrompt(comment);
+      const r = await askFull(p.system, p.user, { maxTokens: 2000 });
+      const t = cleanIssueTitle(r.text);
+      if (!t) throw new Error(failLine('name', r.stop).replace('名前の案', '題名'));
+      return t;
+    },
     getContext: () => {
       const n = (f) => { try { const a = f(); return Array.isArray(a) ? a.length : '?'; } catch (err) { return '?'; } };
       return {

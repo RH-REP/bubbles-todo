@@ -37,6 +37,20 @@ test('改行より前の1行目から取り、！？も文の終わりにする'
   assert.equal(F.issueTitle({ screen: 'x', comment: '' }), '[x] （コメントなし）');
 });
 
+test('題名の欄（#10）に書いたものがあればそれを使い、空なら最初の1文', () => {
+  assert.equal(F.issueTitle({ ...r, title: '  CSV の合言葉が\n分からない ' }), '[sea] CSV の合言葉が 分からない');
+  assert.equal(F.issueTitle({ ...r, title: '' }), F.issueTitle(r));
+  assert.equal(F.issueTitle({ screen: 'x', comment: '', title: 'い'.repeat(90) }), `[x] ${'い'.repeat(80)}…`);
+  assert.equal(F.clipText({ ...r, title: '合言葉' }), `[sea] 合言葉\n\n${r.comment}`);
+  assert.ok(decodeURIComponent(F.newIssueUrl('o/r', { ...r, title: '合言葉' })).includes('title=[sea] 合言葉&'));
+});
+
+test('題名を作る差し込み口は、渡したときだけボタンを出す（feedback.js の中身）', () => {
+  assert.ok(src.includes('typeof opts.makeTitle === "function"'));
+  assert.ok(/class="fb-aititle" hidden/.test(src));
+  assert.ok(src.includes('title: titleIn.value.trim()'));
+});
+
 test('Issue の本文（URL で渡す方）は今までどおり付記を含む', () => {
   assert.ok(F.issueBody(r).includes('**画面**: `sea`'));
 });
