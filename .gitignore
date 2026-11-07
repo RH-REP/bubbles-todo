@@ -24,3 +24,6 @@ ios/
 
 # Python のテストが作る（2026-10-25 に誤って入ったので外した）
 __pycache__/
+
+# tools/session-cards.mjs の状態（state.json）と書いた CSV。clone して使う側に溜まる（Claude のセッションの中身を含む）
+/session_cards/
