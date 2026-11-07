@@ -8,6 +8,12 @@
                     kind 'move' の行は引っ越しの鍵（Issue #19。from = 作った端末のパスキー。期限 10 年）
     sessions.json   通行証 [{hash, cred_id, spaces, expires}]
                     パスキーで入ったあとに出す。値そのものは置かない（sha256 だけ）。期限は既定 30 日
+    requests.json   端末からの登録の頼み（2026-11-07 Issue #26）[{code, name, key_hash, ip, created, expires}]
+                    ip は接続元の sha256 の頭 16 字（1つの接続元から頼める数を数えるためだけ）
+                    端末が先に頼み、持ち主がサーバーで request-ok <確かめの字> で認める。
+                    認めると、端末が持っている鍵（key。sha256 だけ置く）がそのまま招待コード（kind 'request'）になる
+    limits.json     上限（Issue #26）{"max_per_space": n}。limit-set で書き、止めずに次の要求から効く。
+                    無ければ --max-passkeys（既定 3）
 
 置き場（space）は 'me'（個人）と、名前を付けた海の ID（'share' は前の版の「共有」。
 ほかは 's' と英小文字・数字。2026-11-02 Issue #4）。招待コードを作るときに、どこに入れるかを決める。
@@ -36,6 +42,11 @@ SESSION_TTL = 30 * 24 * 3600
 CHALLENGE_TTL = 300
 MOVE_TTL = 10 * 365 * 24 * 3600   # 引っ越しの鍵（Issue #19）。ファイルに入れて長く置くので 10 年
 MOVE_LEN = 24                     # 引っ越しの鍵の字数（32 種の字 × 24 ＝ 120 ビット）
+REQUEST_TTL = 24 * 3600           # 端末からの登録の頼み（Issue #26）を待つ長さ
+REQUEST_MAX = 10                  # 待っている頼みの数（溢れさせない）
+REQUEST_PER_IP = 3                # 1つの接続元から待たせておける頼みの数
+REQUEST_CODE_LEN = 6              # 持ち主が端末の画面と見比べる字（秘密ではない）
+LIMIT_MAX = 100                   # limit-set で入れられる上限の上限
 SPACES = ('me', 'share')   # 前の版からある置き場（ほかに名前を付けた海。valid_space）
 SEA_RE = re.compile(r'^s[0-9a-z]{3,23}$')
 
@@ -92,7 +103,7 @@ def normalize_code(code: str) -> str:
 
 class PasskeyStore:
     def __init__(self, data_dir: Path, clock=_now, max_per_space: int = MAX_PER_SPACE):
-        self.max_per_space = max_per_space
+        self.default_max = max_per_space
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.clock = clock
@@ -113,6 +124,107 @@ class PasskeyStore:
 
     def _write(self, name, rows):
         _write_private(self._path(name), rows)
+
+    # --- 上限（Issue #26: あとから変えられる。limits.json が --max-passkeys より先）---
+    @property
+    def max_per_space(self) -> int:
+        p = self._path('limits.json')
+        try:
+            with p.open(encoding='utf-8') as f:
+                n = json.load(f).get('max_per_space')
+            if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= LIMIT_MAX:
+                return n
+        except (OSError, ValueError, AttributeError):
+            pass
+        return self.default_max
+
+    @max_per_space.setter
+    def max_per_space(self, n):
+        self.default_max = n
+
+    def set_limit(self, n) -> int:
+        """置き場ごとの登録の上限を変える（limits.json）。止めずに次の要求から効く。
+        今の数より小さくしても、登録してあるパスキーは外さない（新しい登録だけを断る）"""
+        try:
+            n = int(str(n).strip())
+        except (TypeError, ValueError):
+            raise ValueError('上限は数で入れる（例 limit-set 5）') from None
+        if not 1 <= n <= LIMIT_MAX:
+            raise ValueError(f'上限は 1 から {LIMIT_MAX} まで')
+        with self.lock:
+            _write_private(self._path('limits.json'), {'max_per_space': n})
+        return n
+
+    def over_limit(self):
+        """上限を下げたあと、上限より多く入っている置き場 → [(ラベル, 数)]"""
+        rows = self.passkeys()
+        out = [(person_label(n), self.count_in('me', n, rows)) for n in self.persons()]
+        seas = dict.fromkeys(s for r in rows for s in r.get('spaces', []) if s != 'me')
+        out += [(space_label(s), self.count_in(s, None, rows)) for s in seas]
+        return [(lab, c) for lab, c in out if c > self.max_per_space]
+
+    # --- 端末からの登録の頼み（2026-11-07 Issue #26）---
+    # 端末が先に頼む（名前だけ送る）→ サーバーは確かめの字（code）と鍵（key）を返す。
+    # 持ち主は request-list で端末の画面と同じ字を見つけ、request-ok <字> --space … で認める。
+    # 認めると、鍵の sha256 を招待コードの行（kind 'request'）に入れる。端末は鍵を招待コードにして登録する。
+    def add_request(self, name: str, ip: str = ''):
+        """→ (鍵, 確かめの字, 期限)。名前は端末が付けた呼び名（40 字まで）"""
+        name = re.sub(r'[\x00-\x1f\x7f]', '', str(name or '')).strip()[:40]
+        if not name:
+            raise ValueError('名前が要ります')
+        key = ''.join(secrets.choice(_CODE_ABC) for _ in range(MOVE_LEN))
+        ip = _sha(ip)[:16] if ip else ''   # 接続元は数えるためだけ。そのものは置かない
+        with self.lock:
+            now = self.clock()
+            rows = [r for r in self._read('requests.json') if r['expires'] > now]
+            if len(rows) >= REQUEST_MAX or sum(1 for r in rows if ip and r.get('ip') == ip) >= REQUEST_PER_IP:
+                raise OverflowError('待っている頼みが多い')
+            used = {r['code'] for r in rows}
+            while True:
+                raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(REQUEST_CODE_LEN))
+                code = raw[:3] + '-' + raw[3:]
+                if code not in used:
+                    break
+            rows.append({'code': code, 'name': name, 'key_hash': _sha(key), 'ip': ip,
+                         'created': now, 'expires': now + REQUEST_TTL})
+            self._write('requests.json', rows)
+        return '-'.join(key[i:i + 4] for i in range(0, MOVE_LEN, 4)), code, now + REQUEST_TTL
+
+    def list_requests(self):
+        return [r for r in self._read('requests.json') if r['expires'] > self.clock()]
+
+    def find_request(self, code: str):
+        c = normalize_code(code)
+        c = c[:3] + '-' + c[3:]
+        return next((r for r in self.list_requests() if r['code'] == c), None)
+
+    def request_state(self, key: str):
+        """端末が聞く、頼みの様子 → 'approved' | 'waiting' | None（断られた・期限切れ・知らない鍵）"""
+        h = _sha(normalize_code(key))
+        inv = next((r for r in self.list_invites() if secrets.compare_digest(r['code_hash'], h)), None)
+        if inv and inv.get('kind') == 'request':
+            return 'approved', inv
+        if any(secrets.compare_digest(r['key_hash'], h) for r in self.list_requests()):
+            return 'waiting', None
+        return None, None
+
+    def approve_request(self, code: str, spaces, person=None):
+        """頼みを認める → (名前, 個人の番号か None)。招待コードの行を作り、頼みは消す"""
+        req = self.find_request(code)
+        if not req:
+            raise ValueError(f'「{code}」の頼みはありません（request-list で確かめる。期限は 24 時間）')
+        name, person = self._invite_row(req['name'], spaces, person, req['key_hash'], kind='request')
+        self.deny_request(req['code'])
+        return name, person
+
+    def deny_request(self, code: str) -> bool:
+        req = self.find_request(code)
+        if not req:
+            return False
+        with self.lock:
+            rows = self._read('requests.json')
+            self._write('requests.json', [r for r in rows if r['code'] != req['code']])
+        return True
 
     # --- 置き場ごとの数 ---
     def count_in(self, space: str, person=None, rows=None) -> int:
@@ -144,6 +256,12 @@ class PasskeyStore:
 
     def add_invite_full(self, name: str, spaces, ttl: int = INVITE_TTL, person=None):
         """(コード, 個人の番号か None)"""
+        raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(12))
+        _, person = self._invite_row(name, spaces, person, _sha(raw), ttl=ttl)
+        return '-'.join(raw[i:i + 4] for i in range(0, 12, 4)), person
+
+    def _invite_row(self, name, spaces, person, code_hash, ttl: int = INVITE_TTL, kind=None):
+        """招待コードの行を足す（招待コードと、認めた頼みが使う）→ (名前, 個人の番号か None)"""
         name = (name or '').strip()
         spaces = list(dict.fromkeys(s for s in spaces if valid_space(s)))
         if not name or not spaces:
@@ -161,16 +279,17 @@ class PasskeyStore:
         if full:
             raise ValueError('登録はいっぱい（' + '・'.join(person_label(person) if s == 'me' else space_label(s) for s in full)
                              + f'は {self.max_per_space} 台まで）。passkey-remove で使わない端末を外してから')
-        raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(12))
         with self.lock:
             rows = [r for r in self._read('invites.json') if r['expires'] > self.clock()]
-            row = {'name': name, 'spaces': spaces, 'code_hash': _sha(raw),
+            row = {'name': name, 'spaces': spaces, 'code_hash': code_hash,
                    'expires': self.clock() + ttl, 'created': self.clock()}
             if person is not None:
                 row['person'] = person
+            if kind:
+                row['kind'] = kind
             rows.append(row)
             self._write('invites.json', rows)
-        return '-'.join(raw[i:i + 4] for i in range(0, 12, 4)), person
+        return name, person
 
     # --- 引っ越しの鍵（2026-11-07 Issue #19）---
     def add_move_key(self, cred_id: str):

@@ -60,11 +60,22 @@ API:
         --space me:2    … 2 番の人の、もう1台の端末
         ほかの人の記録は <データの場所>/people/<番号>/state.json。持ち主だけがどの海にも入れる
     python3 server.py passkey-person <名前> <番号|new>   そのパスキーをほかの人の個人へ移す
-    登録できるパスキーは置き場ごとに 3 つ（--max-passkeys）、同時に使える端末は 3 台（--max-devices。
+    端末から先に頼む形（2026-11-07 Issue #26。招待コードを先に作らなくてよい）:
+        端末の設定の「パスキー」→「登録を頼む」で、端末の画面に確かめの字（例 ABC-DEF）が出る
+        python3 server.py request-list                       待っている頼み（字・名前・期限 24 時間）
+        python3 server.py request-ok <字> --space me:1,share  認める（--space は invite-add と同じ）
+        python3 server.py request-no <字>                     断る
+        端末は「登録を仕上げる」でパスキーを作る（認めたあと 24 時間）
+    python3 server.py limit / limit-set <数>   置き場ごとの登録の上限を見る・変える（limits.json。止めずに効く。
+                                               --max-passkeys より先。下げても登録済みは外さず、新しい登録を断る）
+    登録できるパスキーは置き場ごとに 3 つ（--max-passkeys か limit-set）、同時に使える端末は 3 台（--max-devices。
     30 分以内に記録を読み書きした端末を数える。--device-window）。4 台目は 429 {"error": "devices"}
     POST /api/passkey/register/options {invite} → 登録の問題   POST /api/passkey/register {credential} → 通行証
     POST /api/passkey/login/options {}  → 入場の問題           POST /api/passkey/login {credential}    → 通行証
     POST /api/passkey/logout（Authorization: Bearer 通行証）
+    POST /api/passkey/request {name} → {key, code, expires}（待っている頼みが多すぎれば 429 {"error": "requests"}）
+    POST /api/passkey/request/status {key} → {state: "waiting"} | {state: "approved", name, spaces}
+                                            断った・期限切れは 401。認めたあとは key を招待コードにして登録する
     /api/data は Authorization: Bearer <通行証> と X-Bubbles-Space: me|<海の ID> で使う
 守り（どちらの形でも）: 接続元ごとの接続数・要求数・入場の失敗の数に上限（guard.py）、1接続の待ちは 15 秒、
     受け取る大きさは 4MB まで、配るページに CSP などのヘッダ、よそのオリジンは決めた相手だけ。
@@ -668,6 +679,23 @@ def make_handler(spaces, cfg: Config = None):
                 return
             pk = cfg.passkeys
             try:
+                if path == '/api/passkey/request':
+                    # 端末からの登録の頼み（Issue #26）。名前だけを受け取り、持ち主が request-ok で認めるまで待たせる
+                    try:
+                        key, code, exp = pk.add_request(body.get('name', ''), self.ip())
+                    except OverflowError:
+                        log_event('request-full', self.ip())
+                        return self.send_json(429, {'error': 'requests'})
+                    log_event('passkey-request', self.ip(), f'code={code}')
+                    return self.send_json(200, {'key': key, 'code': code, 'expires': exp})
+                if path == '/api/passkey/request/status':
+                    state, inv = pk.request_state(body.get('key', ''))
+                    if not state:
+                        return self.deny('request')   # 断られた・期限切れ・知らない鍵
+                    out = {'state': state}
+                    if inv:
+                        out.update(name=inv['name'], spaces=inv['spaces'])
+                    return self.send_json(200, out)
                 if path == '/api/passkey/register/options':
                     inv = pk.find_invite(body.get('invite', ''))
                     if not inv:
@@ -843,7 +871,8 @@ def where_of(row):
 def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkeys: int = 3, value: str = '') -> int:
     """パスキーの操作（公開の形）。動いているサーバーは止めなくてよい"""
     pk = PasskeyStore(data_dir, max_per_space=max_passkeys)
-    if cmd == 'invite-add':
+
+    def parse_spaces():
         spaces, person = [], None
         for s in (x.strip() for x in (space or 'share').split(',')):
             m = re.fullmatch(r'me:([1-9][0-9]{0,5})', s)
@@ -854,6 +883,10 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
                 spaces.append(s)
         if not spaces or any(not valid_space(s) for s in spaces):
             raise SystemExit('置き場は me（新しい人）・me:<番号>（その人の端末）・share・海の ID をコンマで')
+        return spaces, person
+
+    if cmd == 'invite-add':
+        spaces, person = parse_spaces()
         try:
             code, person = pk.add_invite_full(name, spaces, person=person)
         except ValueError as e:
@@ -861,6 +894,39 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
         where = 'と'.join(person_label(person) if s == 'me' else space_label(s) for s in spaces)
         print(f'「{name}」の招待コード（{where}。24時間・1回だけ）: {code}', flush=True)
         print('相手には、住所とこのコードを渡す。相手は Bubbles の設定の「パスキー」で登録する', flush=True)
+        print('（招待コードを先に作らなくても、相手の端末から「登録を頼む」→ request-list・request-ok でもよい）', flush=True)
+    elif cmd == 'request-list':
+        # 端末からの登録の頼み（Issue #26）
+        rows = pk.list_requests()
+        if not rows:
+            print('待っている頼みはありません（端末の設定の「パスキー」→「登録を頼む」で届く）')
+        for r in rows:
+            print(f"{r['code']}\t{r['name']}\t頼んだ {time.strftime('%m-%d %H:%M', time.localtime(r['created']))}"
+                  f"\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}")
+        if rows:
+            print('端末の画面に出ている字と同じものを認める: request-ok <字> --space me（新しい人）／me:1,share（自分の端末）／share', flush=True)
+    elif cmd == 'request-ok':
+        spaces, person = parse_spaces()
+        try:
+            got, person = pk.approve_request(name, spaces, person=person)
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
+        where = 'と'.join(person_label(person) if s == 'me' else space_label(s) for s in spaces)
+        print(f'「{got}」の頼みを認めました（{where}）。端末の画面で「登録を仕上げる」を押すと登録できます（24時間）', flush=True)
+    elif cmd == 'request-no':
+        if not pk.deny_request(name):
+            raise SystemExit(f'「{name}」の頼みはありません（request-list で確かめる）')
+        print(f'「{name}」の頼みを断りました', flush=True)
+    elif cmd == 'limit':
+        print(f'置き場ごとに登録できるパスキー: {pk.max_per_space} 台（変えるなら limit-set <数>）', flush=True)
+    elif cmd == 'limit-set':
+        try:
+            n = pk.set_limit(name)
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
+        print(f'置き場ごとに登録できるパスキーを {n} 台にしました。動いているサーバーにも次の要求から効きます', flush=True)
+        for lab, c in pk.over_limit():
+            print(f'（{lab}は {c} 台。外さずに残しますが、{n} 台より少なくなるまで新しい登録を断ります）', flush=True)
     elif cmd == 'invite-list':
         rows = pk.list_invites()
         if not rows:
@@ -931,15 +997,21 @@ def main(argv=None):
     ap.add_argument('command', nargs='?', default='serve',
                     choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
                              'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person',
-                             'move-remove'],
+                             'move-remove', 'request-list', 'request-ok', 'request-no', 'limit', 'limit-set'],
                     help='serve（既定）か、合言葉・パスキーの操作')
-    ap.add_argument('name', nargs='?', default='', help='share-add / share-remove / invite-add / passkey-remove の名前')
+    ap.add_argument('name', nargs='?', default='',
+                    help='share-add / share-remove / invite-add / passkey-remove の名前、request-ok / request-no の字、limit-set の数')
     ap.add_argument('value', nargs='?', default='', help='passkey-person の移す先（番号か new）')
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
-    if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person', 'move-remove'):
+    if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person', 'move-remove',
+                        'request-list', 'request-ok', 'request-no', 'limit', 'limit-set'):
+        if args.command in ('request-ok', 'request-no') and not args.name.strip():
+            raise SystemExit(f'端末の画面に出ている字を入れてください（例: {args.command} ABC-DEF。request-list で見られる）')
+        if args.command == 'limit-set' and not args.name.strip():
+            raise SystemExit('上限の数を入れてください（例: limit-set 5）')
         if args.command in ('invite-add', 'passkey-remove', 'passkey-person', 'move-remove') and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} 母のスマホ）')
         return passkey_command(data_dir, args.command, args.name, args.space, args.max_passkeys, args.value)

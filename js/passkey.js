@@ -29,9 +29,12 @@ function fromB64u(str) {
 
 /* 画面に出す字。サーバーは理由を言わない（401・429 だけ）ので、ここで言い分ける */
 const WHY = {
-  401: { register: '招待コードが違うか、もう使われているか、期限が切れている', login: 'この端末のパスキーは登録されていないか、取り消されている' },
-  429: { register: '失敗が続いたので、しばらく待ってからにする', login: '失敗が続いたので、しばらく待ってからにする' },
-  409: { register: '登録はいっぱい（置き場ごとに3台まで）。持ち主に、使わない端末を外してもらう', login: '' },
+  401: { register: '招待コードが違うか、もう使われているか、期限が切れている', login: 'この端末のパスキーは登録されていないか、取り消されている',
+    status: '頼みが断られたか、期限（24 時間）が切れた。頼み直す' },
+  429: { register: '失敗が続いたので、しばらく待ってからにする', login: '失敗が続いたので、しばらく待ってからにする',
+    request: '待っている頼みが多い。しばらくしてから、または持ち主に招待コードを頼む', status: 'しばらく待ってから' },
+  409: { register: '登録はいっぱい。持ち主に、使わない端末を外すか上限を上げてもらう', login: '' },
+  404: { request: 'このサーバーは「登録を頼む」を知らない（サーバーを新しくするか、招待コードを使う）' },
 };
 
 async function post(base, path, body, kind) {
@@ -41,10 +44,22 @@ async function post(base, path, body, kind) {
   let json = null;
   try { json = await res.json(); } catch (e) { /* 中身が無い */ }
   if (res.status !== 200 || !json) {
-    const why = (WHY[res.status] || {})[kind];
+    let why = (WHY[res.status] || {})[kind];
+    if (res.status === 409 && json && json.max && why) why = why.replace('登録はいっぱい', '登録はいっぱい（置き場ごとに' + json.max + '台まで）');
     throw new Error(why || ('サーバーが断った（' + res.status + '）。公開の形（--auth passkey）で動いているか'));
   }
   return json;
+}
+
+/* 端末から登録を頼む（2026-11-07 Issue #26）→ {key, code, expires}。
+   送るのは端末の呼び名だけ。持ち主がサーバーで request-ok <code> で認めると、key が招待コードになる */
+export async function requestRegistration(base, name) {
+  return post(base, '/api/passkey/request', { name: String(name || '').trim().slice(0, 40) }, 'request');
+}
+
+/* 頼みの様子 → {state: 'waiting'} | {state: 'approved', name, spaces}。断られた・期限切れは投げる */
+export async function requestStatus(base, key) {
+  return post(base, '/api/passkey/request/status', { key }, 'status');
 }
 
 /* 端末の操作をやめた・時間切れのときの字（ブラウザの英語の字を出さない） */

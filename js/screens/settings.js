@@ -9,7 +9,8 @@ import { store } from '../store.js';
 import { isOn, setOn, isSfxOn, setSfxOn, playSfx } from '../sound.js';
 import { isAffinityOn, setAffinityOn } from '../related.js';
 import { sync, checkUrl } from '../sync.js';
-import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode, makeMoveKey } from '../passkey.js';
+import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode, makeMoveKey,
+  requestRegistration, requestStatus } from '../passkey.js';
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
 import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE } from '../spacelist.js';
 import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, moveSummary, moveFileName,
@@ -473,6 +474,47 @@ function serverBox(screen) {
   const pkLine = el('p', 'note');
   pkLine.setAttribute('aria-live', 'polite');
   pkBox.appendChild(pkLine);
+
+  /* 端末から登録を頼む（2026-11-07 Issue #26）。招待コードが無いとき、こちらから先に頼み、
+     持ち主がサーバーで認める（request-ok <字>）。送るのは呼び名だけ。頼みの鍵は端末の別の箱に置き、
+     登録したら・やめたら消す */
+  pkBox.appendChild(el('p', 'note', '招待コードが無いときは、この端末から登録を頼める。'
+    + '画面に出る字をサーバーの持ち主に伝え、認めてもらってから「登録を仕上げる」を押す。'));
+  const askForm = el('form', 'tagadd');
+  const askIn = document.createElement('input');
+  askIn.type = 'text';
+  askIn.autocomplete = 'off';
+  askIn.maxLength = 40;
+  askIn.placeholder = 'この端末の呼び名（例 自分のスマホ）';
+  askIn.setAttribute('aria-label', 'この端末の呼び名');
+  const askBtn = el('button', 'btn', '登録を頼む');
+  askBtn.type = 'submit';
+  askForm.appendChild(askIn);
+  askForm.appendChild(askBtn);
+  pkBox.appendChild(askForm);
+  const askBox = el('div');
+  askBox.hidden = true;
+  const askLine = el('p', 'note');
+  askLine.setAttribute('aria-live', 'polite');
+  const askCode = el('p');
+  askCode.style.cssText = 'font-size:1.6em;letter-spacing:.12em;font-weight:600;margin:4px 0';
+  const askHow = el('p', 'note');
+  const askRow = el('div', 'row');
+  askRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:4px';
+  const doneBtn = el('button', 'btn', '登録を仕上げる');
+  doneBtn.type = 'button';
+  const lookBtn = el('button', 'btn', '様子を見る');
+  lookBtn.type = 'button';
+  const dropBtn = el('button', 'btn', '頼みをやめる');
+  dropBtn.type = 'button';
+  askRow.appendChild(doneBtn);
+  askRow.appendChild(lookBtn);
+  askRow.appendChild(dropBtn);
+  askBox.appendChild(askLine);
+  askBox.appendChild(askCode);
+  askBox.appendChild(askHow);
+  askBox.appendChild(askRow);
+  pkBox.appendChild(askBox);
   wrap.appendChild(pkBox);
 
   const line = el('p', 'note');
@@ -530,8 +572,107 @@ function serverBox(screen) {
     if (b && old) await logoutPasskey(b, old);
     toast('この端末から出た（記録はこの端末に残っている）');
   }));
+  /* --- 登録の頼み（Issue #26）---
+     {base, key, code, name, expires, approved} を 'bubble_todo_pk_request' に置く（設定を閉じても続きから） */
+  const REQ_KEY = 'bubble_todo_pk_request';
+  function readReq() {
+    let r = null;
+    try { r = JSON.parse(localStorage.getItem(REQ_KEY) || 'null'); } catch (e) { r = null; }
+    if (!r || typeof r.key !== 'string' || typeof r.code !== 'string') return null;
+    if (r.expires && r.expires * 1000 < Date.now()) { saveReq(null); reqMem = null; return null; }
+    return r;
+  }
+  function saveReq(r) {
+    try {
+      if (r) localStorage.setItem(REQ_KEY, JSON.stringify(r));
+      else localStorage.removeItem(REQ_KEY);
+    } catch (e) { /* 入らなくても、この画面の間は続けられる */ }
+  }
+  let reqMem = null;   // localStorage に入らなかったとき用
+  const getReq = () => readReq() || reqMem;
+  const setReq = (r) => { reqMem = r; saveReq(r); };
+  let pollTimer = 0;
+  function paintReq() {
+    const r = getReq();
+    askBox.hidden = !r;
+    askForm.hidden = !!r;
+    if (!r) return;
+    askCode.textContent = r.code;
+    if (r.approved) {
+      askLine.textContent = '「' + r.name + '」の登録が認められた。「登録を仕上げる」で、この端末のパスキーを作る。';
+      askHow.textContent = '';
+    } else {
+      askLine.textContent = '「' + r.name + '」として頼んだ。サーバーの持ち主に、次の字を伝える（認められるまで待つ。24 時間）。';
+      askHow.textContent = '持ち主はサーバーで request-list を見て、この字と同じものを request-ok ' + r.code
+        + ' --space …（新しい人は me、持ち主の端末は me:1,share、招く海は海の ID）で認める。';
+    }
+    doneBtn.hidden = !r.approved;
+    lookBtn.hidden = !!r.approved;
+  }
+  async function checkReq(quiet) {
+    const r = getReq();
+    if (!r || r.approved) return;
+    try {
+      const st = await requestStatus(r.base, r.key);
+      if (st.state === 'approved') {
+        setReq(Object.assign({}, r, { approved: true, name: st.name || r.name }));
+        toast('登録が認められた。「登録を仕上げる」を押す');
+      } else if (!quiet) toast('まだ認められていない');
+    } catch (e) {
+      if (/断られた|期限/.test((e && e.message) || '')) setReq(null);
+      if (!quiet || !getReq()) toast((e && e.message) || '様子が分からない');
+    }
+    paintReq();
+  }
+  function schedulePoll() {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(async () => {
+      if (!wrap.isConnected) return;          // 設定を閉じたら止める（開き直すと続きから）
+      const r = getReq();
+      if (!r || r.approved) return;
+      if (!pkBox.hidden && document.visibilityState !== 'hidden') await checkReq(true);
+      schedulePoll();
+    }, 8000);
+  }
+  askForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const b = baseUrl();
+    if (!b) { toast('住所を入れる（https:// で始める）'); return; }
+    const name = askIn.value.trim();
+    if (!name) { toast('この端末の呼び名を入れる'); return; }
+    withBusy(askBtn, async () => {
+      const got = await requestRegistration(b, name);
+      setReq({ base: b, key: got.key, code: got.code, name, expires: got.expires, approved: false });
+      askIn.value = '';
+      urlIn.value = b;
+      paintReq();
+      schedulePoll();
+    });
+  });
+  lookBtn.addEventListener('click', () => withBusy(lookBtn, () => checkReq(false)));
+  dropBtn.addEventListener('click', () => {
+    setReq(null);
+    paintReq();
+    toast('頼みをやめた（サーバーの頼みは 24 時間で消える）');
+  });
+  /* パスキーを作るのは、押したときだけ（ブラウザは押した直後でないとパスキーを作らせない） */
+  doneBtn.addEventListener('click', () => {
+    const r = getReq();
+    if (!r) return;
+    withBusy(doneBtn, async () => {
+      const out = await registerPasskey(r.base, r.key);
+      sync.usePasskeySession(r.base, out);
+      setReq(null);
+      urlIn.value = r.base;
+      paintReq();
+      toast('この端末を「' + out.name + '」として登録した');
+    });
+  });
+  paintReq();
+  if (getReq()) { schedulePoll(); checkReq(true); }
+
   urlIn.addEventListener('change', lookMode);
-  if (!passkeySupported()) regBtn.disabled = inBtn.disabled = true;
+  if (!passkeySupported()) regBtn.disabled = inBtn.disabled = askBtn.disabled = doneBtn.disabled = true;
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();

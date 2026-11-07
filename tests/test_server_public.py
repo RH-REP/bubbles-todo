@@ -258,6 +258,59 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(self.pk.remove_move_keys('C'), 1)
         self.assertIsNone(self.pk.find_invite(mv2))
 
+    def test_device_asks_first_and_owner_approves(self):
+        """Issue #26: 端末が先に頼み、持ち主が request-ok で認めると、端末の鍵が招待コードになる"""
+        code, got, _ = self.req('POST', '/api/passkey/request', {'name': '自分のスマホ'})
+        self.assertEqual(code, 200)
+        self.assertRegex(got['code'], r'^[A-Z2-9]{3}-[A-Z2-9]{3}$')
+        self.assertNotIn(got['key'], (self.dir / 'requests.json').read_text(), '鍵そのものは置かない')
+        self.assertNotIn('127.0.0.1', (self.dir / 'requests.json').read_text(), '接続元そのものは置かない')
+        st = lambda k: self.req('POST', '/api/passkey/request/status', {'key': k})  # noqa: E731
+        self.assertEqual(st(got['key'])[:2], (200, {'state': 'waiting'}))
+        self.assertEqual(self.req('POST', '/api/passkey/register/options', {'invite': got['key']})[0], 401,
+                         '認めるまでは登録できない')
+        self.assertEqual(self.pk.approve_request(got['code'].lower().replace('-', ''), ['me', 'share'], person=None),
+                         ('自分のスマホ', 1))
+        self.assertEqual(st(got['key'])[:2], (200, {'state': 'approved', 'name': '自分のスマホ', 'spaces': ['me', 'share']}))
+        self.assertEqual(self.pk.list_requests(), [], '認めた頼みは消える')
+        code, out, _ = self.register(FakeAuthenticator('localhost', self.origin), got['key'])
+        self.assertEqual((code, out['name'], out['person']), (200, '自分のスマホ', 1))
+        self.assertEqual(st(got['key'])[0], 401, '使ったあとは知らない鍵')
+        # 断った頼みは 401
+        other = self.req('POST', '/api/passkey/request', {'name': 'だれか'})[1]
+        self.assertTrue(self.pk.deny_request(other['code']))
+        self.assertEqual(st(other['key'])[0], 401)
+        with self.assertRaises(ValueError):
+            self.pk.approve_request(other['code'], ['share'])
+        self.assertEqual(self.req('POST', '/api/passkey/request', {'name': '  '})[0], 401, '名前が要る')
+
+    def test_requests_are_capped(self):
+        for i in range(3):
+            self.assertEqual(self.req('POST', '/api/passkey/request', {'name': f'端末{i}'})[0], 200)
+        code, body, _ = self.req('POST', '/api/passkey/request', {'name': '4つめ'})
+        self.assertEqual((code, body), (429, {'error': 'requests'}), '1つの接続元から待たせられるのは 3 つまで')
+        self.assertFalse(self.guard.auth_blocked('127.0.0.1'), '頼みの溢れは入場の失敗に数えない')
+
+    def test_limit_can_be_changed_later(self):
+        """Issue #26: 上限は limits.json であとから変えられ、止めずに効く"""
+        for n in ('A', 'B', 'C'):
+            self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite(n, ['share']))
+        with self.assertRaises(ValueError):
+            self.pk.add_invite('D', ['share'])
+        other = PasskeyStore(self.dir)              # 別のプロセス（CLI）から書いたつもり
+        self.assertEqual(other.set_limit('4'), 4)
+        self.assertEqual(self.pk.max_per_space, 4, '動いている側にもすぐ効く')
+        self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('D', ['share']))[0], 200)
+        other.set_limit(2)
+        self.assertEqual(self.pk.over_limit(), [('共有', 4)])
+        self.assertEqual(self.pk.count_in('share'), 4, '下げても登録済みは外さない')
+        for bad in ('0', '101', 'x'):
+            with self.assertRaises(ValueError):
+                other.set_limit(bad)
+        cli = subprocess.run([sys.executable, str(Path(server.__file__)), '--data-dir', str(self.dir), 'limit'],
+                             capture_output=True, text=True).stdout
+        self.assertIn('2 台', cli)
+
     def test_invite_is_single_use_and_bad_invite_is_refused(self):
         inv = self.pk.add_invite('父', ['share'])
         self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), inv)[0], 200)
