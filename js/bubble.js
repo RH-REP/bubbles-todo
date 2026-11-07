@@ -962,7 +962,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       if (q) {
         box.dataset.q = q;
         where.appendChild(document.createTextNode('いまの区分: '));
-        where.appendChild(el('b', '', QUADRANTS[q].name));
+        { const qb = el('b'); qb.textContent = QUADRANTS[q].name; where.appendChild(qb); }
         where.appendChild(document.createTextNode('（' + QUADRANTS[q].sub + '）。印はいつでも外せる'));
       } else {
         delete box.dataset.q;
@@ -2074,7 +2074,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     rows.forEach(n => {
       const li = el('li', 'bn-item' + (n.gone ? ' is-gone' : ''));
       const meta = el('div', 'bn-meta');
-      meta.appendChild(el('span', 'bn-by', n.by || '名前なし'));
+      /* 書いた人とひとことは、ほかの端末の人が書いた文字。el の第3引数は innerHTML なので使わない（Issue #14） */
+      const by = el('span', 'bn-by'); by.textContent = n.by || '名前なし'; meta.appendChild(by);
       meta.appendChild(el('span', 'bn-at', fmtAt(n.at)));
       if (ask(a, 'canRemoveNote', n) === true) {
         const rm = el('button', 'bn-rm', '消す');
@@ -2091,7 +2092,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         meta.appendChild(rm);
       }
       li.appendChild(meta);
-      li.appendChild(el('p', 'bn-tx', n.gone ? '（消した）' : n.text));
+      const tx = el('p', 'bn-tx'); tx.textContent = n.gone ? '（消した）' : String(n.text || ''); li.appendChild(tx);
       notesList.appendChild(li);
     });
   }

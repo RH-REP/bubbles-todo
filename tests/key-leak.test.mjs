@@ -6,7 +6,8 @@
    見るもの:
      1. サーバーとの同期（js/sync.js）: 送る住所・ヘッダー・本文（state）にキーが出てこない。設定の箱にも入らない
      2. 改善のコメント（js/feedback.js）: Issue の本文・GitHub を開く URL・クリップボードの文・エラーの記録に出てこない
-     3. js/feedback.js はキーの箱を読まない（触る localStorage は feedback.errors だけ） */
+     3. js/feedback.js はキーの箱を読まない（触る localStorage は feedback.errors だけ）
+     4. 引っ越しのファイル（js/movefile.js）の中身に出てこない */
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -96,6 +97,19 @@ await test('Issue の本文・開く URL・クリップボードの文・エラ�
     clipText: F.clipText(r), errorLog: F.errorLog() };
   assert.ok(outs.errorLog.includes('TypeError'), 'エラーの記録が読めていない（テストの前提が崩れている）');
   for (const [k, v] of Object.entries(outs)) assert.ok(!String(v).includes(SECRET), k + ' に AI キーが混ざっている');
+});
+
+/* ---- 4. 引っ越しのファイル（Issue #19） ---- */
+await test('引っ越しのファイルの中身（暗号化の前）に AI キーが出てこない。js/movefile.js はキーの箱を読まない', async () => {
+  const mvSrc = readFileSync(new URL('../js/movefile.js', import.meta.url), 'utf8');
+  assert.ok(!mvSrc.includes('bubble_todo_ai_key'), 'movefile.js がキーの箱の名前を持っている');
+  assert.ok(!/localStorage/.test(mvSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')), 'movefile.js が localStorage を直に読んでいる');
+  const { buildPayload } = await import(new URL('../js/movefile.js', import.meta.url).href);
+  const p = buildPayload({ boxes: { me: store.exportState() }, seas: [{ id: 'me', name: '自分' }],
+    server: { url: 'https://bubbles.example.org', token: 'TOKEN-ME', move: 'MOVE-1' }, at: 0, device: 'Mac' });
+  const s = JSON.stringify(p);
+  assert.ok(s.includes('牛乳を買う'), '記録が入っていない（テストの前提が崩れている）');
+  assert.ok(!s.includes(SECRET), '引っ越しのファイルに AI キーが混ざっている');
 });
 
 console.log(`\n${pass} ok, ${failed.length} failed`);

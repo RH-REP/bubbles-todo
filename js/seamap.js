@@ -293,7 +293,7 @@ function openSheet(cfg) {
   box.setAttribute('aria-label', cfg.title);
   /* 海の引きの上に重なる。引きと同じ深さ（body 直下）なので、層を1つ上にして勝たせる */
   box.dataset.screen = 'sea.map.sheet'; box.dataset.screenLayer = '8';
-  box.appendChild(el('p', 'tt', cfg.title));
+  { const tt = el('p', 'tt'); tt.textContent = cfg.title; box.appendChild(tt); }
 
   const inp = el('input', 'in');
   inp.type = 'text';

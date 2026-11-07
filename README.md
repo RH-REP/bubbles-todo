@@ -116,7 +116,11 @@
   入っていないときだけ入力欄（Enter でも保存）。Anthropic Console で発行したキーを入れる。ヘルプ・先の予定・本文の面の AI（下）で使う。
   キーは端末の `localStorage`（`bubble_todo_ai_key`）にだけ置く。**サーバーへは送らない**
   （CSV の書き出し・サーバー同期・改善のコメント・エラーの記録のどれにも混ざらない。
-  保存の箱と CSV は `tests/ai.test.mjs`、同期・改善のコメント・エラーの記録は `tests/key-leak.test.mjs`）
+  保存の箱と CSV は `tests/ai.test.mjs`、同期・改善のコメント・エラーの記録・引っ越しのファイルは `tests/key-leak.test.mjs`）。
+  引っ越しのファイル（Issue #19）にもキーは入れない。新しい端末では入れ直す
+- **HTML として描かない（Issue #14）**: キーを読み出せるのは、ページの中で動くスクリプトだけ。利用者・共同の海のほかの人・AI が書いた文字
+  （名前・本文・ひとこと・タグ名・AI の返事）は `textContent` で描き、`js/ui.js` の `el()` の第3引数（innerHTML）には入れない。
+  `tests/html-sink.test.mjs` が `el(` の第3引数にデータの欄（`.text` `.name` `.by` など）が入っていないかを見る
 - **モデル（2026-11-05 追加。Issue #13）**: 既定は `claude-opus-5-5`（Opus 5.5。2026-11-07 利用者の指示。前は Haiku 5.5）。設定の「ヘルプと AI」の
   「AI のモデル」で Sonnet 5.5・Haiku 5.5（速い・安い）に変えられる（ヘルプ・先の予定・本文の AI のすべてに効く。上ほど賢いが 1 回の料金も上がる）。
   選びは端末の `localStorage`（`bubble_todo_ai_model`）にだけ置く。同期・CSV には乗らない
@@ -311,6 +315,7 @@ node tests/sea.test.mjs
 node tests/csvio.test.mjs
 node tests/ai.test.mjs
 node tests/key-leak.test.mjs
+node tests/html-sink.test.mjs
 node tests/research.test.mjs
 node --test tests/rollback.test.mjs
 node --test tests/undo.test.mjs

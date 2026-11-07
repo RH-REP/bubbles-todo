@@ -39,7 +39,7 @@ export function createQuadView(host, opts = {}) {
     cell.dataset.q = k;
     cell.setAttribute('aria-label', QUADRANTS[k].name + '（' + QUADRANTS[k].sub + '）');
     const hd = el('div', 'quad-hd');
-    hd.appendChild(el('b', '', QUADRANTS[k].name));
+    { const qb = el('b'); qb.textContent = QUADRANTS[k].name; hd.appendChild(qb); }
     hd.appendChild(el('small', '', QUADRANTS[k].sub));
     cell.appendChild(hd);
     bodies[k] = el('div', 'quad-body');

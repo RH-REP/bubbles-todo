@@ -2867,7 +2867,8 @@ function renderGrid() {
       const where = isDoneItem(t) ? nameOf(fixedTag('down'))
         : isHoldItem(t) ? nameOf(fixedTag('up')) : '';
       if (where) {
-        const w = el('span', 'sea-row-where', where);
+        const w = el('span', 'sea-row-where');
+        w.textContent = where;                 /* タグの名前はユーザーの文字。innerHTML には入れない */
         row.appendChild(w);
       }
     }
