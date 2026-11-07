@@ -108,6 +108,7 @@
 import { stampChanges, initialStamps, recordsOf } from './merge.js';
 import { quadrantFor } from './priority.js';
 import { findSea, boxKey } from './spacelist.js';
+import { normalizeNotes, notesFor, makeNote, canRemove, byTime } from './notes.js';
 
 /* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
    2026-11-02（Issue #4）: 「共有」は名前を付けて複数作れる海の1つになった（js/spacelist.js）。
@@ -343,6 +344,9 @@ let todayLogs = [];   /* 「今日する」に入れた記録。着手ログと�
    ここを読んで画面に数を出す口はまだ無い。作るときは README の
    「達成率・パーセント・分母のある数字」「連続日数」を作らない、と突き合わせること。 */
 let focusLogs = [];
+/* 泡ごとのひとこと（Issue #25。形と決まりは js/notes.js）。泡の外に1列で持つ
+   （泡を消しても、書いた記録は残す。着手ログと同じ） */
+let noteList = [];
 let lastDay = null;
 const listeners = new Set();
 
@@ -1133,7 +1137,7 @@ function blank() {
   return {
     anchors: [], gapSlots: normalizeGapSlots(null), tags,
     seas: normalizeSeas(null, tags),
-    todos: [], logs: [], todayLogs: [], focusLogs: [], lastDay: null,
+    todos: [], logs: [], todayLogs: [], focusLogs: [], notes: [], lastDay: null,
   };
 }
 
@@ -1165,7 +1169,7 @@ function fromDoc(parsed) {
       return {
         anchors: [], gapSlots: gaps, tags, seas: normalizeSeas(null, tags),
         todos: normalizeTodos(parsed, [], tags, gaps),
-        logs: [], todayLogs: [], focusLogs: [], lastDay: null,
+        logs: [], todayLogs: [], focusLogs: [], notes: [], lastDay: null,
       };
     }
     if (!parsed || typeof parsed !== 'object') return blank();
@@ -1199,6 +1203,8 @@ function fromDoc(parsed) {
       todayLogs: Array.isArray(parsed.todayLog) ? normalizeTodayLog(parsed.todayLog) : [],
       /* この版より前の保存データには無い。無ければ空で始める（数え直しはしない） */
       focusLogs: Array.isArray(parsed.focusLog) ? normalizeFocusLog(parsed.focusLog) : [],
+      /* この版より前の保存データには無い（Issue #25） */
+      notes: normalizeNotes(parsed.notes),
       lastDay: /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDay) ? parsed.lastDay : null,
     };
   } catch (e) {
@@ -1213,7 +1219,7 @@ function docOf() {
     v: 2, palVer: PAL_VER, anchors: anchorList, gapSlots: gapList, tags: tagList,
     seas: seaList, todos: items,
     removedStarters,
-    log: logs, todayLog: todayLogs, focusLog: focusLogs, lastDay,
+    log: logs, todayLog: todayLogs, focusLog: focusLogs, notes: noteList, lastDay,
   };
 }
 
@@ -1322,6 +1328,7 @@ function useData(data) {
   logs = data.logs;
   todayLogs = data.todayLogs;
   focusLogs = data.focusLogs;
+  noteList = Array.isArray(data.notes) ? data.notes : [];
   lastDay = data.lastDay;
 }
 
@@ -2151,6 +2158,33 @@ export const store = {
     return (t && typeof t.detail === 'string') ? t.detail : '';
   },
 
+  /* --- ひとこと（Issue #25。js/notes.js）---
+     足すのと、自分の端末で書いたものに消した印を付けるのだけ。書き換えの口は作らない */
+
+  /* その泡のひとこと（古い順の写し。消したものも gone:1 で入る） */
+  notesOf(id) { return notesFor(noteList, id); },
+
+  /* 1件足す。by = 書いた人の名前、dev = この端末の印 -> 足した1件（写し）か null */
+  addNote(id, text, by, dev) {
+    if (!store.get(id)) return null;
+    const n = makeNote(id, text, by, dev, Date.now());
+    if (!n) return null;
+    noteList.push(n);
+    noteList.sort(byTime);
+    persist(); emit();
+    return { ...n };
+  },
+
+  /* 消した印を付ける。自分の端末（dev）で書いたものだけ -> 消したか */
+  removeNote(noteId, dev) {
+    const n = noteList.find(x => x.id === noteId);
+    if (!canRemove(n, dev)) return false;
+    n.text = '';
+    n.gone = 1;
+    persist(); emit();
+    return true;
+  },
+
   /* すきま時間にできる印。on を省くとトグル -> 変化したか */
   setGap(id, on) {
     const t = store.get(id);
@@ -2690,7 +2724,7 @@ export const store = {
   wipe() {
     items = []; anchorList = []; gapList = normalizeGapSlots(null); tagList = normalizeTags(null);
     seaList = normalizeSeas(null, tagList);
-    logs = []; todayLogs = []; focusLogs = []; lastDay = dayOf(Date.now());
+    logs = []; todayLogs = []; focusLogs = []; noteList = []; lastDay = dayOf(Date.now());
     persist(); emit();
   },
 
@@ -3016,7 +3050,7 @@ export const WRITE_METHODS = [
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
-  'commitStep', 'editStep', 'amendLastStep', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
+  'commitStep', 'editStep', 'amendLastStep', 'addNote', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
 ];
 /* 知らせない口（画面が裏で何度も呼ぶもの。断るだけ） */
 const QUIET = new Set(['flush', 'setDraft']);

@@ -286,6 +286,7 @@ node --test tests/rollback.test.mjs
 node --test tests/undo.test.mjs
 node --test tests/related.test.mjs
 node --test tests/deadline.test.mjs
+node --test tests/notes.test.mjs
 python3 -m unittest tests/test_server.py
 bash tests/server-setup.test.sh
 ```
@@ -399,6 +400,22 @@ bash tests/server-setup.test.sh
 - 設定の音の節の下「似ている泡を近くに寄せる」で切れる（既定オン。端末にだけ置く `bubble_todo_affinity_v1`）。「視差効果を減らす」のときは漂いが止まるので寄せもしない
 - やっていないこと: 手で泡どうしを紐付ける欄（タグで足りるため。記録の形と同期が変わる）、AI で関わりを見つけること（泡の名前を外へ送ることになるため）
 - 作り: `js/related.js`（似ている度合いと寄せる力。DOM・保存を触らない）、`js/drift.js`（`setItems` で組を数え、`tick` で `pullStep`）、`js/screens/settings.js`。テスト: `node --test tests/related.test.mjs`
+
+### ひとこと（泡ごとの進捗の書き込み。2026-11-07。Issue #25）
+
+共同 TODO（個人でない海）で「ここまでやった」「詰まっている」を、**本文を書き換えずに**残す短い書き込み。
+泡を押して開く盤の「ひとこと」から開く（個人の海では出さない。自分だけなら作業メモで足りる）。
+
+- 1件 = 書いた人の名前・時刻・280字までの文。古い順に並び、下の入力欄と [書く] で1件ずつ積む。**書き換えはできない**
+- **消せるのは自分の端末で書いたものだけ**。消しても記録は残り、「（消した）」と出る（ほかの端末から戻ってこないように）
+- 名前は面の「名前」欄で決める（この端末だけの設定。初めはパスキーの招待で付いた名前）
+- ほかの端末が書いた、まだこの端末で開いていないひとことがある泡には、**左上に小さな点**（数は出さない）。面を開くと消える。
+  この版を初めて開いた端末は、その時刻から数える（前からあるものに点を付けない）
+- 置き場は**その海の記録と同じ所**（保存データの `notes` 欄。合わせる計算は `js/merge.js` の1件ずつの記録 `note:<id>`）。
+  新しい送り先は足していない。中身は泡の本文と同じ扱い（自分のサーバーに平文で置く）。CSV の書き出し・読み込みにも入る
+- プッシュ通知・泡に付かない会話（チャット）は作っていない（Issue #25）
+- 作り: `js/notes.js`（計算と、この端末の覚え）、`js/store.js` の `addNote`・`removeNote`・`notesOf`、`js/bubble.js` の盤の面と点、`js/app.js` の預け先。
+  テスト: `node --test tests/notes.test.mjs`
 
 ### 日付で見る（終了日の近い順。2026-11-07。Issue #24）
 

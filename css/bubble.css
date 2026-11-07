@@ -782,6 +782,18 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub[data-q="quick"] { --qe: var(--q-quick-e); }
 .bub[data-q="drift"] { --qe: var(--q-drift-e); }
 
+/* ---------- 新しいひとことの点（Issue #25）----------
+   ほかの端末が書いた、まだ開いていないひとことがある泡の左上に、小さな点（区分の点の反対側）。
+   色は縁の色（赤は使わない）。数は出さない。押す的ではない */
+.bub .ndot {
+  position: absolute; top: calc(14.6% - 4.5px); left: calc(14.6% - 4.5px);
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--bub-edge);
+  box-shadow: 0 0 0 2px var(--surface);
+  pointer-events: none;
+}
+.bub .ndot[hidden] { display: none; }
+
 /* ---------- 盤の優先度（急ぐ・大事）----------
    お気に入りと同じ札の作法。下に今の区分を言葉で1行。区分の色は小さな帯で添えるだけ */
 .bub-center .bc-prio { margin-bottom: 6px; }
@@ -1048,6 +1060,50 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bm-save:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 /* 積まなかったとき。赤くしない——咎めるものではなく、まだ足りていないだけ */
 .bub-center .bm-save.is-nope { border-color: var(--line); color: var(--text-2); }
+/* ---------- ひとことの面（Issue #25）----------
+   作業メモの面と同じ形。上に古い順の一覧（この中だけでスクロール）、下に名前・入力欄・[書く] */
+.bub-center .bc-notes-open.is-fresh::before {
+  content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px;
+  border-radius: 50%; background: var(--bub-edge); vertical-align: 1px;
+}
+.bub-center .bn-list {
+  flex: 1 1 auto; min-height: 60px;
+  overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; touch-action: pan-y;
+  margin: 0; padding: 6px 12px; list-style: none;
+}
+.bub-center .bn-list:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+.bub-center .bn-empty { font-size: 12.5px; color: var(--text-2); padding: 6px 0; }
+.bub-center .bn-item { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.bub-center .bn-item:last-child { border-bottom: 0; }
+.bub-center .bn-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+.bub-center .bn-by { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bub-center .bn-rm {
+  margin-left: auto;
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  min-height: 32px; padding: 0 10px;
+  font: inherit; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--text-2);
+}
+.bub-center .bn-rm:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 1px; }
+.bub-center .bn-tx {
+  margin: 2px 0 0; font-size: 14px; line-height: 1.6; color: var(--text);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.bub-center .bn-item.is-gone .bn-tx { color: var(--text-2); }
+.bub-center .bn-name {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 0; font-size: 12.5px; color: var(--text-2);
+  border-top: 1px solid var(--line);
+}
+.bub-center .bn-name-in {
+  flex: 1; min-width: 0; min-height: 36px; padding: 4px 10px;
+  font: inherit; font-size: 14px; color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: 8px; background: var(--cell);
+}
+.bub-center .bn-in { flex: none; min-height: 72px; }
+
 .bub-center .bm-said {
   flex: none; margin: 0; padding: 0 12px 10px;
   font-size: 12.5px; color: var(--text-2); min-height: 16px;

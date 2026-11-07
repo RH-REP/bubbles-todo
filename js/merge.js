@@ -31,6 +31,8 @@ const LIST_KEYS = [
   ['log',      'log',    r => r.id + '|' + r.slot + '|' + r.at, false],
   ['todayLog', 'tlog',   r => r.id + '|' + r.at + '|' + (r.day || ''), false],
   ['focusLog', 'flog',   r => r.at + '|' + r.id + '|' + r.ms, false],
+  /* 泡ごとのひとこと（Issue #25。js/notes.js）。足すのと消した印だけで、書き換えない */
+  ['notes',    'note',   r => r.id, false],
 ];
 /* 1つの値として丸ごと持つ欄（中の要素ごとには合わせない） */
 const WHOLE_KEYS = ['seas', 'removedStarters'];

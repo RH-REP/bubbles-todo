@@ -24,7 +24,7 @@ import { recordsOf, buildDoc } from './merge.js';
 
 export const FORMAT = 'bubbles-csv';
 const HEADER = ['kind', 'id', 'text', 'date', 'data', 'stamp'];
-const KINDS = new Set(['todo', 'anchor', 'gap', 'tag', 'log', 'tlog', 'flog', 'order', 'whole']);
+const KINDS = new Set(['todo', 'anchor', 'gap', 'tag', 'log', 'tlog', 'flog', 'note', 'order', 'whole']);
 
 /* ---------- CSV の1セル・1表 ---------- */
 function cell(v) {

@@ -152,6 +152,8 @@ export const RM = window.matchMedia
    行き先の無い入力欄を出さないため。
    steps が無ければ「履歴」のボタンを出さない（＝押しても何も無いボタンを作らない）。 */
 let centerAdapter = null;
+/* ひとこと（Issue #25）の書きかけ。泡の id → 文。盤を閉じても残す（記録には入れない） */
+const noteDrafts = new Map();
 export function setCenterHandler(a) {
   centerAdapter = (a && typeof a === 'object') ? a : null;
 }
@@ -429,7 +431,20 @@ export function updateBubble(node, item, opts = {}) {
   }
   if (q) node.dataset.q = q; else delete node.dataset.q;
   if (qdot) qdot.hidden = !q;
-  const label = ariaFor(item, names, marks, started, done);
+  /* ---- 新しいひとこと（Issue #25）----
+     ほかの端末が書いた、まだこの端末で開いていないひとことがある泡に、左上の小さな点。
+     数は出さない。預け先に hasNewNote が無い版・個人の海では出ない */
+  const fresh = !!(item && ask(centerAdapter, 'hasNewNote', item.id) === true);
+  let ndot = node.querySelector(':scope > .wob > .ndot');
+  if (fresh && !ndot) {
+    ndot = el('span', 'ndot');
+    ndot.setAttribute('aria-hidden', 'true');
+    const wob = node.querySelector(':scope > .wob');
+    if (wob) wob.appendChild(ndot);
+  }
+  if (ndot) ndot.hidden = !fresh;
+  let label = ariaFor(item, names, marks, started, done);
+  if (fresh) label += '、新しいひとことあり';
   node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
   node.dataset.id = item.id;
   return node;
@@ -767,6 +782,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let detailBtn = null, detailPane = null, detailArea = null;
   let detailView = null, detailEdit = null, detailNote = null;   /* 読む面と [編集]（Issue #16） */
   let detailDraft = '';
+  /* ひとこと（Issue #25）。入口と別の面。[書く] で1件ずつ積む（書き換えない） */
+  let notesBtn = null, notesPane = null, notesList = null, notesArea = null, notesSaid = null, notesName = null;
   let draft0 = null;            /* 開いた時点の入力欄の中身（触ったかを見るため） */
   let urlLink = null, urlLinkTx = null, urlEdit = null;
   let histBtn = null, hist = null, histList = null, histClose = null;
@@ -851,6 +868,22 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     drow.appendChild(detailBtn);
     fields.appendChild(drow);
     syncDetailBtn();
+  }
+
+  /* ---- ひとこと（Issue #25）----
+     共同 TODO で「ここまでやった」「詰まっている」を、本文を書き換えずに残す短い書き込み。
+     誰が・いつ書いたかが残り、ほかの人の書いたものを上書きしない。
+     盤には入口だけ（本文と同じ）。入口には、いちばん新しい1件の頭を出す。
+     個人の海では出さない（自分だけなら作業メモで足りる）。預け先に addNote が無い版でも出さない */
+  if (fields && typeof (a || {}).addNote === 'function' && ask(a, 'notesOn') === true) {
+    const nrow = el('div', 'bc-row');
+    nrow.appendChild(el('span', 'bc-lb', 'ひとこと'));
+    notesBtn = el('button', 'bc-memo-open bc-notes-open');
+    notesBtn.type = 'button';
+    notesBtn.addEventListener('click', ev => { ev.preventDefault(); openNotes(); });
+    nrow.appendChild(notesBtn);
+    fields.appendChild(nrow);
+    syncNotesBtn();
   }
 
   /* ---- お気に入りの印（F7・利用者の指示 2026-09-24）----
@@ -1964,6 +1997,174 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     return true;
   }
 
+  /* ---- ひとことの面（Issue #25）----
+     作業メモの面と同じ入れ替え方・同じ形（.bc-memo / .bm-*）。
+     上に古い順の一覧（書いた人・時刻・文。自分の端末で書いたものだけ [消す]）、
+     下に名前と入力欄と [書く]。[書く] でその場で1件積む（作業メモの [作業メモを保存] と同じ）。
+     書きかけは、盤を閉じても泡ごとに残す（noteDrafts。記録には入れない） */
+  function notesNow() {
+    const rows = ask(a, 'notes', id);
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  function syncNotesBtn() {
+    if (!notesBtn) return;
+    const live = notesNow().filter(n => !n.gone);
+    const last = live[live.length - 1];
+    notesBtn.textContent = last ? trimTx(last.text.split('\n')[0], 16) : '書く';
+    notesBtn.classList.toggle('is-empty', !last);
+    notesBtn.classList.toggle('is-fresh', ask(a, 'hasNewNote', id) === true);
+    notesBtn.setAttribute('aria-label', last
+      ? (ask(a, 'hasNewNote', id) === true ? 'ひとことを読む（新しいものあり）' : 'ひとことを読む')
+      : 'ひとことを書く');
+  }
+
+  function renderNotes() {
+    if (!notesList) return;
+    const rows = notesNow();
+    notesList.textContent = '';
+    if (!rows.length) {
+      notesList.appendChild(el('li', 'bn-empty', 'まだ無い。ここまでやったこと・詰まっていることを短く'));
+      return;
+    }
+    rows.forEach(n => {
+      const li = el('li', 'bn-item' + (n.gone ? ' is-gone' : ''));
+      const meta = el('div', 'bn-meta');
+      meta.appendChild(el('span', 'bn-by', n.by || '名前なし'));
+      meta.appendChild(el('span', 'bn-at', fmtAt(n.at)));
+      if (ask(a, 'canRemoveNote', n) === true) {
+        const rm = el('button', 'bn-rm', '消す');
+        rm.type = 'button';
+        rm.setAttribute('aria-label', 'このひとことを消す');
+        rm.addEventListener('click', ev => {
+          ev.preventDefault();
+          if (ask(a, 'removeNote', n.id) === true) {
+            renderNotes(); syncNotesBtn();
+            if (notesSaid) notesSaid.textContent = '消した（消した印は残る）';
+            if (notesArea) notesArea.focus({ preventScroll: true });
+          }
+        });
+        meta.appendChild(rm);
+      }
+      li.appendChild(meta);
+      li.appendChild(el('p', 'bn-tx', n.gone ? '（消した）' : n.text));
+      notesList.appendChild(li);
+    });
+  }
+
+  function buildNotes() {
+    notesPane = el('div', 'bc-memo bc-notes');
+    notesPane.setAttribute('role', 'group');
+    notesPane.setAttribute('aria-label', 'ひとこと');
+    notesPane.hidden = true;
+
+    const head = el('div', 'bm-head');
+    head.appendChild(el('span', 'bm-title', 'ひとこと'));
+    const close = el('button', 'bm-close', '閉じる');
+    close.type = 'button';
+    close.addEventListener('click', ev => { ev.preventDefault(); closeNotes(true); });
+    head.appendChild(close);
+    notesPane.appendChild(head);
+    notesPane._close = close;
+
+    const ctx = el('p', 'bm-ctx');
+    notesPane.appendChild(ctx);
+    notesPane._ctx = ctx;
+
+    /* 番号は振らない（「◯件目」を数えない。§0） */
+    notesList = el('ul', 'bn-list');
+    notesList.tabIndex = 0;
+    notesList.setAttribute('aria-label', 'ひとことの一覧（古い順）');
+    notesPane.appendChild(notesList);
+
+    /* 書いた人の名前。この端末だけの設定（初めはパスキーの名前） */
+    const nameRow = el('label', 'bn-name');
+    nameRow.appendChild(el('span', 'bn-name-lb', '名前'));
+    notesName = el('input', 'bn-name-in');
+    notesName.type = 'text';
+    notesName.autocomplete = 'off';
+    notesName.maxLength = 20;
+    notesName.placeholder = '海の中で見せる名前';
+    notesName.setAttribute('aria-label', 'ひとことに付ける名前');
+    notesName.addEventListener('change', () => { notesName.value = String(ask(a, 'setNoteName', notesName.value) || ''); });
+    nameRow.appendChild(notesName);
+    notesPane.appendChild(nameRow);
+
+    notesArea = document.createElement('textarea');
+    notesArea.className = 'bm-in bn-in';
+    notesArea.rows = 3;
+    notesArea.maxLength = 280;
+    notesArea.placeholder = 'ここまでやった・詰まっている など（280字まで）';
+    notesArea.setAttribute('aria-label', 'ひとことを書く');
+    notesArea.addEventListener('input', () => { noteDrafts.set(id, notesArea.value); });
+    notesPane.appendChild(notesArea);
+
+    const send = el('button', 'bm-save', '書く');
+    send.type = 'button';
+    let back = 0;
+    send.addEventListener('click', ev => {
+      ev.preventDefault();
+      const said = sendNote();
+      clearTimeout(back);
+      send.textContent = said;
+      send.classList.toggle('is-nope', said !== '書いた');
+      back = setTimeout(() => { send.textContent = '書く'; send.classList.remove('is-nope'); }, 1400);
+    });
+    notesPane.appendChild(send);
+
+    notesSaid = el('p', 'bm-said');
+    notesSaid.setAttribute('role', 'status');
+    notesPane.appendChild(notesSaid);
+
+    root.appendChild(notesPane);
+  }
+
+  /* -> ボタンに出す言葉 */
+  function sendNote() {
+    const t = notesArea ? notesArea.value.trim() : '';
+    if (!t) return '書いてから';
+    if (notesName) ask(a, 'setNoteName', notesName.value);
+    if (!ask(a, 'addNote', id, t)) return 'まだ書けない';
+    notesArea.value = '';
+    noteDrafts.delete(id);
+    ask(a, 'markNotesSeen', id);
+    renderNotes(); syncNotesBtn();
+    notesList.scrollTop = notesList.scrollHeight;
+    if (notesSaid) notesSaid.textContent = '残した（この海の人に届く）';
+    return '書いた';
+  }
+
+  function openNotes() {
+    if (!notesPane) buildNotes();
+    const nm = nameIn ? nameIn.value.trim() : String(ask(a, 'text', id) || '');
+    notesPane._ctx.textContent = nm ? '泡：' + nm : '';
+    notesName.value = String(ask(a, 'noteName') || '');
+    notesArea.value = noteDrafts.get(id) || '';
+    if (notesSaid) notesSaid.textContent = '';
+    renderNotes();
+    ask(a, 'markNotesSeen', id);                  /* 開いた＝ここまで読んだ */
+    document.querySelectorAll('.bub[data-id="' + String(id).replace(/["\\]/g, '') + '"] .ndot')
+      .forEach(d => { d.hidden = true; });
+    notesPane.hidden = false;
+    if (fields) fields.hidden = true;
+    relayout();
+    notesList.scrollTop = notesList.scrollHeight; /* 新しいほう（下）から読む */
+    notesPane._close.focus({ preventScroll: true });   /* 入力欄に入れない＝キーボードを出さない */
+  }
+
+  /* 戻り値：閉じたかどうか（Escape の受け手が「自分で処理した」を知るため） */
+  function closeNotes(restoreFocus) {
+    if (!notesPane || notesPane.hidden) return false;
+    if (notesArea) noteDrafts.set(id, notesArea.value);
+    if (notesName) ask(a, 'setNoteName', notesName.value);
+    notesPane.hidden = true;
+    if (fields) fields.hidden = false;
+    syncNotesBtn();
+    relayout();
+    if (restoreFocus && notesBtn && notesBtn.isConnected) notesBtn.focus({ preventScroll: true });
+    return true;
+  }
+
   function openHistory() {
     const rows = stepsNow();                   /* 開くたびに読み直す（古い順のまま） */
     if (!rows.length) {                        /* 外で消えていたら、ボタンごと引っ込める */
@@ -2009,7 +2210,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     /* バブルの下に置く箱は、いま出ているほう（盤 か 履歴）ひとつだけ */
     const lower = (hist && !hist.hidden) ? hist
       : ((memoPane && !memoPane.hidden) ? memoPane
-        : ((detailPane && !detailPane.hidden) ? detailPane : fields));
+        : ((detailPane && !detailPane.hidden) ? detailPane
+          : ((notesPane && !notesPane.hidden) ? notesPane : fields)));
 
     /* 本文の読む面（Issue #16）は大きく読む面。泡の下に収めず、
        画面の上の縁から下タブの手前まで、横は画面の真ん中に置く */
@@ -2041,6 +2243,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       if (hist) hist.style.maxHeight = cap;
       if (memoPane) memoPane.style.maxHeight = cap;
       if (detailPane) detailPane.style.maxHeight = cap;
+      if (notesPane) notesPane.style.maxHeight = cap;
       if (fields) {
         fields.style.maxHeight = cap;
         /* 入りきらないときだけ、下端をぼかして「続きがある」を出す。
@@ -2083,6 +2286,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        （外れているものに日は付かない＝ store が弾く） */
     flush() {
       if (memoPane && !memoPane.hidden && memoArea) memoDraft = memoArea.value;
+      if (notesPane && !notesPane.hidden && notesArea) noteDrafts.set(id, notesArea.value);
       saveStep(); saveUrl(); saveName(); saveDetail();
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
@@ -2103,7 +2307,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     },
     /* Escape をここで先に受ける。履歴が開いていれば、閉じるのは履歴だけ
        （中央から抜けない）。開いていなければ false を返し、中央が閉じる。 */
-    handleEscape() { return closeMemo(true) || closeDetail(true) || closeHistory(true); },
+    handleEscape() { return closeMemo(true) || closeDetail(true) || closeNotes(true) || closeHistory(true); },
   };
 }
 
