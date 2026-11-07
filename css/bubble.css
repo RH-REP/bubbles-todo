@@ -546,6 +546,29 @@
    あとに置いてある——両方付いているときは、こちらが勝つ */
 .bub.is-done .skin::before { opacity: .2; }
 
+/* 小さく、薄く（Issue #27「完了しても泡が浮かんでいて区別がつかない」）。
+   ✓ と照りだけでは、漂っている泡の中で見分けにくかった。
+   日付の水面から外す（完了の海へ送る）ことはしない——上の「消すと達成が残らない」が理由。
+   代わりに、まだのものより一回り小さく・薄くして、目がまだのものへ行くようにする。
+
+   ・小さく：transform ではなく scale を使う。.skin の transform は掴む・押すの
+     縮みと膨らみ（.is-held / .is-dragging）が使っているので、そちらと掛け合わさる。
+     当たりの大きさ（drift の円）は変えない——泡どうしの間が少し空くだけ。
+   ・薄く：.skin ごと薄くするので文字も薄くなる。読むときのために、
+     触れている・鍵盤で選んでいる・中央に出している・掴んでいる間は元に戻す。 */
+.bub.is-done .skin {
+  scale: .8; opacity: .55;
+  transition: transform .16s cubic-bezier(.3,1.4,.5,1), box-shadow .2s, opacity .18s, scale .18s;
+}
+/* 指の端末では :hover が離したあとも残るので、マウスのときだけ */
+@media (hover: hover) {
+  .bub.is-done:hover .skin { scale: 1; opacity: 1; }
+}
+.bub.is-done:focus-visible .skin,
+.bub.is-done.is-centered .skin,
+.bub.is-done.is-dragging .skin,
+.bub.is-done.is-held .skin { scale: 1; opacity: 1; }
+
 /* ---------- 触ったとき ---------- */
 .bub.is-held .skin { transform: scale(.93); }
 .bub.is-dragging { cursor: grabbing; }
