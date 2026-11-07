@@ -6,6 +6,8 @@
    今日から先のものだけを使う。**過ぎた日は数えない**（「期限切れ」「◯日過ぎ」を出さない。README の禁止事項）。
    完了したものは並べない。 */
 
+import { holidayName } from './holiday.js';
+
 const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SPAN_RE = /^期間: (\d{4}-\d{2}-\d{2}) 〜 (\d{4}-\d{2}-\d{2})/m;
 const DATE_RE = /^日付: (\d{4}-\d{2}-\d{2})/m;
@@ -86,7 +88,7 @@ export function leftLabel(n) {
 }
 
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
-/* 列の見出し。{ key, d: 日, m: 月（月の頭か最初の列だけ）, wd: 曜日, sun, sat } */
+/* 列の見出し。{ key, d: 日, m: 月（月の頭か最初の列だけ）, wd: 曜日, sun, sat, hol: 祝日の名前か '', off: 日曜か祝日 } */
 export function columns(today, n) {
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -96,7 +98,9 @@ export function columns(today, n) {
     out.push({
       key, d: day, m: (i === 0 || day === 1) ? (dt.getMonth() + 1) + '月' : '',
       wd: WD[dt.getDay()], sun: dt.getDay() === 0, sat: dt.getDay() === 6,
+      hol: holidayName(key),
     });
+    out[i].off = out[i].sun || !!out[i].hol;
   }
   return out;
 }

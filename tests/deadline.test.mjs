@@ -5,6 +5,7 @@ import {
   deadlineOf, deadlineRows, columnCount, columns, cellMark, inSpan, leftLabel, spanFromDetail, daysBetween,
   COLS_MIN, COLS_MAX,
 } from '../js/deadline.js';
+import { holidaysOf, holidayName } from '../js/holiday.js';
 
 const T = '2026-11-07';
 
@@ -66,4 +67,31 @@ test('印と札', () => {
   assert.equal(leftLabel(1), 'あした');
   assert.equal(leftLabel(5), 'あと5日');
   assert.equal(daysBetween('2026-03-07', '2026-03-09'), 2);   /* 夏時間をまたいでもずれない */
+});
+
+/* 祝日（Issue #24 の返事）。内閣府の公表どおりの日 */
+test('2026 年の祝日（振替休日・国民の休日を含む）', () => {
+  const want = {
+    '2026-01-01': '元日', '2026-01-12': '成人の日', '2026-02-11': '建国記念の日', '2026-02-23': '天皇誕生日',
+    '2026-03-20': '春分の日', '2026-04-29': '昭和の日', '2026-05-03': '憲法記念日', '2026-05-04': 'みどりの日',
+    '2026-05-05': 'こどもの日', '2026-05-06': '振替休日', '2026-07-20': '海の日', '2026-08-11': '山の日',
+    '2026-09-21': '敬老の日', '2026-09-22': '国民の休日', '2026-09-23': '秋分の日', '2026-10-12': 'スポーツの日',
+    '2026-11-03': '文化の日', '2026-11-23': '勤労感謝の日',
+  };
+  assert.deepEqual(Object.fromEntries([...holidaysOf(2026)].sort()), want);
+});
+
+test('2027 年の振替休日と春分・秋分', () => {
+  assert.equal(holidayName('2027-03-21'), '春分の日');
+  assert.equal(holidayName('2027-03-22'), '振替休日');
+  assert.equal(holidayName('2027-09-23'), '秋分の日');
+  assert.equal(holidayName('2027-11-24'), '');
+  assert.equal(holidayName('2026-11-24'), '');
+  assert.equal(holidayName('x'), '');
+});
+
+test('列に祝日と休みの印が付く', () => {
+  const c = columns('2026-11-21', 4);   /* 土・日・月(勤労感謝の日)・火 */
+  assert.deepEqual(c.map(x => [x.sat, x.off, x.hol]),
+    [[true, false, ''], [false, true, ''], [false, true, '勤労感謝の日'], [false, false, '']]);
 });

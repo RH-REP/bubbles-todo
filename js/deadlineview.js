@@ -33,8 +33,18 @@ export function createDeadlineView(host, opts = {}) {
     it.appendChild(document.createTextNode(lb));
     legend.appendChild(it);
   });
+  /* 休みの色（2026-11-07 Issue #24 の返事）。日曜・祝日は杏、土曜は空。赤は使わない */
+  [['off', '日曜・祝日'], ['sat', '土曜']].forEach(([k, lb]) => {
+    const it = el('span', 'dl-lg');
+    it.appendChild(el('span', 'dl-sw is-' + k));
+    it.appendChild(document.createTextNode(lb));
+    legend.appendChild(it);
+  });
+  /* 表に映る祝日の名前（見出しの「祝」だけでは何の日か分からないため） */
+  const hols = el('p', 'dl-hols');
   root.appendChild(cap);
   root.appendChild(legend);
+  root.appendChild(hols);
   root.appendChild(empty);
   root.appendChild(scroller);
   host.appendChild(root);
@@ -50,14 +60,20 @@ export function createDeadlineView(host, opts = {}) {
     const cols = columns(today, n);
     const last = cols[cols.length - 1].key;
     table.style.setProperty('--dl-cols', String(n));
+    const hl = cols.filter(c => c.hol);
+    hols.hidden = hl.length === 0;
+    hols.textContent = hl.length ? '祝日: ' + hl.map(c => (+c.key.slice(5, 7)) + '/' + c.d + ' ' + c.hol).join('・') : '';
 
     const head = el('div', 'dl-row dl-head');
     head.appendChild(el('div', 'dl-name dl-corner', ''));
     cols.forEach((c, i) => {
-      const h = el('div', 'dl-col' + (i === 0 ? ' is-today' : '') + (c.sun ? ' is-sun' : '') + (c.sat ? ' is-sat' : '') + (c.m && i ? ' is-month' : ''));
+      const h = el('div', 'dl-col' + dayClass(c, i));
       h.appendChild(el('span', 'dl-m', c.m));
       h.appendChild(el('b', 'dl-d', String(c.d)));
-      h.appendChild(el('span', 'dl-wd', i === 0 ? '今日' : c.wd));
+      const wd = el('span', 'dl-wd');
+      wd.textContent = i === 0 ? '今日' : (c.hol ? '祝' : c.wd);
+      h.appendChild(wd);
+      if (c.hol) h.title = c.hol + '（' + c.wd + '）';
       head.appendChild(h);
     });
     table.appendChild(head);
@@ -76,7 +92,7 @@ export function createDeadlineView(host, opts = {}) {
       row.appendChild(nm);
       cols.forEach((c, i) => {
         const mk = cellMark(r, c.key);
-        const cell = el('div', 'dl-cell' + (i === 0 ? ' is-today' : '') + (c.sun ? ' is-sun' : '') + (c.m && i ? ' is-month' : ''));
+        const cell = el('div', 'dl-cell' + dayClass(c, i));
         cell.setAttribute('aria-hidden', 'true');
         if (inSpan(r, c.key)) cell.appendChild(el('span', 'dl-bar'));
         if (mk && mk !== 'span') cell.appendChild(el('span', 'dl-mk is-' + mk));
@@ -88,6 +104,12 @@ export function createDeadlineView(host, opts = {}) {
   }
 
   function clear() { table.replaceChildren(); }
+
+  /* 列の印。休み（日曜・祝日）と土曜で地の色を変える */
+  function dayClass(c, i) {
+    return (i === 0 ? ' is-today' : '') + (c.off ? ' is-off' : '') + (c.hol ? ' is-hol' : '')
+      + (c.sat && !c.off ? ' is-sat' : '') + (c.m && i ? ' is-month' : '');
+  }
 
   return { el: root, render, clear };
 }

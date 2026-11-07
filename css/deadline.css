@@ -44,10 +44,21 @@
 }
 .dl-col .dl-m { min-height: 1.2em; font-size: 10px; white-space: nowrap; }
 .dl-col .dl-d { font-size: 12px; font-weight: 600; color: var(--text); }
-.dl-col.is-sun .dl-wd, .dl-col.is-sat .dl-wd { color: var(--text-3); }
 .dl-col.is-today .dl-d { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
 .dl-cell { position: relative; display: flex; align-items: center; justify-content: center; }
-.dl-col.is-sun, .dl-cell.is-sun { background-color: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+/* 休みの色（Issue #24 の返事）。日曜・祝日は杏（--q-now-f）、土曜は空（--q-quick-f）。赤は使わない。
+   見出しは地を濃く、表の中は薄く。祝日は見出しの曜日が「祝」になり、名前は表の上の1行に出る */
+.dl-col.is-off { background: var(--q-now-f); }
+.dl-col.is-sat { background: var(--q-quick-f); }
+.dl-cell.is-off { background-color: color-mix(in srgb, var(--q-now-f) 60%, transparent); }
+.dl-cell.is-sat { background-color: color-mix(in srgb, var(--q-quick-f) 60%, transparent); }
+.dl-col.is-off .dl-wd, .dl-col.is-sat .dl-wd { color: var(--text); }
+.dl-col.is-hol .dl-wd { font-weight: 600; }
+.dl-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--line); }
+.dl-sw.is-off { background: var(--q-now-f); }
+.dl-sw.is-sat { background: var(--q-quick-f); }
+.dl-hols { margin: 0; font-size: 11.5px; color: var(--text-2); }
+.dl-legend { flex-wrap: wrap; row-gap: 2px; }
 .dl-col.is-month, .dl-cell.is-month { box-shadow: inset 1px 0 0 var(--line-strong, var(--line)); }
 .dl-cell.is-today { background-color: color-mix(in srgb, var(--bub-edge) 10%, transparent); }
 
