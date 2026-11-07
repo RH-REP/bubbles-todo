@@ -14,6 +14,8 @@ import { openMenu, attachGestures } from '../bubble.js';
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete, playSfx } from '../sound.js';
+import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest } from '../suggest.js';
+import { hasKey, askFull } from '../ai.js';
 
 /* 詳細の入力を書き終わりまで待たずに保存する間隔（plan.js と同じ） */
 const SAVE_MS = 400;
@@ -408,6 +410,7 @@ function goDay(key) {
   const next = (key === todayKey()) ? null : key;
   if (viewDay === next) return;
   viewDay = next;
+  closeSuggest();
   syncDayBtn();
   announceDay();
   render();
@@ -552,6 +555,7 @@ function render() {
   syncComposer();
   renderComposerTags();          /* 設定でタグが増減していることがある */
   syncRandomBtn();
+  syncSuggest();
   /* 過去は記録なので触らせない（足すと、その日の記録が後から変わる） */
   if (stage) stage.classList.toggle('is-readonly', isPast());
 
@@ -1194,6 +1198,151 @@ function moveDay(id, from, to) {
   });
 }
 
+/* ---------------- おすすめ（2026-11-07。利用者の指示 Issue #12） ----------------
+
+   押すと板が開き、映している日に置くとよさそうな泡を 3〜5 件、短い理由つきで出す。
+   **自動では今日へ移さない。**行の [置く] を押したものだけを置き、トーストで取り消せる（⌘Z でも）。
+   はじめは端末の中の規則だけ（送らない）。[AI で選び直す] を押したときだけ、端末で絞った候補
+   （30 件まで）の名前と印を Anthropic へ送る。本文・作業メモ・ひとこと・リンクは送らない。
+   計算は js/suggest.js。過去の日には置けないので押せない。 */
+
+let suggestBtn = null;
+let suggest = null;      /* { box, list, note, aiBtn, picks, busy, seq, day } */
+
+function suggestPool(day) {
+  const all = (typeof store.all === 'function') ? store.all() : [];
+  return all.filter(t => eligible(t, day)).map(t => describe(t, {
+    tags: tagNames(t.id),
+    firstStep: typeof store.firstStepOf === 'function' && !!store.firstStepOf(t.id),
+  }));
+}
+
+function syncSuggest() {
+  if (!suggestBtn) return;
+  const past = isPast();
+  suggestBtn.disabled = past;
+  const word = isToday() ? '今日' : dayLabel(curDay());
+  suggestBtn.title = past ? '過ぎた日には置けない' : word + 'に置くとよさそうなものを出す';
+  suggestBtn.setAttribute('aria-label', suggestBtn.title);
+  suggestBtn.setAttribute('aria-expanded', suggest ? 'true' : 'false');
+  if (suggest) renderSuggest();
+}
+
+function toggleSuggest() {
+  if (suggest) { closeSuggest(); return; }
+  if (isPast() || !stage) return;
+  closeMenu();
+  const day = curDay();
+  const box = el('div', 'today-suggestbox');
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-label', 'おすすめ');
+  box.dataset.screen = 'today.suggest'; box.dataset.screenLayer = '3';
+  const head = el('div', 'tsg-head');
+  const ttl = el('span', 'tsg-ttl');
+  head.appendChild(ttl);
+  const x = el('button', 'tsg-close', '×');
+  x.type = 'button';
+  x.setAttribute('aria-label', '閉じる');
+  x.addEventListener('click', ev => { ev.preventDefault(); closeSuggest(); });
+  head.appendChild(x);
+  box.appendChild(head);
+  const list = el('ul', 'tsg-list');
+  box.appendChild(list);
+  const aiBtn = el('button', 'tsg-ai', 'AI で選び直す');
+  aiBtn.type = 'button';
+  aiBtn.addEventListener('click', ev => { ev.preventDefault(); askSuggest(); });
+  box.appendChild(aiBtn);
+  const note = el('p', 'tsg-note');
+  box.appendChild(note);
+  stage.appendChild(box);
+  suggest = { box, list, note, aiBtn, ttl, picks: localPicks(suggestPool(day), Date.now()), busy: false, seq: 0, day, msg: '', ai: false };
+  syncSuggest();
+}
+
+function closeSuggest() {
+  if (!suggest) return;
+  suggest.seq++;               /* 待っている返事は捨てる */
+  suggest.box.remove();
+  suggest = null;
+  if (suggestBtn) suggestBtn.setAttribute('aria-expanded', 'false');
+}
+
+function renderSuggest() {
+  const s = suggest;
+  if (!s) return;
+  const word = isToday() ? '今日' : dayLabel(curDay());
+  s.ttl.textContent = word + 'のおすすめ' + (s.ai ? '（AI）' : '');
+  s.list.textContent = '';
+  const live = s.picks.filter(c => { const t = store.get(c.id); return t && eligible(t, s.day); });
+  if (!live.length) {
+    s.list.appendChild(el('li', 'tsg-empty', '海に、ここへ置けるものが見当たらない'));
+  }
+  live.forEach(c => {
+    const li = el('li', 'tsg-row');
+    const tx = el('span', 'tsg-tx');
+    const nm = el('span', 'tsg-nm');
+    nm.textContent = c.text;
+    tx.appendChild(nm);
+    if (c.reason) { const rs = el('span', 'tsg-why'); rs.textContent = c.reason; tx.appendChild(rs); }
+    li.appendChild(tx);
+    const put = el('button', 'tsg-put', '置く');
+    put.type = 'button';
+    put.setAttribute('aria-label', '「' + trim(c.text) + '」を' + word + 'に置く');
+    put.addEventListener('click', ev => { ev.preventDefault(); placeSuggest(c.id); });
+    li.appendChild(put);
+    s.list.appendChild(li);
+  });
+  s.aiBtn.disabled = s.busy;
+  s.aiBtn.textContent = s.busy ? 'AI が選んでいる…' : 'AI で選び直す';
+  s.note.textContent = s.msg || (hasKey()
+    ? '押すと、候補の泡の名前と印（30 件まで）を Anthropic へ送る。本文・作業メモは送らない'
+    : '設定の「ヘルプと AI」に API キーを入れると、名前の意味や季節も考えに入れて選べる');
+}
+
+function placeSuggest(id) {
+  const s = suggest;
+  const t = store.get(id);
+  if (!s || !t || typeof store.setDay !== 'function') return;
+  const day = s.day;
+  if (!store.setDay(id, day, true)) return;
+  playSfx('place');
+  const d = dayToDate(day);
+  const where = day === todayKey() ? '今日' : (d.getMonth() + 1) + '/' + d.getDate();
+  toast('「' + trim(t.text) + '」を ' + where + ' に置いた', {
+    label: '取り消す',
+    on: () => { store.setDay(id, day, false); },
+  });
+}
+
+async function askSuggest() {
+  const s = suggest;
+  if (!s || s.busy) return;
+  if (!hasKey()) {
+    s.msg = 'API キーが入っていない。設定の「ヘルプと AI」に入れると使える（いまは送っていない）';
+    renderSuggest();
+    return;
+  }
+  const cands = sendList(suggestPool(s.day), Date.now());
+  if (!cands.length) { s.msg = '送る候補が無い（送っていない）'; renderSuggest(); return; }
+  const p = buildSuggestPrompt(cands, s.day);
+  const my = ++s.seq;
+  s.busy = true; s.msg = '';
+  renderSuggest();
+  try {
+    const r = await askFull(p.system, p.user, { maxTokens: 2000 });
+    if (suggest !== s || s.seq !== my) return;
+    const picks = parseSuggest(r.text, cands);
+    if (!picks || !picks.length) {
+      s.msg = r.stop === 'max_tokens' ? '返事が途中で切れた。もう一度押すと選び直す' : '返事を一覧にできなかった。もう一度押すと選び直す';
+    } else { s.picks = picks; s.ai = true; }
+  } catch (e) {
+    if (suggest !== s || s.seq !== my) return;
+    s.msg = '届かなかった: ' + String((e && e.message) || e).slice(0, 120);
+  }
+  s.busy = false;
+  renderSuggest();
+}
+
 const handlers = {
   onFocusRequest: id => openFive(id),
   onMenu: (id, node) => onMenu(id, node),
@@ -1292,6 +1441,12 @@ export default {
     });
     stage.appendChild(randomBtn);
 
+    /* おすすめ（Issue #12）。さいころの下。押すと板が開く（送るのは板の [AI で選び直す] を押したときだけ） */
+    suggestBtn = el('button', 'today-suggest', 'おすすめ');
+    suggestBtn.type = 'button';
+    suggestBtn.addEventListener('click', ev => { ev.preventDefault(); toggleSuggest(); });
+    stage.appendChild(suggestBtn);
+
     /* 四つに分ける切り替え。さいころの左（海ではフィルターの隣） */
     quadBtn = quadButton(() => setQuad(!quadOn));
     quadBtn.classList.add('today-quadbtn');
@@ -1377,6 +1532,7 @@ export default {
      日を移していたら今日へ戻す——「最終的にホームへ」の途中の1段。 */
   onBack() {
     if (dayPop) { closeDayPop(); return true; }
+    if (suggest) { closeSuggest(); return true; }
     if (detail) { closeDetail(); return true; }
     if (viewDay) { goDay(todayKey()); return true; }
     return false;
@@ -1386,6 +1542,7 @@ export default {
     shown = false;
     closeMenu();
     closeDetail();
+    closeSuggest();
     cancelShuffle();          /* 混ぜかけのまま裏に回ったら畳む。開かない */
     if (field) field.stop();
     if (typeof store.flush === 'function') store.flush();

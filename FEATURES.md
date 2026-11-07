@@ -69,6 +69,7 @@
 | 名前（本文）を盤で書き直せる | `js/store.js` `setText`、`js/bubble.js` 「名前」欄 | 2026-10-12。空にはできない。記録のスナップショットは当時のまま |
 | 本文（名前とは別の説明）を盤で書ける | `js/store.js` `setDetail`・`detailOf`（todo の `detail`）、`js/bubble.js` 「本文」の入口と面（作業メモの面と同じ `.bc-memo`・`.bm-*`） | 2026-11-03（Issue #8「便利なら足す」）。名前は泡で18字に切れ、作業メモは履歴に積む記録なので、変わらない説明の置き場が無かった。任意で、海の入力欄には足さない。改行を残し、空にできる。履歴には積まない。閉じる（面の [閉じる]・Escape・盤を閉じる・[OK]）と書き替える。古い詳細パネル（DEV_NOTES B-2）には足していない。2026-11-05（Issue #16）: 本文があるときは読む面（`.is-reading`・`.bm-view`。画面の上から下タブの手前まで広げ、入力欄に焦点を入れない＝スマホでキーボードが出ない）で開き、[編集] で書く面へ。空のときは書く面で開く |
 | 本文の面の AI（「AI で調べる」で Web を調べて末尾に足す・「AI で整理」で見出しと箇条書きに整える・「AI で名前」で 18 字以内の名前の案を作る（Issue #11。本文が空なら長い名前を本文へ移す）） | `js/research.js`、`js/bubble.js` `buildAi`、`js/ai.js` `askFull`・`askWithSearchFull`、`css/bubble.css` `.bm-ai*` | 2026-11-05（利用者の指示 Issue #17）。案を見せてから [本文に足す]／[置き換える]、入れたあと [元に戻す]。キーが無ければ押したときに入れ場所を出す。送るのは押したときのその泡の名前と本文だけ（4000 字まで）。調べるは検索 3 回まで。整理で消えた URL は知らせる。`tests/research.test.mjs` |
+| 今日のおすすめ（さいころの下の「おすすめ」。端末の規則で 3〜5 件を理由つきで出し、[置く] で選んだものだけ置く。[AI で選び直す] で候補 30 件までの名前と印だけを送って選び直す） | `js/suggest.js`、`js/screens/today.js` `toggleSuggest`・`askSuggest`、`css/screens/today.css` `.today-suggest*` | 2026-11-07（利用者の指示 Issue #12。案 a）。自動では移さない・取り消せる。本文・作業メモ・ひとこと・リンクは送らない。`tests/suggest.test.mjs` |
 | **引き出し**（左上の ≡。最近つかった／お気に入り／長期保留／タグごと → 今日に置く。名前で盤が開く） | `js/app.js` `openDrawer` / `revealItem`、`js/store.js` `recentItems` / `favItems` / `setFav`、`js/bubble.js` `centerBubble` | 2026-09-24（元 F7）。9/25 にタグ区分・折り畳み・名前タップを追加。お気に入りは盤の ☆ |
 
 ---
