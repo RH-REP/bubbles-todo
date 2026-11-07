@@ -378,6 +378,8 @@ bash tests/server-setup.test.sh
     画面に確かめの字（例 `ABC-DEF`）が出るので、持ち主に伝える。持ち主はサーバーで `request-list` を見て、同じ字を
     `request-ok <字> --space …`（置き場は `invite-add` と同じ書き方）で認める（断るなら `request-no <字>`）。
     端末は 8 秒ごとに様子を聞き（「様子を見る」でもよい）、認められたら「登録を仕上げる」でパスキーを作る。
+    - `tools/server-setup.sh` で立てたサーバーでは、同じことを `bash bubbles-todo/tools/server-setup.sh request-list`・`request-ok <字> <置き場>`・`request-no <字>` で打てる
+      （`limit`・`limit-set <数>` も。2026-11-07 Issue #25 の返事で足した）。使うには、サーバーが版 2026-11-07o 以降であること（`server-setup.sh update`）
     - 送るのは呼び名（40 字まで）だけ。サーバーは字・呼び名・端末の鍵の sha256・接続元の sha256 の頭を `requests.json`（600）に 24 時間置く。
       認めると、端末の鍵がそのまま招待コード（`invites.json` の `kind: 'request'`、24 時間・1回きり）になる
     - 待たせられる頼みは全体で 10、1つの接続元から 3 まで（溢れたら 429 `requests`）。字は秘密ではないので、

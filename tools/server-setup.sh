@@ -15,6 +15,10 @@
 #     人を招く海は、その海の ID（アプリの「この海の名前・色」に出る）
 #   bash bubbles-todo/tools/server-setup.sh invite-list / passkey-list / passkey-remove <名前>
 #   bash bubbles-todo/tools/server-setup.sh passkey-person <名前> <番号|new>   そのパスキーをほかの人の個人へ移す
+#   bash bubbles-todo/tools/server-setup.sh request-list                     端末から届いた登録の頼み（字・呼び名）
+#   bash bubbles-todo/tools/server-setup.sh request-ok <字> [置き場]          認める（置き場は invite-add と同じ書き方。既定 share）
+#   bash bubbles-todo/tools/server-setup.sh request-no <字>                  断る
+#   bash bubbles-todo/tools/server-setup.sh limit / limit-set <数>           置き場ごとの登録の上限を見る・変える
 #
 # すること（install）:
 #   1. python3（3.8 以上）と git を確かめる。無ければ dnf / apt で入れる
@@ -279,9 +283,14 @@ case "${1:-install}" in
   passkey-person) [[ -n "${2:-}" && -n "${3:-}" ]] || die "名前と移す先を入れてください（例: passkey-person 母のスマホ new）"; token_cmd passkey-person "$2" "$3" ;;
   passkey-remove) [[ -n "${2:-}" ]] || die "名前を入れてください（例: passkey-remove 母のスマホ）"; token_cmd passkey-remove "$2" ;;
   invite-list|passkey-list) token_cmd "$1" ;;
+  # 端末からの登録の頼み（Issue #26）と登録の上限。server.py の同じ名前のコマンドをそのまま呼ぶ（Issue #25 の返事で足した）
+  request-list|limit) token_cmd "$1" ;;
+  request-ok) [[ -n "${2:-}" ]] || die "端末の画面に出ている字を入れてください（例: request-ok ABC-DEF me）"; token_cmd request-ok "$2" --space "${3:-share}" ;;
+  request-no) [[ -n "${2:-}" ]] || die "端末の画面に出ている字を入れてください（例: request-no ABC-DEF）"; token_cmd request-no "$2" ;;
+  limit-set) [[ -n "${2:-}" ]] || die "数を入れてください（例: limit-set 5）"; token_cmd limit-set "$2" ;;
   install) cmd_install ;;
   update) cmd_update ;;
   status) cmd_status ;;
   uninstall) cmd_uninstall ;;
-  *) die "使い方: bash $0 [install|update|status|uninstall|invite-add 名前 [me|me:<番号>|share|海の ID をコンマで]|invite-list|passkey-list|passkey-person 名前 <番号|new>|passkey-remove 名前]" ;;
+  *) die "使い方: bash $0 [install|update|status|uninstall|invite-add 名前 [me|me:<番号>|share|海の ID をコンマで]|invite-list|passkey-list|passkey-person 名前 <番号|new>|passkey-remove 名前|request-list|request-ok 字 [置き場]|request-no 字|limit|limit-set 数]" ;;
 esac
