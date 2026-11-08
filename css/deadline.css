@@ -73,8 +73,25 @@
 @media (max-width: 420px) { .dl-table { --dl-name: 7.5em; --dl-w: 26px; } }
 .dl-more { position: absolute; right: 1px; font-size: 11px; color: var(--text-2); }
 
-/* 天気（2026-11-08 Issue #30）。地域・取得・取得した時刻と大きさ・出典を1行に。狭いと折り返す */
+/* 天気（2026-11-08 Issue #30）。見出し・地域・取得・ⓘ を1行に。狭いと折り返す。
+   見方・祝日の名前・取った時刻・出典は ⓘ の中（.dl-info）に畳む（Issue #30 の返事「シンプルに」） */
 .dl-wxbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11.5px; color: var(--text-2); }
+.dl-wxbar .dl-cap { margin-right: auto; }
+.dl-wxmsg { flex-basis: 100%; }
+.dl-info {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 6px 10px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line);
+}
+.dl-fetched { margin: 0; font-size: 11.5px; color: var(--text-2); }
+.dl-dayline {
+  margin: 0; padding: 5px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.4; color: var(--text);
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line);
+}
+.dl-infobtn {
+  appearance: none; font: inherit; font-size: 15px; line-height: 1; cursor: pointer;
+  min-width: 30px; min-height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--text-2);
+}
+.dl-infobtn[aria-expanded="true"] { color: var(--text); border-color: var(--bub-edge); }
 .dl-wxarea, .dl-wxget {
   font: inherit; font-size: 12px; color: var(--text);
   min-height: 30px; padding: 2px 8px; border-radius: 8px;
@@ -86,3 +103,16 @@
 .dl-wxcredit { color: var(--text-2); font-size: 10.5px; }
 .dl-col .dl-wx { font-size: 13px; line-height: 1.1; }
 .dl-col .dl-tp { font-size: 9.5px; letter-spacing: -.02em; white-space: nowrap; color: var(--text); }
+.dl-col .dl-pp { font-size: 9px; white-space: nowrap; color: var(--q-quick-e); }
+.dl-col.is-tap { cursor: pointer; }
+.dl-col.is-tap:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
+.dl-col.is-sel { box-shadow: inset 0 -3px 0 var(--bub-edge); }
+
+/* 見出しの行は、下を流れる泡の名前・印が透けないよう不透明にする（Issue #30 の返事）。
+   休みの色は、不透明な地（--surface）の上に重ねる（暗い画面では --q-now-f などが半透明のため）。
+   名前の列（z-index 2）より上に置き、下へ影を落として境目を見せる */
+.dl-head > * { background-color: var(--surface); z-index: 4; box-shadow: 0 1px 0 var(--line); }
+.dl-head > .dl-corner { z-index: 5; }
+.dl-head > .dl-col.is-off { background: linear-gradient(var(--q-now-f), var(--q-now-f)), var(--surface); }
+.dl-head > .dl-col.is-sat { background: linear-gradient(var(--q-quick-f), var(--q-quick-f)), var(--surface); }
+.dl-head > .dl-col.is-sel { box-shadow: inset 0 -3px 0 var(--bub-edge), 0 1px 0 var(--line); }

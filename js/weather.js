@@ -170,13 +170,18 @@ export function pointId(p) { return p[0] + '/' + p[1]; }
 export function pointLabel(p) { return p[0] + ' ' + p[1] + '（' + p[2] + '）'; }
 export function findPoint(id) { return POINTS.findIndex(p => pointId(p) === id); }
 
+/* 日ごとに取る欄（2026-11-08 Issue #30 の返事で降水確率・降水量・風を足した）。
+   欄を増やすほど返事が大きくなる（1欄で約 7 KB／142地点）。Open-Meteo は欄が10を超えると回数を多めに数える */
+export const DAILY = ['weather_code', 'temperature_2m_max', 'temperature_2m_min',
+  'precipitation_probability_max', 'precipitation_sum', 'wind_speed_10m_max'];
+
 /* 頼む URL。地点はいつも全部（どの地域を見ているかを URL に出さない） */
 export function buildUrl(points = POINTS, days = DAYS) {
   const lat = points.map(p => p[3].toFixed(2)).join(',');
   const lon = points.map(p => p[4].toFixed(2)).join(',');
   return API + '?latitude=' + lat + '&longitude=' + lon
-    + '&daily=weather_code,temperature_2m_max,temperature_2m_min'
-    + '&timezone=Asia%2FTokyo&forecast_days=' + days;
+    + '&daily=' + DAILY.join(',')
+    + '&wind_speed_unit=ms&timezone=Asia%2FTokyo&forecast_days=' + days;
 }
 
 function num(v) { return (typeof v === 'number' && Number.isFinite(v)) ? v : null; }
@@ -193,7 +198,10 @@ export function parseForecast(json, count = POINTS.length) {
     if (!d || !Array.isArray(d.time)) throw new Error('予報の形が読めない');
     if (!days) days = d.time.map(String);
     const pick = a => d.time.map((_, i) => num(Array.isArray(a) ? a[i] : null));
-    return { c: pick(d.weather_code), hi: pick(d.temperature_2m_max), lo: pick(d.temperature_2m_min) };
+    return {
+      c: pick(d.weather_code), hi: pick(d.temperature_2m_max), lo: pick(d.temperature_2m_min),
+      pp: pick(d.precipitation_probability_max), pr: pick(d.precipitation_sum), wd: pick(d.wind_speed_10m_max),
+    };
   });
   return { days: days || [], pts };
 }
@@ -227,7 +235,23 @@ export function forecastFor(data, idx, key) {
   const r = v => (num(v) === null ? null : Math.round(v));
   const hi = r(p.hi && p.hi[i]), lo = r(p.lo && p.lo[i]);
   if (!w && hi === null && lo === null) return null;
-  return { icon: w ? w.icon : '', name: w ? w.name : '', hi, lo };
+  /* 前の版で取ったもの（pp・pr・wd が無い）でも動く */
+  const pp = r(p.pp && p.pp[i]), wd = r(p.wd && p.wd[i]);
+  const pr0 = num(p.pr && p.pr[i]);
+  const pr = pr0 === null ? null : Math.round(pr0 * 10) / 10;
+  return { icon: w ? w.icon : '', name: w ? w.name : '', hi, lo, pp, pr, wd };
+}
+
+/* 日を押したときの1行（詳しく）。無い欄は書かない */
+export function detailText(f) {
+  if (!f) return '';
+  const out = [];
+  if (f.name) out.push((f.icon ? f.icon + ' ' : '') + f.name);
+  if (f.hi !== null || f.lo !== null) out.push('最高 ' + (f.hi === null ? '-' : f.hi) + '℃／最低 ' + (f.lo === null ? '-' : f.lo) + '℃');
+  if (f.pp != null) out.push('降水確率 ' + f.pp + '%');
+  if (f.pr != null) out.push('降水量 ' + f.pr + 'mm');
+  if (f.wd != null) out.push('風 最大 ' + f.wd + 'm/s');
+  return out.join('　');
 }
 
 /* 大きさの札（バイト → 「82 KB」） */

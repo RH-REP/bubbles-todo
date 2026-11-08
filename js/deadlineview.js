@@ -11,7 +11,7 @@
 
 import { el } from './ui.js';
 import { deadlineRows, columnCount, columns, cellMark, inSpan, leftLabel, keyOf } from './deadline.js';
-import { POINTS, pointId, CREDIT_URL, DAYS, loadData, loadArea, saveArea, fetchForecast, forecastFor, sizeLabel } from './weather.js';
+import { POINTS, pointId, CREDIT_URL, DAYS, loadData, loadArea, saveArea, fetchForecast, forecastFor, sizeLabel, detailText } from './weather.js';
 
 /* opts.open(id, node)   名前を押したとき
    opts.className        箱に足すクラス
@@ -78,19 +78,43 @@ export function createDeadlineView(host, opts = {}) {
   });
   const getBtn = el('button', 'dl-wxget');
   getBtn.type = 'button';
-  getBtn.textContent = '天気を取得';
-  getBtn.title = '全国の約' + POINTS.length + '地点の' + DAYS + '日分をまとめて取る（選んだ地域は送らない）';
+  getBtn.textContent = '↻ 天気';
+  getBtn.setAttribute('aria-label', '天気を取得');
+  /* 取っている間と、届かなかったときだけ出す（ふだんは何も出さない。Issue #30 の返事「シンプルに」） */
   const wxMsg = el('span', 'dl-wxmsg');
   wxMsg.setAttribute('role', 'status');
+  /* ⓘ … 印の見方・休みの色・祝日の名前・取った時刻と大きさ・出典を畳んでおく（既定は畳む） */
+  const infoBtn = el('button', 'dl-infobtn');
+  infoBtn.type = 'button';
+  infoBtn.textContent = 'ⓘ';
+  infoBtn.setAttribute('aria-label', '見方と天気の出典');
+  infoBtn.setAttribute('aria-expanded', 'false');
+  const info = el('div', 'dl-info');
+  info.hidden = true;
+  const fetched = el('p', 'dl-fetched');
   const credit = el('a', 'dl-wxcredit');
   credit.href = CREDIT_URL;
   credit.target = '_blank';
   credit.rel = 'noopener noreferrer';
-  credit.textContent = '天気: Open-Meteo.com';
+  credit.textContent = '天気: Open-Meteo.com（CC BY 4.0）';
+  info.appendChild(legend);
+  info.appendChild(hols);
+  info.appendChild(fetched);
+  info.appendChild(credit);
+  infoBtn.addEventListener('click', ev => {
+    ev.preventDefault();
+    info.hidden = !info.hidden;
+    infoBtn.setAttribute('aria-expanded', info.hidden ? 'false' : 'true');
+  });
+  /* 日の見出しを押すと、その日の詳しい天気（降水確率・降水量・風）と祝日の名前を1行で出す。もう一度押すと閉じる */
+  let selDay = '';
+  const dayLine = el('p', 'dl-dayline');
+  dayLine.hidden = true;
+  wxBar.appendChild(cap);
   wxBar.appendChild(pick);
   wxBar.appendChild(getBtn);
+  wxBar.appendChild(infoBtn);
   wxBar.appendChild(wxMsg);
-  wxBar.appendChild(credit);
   let busy = false;
   let wxErr = '';
   getBtn.addEventListener('click', async ev => {
@@ -98,6 +122,7 @@ export function createDeadlineView(host, opts = {}) {
     if (busy) return;
     busy = true; wxErr = '';
     getBtn.disabled = true;
+    wxMsg.hidden = false;
     wxMsg.textContent = '取得しています…';
     try { wx = await fetchForecast(); } catch (e) { wxErr = (e && e.message) || '取れなかった'; }
     busy = false;
@@ -107,23 +132,37 @@ export function createDeadlineView(host, opts = {}) {
   });
   function syncWx() {
     credit.hidden = !wx;
+    let at = '';
+    if (wx) {
+      const d = new Date(wx.at);
+      const z = x => String(x).padStart(2, '0');
+      at = (d.getMonth() + 1) + '/' + d.getDate() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+    }
+    fetched.hidden = !wx;
+    fetched.textContent = wx ? '天気: ' + at + ' に取得・' + sizeLabel(wx.bytes) + '（全国の' + POINTS.length + '地点・' + DAYS + '日分）' : '';
+    getBtn.title = (wx ? at + ' に取得。' : '') + '押すと全国の' + POINTS.length + '地点の' + DAYS + '日分をまとめて取り直す（選んだ地域は送らない）';
     if (busy) return;
-    if (wxErr) { wxMsg.textContent = wxErr + (wx ? '。前に取ったものを出している' : ''); return; }
-    if (!wx) { wxMsg.textContent = area >= 0 ? 'まだ取っていない' : ''; return; }
-    const d = new Date(wx.at);
-    const z = x => String(x).padStart(2, '0');
-    wxMsg.textContent = (d.getMonth() + 1) + '/' + d.getDate() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes())
-      + ' に取得・' + sizeLabel(wx.bytes) + (area < 0 ? '（地域を選ぶと列に出る）' : '');
+    wxMsg.hidden = !wxErr;
+    wxMsg.textContent = wxErr ? wxErr + (wx ? '。前に取ったものを出している' : '') : '';
   }
   syncWx();
 
-  root.appendChild(cap);
   root.appendChild(wxBar);
-  root.appendChild(legend);
-  root.appendChild(hols);
+  root.appendChild(info);
+  root.appendChild(dayLine);
   root.appendChild(empty);
   root.appendChild(scroller);
   host.appendChild(root);
+
+  function syncDayLine(cols) {
+    const c = selDay ? cols.find(x => x.key === selDay) : null;
+    if (!c) { selDay = ''; dayLine.hidden = true; dayLine.textContent = ''; return; }
+    const f = area >= 0 ? forecastFor(wx, area, c.key) : null;
+    const head = (+c.key.slice(5, 7)) + '/' + c.d + '（' + c.wd + (c.hol ? '・' + c.hol : '') + '）';
+    const where = f ? '　' + POINTS[area][1] + '（' + POINTS[area][2] + '）' : '';
+    dayLine.textContent = head + where + (f ? '　' + detailText(f) : '');
+    dayLine.hidden = false;
+  }
 
   function render(items) {
     lastItems = items || [];
@@ -132,7 +171,7 @@ export function createDeadlineView(host, opts = {}) {
     table.replaceChildren();
     empty.hidden = rows.length > 0;
     scroller.hidden = rows.length === 0;
-    if (!rows.length) return;
+    if (!rows.length) { dayLine.hidden = true; return; }
     const n = columnCount(rows);
     const cols = columns(today, n);
     const last = cols[cols.length - 1].key;
@@ -159,14 +198,34 @@ export function createDeadlineView(host, opts = {}) {
         const tp = el('span', 'dl-tp');
         tp.textContent = (f.hi === null ? '-' : f.hi) + '/' + (f.lo === null ? '-' : f.lo);
         h.appendChild(tp);
-        const say = f.name + (f.hi === null ? '' : ' 最高' + f.hi + '℃') + (f.lo === null ? '' : ' 最低' + f.lo + '℃');
-        h.title = (h.title ? h.title + '　' : '') + say;
-        h.setAttribute('aria-label', (+c.key.slice(5, 7)) + '月' + c.d + '日　' + say);
+        /* 降水確率（順番を入れ替える決め手になりやすいので見出しにも出す。無い版のデータなら出さない） */
+        if (f.pp !== null && f.pp !== undefined) {
+          const pp = el('span', 'dl-pp');
+          pp.textContent = f.pp + '%';
+          h.appendChild(pp);
+        }
+        h.title = (h.title ? h.title + '　' : '') + detailText(f);
         h.classList.add('has-wx');
       }
+      /* 押すと、その日の詳しいこと（天気・祝日の名前）を表の上の1行に出す */
+      if (f || c.hol) {
+        h.classList.add('is-tap');
+        h.tabIndex = 0;
+        h.setAttribute('role', 'button');
+        h.setAttribute('aria-pressed', selDay === c.key ? 'true' : 'false');
+        h.setAttribute('aria-label', (+c.key.slice(5, 7)) + '月' + c.d + '日（' + c.wd + '）'
+          + (c.hol ? '　' + c.hol : '') + (f ? '　' + detailText(f) : '') + '。押すと詳しく');
+        const toggle = () => { selDay = selDay === c.key ? '' : c.key; render(lastItems); };
+        h.addEventListener('click', ev => { ev.preventDefault(); toggle(); });
+        h.addEventListener('keydown', ev => {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); }
+        });
+      }
+      if (selDay === c.key) h.classList.add('is-sel');
       head.appendChild(h);
     });
     table.appendChild(head);
+    syncDayLine(cols);
 
     rows.forEach(r => {
       const row = el('div', 'dl-row');

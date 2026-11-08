@@ -20,7 +20,10 @@ function fake(n, codes = [0, 61, 3]) {
   return Array.from({ length: n }, (_, i) => ({
     latitude: POINTS[i] ? POINTS[i][3] : 0, longitude: POINTS[i] ? POINTS[i][4] : 0,
     daily_units: { time: 'iso8601' },
-    daily: { time: DAYS, weather_code: codes, temperature_2m_max: [18.4, 12.5, null], temperature_2m_min: [9.6, 7, 5.2] },
+    daily: {
+      time: DAYS, weather_code: codes, temperature_2m_max: [18.4, 12.5, null], temperature_2m_min: [9.6, 7, 5.2],
+      precipitation_probability_max: [10, 80, null], precipitation_sum: [0, 12.34, null], wind_speed_10m_max: [3.4, 8.6, null],
+    },
   }));
 }
 
@@ -39,6 +42,9 @@ test('URL は全地点をいつも同じ形で頼む（選んだ地域が URL �
   assert.equal(u.searchParams.get('longitude').split(',').length, POINTS.length);
   assert.equal(u.searchParams.get('forecast_days'), '7');
   assert.equal(u.searchParams.get('timezone'), 'Asia/Tokyo');
+  assert.equal(u.searchParams.get('wind_speed_unit'), 'ms');
+  assert.deepEqual(u.searchParams.get('daily').split(','), W.DAILY);
+  assert.ok(W.DAILY.length <= 10);                  /* 10 を超えると回数を多めに数えられる */
   saveArea(5);
   assert.equal(buildUrl(), buildUrl(POINTS));       /* 選びは URL に効かない */
 });
@@ -66,11 +72,23 @@ test('天気の番号 → 印と名前', () => {
 
 test('その地点のその日の予報。四捨五入。無い日は null', () => {
   const d = parseForecast(fake(POINTS.length));
-  assert.deepEqual(forecastFor(d, 0, '2026-11-08'), { icon: wxOf(0).icon, name: '快晴', hi: 18, lo: 10 });
+  assert.deepEqual(forecastFor(d, 0, '2026-11-08'), { icon: wxOf(0).icon, name: '快晴', hi: 18, lo: 10, pp: 10, pr: 0, wd: 3 });
+  assert.deepEqual(forecastFor(d, 0, '2026-11-09'), { icon: wxOf(61).icon, name: '雨', hi: 13, lo: 7, pp: 80, pr: 12.3, wd: 9 });
   assert.equal(forecastFor(d, 0, '2026-11-10').hi, null);
+  /* 前の版で取ったもの（降水確率などが無い）でも読める */
+  const old = { days: DAYS, pts: [{ c: [3, 3, 3], hi: [10, 10, 10], lo: [5, 5, 5] }] };
+  assert.deepEqual(forecastFor(old, 0, '2026-11-08'), { icon: wxOf(3).icon, name: 'くもり', hi: 10, lo: 5, pp: null, pr: null, wd: null });
   assert.equal(forecastFor(d, 0, '2026-12-01'), null);
   assert.equal(forecastFor(d, POINTS.length, '2026-11-08'), null);
   assert.equal(forecastFor(null, 0, '2026-11-08'), null);
+});
+
+test('日を押したときの1行。無い欄は書かない', () => {
+  const d = parseForecast(fake(POINTS.length));
+  assert.equal(W.detailText(forecastFor(d, 0, '2026-11-09')),
+    wxOf(61).icon + ' 雨　最高 13℃／最低 7℃　降水確率 80%　降水量 12.3mm　風 最大 9m/s');
+  assert.equal(W.detailText(forecastFor(d, 0, '2026-11-10')), wxOf(3).icon + ' くもり　最高 -℃／最低 5℃');
+  assert.equal(W.detailText(null), '');
 });
 
 test('大きさの札', () => {
