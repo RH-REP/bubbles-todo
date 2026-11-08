@@ -15,6 +15,9 @@ import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from
 import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE } from '../spacelist.js';
 import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, moveSummary, moveFileName,
   boxToState, stateToBox, mergeBox } from '../movefile.js';
+import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
+  readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports,
+  prfSupported, createPasskey, passkeyRoot, solText } from '../chain.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel } from '../ai.js';
 import { openHelp } from '../help.js';
@@ -216,13 +219,16 @@ export default {
     affRow.appendChild(el('span', null, '似ている泡（名前が似ている・同じタグ）を、海と今日でゆっくり近くに寄せる'));
     box.appendChild(affRow);
 
-    /* --- サーバー（複数の端末で同じ記録を使う）--- */
-    box.appendChild(serverBox(this));
+    /* --- サーバー（複数の端末で同じ記録を使う）---
+       サーバーなし版（solo.html）では出さない。通信してよい先を決め打ちにしているので、サーバーには繋がらない */
+    if (!isSolo()) box.appendChild(serverBox(this));
 
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
     box.appendChild(csvBox());
     /* --- 引っ越し（暗号化したファイル。2026-11-07 Issue #19）--- */
     box.appendChild(moveBox());
+    /* --- ブロックチェーンに控え（2026-11-08 Issue #31。サーバーなし版だけ）--- */
+    box.appendChild(chainBox());
 
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
@@ -864,19 +870,6 @@ function moveBox() {
   let fileText = '';
   let pendingServer = null;
 
-  /* この端末の海の記録。開いている海は store から、ほかは箱から */
-  function collectBoxes() {
-    const boxes = {};
-    ['me'].concat(seaList().map(e => e.id)).forEach(id => {
-      if (id === store.space()) { boxes[id] = store.exportState(); return; }
-      let raw = null;
-      try { raw = JSON.parse(localStorage.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }
-      const st = boxToState(raw);
-      if (st) boxes[id] = st;
-    });
-    return boxes;
-  }
-
   make.addEventListener('click', async () => {
     make.disabled = true;
     save.hidden = true;
@@ -972,23 +965,7 @@ function moveBox() {
   });
 
   function restore(p) {
-    mergeSeas(p.seas || []);
-    let n = 0;
-    Object.keys(p.boxes || {}).forEach(id => {
-      if (id !== 'me' && !ID_RE.test(id)) return;
-      const fromFile = p.boxes[id];
-      if (id === store.space()) {
-        store.applyState(mergeBox(store.exportState(), fromFile));
-      } else {
-        let raw = null;
-        try { raw = JSON.parse(localStorage.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }
-        try { localStorage.setItem(boxKey(id), JSON.stringify(stateToBox(mergeBox(boxToState(raw), fromFile)))); } catch (e) {
-          toast('入りきらない（端末の空きが足りない）');
-          return;
-        }
-      }
-      n++;
-    });
+    const n = mergeIntoDevice(p);
     line.textContent = '海 ' + n + ' つの記録を戻した。';
     pendingServer = p.server && p.server.url ? p.server : null;
     if (pendingServer && pendingServer.move && !(sync.config().passkey && sync.config().passkey.valid)) {
@@ -1037,6 +1014,283 @@ function moveBox() {
     }
   }
   retry.addEventListener('click', () => joinServer());
+  return wrap;
+}
+
+/* この端末の海の記録。開いている海は store から、ほかは箱から（引っ越しのファイルとチェーンの控えで共用） */
+function collectBoxes() {
+  const boxes = {};
+  ['me'].concat(seaList().map(e => e.id)).forEach(id => {
+    if (id === store.space()) { boxes[id] = store.exportState(); return; }
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }
+    const st = boxToState(raw);
+    if (st) boxes[id] = st;
+  });
+  return boxes;
+}
+
+/* 引っ越しの中身（movefile.js の形）をこの端末に重ねる。戻り値 戻した海の数。
+   記録は消さずに重ねる（記録ごとに新しいほうが残る）。サーバーの扱いは呼ぶ側 */
+function mergeIntoDevice(p) {
+  mergeSeas(p.seas || []);
+  let n = 0;
+  Object.keys(p.boxes || {}).forEach(id => {
+    if (id !== 'me' && !ID_RE.test(id)) return;
+    const fromFile = p.boxes[id];
+    if (id === store.space()) {
+      store.applyState(mergeBox(store.exportState(), fromFile));
+    } else {
+      let raw = null;
+      try { raw = JSON.parse(localStorage.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }
+      try { localStorage.setItem(boxKey(id), JSON.stringify(stateToBox(mergeBox(boxToState(raw), fromFile)))); } catch (e) {
+        toast('入りきらない（端末の空きが足りない）');
+        return;
+      }
+    }
+    n++;
+  });
+  return n;
+}
+
+/* サーバーなし版（solo.html）か。head の <meta name="bubbles-edition" content="solo"> で見分ける */
+function isSolo() {
+  try { return !!document.querySelector('meta[name="bubbles-edition"][content="solo"]'); } catch (e) { return false; }
+}
+
+/* ブロックチェーン（Solana）への控え（2026-11-08 Issue #31）。サーバーなし版だけに出す。
+   仕組みと形は js/chain.js。鍵の元はパスキー（PRF）か、app が作って見せる合言葉。元はどこにも置かない。 */
+function chainBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, 'ブロックチェーンに控え（Solana・試し）'));
+  if (!isSolo()) {
+    wrap.appendChild(el('p', 'note',
+      'ブロックチェーンへの控えは、サーバーなし版（このページと同じ場所の solo.html）で使える。'
+      + 'サーバーなし版は、通信してよい先を決め打ちにして守っている。'));
+    return wrap;
+  }
+  wrap.appendChild(el('p', 'note',
+    '自分の記録を暗号化して、Solana の取引のメモに分けて書く。新しい端末では、同じパスキー（か合言葉・復元コード）で戻せる。'
+    + 'チェーンに書いたものは消せない（鍵が漏れれば、あとからでも読める）。切れ端が1つでも欠けると戻せない。'
+    + '手数料を払う「お財布」は鍵から作る。手数料ぶんの小銭だけを入れる。サーバーの住所と鍵、AI のキーは書かない。'));
+
+  let cfg = loadConfig();
+  const netRow = el('label', 'setrow');
+  const netSel = document.createElement('select');
+  netSel.setAttribute('aria-label', 'ネット');
+  Object.keys(NETWORKS).forEach(k => {
+    const o = document.createElement('option');
+    o.value = k;
+    o.textContent = NETWORKS[k].label;
+    netSel.appendChild(o);
+  });
+  netSel.value = cfg.network in NETWORKS ? cfg.network : 'devnet';
+  netRow.appendChild(el('span', null, 'ネット: '));
+  netRow.appendChild(netSel);
+  wrap.appendChild(netRow);
+
+  const info = el('p', 'note');
+  info.setAttribute('aria-live', 'polite');
+  wrap.appendChild(info);
+  const row = el('div', 'row');
+  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  wrap.appendChild(row);
+  const line = el('p', 'note');
+  line.setAttribute('aria-live', 'polite');
+  wrap.appendChild(line);
+
+  function btn(label, fn) {
+    const b = el('button', 'btn', label);
+    b.type = 'button';
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { await fn(); } catch (e) { line.textContent = (e && e.message) || String(e); }
+      finally { b.disabled = false; }
+    });
+    row.appendChild(b);
+    return b;
+  }
+
+  netSel.addEventListener('change', () => {
+    cfg.network = netSel.value;
+    saveConfig(cfg);
+    line.textContent = '';
+    paint();
+  });
+
+  /* 鍵の元を出してもらう（パスキーは押した手の続きで呼ぶ。ここより前で await しない） */
+  async function unlock() {
+    if (cfg.mode === 'passkey') {
+      const got = await passkeyRoot(cfg.credId);
+      return keysFromRoot(got.root);
+    }
+    if (cfg.mode === 'pass') {
+      const pass = window.prompt('控えの合言葉（始めたときに書き留めたもの）');
+      if (!pass) throw new Error('やめた');
+      line.textContent = '鍵を作っている…';
+      return keysFromRoot(await rootFromPassphrase(pass));
+    }
+    throw new Error('まだ始めていない');
+  }
+  async function checkSame(keys) {
+    if (cfg.address && keys.wallet.address !== cfg.address) {
+      throw new Error('鍵が違う（このお財布の住所と合わない）');
+    }
+  }
+
+  async function start(mode, keys, credId) {
+    cfg = Object.assign(loadConfig(), { network: netSel.value, mode, credId: credId || null, address: keys.wallet.address });
+    saveConfig(cfg);
+    await showRecovery(keys);
+    paint();
+  }
+  async function showRecovery(keys) {
+    const code = await makeRecoveryCode(keys.recordKey, keys.wallet.publicKey, netSel.value);
+    line.textContent = '復元コード（' + NETWORKS[netSel.value].label + '）: ' + code
+      + '　← 紙に書き留める。サイトの住所が変わったとき・OS を替えたときは、これで戻す（お金は動かせない。記録は読める）。';
+  }
+
+  function paint() {
+    row.textContent = '';
+    const net = netSel.value;
+    if (!cfg.mode) {
+      info.textContent = 'まだ始めていない。初めてなら「新しく作る」、前にほかの端末で作ったなら「読み込む」。';
+      btn('新しく作る（パスキー）', async () => {
+        if (!prfSupported()) throw new Error('この端末ではパスキーを使えない（合言葉で始める）');
+        const made = await createPasskey();
+        let got = made;
+        if (!made.root) {
+          /* 作ったときに値を返さない端末がある。続けて使う（押した手の続きでないと断る端末では、もう一度押してもらう） */
+          try { got = await passkeyRoot(made.credId); } catch (e) {
+            throw new Error('パスキーは作れた。続けて「読み込む（パスキー）」を押して、いま作ったパスキーを選ぶ');
+          }
+        }
+        await start('passkey', await keysFromRoot(got.root), got.credId);
+      });
+      btn('新しく作る（合言葉）', async () => {
+        const pass = makePassphrase();
+        if (!window.confirm('控えの合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す（忘れたら戻せない。app はどこにも置かない）。')) return;
+        line.textContent = '鍵を作っている…';
+        await start('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
+      });
+      btn('読み込む（パスキー）', async () => {
+        if (!prfSupported()) throw new Error('この端末ではパスキーを使えない');
+        const got = await passkeyRoot(null);
+        const keys = await keysFromRoot(got.root);
+        cfg = Object.assign(loadConfig(), { network: net, mode: 'passkey', credId: got.credId, address: keys.wallet.address });
+        saveConfig(cfg);
+        paint();
+        await restoreWith(keys.recordKey, keys.wallet.address, net);
+      });
+      btn('読み込む（合言葉）', async () => {
+        const pass = window.prompt('控えの合言葉');
+        if (!pass) return;
+        line.textContent = '鍵を作っている…';
+        const keys = await keysFromRoot(await rootFromPassphrase(pass));
+        cfg = Object.assign(loadConfig(), { network: net, mode: 'pass', credId: null, address: keys.wallet.address });
+        saveConfig(cfg);
+        paint();
+        await restoreWith(keys.recordKey, keys.wallet.address, net);
+      });
+      btn('復元コードで戻す', restoreByCode);
+      return;
+    }
+    info.textContent = 'お財布の住所: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : '合言葉') + '）'
+      + (cfg.lastAt ? '。最後に書いた控え: ' + new Date(cfg.lastAt).toLocaleString() + '（取引 ' + cfg.lastCount + ' 件）' : '');
+    btn('住所を写す', async () => {
+      await navigator.clipboard.writeText(cfg.address);
+      toast('住所を写した');
+    });
+    btn('残高を見る', async () => {
+      line.textContent = '残高: ' + solText(await getBalance(net, cfg.address));
+    });
+    if (net === 'devnet') {
+      btn('テスト用の SOL をもらう', async () => {
+        line.textContent = 'もらっている…';
+        try { await requestAirdrop(net, cfg.address); } catch (e) {
+          throw new Error('もらえなかった（' + e.message + '）。少し待つか、Solana の公式の配り場（faucet.solana.com）でこの住所に送る');
+        }
+        line.textContent = '頼んだ。少し待ってから「残高を見る」。';
+      });
+    }
+    btn('控えを書く', writeBackup);
+    btn('控えから戻す', async () => {
+      const keys = await unlock();
+      await checkSame(keys);
+      await restoreWith(keys.recordKey, cfg.address, net);
+    });
+    btn('復元コードを見せる', async () => {
+      const keys = await unlock();
+      await checkSame(keys);
+      await showRecovery(keys);
+    });
+    btn('復元コードで戻す', restoreByCode);
+    btn('この端末でやめる', async () => {
+      if (!window.confirm('この端末の控えの設定を消す？（チェーンの上の控えは消えない。パスキー・合言葉・復元コードがあれば、また読み込める）')) return;
+      try { localStorage.removeItem(CONFIG_KEY); } catch (e) { /* 消せなくても進む */ }
+      cfg = loadConfig();
+      line.textContent = '';
+      paint();
+    });
+  }
+
+  async function writeBackup() {
+    const net = netSel.value;
+    const keys = await unlock();
+    await checkSame(keys);
+    try { store.flush(); } catch (e) { /* 書くのは止めない */ }
+    line.textContent = '控えを作っている…';
+    const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
+    const payload = buildPayload({ boxes: collectBoxes(), seas: allEntries(), server: null, at: Date.now(), device: dev });
+    const sum = moveSummary(payload);
+    const memos = await sealToMemos(payload, keys.recordKey);
+    if (memos.length > MAX_TX) {
+      throw new Error('記録が大きすぎる（取引 ' + memos.length + ' 件に分かれる）。引っ越しのファイルを使う');
+    }
+    const [bal, need] = await Promise.all([getBalance(net, keys.wallet.address), needLamports(net, memos.length)]);
+    if (bal < need.fee + need.rent) {
+      throw new Error('お財布の残高が足りない（残高 ' + solText(bal) + '・要るのは 手数料 ' + solText(need.fee)
+        + ' ＋ 残しておく最低の額 ' + solText(need.rent) + '）。住所に SOL を入れてから書く');
+    }
+    if (!window.confirm(NETWORKS[net].label + ' に控えを書く？\n海 ' + sum.seas + ' つ・todo ' + sum.todos + ' 件'
+      + '\n取引 ' + memos.length + ' 件・手数料の目安 ' + solText(need.fee)
+      + '\n書いたものは消せない（暗号化してある）。')) { line.textContent = 'やめた'; return; }
+    const sigs = await writeMemos(net, keys.wallet, memos, {
+      onStep: (i, n) => { line.textContent = '書いている… ' + i + '/' + n; },
+    });
+    const id = memos[0].split(' ')[1];
+    cfg = Object.assign(loadConfig(), { lastAt: Date.now(), lastId: id, lastCount: sigs.length });
+    saveConfig(cfg);
+    line.textContent = '控えを書いた（取引 ' + sigs.length + ' 件）。';
+    paint();
+  }
+
+  async function restoreWith(recordKey, address, net) {
+    line.textContent = '控えを探している…';
+    const parts = await readLatestMemos(net, address);
+    if (!parts) { line.textContent = 'この住所には、全部そろった控えが無い（' + NETWORKS[net].label + '）。'; return; }
+    const p = await openMemos(parts, recordKey);
+    const s = moveSummary(p);
+    const at = s.at ? new Date(s.at).toLocaleString() : '不明';
+    if (!window.confirm('この端末に戻す？\n書いた時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
+      + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) {
+      line.textContent = 'やめた';
+      return;
+    }
+    const n = mergeIntoDevice(p);
+    line.textContent = '海 ' + n + ' つの記録を戻した。';
+  }
+
+  async function restoreByCode() {
+    const code = window.prompt('復元コード（BT1-…）');
+    if (!code) return;
+    const r = await readRecoveryCode(code);
+    netSel.value = r.network;
+    await restoreWith(r.recordKey, r.address, r.network);
+    if (!cfg.mode) line.textContent += '　復元コードでは読むだけ。続けて控えを書くなら「新しく作る」で始める。';
+  }
+
+  paint();
   return wrap;
 }
 

@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-08a';
+const VERSION = '2026-11-08b';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -51,6 +51,8 @@ const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './solo.html',          /* サーバーなし版の入口（2026-11-08 Issue #31） */
+  './manifest-solo.json',
   /* 見た目 */
   './css/base.css',
   './css/bubble.css',
@@ -103,6 +105,7 @@ const ASSETS = [
   './js/notes.js',         /* 泡ごとのひとこと（2026-11-07 Issue #25） */
   './js/suggest.js',       /* 今日のおすすめ（2026-11-07 Issue #12） */
   './js/movefile.js',      /* 引っ越しのファイル（2026-11-07 Issue #19） */
+  './js/chain.js',         /* ブロックチェーンへの控え（2026-11-08 Issue #31） */
   './js/version.js',
   './js/sync.js',
   './js/ui.js',

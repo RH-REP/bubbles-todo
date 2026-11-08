@@ -1,0 +1,478 @@
+/* ブロックチェーン（Solana）への控え（2026-11-08 Issue #31。利用者の返事「おすすめで」）。
+   DOM は触らない（設定の画面 settings.js が使う。テストは tests/chain.test.mjs）。
+
+   ■ 何をするか
+   自分の記録（引っ越しのファイルと同じ中身。ただしサーバーの住所と鍵は入れない）を暗号化して、
+   Solana の取引のメモ（Memo プログラム）に分けて書く。新しい端末では、同じ鍵から同じお財布の住所が
+   できるので、その住所のいちばん新しい控えを読んで戻す。サーバーは要らない。
+
+   ■ 鍵（すべて 1 つの「元」から作る。元はどこにも保存しない）
+   元（32 バイト）… パスキーの PRF（端末の金庫が返す値）か、app が作って見せる合言葉（PBKDF2 60 万回）
+     ├ 記録のカギ（AES-256-GCM）  = HKDF(元, "record")
+     └ お財布の種（Ed25519）       = HKDF(元, "wallet") → 住所（公開鍵）
+   お財布は手数料を払うためだけのもの。小銭（手数料ぶん）だけを入れる。
+   復元コード … 記録のカギ＋住所＋ネット（お財布の種は入れない。お金は動かせない）。
+   パスキーはサイトの住所に結び付くので、住所が変わったときや OS を替えたときは、復元コードで戻す。
+
+   ■ チェーンの上の形
+   メモ 1 つ = "bt1 <控えの ID 8 字> <番号>/<全部の数> <base64 の切れ端>"（UTF-8。Memo は UTF-8 しか受けない）
+   全部の切れ端をつなぐと [版 1][印 1][IV 12][暗号文]。印の 1 ビット目 = gzip で縮めた。
+   暗号の AAD = "bubbles-chain-v1|<控えの ID>"（ほかの控えの切れ端を混ぜても開かない）。
+   切れ端が 1 つでも欠けると戻せない。読むときは、いちばん新しく全部そろった控えを使う。
+
+   ■ 窓口（RPC）
+   公式の公開 RPC だけ（テスト用 = devnet、本番 = mainnet）。送り先はこの 2 つに決め打ちで、
+   サーバーなし版（solo.html）の CSP の connect-src にも同じものだけを書く。
+   混んで断られたら（429）少し待ってやり直す。
+
+   ■ 署名
+   ブラウザの WebCrypto の Ed25519 だけで書く（外の部品を読み込まない）。古いブラウザで使えなければ、
+   そう言って止まる。取引は「手数料を払う 1 人＋ Memo 1 つ」の古い形（legacy）を自分で組む。 */
+
+export const NETWORKS = {
+  devnet: { label: 'テスト用（devnet・無料・消えることがある）', rpc: 'https://api.devnet.solana.com', code: 0 },
+  mainnet: { label: '本番（mainnet・公式 RPC・手数料が要る）', rpc: 'https://api.mainnet-beta.solana.com', code: 1 },
+};
+export const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+export const TAG = 'bt1';
+export const CHUNK = 600;          /* 1 つのメモに入れる base64 の字数（取引 1 件 1232 バイトの内に余裕を持って収める） */
+export const MAX_TX = 60;          /* これより多くの取引に分かれるなら書かない（ファイルの引っ越しを使ってもらう） */
+export const FEE_LAMPORTS = 5000;  /* 署名 1 つの手数料（目安） */
+export const LAMPORTS = 1e9;       /* 1 SOL */
+export const PBKDF_ITER = 600000;
+const VER = 1;
+const SALT = 'bubbles-chain-v1';
+/* パスキーの PRF に渡す値。押した手の続きで create/get を呼ぶ必要がある（iPhone）ので、await せずに作れる定数にする */
+export const PRF_SALT = new TextEncoder().encode('bubbles-chain-v1-prf-salt-000000');
+const PKCS8_ED25519 = [0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20];
+
+function subtle() {
+  const c = globalThis.crypto;
+  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の住所で開く）');
+  return c.subtle;
+}
+function randomBytes(n) {
+  const b = new Uint8Array(n);
+  globalThis.crypto.getRandomValues(b);
+  return b;
+}
+function concat(parts) {
+  let len = 0;
+  parts.forEach(p => { len += p.length; });
+  const out = new Uint8Array(len);
+  let o = 0;
+  parts.forEach(p => { out.set(p, o); o += p.length; });
+  return out;
+}
+const enc = s => new TextEncoder().encode(s);
+
+export function toB64(bytes) {
+  let s = '';
+  const b = new Uint8Array(bytes);
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+export function fromB64(str) {
+  const bin = atob(String(str || ''));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+export function toB64u(bytes) { return toB64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+export function fromB64u(str) {
+  const s = String(str || '').replace(/-/g, '+').replace(/_/g, '/');
+  return fromB64(s + '='.repeat((4 - s.length % 4) % 4));
+}
+
+/* ---- base58（Solana の住所・取引の ID・ブロックハッシュ） ---- */
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+export function b58encode(bytes) {
+  const b = new Uint8Array(bytes);
+  let zeros = 0;
+  while (zeros < b.length && b[zeros] === 0) zeros++;
+  const digits = [];
+  for (let i = zeros; i < b.length; i++) {
+    let carry = b[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] * 256;
+      digits[j] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry) { digits.push(carry % 58); carry = Math.floor(carry / 58); }
+  }
+  let s = '1'.repeat(zeros);
+  for (let i = digits.length - 1; i >= 0; i--) s += B58[digits[i]];
+  return s;
+}
+export function b58decode(str) {
+  const s = String(str || '');
+  let zeros = 0;
+  while (zeros < s.length && s[zeros] === '1') zeros++;
+  const bytes = [];
+  for (let i = zeros; i < s.length; i++) {
+    const v = B58.indexOf(s[i]);
+    if (v < 0) throw new Error('base58 の字ではない');
+    let carry = v;
+    for (let j = 0; j < bytes.length; j++) {
+      carry += bytes[j] * 58;
+      bytes[j] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry) { bytes.push(carry & 0xff); carry >>= 8; }
+  }
+  const out = new Uint8Array(zeros + bytes.length);
+  for (let i = 0; i < bytes.length; i++) out[out.length - 1 - i] = bytes[i];
+  return out;
+}
+
+/* ---- 鍵 ---- */
+
+/* 合言葉 → 元（32 バイト）。合言葉は movefile.js の makePassphrase で app が作る（120 ビット） */
+export async function rootFromPassphrase(pass, iter = PBKDF_ITER) {
+  const norm = String(pass || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (norm.length < 16) throw new Error('合言葉が短い');
+  const s = subtle();
+  const base = await s.importKey('raw', enc(norm), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await s.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc(SALT), iterations: iter }, base, 256));
+}
+
+async function hkdf(root, info) {
+  const s = subtle();
+  const k = await s.importKey('raw', root, 'HKDF', false, ['deriveBits']);
+  return new Uint8Array(await s.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: enc(SALT), info: enc(info) }, k, 256));
+}
+
+/* 種（32 バイト）→ { address, publicKey, sign(bytes) }。Ed25519 が使えないブラウザでは Error */
+export async function walletFromSeed(seed) {
+  const s = subtle();
+  let key;
+  try {
+    key = await s.importKey('pkcs8', concat([Uint8Array.from(PKCS8_ED25519), seed]), { name: 'Ed25519' }, true, ['sign']);
+  } catch (e) {
+    throw new Error('このブラウザは Ed25519 の署名に対応していない（ブラウザを新しくする）');
+  }
+  const jwk = await s.exportKey('jwk', key);
+  const publicKey = fromB64u(jwk.x);
+  return {
+    publicKey,
+    address: b58encode(publicKey),
+    sign: async (msg) => new Uint8Array(await s.sign({ name: 'Ed25519' }, key, msg)),
+  };
+}
+
+/* 元 → { recordKey（32 バイト）, wallet } */
+export async function keysFromRoot(root) {
+  if (!root || root.length !== 32) throw new Error('鍵の元が正しくない');
+  const recordKey = await hkdf(root, 'record');
+  const wallet = await walletFromSeed(await hkdf(root, 'wallet'));
+  return { recordKey, wallet };
+}
+
+/* ---- 復元コード（記録のカギ＋住所＋ネット。お金は動かせない） ---- */
+async function sha256(bytes) { return new Uint8Array(await subtle().digest('SHA-256', bytes)); }
+
+export async function makeRecoveryCode(recordKey, publicKey, network) {
+  const net = NETWORKS[network];
+  if (!net) throw new Error('ネットが正しくない');
+  const body = concat([Uint8Array.of(VER, net.code), recordKey, publicKey]);
+  const sum = (await sha256(body)).subarray(0, 4);
+  const s = b58encode(concat([body, sum]));
+  return 'BT1-' + s.match(/.{1,6}/g).join('-');
+}
+
+export async function readRecoveryCode(code) {
+  const raw = String(code || '').replace(/\s/g, '').replace(/^BT1-?/i, '').replace(/-/g, '');
+  let b;
+  try { b = b58decode(raw); } catch (e) { throw new Error('復元コードの字が違う'); }
+  if (b.length !== 2 + 32 + 32 + 4) throw new Error('復元コードの長さが違う（打ち間違い？）');
+  const body = b.subarray(0, 66), sum = b.subarray(66);
+  const want = (await sha256(body)).subarray(0, 4);
+  if (want.some((x, i) => x !== sum[i])) throw new Error('復元コードが違う（打ち間違い？）');
+  if (body[0] !== VER) throw new Error('この app より新しい版の復元コード');
+  const network = Object.keys(NETWORKS).find(k => NETWORKS[k].code === body[1]);
+  if (!network) throw new Error('復元コードのネットが分からない');
+  const publicKey = body.slice(34, 66);
+  return { network, recordKey: body.slice(2, 34), publicKey, address: b58encode(publicKey) };
+}
+
+/* ---- 暗号と切れ端 ---- */
+async function gzip(bytes) {
+  if (typeof CompressionStream !== 'function') return null;
+  const cs = new CompressionStream('gzip');
+  const out = new Response(new Blob([bytes]).stream().pipeThrough(cs));
+  return new Uint8Array(await out.arrayBuffer());
+}
+async function gunzip(bytes) {
+  if (typeof DecompressionStream !== 'function') throw new Error('このブラウザは縮めた控えを開けない');
+  const ds = new DecompressionStream('gzip');
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer());
+}
+
+export function newBackupId() {
+  return Array.from(randomBytes(4), x => x.toString(16).padStart(2, '0')).join('');
+}
+
+/* 中身（オブジェクト）→ メモの文の並び */
+export async function sealToMemos(payload, recordKey, id = newBackupId()) {
+  const plain = enc(JSON.stringify(payload));
+  const z = await gzip(plain);
+  const flags = z ? 1 : 0;
+  const s = subtle();
+  const key = await s.importKey('raw', recordKey, 'AES-GCM', false, ['encrypt']);
+  const iv = randomBytes(12);
+  const ct = new Uint8Array(await s.encrypt({ name: 'AES-GCM', iv, additionalData: enc(SALT + '|' + id) }, key, z || plain));
+  const b64 = toB64(concat([Uint8Array.of(VER, flags), iv, ct]));
+  const parts = b64.match(new RegExp('.{1,' + CHUNK + '}', 'g')) || [''];
+  return parts.map((p, i) => `${TAG} ${id} ${i + 1}/${parts.length} ${p}`);
+}
+
+/* メモの文 → { id, i, n, part }。この app の控えでなければ null */
+export function parseMemo(text) {
+  const m = /(?:^|\s|\])bt1 ([0-9a-f]{8}) (\d+)\/(\d+) ([A-Za-z0-9+/=]+)/.exec(String(text || ''));
+  if (!m) return null;
+  const i = Number(m[2]), n = Number(m[3]);
+  if (!(i >= 1 && n >= 1 && i <= n && n <= 1000)) return null;
+  return { id: m[1], i, n, part: m[4] };
+}
+
+/* 切れ端のまとまり（同じ ID・全部そろった）→ 中身 */
+export async function openMemos(parts, recordKey) {
+  if (!parts.length) throw new Error('控えが無い');
+  const id = parts[0].id, n = parts[0].n;
+  const byI = new Map();
+  parts.forEach(p => { if (p.id === id) byI.set(p.i, p.part); });
+  for (let i = 1; i <= n; i++) if (!byI.has(i)) throw new Error('控えの切れ端が欠けている（' + i + '/' + n + '）');
+  let b64 = '';
+  for (let i = 1; i <= n; i++) b64 += byI.get(i);
+  const all = fromB64(b64);
+  if (all[0] !== VER) throw new Error('この app より新しい版の控え');
+  const flags = all[1], iv = all.subarray(2, 14), ct = all.subarray(14);
+  const s = subtle();
+  const key = await s.importKey('raw', recordKey, 'AES-GCM', false, ['decrypt']);
+  let plain;
+  try {
+    plain = new Uint8Array(await s.decrypt({ name: 'AES-GCM', iv, additionalData: enc(SALT + '|' + id) }, key, ct));
+  } catch (e) { throw new Error('控えを開けない（鍵が違うか、控えが壊れている）'); }
+  if (flags & 1) plain = await gunzip(plain);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+/* 新しい順に並んだメモの文 → いちばん新しく全部そろった控えの切れ端（無ければ null） */
+export function pickLatest(memosNewestFirst) {
+  const groups = new Map();   /* 出てきた順 = 新しい順 */
+  memosNewestFirst.forEach(t => {
+    const p = typeof t === 'string' ? parseMemo(t) : t;
+    if (!p) return;
+    if (!groups.has(p.id)) groups.set(p.id, { n: p.n, parts: new Map() });
+    const g = groups.get(p.id);
+    if (g.n === p.n) g.parts.set(p.i, p);
+  });
+  for (const g of groups.values()) {
+    if (g.parts.size === g.n) return Array.from(g.parts.values()).sort((a, b) => a.i - b.i);
+  }
+  return null;
+}
+
+/* ---- 取引を組む（legacy。手数料を払う 1 人＋ Memo 1 つ。Memo に口座は渡さない） ---- */
+export function shortvec(n) {
+  const out = [];
+  let v = n;
+  for (;;) {
+    const b = v & 0x7f;
+    v >>= 7;
+    if (v === 0) { out.push(b); break; }
+    out.push(b | 0x80);
+  }
+  return Uint8Array.from(out);
+}
+
+export function memoMessage(payer, blockhash, memoText) {
+  const data = enc(memoText);
+  return concat([
+    Uint8Array.of(1, 0, 1),           /* 署名 1・読むだけの署名者 0・読むだけの署名しない口座 1（Memo） */
+    shortvec(2), payer, b58decode(MEMO_PROGRAM),
+    blockhash,
+    shortvec(1),                      /* 命令 1 つ */
+    Uint8Array.of(1), shortvec(0),    /* Memo（口座の 1 番目）・口座なし */
+    shortvec(data.length), data,
+  ]);
+}
+
+export async function memoTransaction(wallet, blockhash, memoText) {
+  const msg = memoMessage(wallet.publicKey, blockhash, memoText);
+  const sig = await wallet.sign(msg);
+  const tx = concat([shortvec(1), sig, msg]);
+  if (tx.length > 1232) throw new Error('取引が大きすぎる（' + tx.length + ' バイト）');
+  return { tx, signature: b58encode(sig) };
+}
+
+/* ---- 窓口（RPC） ---- */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+export async function rpc(network, method, params, { fetchFn = globalThis.fetch, tries = 4, wait = 1500 } = {}) {
+  const net = NETWORKS[network];
+  if (!net) throw new Error('ネットが正しくない');
+  let last = null;
+  for (let k = 0; k < tries; k++) {
+    if (k) await sleep(wait * k);
+    let res;
+    try {
+      res = await fetchFn(net.rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      });
+    } catch (e) { last = new Error('窓口に繋がらない'); continue; }
+    if (res.status === 429 || res.status >= 500) { last = new Error('窓口が混んでいる（少し待ってやり直す）'); continue; }
+    if (!res.ok) throw new Error('窓口の返事が ' + res.status);
+    const j = await res.json();
+    if (j && j.error) {
+      const m = String(j.error.message || '');
+      if (/rate|too many/i.test(m)) { last = new Error('窓口が混んでいる（少し待ってやり直す）'); continue; }
+      throw new Error('窓口が断った: ' + m);
+    }
+    return j.result;
+  }
+  throw last || new Error('窓口に繋がらない');
+}
+
+export async function getBalance(network, address, opt) {
+  const r = await rpc(network, 'getBalance', [address, { commitment: 'confirmed' }], opt);
+  return Number(r && r.value) || 0;
+}
+
+export async function requestAirdrop(network, address, opt) {
+  if (network !== 'devnet') throw new Error('テスト用の SOL はテスト用のネットでだけもらえる');
+  return rpc(network, 'requestAirdrop', [address, LAMPORTS], opt);
+}
+
+/* 書くのに要る額の目安（lamports）。手数料＋お財布に残す最低の額 */
+export async function needLamports(network, count, opt) {
+  const rent = Number(await rpc(network, 'getMinimumBalanceForRentExemption', [0], opt)) || 890880;
+  return { fee: count * FEE_LAMPORTS, rent };
+}
+
+/* メモの並びを書く。onStep(済んだ数, 全部) で進み具合を返す。戻り値 取引の ID の並び */
+export async function writeMemos(network, wallet, memos, { onStep = () => {}, gap = 400, opt } = {}) {
+  const sigs = [];
+  let bh = null, bhAt = 0;
+  for (let i = 0; i < memos.length; i++) {
+    if (!bh || Date.now() - bhAt > 30000) {
+      const r = await rpc(network, 'getLatestBlockhash', [{ commitment: 'confirmed' }], opt);
+      bh = b58decode(r.value.blockhash);
+      bhAt = Date.now();
+    }
+    const { tx } = await memoTransaction(wallet, bh, memos[i]);
+    const sig = await rpc(network, 'sendTransaction', [toB64(tx), { encoding: 'base64', preflightCommitment: 'confirmed' }], opt);
+    sigs.push(sig);
+    onStep(i + 1, memos.length);
+    if (gap && i + 1 < memos.length) await sleep(gap);
+  }
+  await waitConfirmed(network, sigs, opt);
+  return sigs;
+}
+
+export async function waitConfirmed(network, sigs, opt, { limitMs = 90000, every = 2000 } = {}) {
+  const until = Date.now() + limitMs;
+  for (;;) {
+    const r = await rpc(network, 'getSignatureStatuses', [sigs], opt);
+    const vals = (r && r.value) || [];
+    const bad = vals.find(v => v && v.err);
+    if (bad) throw new Error('書けなかった取引がある（もう一度書く）');
+    const ok = vals.filter(v => v && (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized')).length;
+    if (ok === sigs.length) return;
+    if (Date.now() > until) throw new Error('書いた取引の確認が終わらない（あとで「控えから戻す」で確かめる）');
+    await sleep(every);
+  }
+}
+
+/* 取引 1 件のメモの文を読む（getSignaturesForAddress の memo が読めないときの予備） */
+async function memoOfTx(network, sig, opt) {
+  const r = await rpc(network, 'getTransaction', [sig, { encoding: 'json', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }], opt);
+  const m = r && r.transaction && r.transaction.message;
+  if (!m) return null;
+  const keys = m.accountKeys || [];
+  for (const ins of m.instructions || []) {
+    if (keys[ins.programIdIndex] === MEMO_PROGRAM) {
+      try { return new TextDecoder().decode(b58decode(ins.data)); } catch (e) { return null; }
+    }
+  }
+  return null;
+}
+
+/* 住所のいちばん新しく全部そろった控えの切れ端。無ければ null */
+export async function readLatestMemos(network, address, { limit = 200, opt } = {}) {
+  const list = await rpc(network, 'getSignaturesForAddress', [address, { limit, commitment: 'confirmed' }], opt) || [];
+  const memos = [];
+  for (const it of list) {
+    if (!it || it.err) continue;
+    let p = parseMemo(it.memo);
+    if (!p && it.memo == null) continue;   /* メモの無い取引（お金を受け取った、など） */
+    if (!p) p = parseMemo(await memoOfTx(network, it.signature, opt));
+    if (p) memos.push(p);
+    const got = pickLatest(memos);
+    if (got && got[0].id === memos[0].id) return got;   /* いちばん新しい控えがそろった */
+  }
+  return pickLatest(memos);
+}
+
+/* ---- パスキーの PRF で元を作る（押した手の続きで呼ぶ） ---- */
+export function prfSupported() {
+  return !!(typeof window !== 'undefined' && window.PublicKeyCredential && navigator.credentials);
+}
+
+function prfFirst(cred) {
+  const ext = cred && typeof cred.getClientExtensionResults === 'function' ? cred.getClientExtensionResults() : {};
+  const r = ext && ext.prf && ext.prf.results && ext.prf.results.first;
+  return r ? new Uint8Array(r) : null;
+}
+
+/* 新しいパスキーを作る → { credId, root }（root は作ったときに返らない端末では null。続けて passkeyRoot を呼ぶ） */
+export async function createPasskey() {
+  const cred = await navigator.credentials.create({ publicKey: {
+    rp: { name: 'Bubbles の控え' },
+    user: { id: randomBytes(16), name: 'bubbles-backup', displayName: 'Bubbles の控え' },
+    challenge: randomBytes(32),
+    pubKeyCredParams: [{ type: 'public-key', alg: -8 }, { type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+    authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+    extensions: { prf: { eval: { first: PRF_SALT } } },
+  } });
+  if (!cred) throw new Error('パスキーを作れなかった');
+  const ext = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
+  if (!ext.prf || ext.prf.enabled === false) {
+    throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（合言葉で始める）');
+  }
+  return { credId: toB64u(cred.rawId), root: prfFirst(cred) };
+}
+
+/* パスキーで元を作る。credId を渡さなければ、端末にあるこの app のパスキーから選ばせる → { credId, root } */
+export async function passkeyRoot(credId) {
+  const cred = await navigator.credentials.get({ publicKey: {
+    challenge: randomBytes(32),
+    allowCredentials: credId ? [{ type: 'public-key', id: fromB64u(credId) }] : [],
+    userVerification: 'required',
+    extensions: { prf: { eval: { first: PRF_SALT } } },
+  } });
+  const root = prfFirst(cred);
+  if (!root) throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（合言葉か復元コードを使う）');
+  return { credId: toB64u(cred.rawId), root };
+}
+
+/* ---- この端末に置く設定（秘密は置かない: ネット・やり方・パスキーの ID・住所・最後に書いた時） ---- */
+export const CONFIG_KEY = 'bubble_todo_chain_v1';
+export function loadConfig(storage = globalThis.localStorage) {
+  try {
+    const c = JSON.parse(storage.getItem(CONFIG_KEY) || 'null');
+    if (c && typeof c === 'object') return Object.assign({ network: 'devnet' }, c);
+  } catch (e) { /* 壊れていれば無いことにする */ }
+  return { network: 'devnet' };
+}
+export function saveConfig(c, storage = globalThis.localStorage) {
+  const keep = {};
+  ['network', 'mode', 'credId', 'address', 'lastAt', 'lastId', 'lastCount'].forEach(k => { if (c[k] != null) keep[k] = c[k]; });
+  storage.setItem(CONFIG_KEY, JSON.stringify(keep));
+}
+
+export function solText(lamports) {
+  return (Number(lamports) / LAMPORTS).toFixed(6).replace(/0+$/, '').replace(/\.$/, '') + ' SOL';
+}
