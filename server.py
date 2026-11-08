@@ -398,9 +398,11 @@ LOOPBACK = {'127.0.0.1', '::1'}
 # 配るページの守り。外のスクリプト・外への接続・よそのページへの埋め込みを許さない。
 # style は 'unsafe-inline'（画面が要素の style を使う。スクリプトほど危なくない）
 # connect-src に api.anthropic.com を足した（2026-11-04 Issue #9・#14）。設定で API キーを
-# 入れたときだけ、ヘルプ画面からブラウザが直接呼ぶ（js/ai.js）。ほかの外部サービスへは広げない。
+# 入れたときだけ、ヘルプ画面からブラウザが直接呼ぶ（js/ai.js）。
+# api.open-meteo.com を足した（2026-11-08 Issue #30）。日付で見るの [天気を取得] を押したときだけ、
+# 全国の約140地点の予報をまとめて取る（js/weather.js。選んだ地域・todo は送らない）。ほかの外部サービスへは広げない。
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
-       "connect-src 'self' https://api.anthropic.com; font-src 'self'; object-src 'none'; base-uri 'self'; "
+       "connect-src 'self' https://api.anthropic.com https://api.open-meteo.com; font-src 'self'; object-src 'none'; base-uri 'self'; "
        "form-action 'self'; frame-ancestors 'none'")
 
 

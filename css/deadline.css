@@ -72,3 +72,17 @@
 .dl-cell .dl-mk { position: relative; }
 @media (max-width: 420px) { .dl-table { --dl-name: 7.5em; --dl-w: 26px; } }
 .dl-more { position: absolute; right: 1px; font-size: 11px; color: var(--text-2); }
+
+/* 天気（2026-11-08 Issue #30）。地域・取得・取得した時刻と大きさ・出典を1行に。狭いと折り返す */
+.dl-wxbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11.5px; color: var(--text-2); }
+.dl-wxarea, .dl-wxget {
+  font: inherit; font-size: 12px; color: var(--text);
+  min-height: 30px; padding: 2px 8px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface);
+}
+.dl-wxarea { max-width: 15em; }
+.dl-wxget { cursor: pointer; }
+.dl-wxget:disabled { opacity: .55; cursor: default; }
+.dl-wxcredit { color: var(--text-2); font-size: 10.5px; }
+.dl-col .dl-wx { font-size: 13px; line-height: 1.1; }
+.dl-col .dl-tp { font-size: 9.5px; letter-spacing: -.02em; white-space: nowrap; color: var(--text); }

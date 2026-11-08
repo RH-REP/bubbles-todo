@@ -133,7 +133,7 @@
 - **送り先**: ブラウザから Anthropic の API（`api.anthropic.com`）へ直接。server.py を介さない
   （`anthropic-dangerous-direct-browser-access` ヘッダを付けて呼ぶ。鍵は使う人が自分の端末に置く前提の、Anthropic 自身の仕組み）
 - **送り先の制限（CSP の connect-src）が効く所・効かない所**（Issue #14 の見直し）: 制限は server.py が付けるヘッダーなので、
-  **server.py が配るページだけ**に効く（`'self'` と `api.anthropic.com` のほかへは繋がない）。
+  **server.py が配るページだけ**に効く（`'self'` と `api.anthropic.com`・`api.open-meteo.com`（天気。Issue #30）のほかへは繋がない）。
   GitHub Pages のお試し版と Android 版（`www/`）にはヘッダーが付かず、制限が無い。そこでは、アプリの中で悪いコードが動いたときに
   キーをよそへ送り出せる。同期の住所を利用者が自由に入れるので、ページの中に固定の制限（`<meta>`）を書くと同期が繋がらなくなる。
   どうするかは Issue #14 で決める
@@ -497,6 +497,21 @@ bash tests/server-setup.test.sh
 - **過ぎた日は数えない**（「期限切れ」「◯日過ぎ」を出さない）。赤は使わない。名前を押すと、ふだんと同じ盤
 - 記録には何も足さない（読むだけの形。同期・CSV は変わらない）
 - 作り: `js/deadline.js`（計算だけ）、`js/deadlineview.js`（表）、`css/deadline.css`。テスト: `node --test tests/deadline.test.mjs`
+
+#### 天気（2026-11-08。Issue #30、A 案）
+
+天気を見て todo の順番を入れ替えられるよう、表の上の1行で地域を選び **[天気を取得]** を押すと、列の見出し（日付の下）に
+天気の印と `最高/最低`（℃）が出る（今日から7日分。触れると「晴れ 最高18℃ 最低9℃」）。
+
+- **取り先**: ブラウザから Open-Meteo の予報 API（`api.open-meteo.com`）へ直接。鍵・登録は要らない（商用でない利用は無料）
+- **どの地域を見ているかは送らない**: 頼みはいつも**全国の約140地点をまとめて1回**（気象庁の一次細分区域ごとに代表の地点を1つ。`js/weather.js` の `POINTS`）。
+  地域は端末の中だけで選ぶ。相手に届くのは全地点の緯度・経度と端末の IP だけ。todo の中身は送らない
+- **押したときだけ取る**（起動時・定期には取らない）。取った時刻と大きさ（受け取った本文。圧縮を解いたあと）を表の上に出す。
+  届かなかったときは理由を出し、前に取ったものがあればそれを出したままにする
+- 置き場: 予報は端末の `localStorage`（`bubble_todo_weather_v1`）、選んだ地域は `bubble_todo_weather_area`。同期・CSV・引っ越しのファイルには乗らない
+- 出典: 表の上に「天気: Open-Meteo.com」（CC BY 4.0）
+- 送り先の制限（server.py の CSP の connect-src）に `https://api.open-meteo.com` を足した
+- 作り: `js/weather.js`（地点・URL・読み取り・印・保存）、`js/deadlineview.js`（表の上の1行と見出し）。テスト: `node --test tests/weather.test.mjs`
 
 ### 前の版に戻す（2026-11-07。Issue #21）
 

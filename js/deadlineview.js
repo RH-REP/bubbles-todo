@@ -5,11 +5,13 @@
    決まり（README「このアプリが引き受けないこと」）:
      ・過ぎた日は出さない（期限切れ・◯日過ぎの札を作らない）。赤は使わない。数・割合を出さない
      ・名前は命令形にしない
+   列の見出しには、選んだ地域の天気（印と 最高/最低）を出す（2026-11-08 Issue #30。js/weather.js）。
    計算は js/deadline.js。名前を押すと、ふだんと同じ盤（menu）が開く（opts.open）。
    泡の名前は textContent で入れる（ui.js の el の第3引数は innerHTML なので、決まった文字だけに使う）。 */
 
 import { el } from './ui.js';
 import { deadlineRows, columnCount, columns, cellMark, inSpan, leftLabel, keyOf } from './deadline.js';
+import { POINTS, pointId, CREDIT_URL, DAYS, loadData, loadArea, saveArea, fetchForecast, forecastFor, sizeLabel } from './weather.js';
 
 /* opts.open(id, node)   名前を押したとき
    opts.className        箱に足すクラス
@@ -42,7 +44,81 @@ export function createDeadlineView(host, opts = {}) {
   });
   /* 表に映る祝日の名前（見出しの「祝」だけでは何の日か分からないため） */
   const hols = el('p', 'dl-hols');
+  /* 天気（2026-11-08 Issue #30）。全国の約140地点をまとめて取り、地域はここで選ぶ（js/weather.js）。
+     押したときだけ取る。地域を選んでいないうちは、列に何も出さない */
+  let wx = loadData();
+  let area = loadArea();
+  let lastItems = [];
+  const wxBar = el('div', 'dl-wxbar');
+  const pick = el('select', 'dl-wxarea');
+  pick.setAttribute('aria-label', '天気を見る地域');
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '天気の地域を選ぶ';
+  pick.appendChild(none);
+  let group = null;
+  POINTS.forEach((p, i) => {
+    if (!group || group.label !== p[0]) {
+      group = document.createElement('optgroup');
+      group.label = p[0];
+      pick.appendChild(group);
+    }
+    const op = document.createElement('option');
+    op.value = String(i);
+    op.textContent = p[1] + '（' + p[2] + '）';
+    op.dataset.id = pointId(p);
+    group.appendChild(op);
+  });
+  pick.value = area >= 0 ? String(area) : '';
+  pick.addEventListener('change', () => {
+    area = pick.value === '' ? -1 : Number(pick.value);
+    saveArea(area);
+    syncWx();
+    render(lastItems);
+  });
+  const getBtn = el('button', 'dl-wxget');
+  getBtn.type = 'button';
+  getBtn.textContent = '天気を取得';
+  getBtn.title = '全国の約' + POINTS.length + '地点の' + DAYS + '日分をまとめて取る（選んだ地域は送らない）';
+  const wxMsg = el('span', 'dl-wxmsg');
+  wxMsg.setAttribute('role', 'status');
+  const credit = el('a', 'dl-wxcredit');
+  credit.href = CREDIT_URL;
+  credit.target = '_blank';
+  credit.rel = 'noopener noreferrer';
+  credit.textContent = '天気: Open-Meteo.com';
+  wxBar.appendChild(pick);
+  wxBar.appendChild(getBtn);
+  wxBar.appendChild(wxMsg);
+  wxBar.appendChild(credit);
+  let busy = false;
+  let wxErr = '';
+  getBtn.addEventListener('click', async ev => {
+    ev.preventDefault();
+    if (busy) return;
+    busy = true; wxErr = '';
+    getBtn.disabled = true;
+    wxMsg.textContent = '取得しています…';
+    try { wx = await fetchForecast(); } catch (e) { wxErr = (e && e.message) || '取れなかった'; }
+    busy = false;
+    getBtn.disabled = false;
+    syncWx();
+    render(lastItems);
+  });
+  function syncWx() {
+    credit.hidden = !wx;
+    if (busy) return;
+    if (wxErr) { wxMsg.textContent = wxErr + (wx ? '。前に取ったものを出している' : ''); return; }
+    if (!wx) { wxMsg.textContent = area >= 0 ? 'まだ取っていない' : ''; return; }
+    const d = new Date(wx.at);
+    const z = x => String(x).padStart(2, '0');
+    wxMsg.textContent = (d.getMonth() + 1) + '/' + d.getDate() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes())
+      + ' に取得・' + sizeLabel(wx.bytes) + (area < 0 ? '（地域を選ぶと列に出る）' : '');
+  }
+  syncWx();
+
   root.appendChild(cap);
+  root.appendChild(wxBar);
   root.appendChild(legend);
   root.appendChild(hols);
   root.appendChild(empty);
@@ -50,6 +126,7 @@ export function createDeadlineView(host, opts = {}) {
   host.appendChild(root);
 
   function render(items) {
+    lastItems = items || [];
     const today = keyOf(new Date());
     const rows = deadlineRows(items, today);
     table.replaceChildren();
@@ -74,6 +151,19 @@ export function createDeadlineView(host, opts = {}) {
       wd.textContent = i === 0 ? '今日' : (c.hol ? '祝' : c.wd);
       h.appendChild(wd);
       if (c.hol) h.title = c.hol + '（' + c.wd + '）';
+      const f = area >= 0 ? forecastFor(wx, area, c.key) : null;
+      if (f) {
+        const ic = el('span', 'dl-wx');
+        ic.textContent = f.icon;
+        h.appendChild(ic);
+        const tp = el('span', 'dl-tp');
+        tp.textContent = (f.hi === null ? '-' : f.hi) + '/' + (f.lo === null ? '-' : f.lo);
+        h.appendChild(tp);
+        const say = f.name + (f.hi === null ? '' : ' 最高' + f.hi + '℃') + (f.lo === null ? '' : ' 最低' + f.lo + '℃');
+        h.title = (h.title ? h.title + '　' : '') + say;
+        h.setAttribute('aria-label', (+c.key.slice(5, 7)) + '月' + c.d + '日　' + say);
+        h.classList.add('has-wx');
+      }
       head.appendChild(h);
     });
     table.appendChild(head);
