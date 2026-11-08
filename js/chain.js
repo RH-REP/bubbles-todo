@@ -324,7 +324,11 @@ export async function rpc(network, method, params, { fetchFn = globalThis.fetch,
       });
     } catch (e) { last = new Error('窓口に繋がらない'); continue; }
     if (res.status === 429 || res.status >= 500) { last = new Error('窓口が混んでいる（少し待ってやり直す）'); continue; }
-    if (!res.ok) throw new Error('窓口の返事が ' + res.status);
+    if (!res.ok) {
+      const err = new Error('窓口の返事が ' + res.status);
+      err.status = res.status;
+      throw err;
+    }
     const j = await res.json();
     if (j && j.error) {
       const m = String(j.error.message || '');
@@ -341,9 +345,25 @@ export async function getBalance(network, address, opt) {
   return Number(r && r.value) || 0;
 }
 
+/* テスト用の SOL を窓口に頼む（Issue #31 の返事: 410 が出る）。
+   公式の公開 RPC の配りは、混み具合や悪用の対策で止められていることがある（410 Gone・429 など）。
+   そのときは、公式の配り場（Web のページ）で住所に送ってもらう。app からそのページへは通信しない（人が開く）。
+   頼む額は小さくする（0.1 SOL でも、控えの取引 1 万件ぶん以上の手数料と残しておく額に足りる）。 */
+export const FAUCET_URL = 'https://faucet.solana.com/';
+export const AIRDROP_LAMPORTS = LAMPORTS / 10;
 export async function requestAirdrop(network, address, opt) {
   if (network !== 'devnet') throw new Error('テスト用の SOL はテスト用のネットでだけもらえる');
-  return rpc(network, 'requestAirdrop', [address, LAMPORTS], opt);
+  try {
+    return await rpc(network, 'requestAirdrop', [address, AIRDROP_LAMPORTS], opt);
+  } catch (e) {
+    if (e && (e.status === 410 || e.status === 403)) {
+      throw new Error('この窓口はいまテスト用の SOL を配っていない（' + e.status + '）');
+    }
+    if (e && /混んでいる|airdrop|limit|faucet/i.test(String(e.message))) {
+      throw new Error('テスト用の SOL を配る回数の上限に当たった');
+    }
+    throw e;
+  }
 }
 
 /* 書くのに要る額の目安（lamports）。手数料＋お財布に残す最低の額 */

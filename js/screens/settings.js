@@ -17,7 +17,7 @@ import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, m
   boxToState, stateToBox, mergeBox } from '../movefile.js';
 import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
   readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports,
-  prfSupported, createPasskey, passkeyRoot, solText } from '../chain.js';
+  prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL } from '../chain.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel } from '../ai.js';
 import { openHelp } from '../help.js';
@@ -1208,9 +1208,21 @@ function chainBox() {
       btn('テスト用の SOL をもらう', async () => {
         line.textContent = 'もらっている…';
         try { await requestAirdrop(net, cfg.address); } catch (e) {
-          throw new Error('もらえなかった（' + e.message + '）。少し待つか、Solana の公式の配り場（faucet.solana.com）でこの住所に送る');
+          throw new Error('もらえなかった（' + e.message + '）。下の「公式の配り場を開く」で、住所を貼って devnet の SOL を頼む');
         }
         line.textContent = '頼んだ。少し待ってから「残高を見る」。';
+      });
+      /* 窓口の配りが止まっているとき（410 など）の逃げ道（Issue #31 の返事）。
+         押すと住所を写してから、公式の配り場を新しい窓で開く（押した手の続きで開くので、窓を止められにくい）。
+         app からは配り場へ通信しない。人がページで住所を貼り、devnet を選んで頼む */
+      btn('公式の配り場を開く（住所を写す）', async () => {
+        /* 'noopener' を付けると戻り値がいつも null になり、開けたかが分からない。開いてから opener を切る */
+        const w = window.open(FAUCET_URL, '_blank');
+        if (w) { try { w.opener = null; } catch (e) { /* 切れなくても進む */ } }
+        try { await navigator.clipboard.writeText(cfg.address); line.textContent = '住所を写した。開いたページに貼り、devnet を選んで頼む。済んだら「残高を見る」。'; } catch (e) {
+          line.textContent = '開いたページに、この住所を貼る: ' + cfg.address;
+        }
+        if (!w) line.textContent += '（窓が開かなかったときは ' + FAUCET_URL + ' を開く）';
       });
     }
     btn('控えを書く', writeBackup);

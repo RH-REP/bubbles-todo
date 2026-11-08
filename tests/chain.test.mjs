@@ -10,6 +10,7 @@ import {
   b58encode, b58decode, shortvec, walletFromSeed, keysFromRoot, rootFromPassphrase,
   makeRecoveryCode, readRecoveryCode, sealToMemos, parseMemo, openMemos, pickLatest,
   memoMessage, memoTransaction, readLatestMemos, writeMemos, rpc, MEMO_PROGRAM, CHUNK, NETWORKS, toB64, fromB64,
+  requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL,
 } from '../js/chain.js';
 
 let n = 0;
@@ -154,6 +155,16 @@ await test('窓口の失敗は分かる言葉にする', async () => {
   const fetchFn = async () => ({ status: 200, ok: true, json: async () => ({ error: { message: 'bad' } }) });
   await assert.rejects(rpc('devnet', 'getBalance', [], { fetchFn, wait: 1 }), /断った/);
   await assert.rejects(rpc('nope', 'getBalance', [], { fetchFn }), /ネット/);
+});
+
+await test('テスト用の SOL: 窓口が配っていない（410）ときは分かる言葉にし、頼む額は 0.1 SOL', async () => {
+  let asked = null;
+  const gone = async (url, init) => { asked = JSON.parse(init.body).params[1]; return { status: 410, ok: false, json: async () => ({}) }; };
+  await assert.rejects(requestAirdrop('devnet', '1'.repeat(32), { fetchFn: gone, wait: 1 }), /配っていない（410）/);
+  assert.equal(asked, AIRDROP_LAMPORTS);
+  assert.equal(AIRDROP_LAMPORTS, 1e8);
+  await assert.rejects(requestAirdrop('mainnet', '1'.repeat(32), { fetchFn: gone }), /テスト用のネット/);
+  assert.match(FAUCET_URL, /^https:\/\/faucet\.solana\.com\//);
 });
 
 await test('solo.html は index.html と CSP・印・manifest・title だけが違い、送り先は決め打ち', () => {
