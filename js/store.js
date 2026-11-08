@@ -1243,7 +1243,13 @@ let lastSaveError = null;
 /* at は印の時刻。ふだんは今。日の切り替え（rollover）だけはその日の始まりを渡す——
    今日すでに別の端末で付けた「はじめた」を、あとから開いた端末の切り替えが
    消さないため（切り替えの印のほうが古くなるので、合わせると今日の記録が勝つ） */
+/* 端末の記録をすべて消す直前に立てる（設定の「すべて初期化」。Issue #32）。
+   立てたあとは書かない——消したあとで、ページを離れるときの保存（drift の pagehide など）が
+   メモリに残った記録を書き戻さないように。立てたまま読み直すので、下ろす口は要らない */
+let halted = false;
+
 function persist(at) {
+  if (halted) return;
   const doc = docOf();
   snap = stampChanges(snap, doc, stamps, Number.isFinite(at) ? at : Date.now());
   try {
@@ -2728,6 +2734,10 @@ export const store = {
     persist(); emit();
   },
 
+  /* これより後は端末に書かない（Issue #32 の「すべて初期化」が、消す直前に呼ぶ）。
+     呼んだ側が読み直すまでの間、メモリの記録が書き戻されないようにするだけ */
+  halt() { halted = true; },
+
   seed(texts) {
     texts.forEach(text => {
       items.push(defineToday({
@@ -2991,6 +3001,7 @@ export const store = {
     useData(data);
     stamps = (state.stamps && typeof state.stamps === 'object') ? JSON.parse(JSON.stringify(state.stamps)) : {};
     rememberSnap();
+    if (halted) { emit(); return true; }
     try {
       localStorage.setItem(KEY, JSON.stringify(Object.assign({}, docOf(), { stamps })));
       lastSaveError = null;

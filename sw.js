@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-08d';
+const VERSION = '2026-11-08e';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -113,6 +113,7 @@ const ASSETS = [
   './js/related.js',  /* 似ている泡を近くへ寄せる（2026-11-07 Issue #23） */
   './js/update.js',   /* 設定の「最新の版を確認する」（2026-11-02） */
   './js/rollback.js', /* 前の版に戻す（2026-11-07 Issue #21）。head でも読む */
+  './js/reset.js',    /* 設定の「すべて初期化」（2026-11-08 Issue #32） */
   /* アイコン */
   './icons/icon.svg',
   './icons/icon-192.png',

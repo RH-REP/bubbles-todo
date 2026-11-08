@@ -146,6 +146,24 @@
 .csv-ask-choice:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .csv-ask .btn { align-self: flex-end; }
 
+/* ---------- すべて初期化（設定も含めて。2026-11-08 Issue #32）----------
+   ほかの欄（線で区切るだけ）と見分けがつくよう、赤い枠の箱に入れて、設定のいちばん下に置く。
+   開く的は箱の中に1つだけ。消す的は、開いて「初期化」と打つまで押せない */
+.stub .reset-all {
+  --danger: #b3261e;
+  margin-top: 32px; padding: 14px 14px 16px;
+  border: 1.5px solid var(--danger); border-radius: 14px;
+}
+@media (prefers-color-scheme: dark) { .stub .reset-all { --danger: #ff8a80; } }
+.stub .reset-all h3 { font-size: 13px; font-weight: 700; color: var(--danger); margin: 0 0 6px; letter-spacing: .05em; }
+.stub .reset-all .btn.is-danger { color: var(--danger); border-color: var(--danger); background: transparent; font-weight: 600; }
+.stub .reset-all .btn.is-danger.is-go { color: #fff; background: var(--danger); }
+@media (prefers-color-scheme: dark) { .stub .reset-all .btn.is-danger.is-go { color: #1a1a1a; } }
+.stub .reset-all .btn.is-danger:disabled { opacity: .4; cursor: default; }
+.stub .reset-all ul { font-size: 12.5px; line-height: 1.7; margin: 6px 0 10px; }
+.stub .reset-all .tagadd { margin-top: 8px; }
+.stub .reset-all .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
 /* 画面の大きさの記録（不具合を調べる用） */
 .stub .size-log { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-2); }
 .stub .size-log summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }

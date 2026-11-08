@@ -22,6 +22,7 @@ import { checkForUpdate, applyUpdate } from '../update.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel } from '../ai.js';
 import { openHelp } from '../help.js';
 import { openUpcoming, lastLine } from '../upcoming.js';
+import { clearAppStorage, confirmed, CONFIRM_WORD } from '../reset.js';
 
 /* 海は横一列に並ぶようになった（利用者の指示：タグ付き海を10個まで）。
    前はここに「左／右／置かない」の選び欄があったが、10個に**向き**は無い。
@@ -71,10 +72,12 @@ const ACTIONS = [
     },
   },
   {
-    label: '記録ごと初期化',
+    /* 前の名前は「記録ごと初期化」。下の「すべて初期化」（設定も含めて）と取り違えないよう、
+       消える範囲（いま開いている海だけ・設定は残る）を名前に入れた（Issue #32） */
+    label: 'この海だけ初期化（設定は残す）',
     on: () => {
       store.wipe();
-      toast('todo も記録も消して、初期状態に戻した');
+      toast('この海の todo と記録を消して、初期状態に戻した（設定はそのまま）');
     },
   },
 ];
@@ -265,9 +268,13 @@ export default {
       'この操作は確認用で、本番には入れない。'
       + 'バブルの「消す」は画面から見えなくするだけで、データは記録として残り続ける。'
       + 'それに対して「全部消す」は、その残っているぶんまで本当に消す。'
-      + '空の画面を見たいときは「記録ごと初期化」を使う。'
+      + '空の画面を見たいときは「この海だけ初期化」を使う（ほかの海と設定は残る）。'
     ));
     box.appendChild(proto);
+
+    /* --- すべて初期化（設定も含めて。2026-11-08 Issue #32）---
+       上の確認用の操作とは別の箱にし、いちばん下に置く */
+    box.appendChild(resetAllBox());
 
     pane.appendChild(box);
     this._cb = cb;
@@ -1056,6 +1063,100 @@ function mergeIntoDevice(p) {
 /* サーバーなし版（solo.html）か。head の <meta name="bubbles-edition" content="solo"> で見分ける */
 function isSolo() {
   try { return !!document.querySelector('meta[name="bubbles-edition"][content="solo"]'); } catch (e) { return false; }
+}
+
+/* すべて初期化（設定も含めて。2026-11-08 Issue #32）。
+   この端末に app が置いたものを全部消して、初めて開いたときの状態に戻す（消す範囲は js/reset.js）。
+   上の確認用の「全部消す」「この海だけ初期化」は、いま開いている海の中身だけで、設定は残る。こちらは端末ごと。
+
+   誤って押さないための作り：
+   - 赤い枠の別の箱に入れ、設定のいちばん下に置く（ほかの欄の流れで指が来ない）
+   - 1回目の的は「開く」だけ。開くと、消えるもの・残るものを並べる
+   - 消す的は「初期化」と打つまで押せない（指が滑っても通らない。取り消しのトーストは出せないので、前で止める）
+   - 開いた欄は、画面を離れると閉じる（開いたまま後で押すことが無いよう、mount のたびに閉じた形で作る） */
+function resetAllBox() {
+  const wrap = el('div', 'reset-all');
+  wrap.appendChild(el('h3', null, 'すべて初期化（設定も含めて）'));
+  wrap.appendChild(el('p', 'note',
+    'この端末から、すべての海の記録と設定を消して、初めて開いたときの状態に戻す。元に戻せない。'
+    + '上の「全部消す」「この海だけ初期化」は、いま開いている海の中身だけを消し、設定は残す。'));
+
+  const open = el('button', 'btn is-danger', 'すべて初期化する…');
+  open.type = 'button';
+  const openRow = el('div', 'row');
+  openRow.appendChild(open);
+  wrap.appendChild(openRow);
+
+  const panel = el('div');
+  panel.hidden = true;
+  panel.appendChild(el('p', 'note', 'この端末から消えるもの:'));
+  const gone = el('ul');
+  ['すべての海の todo・記録・メモ（個人・共有・作った海）と海の一覧',
+    'タグ、音・効果音・似ている泡の切り替え',
+    'サーバーの住所・合言葉・パスキーで入っている状態・登録の頼み',
+    'AI のキーと型、先の予定・天気の取り置き、チェーンの控えの設定',
+    '前の版に戻すための写し'].forEach(s => { const li = el('li'); li.textContent = s; gone.appendChild(li); });
+  panel.appendChild(gone);
+  panel.appendChild(el('p', 'note', '消えないもの:'));
+  const kept = el('ul');
+  ['サーバーに置いた記録（同じサーバーにまた繋ぐと戻ってくる）',
+    'ブロックチェーンに書いた控え（消せない。同じパスキーか合言葉で戻せる）',
+    '画面の「!」が覚えているエラーの記録と、app 本体'].forEach(s => { const li = el('li'); li.textContent = s; kept.appendChild(li); });
+  panel.appendChild(kept);
+  panel.appendChild(el('p', 'note',
+    '残しておきたい記録があれば、先に上の「引っ越しのファイルを作る」か「CSV で書き出す」で控えを取る。'
+    + 'サーバーなし版と通常版は、この端末では同じ記録を使うので、どちらも初期化される。'));
+
+  const form = el('form', 'tagadd');
+  const word = document.createElement('input');
+  word.type = 'text';
+  word.autocomplete = 'off';
+  word.spellcheck = false;
+  word.placeholder = '確かめのため「' + CONFIRM_WORD + '」と打つ';
+  word.setAttribute('aria-label', 'すべて初期化の確かめ。「' + CONFIRM_WORD + '」と打つ');
+  form.appendChild(word);
+  panel.appendChild(form);
+
+  const actRow = el('div', 'row');
+  const cancel = el('button', 'btn', 'やめる');
+  cancel.type = 'button';
+  const go = el('button', 'btn is-danger is-go', '消して初期化する');
+  go.type = 'button';
+  go.disabled = true;
+  actRow.appendChild(cancel);
+  actRow.appendChild(go);
+  panel.appendChild(actRow);
+  wrap.appendChild(panel);
+
+  function close() {
+    panel.hidden = true;
+    openRow.hidden = false;
+    word.value = '';
+    go.disabled = true;
+  }
+  open.addEventListener('click', () => {
+    panel.hidden = false;
+    openRow.hidden = true;
+    word.value = '';
+    go.disabled = true;
+    word.focus();
+  });
+  cancel.addEventListener('click', () => { close(); toast('初期化はやめた（何も消していない）'); });
+  word.addEventListener('input', () => { go.disabled = !confirmed(word.value); });
+  /* Enter で消さない（打ち終えた勢いで消えないよう、消すのはボタンだけ） */
+  form.addEventListener('submit', (ev) => { ev.preventDefault(); });
+  go.addEventListener('click', () => {
+    if (!confirmed(word.value)) { go.disabled = true; return; }
+    go.disabled = true;
+    /* 1) メモリの記録を書き戻させない 2) サーバーへ送るのを止める 3) 端末から消す 4) 読み直す */
+    try { store.halt(); } catch (e) { /* 無い版でも消すのは進める */ }
+    try { sync.configure('', '', ''); } catch (e) { /* 止められなくても、読み直せば設定は無い */ }
+    const n = clearAppStorage(localStorage);
+    toast('すべて初期化した（' + n + ' 項目）。読み直す');
+    /* 待つ間に何かが書いても残らないよう、読み直す直前にもう一度消す */
+    setTimeout(() => { clearAppStorage(localStorage); location.replace(location.pathname); }, 400);
+  });
+  return wrap;
 }
 
 /* ブロックチェーン（Solana）への控え（2026-11-08 Issue #31）。サーバーなし版だけに出す。

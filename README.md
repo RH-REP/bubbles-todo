@@ -335,6 +335,7 @@ node tests/key-leak.test.mjs
 node tests/html-sink.test.mjs
 node tests/research.test.mjs
 node --test tests/rollback.test.mjs
+node --test tests/reset.test.mjs
 node --test tests/undo.test.mjs
 node --test tests/related.test.mjs
 node --test tests/deadline.test.mjs
@@ -539,6 +540,16 @@ bash tests/server-setup.test.sh
 - テスト: `node --test tests/rollback.test.mjs`（`sw.js` を偽の caches・fetch の上で動かし、箱の残し方・戻している間の出し方・書き込みの停止・印の外れ方を見る）
 - service worker の無い環境（`file://`・登録できないブラウザ）と、前の版の箱がまだ無い端末では、設定にそう出るだけ
 - まだ確かめていない: 本物の端末（iPhone のホーム画面アプリ・Android の APK）で戻して戻る一巡
+
+### すべて初期化（設定も含めて。Issue #32）
+
+設定のいちばん下、赤い枠の箱「すべて初期化（設定も含めて）」。この端末の `localStorage` の `bubble_todo…` を全部消して読み直し、初めて開いたときの状態に戻す。
+
+- 確認用の「全部消す」（いまの海の todo）・「この海だけ初期化」（旧「記録ごと初期化」。いまの海の記録。設定は残る）とは別の箱にした
+- 誤って押さない作り: 1回目は欄を開くだけ（消えるもの・残るものを並べる）→「初期化」と打つまで消す的は押せない → Enter では消さない。画面を開き直すと欄は閉じている
+- 消す前に `store.halt()` で保存を止め（離れるときの `pagehide` の保存が書き戻さないように）、`sync.configure('', '', '')` で送るのを止める
+- 消さないもの: サーバーに置いた記録（また繋ぐと戻る）、チェーンに書いた控え、`feedback.errors`（「!」の記録）、service worker の箱（app 本体）
+- 作り: `js/reset.js`（消す範囲と確かめの字）、`js/screens/settings.js` の `resetAllBox`。テスト: `node --test tests/reset.test.mjs`（app のキーがどれも `bubble_todo` で始まることも見る）
 
 ## 使い方の記事
 
