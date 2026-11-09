@@ -1094,13 +1094,13 @@ function resetAllBox() {
   ['すべての海の todo・記録・メモ（個人・共有・作った海）と海の一覧',
     'タグ、音・効果音・似ている泡の切り替え',
     'サーバーの住所・合言葉・パスキーで入っている状態・登録の頼み',
-    'AI のキーと型、先の予定・天気の取り置き、チェーンの控えの設定',
+    'AI のキーと型、先の予定・天気の取り置き、チェーンのバックアップの設定',
     '前の版に戻すための写し'].forEach(s => { const li = el('li'); li.textContent = s; gone.appendChild(li); });
   panel.appendChild(gone);
   panel.appendChild(el('p', 'note', '消えないもの:'));
   const kept = el('ul');
   ['サーバーに置いた記録（同じサーバーにまた繋ぐと戻ってくる）',
-    'ブロックチェーンに書いた控え（消せない。同じパスキーか合言葉で戻せる）',
+    'ブロックチェーンに保存したバックアップ（消せない。同じパスキーか合言葉で戻せる）',
     '画面の「!」が覚えているエラーの記録と、app 本体'].forEach(s => { const li = el('li'); li.textContent = s; kept.appendChild(li); });
   panel.appendChild(kept);
   panel.appendChild(el('p', 'note',
@@ -1163,17 +1163,20 @@ function resetAllBox() {
    仕組みと形は js/chain.js。鍵の元はパスキー（PRF）か、app が作って見せる合言葉。元はどこにも置かない。 */
 function chainBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'ブロックチェーンに控え（Solana・試し）'));
+  /* 用語（2026-11-09 Issue #31 の返事で見直し）: ほかのウォレット・取引所と行き来するので、そちらと同じ言葉にそろえる。
+     ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
+  wrap.appendChild(el('h3', null, 'ブロックチェーンにバックアップ（Solana・試し）'));
   if (!isSolo()) {
     wrap.appendChild(el('p', 'note',
-      'ブロックチェーンへの控えは、サーバーなし版（このページと同じ場所の solo.html）で使える。'
+      'ブロックチェーンへのバックアップは、サーバーなし版（このページと同じ場所の solo.html）で使える。'
       + 'サーバーなし版は、通信してよい先を決め打ちにして守っている。'));
     return wrap;
   }
   wrap.appendChild(el('p', 'note',
-    '自分の記録を暗号化して、Solana の取引のメモに分けて書く。新しい端末では、同じパスキー（か合言葉・復元コード）で戻せる。'
-    + 'チェーンに書いたものは消せない（鍵が漏れれば、あとからでも読める）。切れ端が1つでも欠けると戻せない。'
-    + '手数料を払う「お財布」は鍵から作る。手数料ぶんの小銭だけを入れる。サーバーの住所と鍵、AI のキーは書かない。'));
+    '自分の記録を暗号化して、Solana の取引のメモに分けて書く。チェーンに書いたものは消せない（鍵が漏れれば、あとからでも読める）。'
+    + '分けた取引が1つでも欠けると戻せない。サーバーの住所と鍵、AI のキーは書かない。'
+    + '鍵は3種類: <b>パスキー</b>と<b>合言葉</b>は、ウォレット（手数料を払う）とバックアップの両方を開く。'
+    + '<b>復元コード</b>はバックアップを読むだけ（お金は動かせず、書けない）。ウォレットは手数料ぶんの少額だけを入れる。'));
 
   let cfg = loadConfig();
   const netRow = el('label', 'setrow');
@@ -1200,6 +1203,20 @@ function chainBox() {
   line.setAttribute('aria-live', 'polite');
   wrap.appendChild(line);
 
+  row.style.cssText = 'margin-top:8px';
+  let into = row;
+  /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる */
+  function group(title, note) {
+    const g = el('div', null);
+    g.style.cssText = 'margin-top:10px';
+    g.appendChild(el('h4', null, title));
+    if (note) g.appendChild(el('p', 'note', note));
+    const r = el('div', 'row');
+    r.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px';
+    g.appendChild(r);
+    row.appendChild(g);
+    into = r;
+  }
   function btn(label, fn) {
     const b = el('button', 'btn', label);
     b.type = 'button';
@@ -1208,7 +1225,7 @@ function chainBox() {
       try { await fn(); } catch (e) { line.textContent = (e && e.message) || String(e); }
       finally { b.disabled = false; }
     });
-    row.appendChild(b);
+    into.appendChild(b);
     return b;
   }
 
@@ -1226,7 +1243,7 @@ function chainBox() {
       return keysFromRoot(got.root);
     }
     if (cfg.mode === 'pass') {
-      const pass = window.prompt('控えの合言葉（始めたときに書き留めたもの）');
+      const pass = window.prompt('合言葉（始めたときに書き留めた 24 字）');
       if (!pass) throw new Error('やめた');
       line.textContent = '鍵を作っている…';
       return keysFromRoot(await rootFromPassphrase(pass));
@@ -1235,7 +1252,7 @@ function chainBox() {
   }
   async function checkSame(keys) {
     if (cfg.address && keys.wallet.address !== cfg.address) {
-      throw new Error('鍵が違う（このお財布の住所と合わない）');
+      throw new Error('鍵が違う（このウォレットのアドレスと合わない）');
     }
   }
 
@@ -1248,15 +1265,16 @@ function chainBox() {
   async function showRecovery(keys) {
     const code = await makeRecoveryCode(keys.recordKey, keys.wallet.publicKey, netSel.value);
     line.textContent = '復元コード（' + NETWORKS[netSel.value].label + '）: ' + code
-      + '　← 紙に書き留める。サイトの住所が変わったとき・OS を替えたときは、これで戻す（お金は動かせない。記録は読める）。';
+      + '　← 紙に書き留める。パスキーが使えなくなったとき（サイトの住所が変わった・OS を替えた）に、バックアップを読むために使う（お金は動かせない）。';
   }
 
   function paint() {
     row.textContent = '';
+    into = row;
     const net = netSel.value;
     if (!cfg.mode) {
-      info.textContent = 'まだ始めていない。初めてなら「新しく作る」、前にほかの端末で作ったなら「読み込む」。'
-        + '前にこの app のパスキーを作ったことがあるなら「読み込む（パスキー）」を使う（「新しく作る」と、別のお財布・別の控えになる）。';
+      info.textContent = 'まだ始めていない。';
+      group('はじめて使う', '新しいウォレットとバックアップの鍵を作る。前にこの app のパスキーや合言葉を作ったことがあるなら、下の「前に作ったものを使う」へ（新しく作ると、別のウォレット・別のバックアップになる）。');
       btn('新しく作る（パスキー）', async () => {
         if (!prfSupported()) throw new Error('この端末ではパスキーを使えない（合言葉で始める）');
         const made = await createPasskey();
@@ -1264,18 +1282,20 @@ function chainBox() {
         if (!made.root) {
           /* 作ったときに値を返さない端末がある。続けて使う（押した手の続きでないと断る端末では、もう一度押してもらう） */
           try { got = await passkeyRoot(made.credId); } catch (e) {
-            throw new Error('パスキーは作れた。続けて「読み込む（パスキー）」を押して、いま作ったパスキーを選ぶ');
+            throw new Error('パスキーは作れた。続けて「パスキーで開く」を押して、いま作ったパスキーを選ぶ');
           }
         }
         await start('passkey', await keysFromRoot(got.root), got.credId);
       });
       btn('新しく作る（合言葉）', async () => {
         const pass = makePassphrase();
-        if (!window.confirm('控えの合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す（忘れたら戻せない。app はどこにも置かない）。')) return;
+        if (!window.confirm('合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。'
+          + '合言葉はウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
         line.textContent = '鍵を作っている…';
         await start('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
       });
-      btn('読み込む（パスキー）', async () => {
+      group('前に作ったものを使う', 'ほかの端末で作ったパスキー・合言葉で、同じウォレットを開き、いちばん新しいバックアップを戻す。復元コードはバックアップを読むだけ。');
+      btn('パスキーで開く', async () => {
         if (!prfSupported()) throw new Error('この端末ではパスキーを使えない');
         const got = await passkeyRoot(null);
         const keys = await keysFromRoot(got.root);
@@ -1284,8 +1304,8 @@ function chainBox() {
         paint();
         await restoreWith(keys.recordKey, keys.wallet.address, net);
       });
-      btn('読み込む（合言葉）', async () => {
-        const pass = window.prompt('控えの合言葉');
+      btn('合言葉で開く', async () => {
+        const pass = window.prompt('合言葉（24 字）');
         if (!pass) return;
         line.textContent = '鍵を作っている…';
         const keys = await keysFromRoot(await rootFromPassphrase(pass));
@@ -1294,14 +1314,16 @@ function chainBox() {
         paint();
         await restoreWith(keys.recordKey, keys.wallet.address, net);
       });
-      btn('復元コードで戻す', restoreByCode);
+      btn('復元コードで復元（読むだけ）', restoreByCode);
       return;
     }
-    info.textContent = 'お財布の住所: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : '合言葉') + '）'
-      + (cfg.lastAt ? '。最後に書いた控え: ' + new Date(cfg.lastAt).toLocaleString() + '（取引 ' + cfg.lastCount + ' 件）' : '');
-    btn('住所を写す', async () => {
+    info.textContent = 'ウォレットのアドレス: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : '合言葉') + 'で開く）'
+      + (cfg.lastAt ? '。最後に保存したバックアップ: ' + new Date(cfg.lastAt).toLocaleString() + '（取引 ' + cfg.lastCount + ' 件）' : '');
+
+    group('ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
+    btn('アドレスをコピー', async () => {
       await navigator.clipboard.writeText(cfg.address);
-      toast('住所を写した');
+      toast('アドレスをコピーした');
     });
     btn('残高を見る', async () => {
       line.textContent = '残高: ' + solText(await getBalance(net, cfg.address));
@@ -1310,40 +1332,44 @@ function chainBox() {
       btn('テスト用の SOL をもらう', async () => {
         line.textContent = 'もらっている…';
         try { await requestAirdrop(net, cfg.address); } catch (e) {
-          throw new Error('もらえなかった（' + e.message + '）。下の「公式の配り場を開く」で、住所を貼って devnet の SOL を頼む');
+          throw new Error('もらえなかった（' + e.message + '）。「Solana Faucet を開く」で、アドレスを貼って devnet の SOL を頼む');
         }
         line.textContent = '頼んだ。少し待ってから「残高を見る」。';
       });
       /* 窓口の配りが止まっているとき（410 など）の逃げ道（Issue #31 の返事）。
-         押すと住所を写してから、公式の配り場を新しい窓で開く（押した手の続きで開くので、窓を止められにくい）。
-         app からは配り場へ通信しない。人がページで住所を貼り、devnet を選んで頼む */
-      btn('公式の配り場を開く（住所を写す）', async () => {
+         押すとアドレスをコピーしてから、Solana 公式の Faucet（テスト用 SOL の配布ページ）を新しい窓で開く
+         （押した手の続きで開くので、窓を止められにくい）。app からは Faucet へ通信しない */
+      btn('Solana Faucet を開く（アドレスをコピー）', async () => {
         /* 'noopener' を付けると戻り値がいつも null になり、開けたかが分からない。開いてから opener を切る */
         const w = window.open(FAUCET_URL, '_blank');
         if (w) { try { w.opener = null; } catch (e) { /* 切れなくても進む */ } }
-        try { await navigator.clipboard.writeText(cfg.address); line.textContent = '住所を写した。開いたページに貼り、devnet を選んで頼む。済んだら「残高を見る」。'; } catch (e) {
-          line.textContent = '開いたページに、この住所を貼る: ' + cfg.address;
+        try { await navigator.clipboard.writeText(cfg.address); line.textContent = 'アドレスをコピーした。開いたページに貼り、devnet を選んで頼む。済んだら「残高を見る」。'; } catch (e) {
+          line.textContent = '開いたページに、このアドレスを貼る: ' + cfg.address;
         }
         if (!w) line.textContent += '（窓が開かなかったときは ' + FAUCET_URL + ' を開く）';
       });
     }
-    btn('控えを書く', writeBackup);
-    btn('残高をほかの住所へ移す', sweepOut);
-    btn('控えから戻す', async () => {
+    btn('残高を別のアドレスへ送る', sweepOut);
+    if (prfSupported()) btn('パスキーを切り替える', switchPasskey);
+
+    group('バックアップ', '保存すると、いまの記録を暗号化してチェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。');
+    btn('バックアップを保存', writeBackup);
+    btn('バックアップから復元', async () => {
       const keys = await unlock();
       await checkSame(keys);
       await restoreWith(keys.recordKey, cfg.address, net);
     });
-    btn('復元コードを見せる', async () => {
+    btn('復元コードを表示', async () => {
       const keys = await unlock();
       await checkSame(keys);
       await showRecovery(keys);
     });
-    btn('復元コードで戻す', restoreByCode);
-    if (prfSupported()) btn('パスキーを選び直す', switchPasskey);
-    btn('この端末でやめる', async () => {
-      if (!window.confirm('この端末の控えの設定を消す？（チェーンの上の控えは消えない。パスキー・合言葉・復元コードがあれば、また読み込める）\n'
-        + 'お財布に SOL が残っているなら、先に「残高をほかの住所へ移す」で移しておく（復元コードではお金は動かせない）。')) return;
+    btn('復元コードで復元（読むだけ）', restoreByCode);
+
+    group('この端末', null);
+    btn('この端末での設定を消す', async () => {
+      if (!window.confirm('この端末のバックアップの設定を消す？（チェーンの上のバックアップとウォレットは消えない。パスキー・合言葉・復元コードがあれば、また開ける）\n'
+        + 'ウォレットに SOL が残っているなら、先に「残高を別のアドレスへ送る」で送り出しておく（復元コードではお金は動かせない）。')) return;
       try { localStorage.removeItem(CONFIG_KEY); } catch (e) { /* 消せなくても進む */ }
       cfg = loadConfig();
       line.textContent = '';
@@ -1356,7 +1382,7 @@ function chainBox() {
     const keys = await unlock();
     await checkSame(keys);
     try { store.flush(); } catch (e) { /* 書くのは止めない */ }
-    line.textContent = '控えを作っている…';
+    line.textContent = 'バックアップを作っている…';
     const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
     const payload = buildPayload({ boxes: collectBoxes(), seas: allEntries(), server: null, at: Date.now(), device: dev });
     const sum = moveSummary(payload);
@@ -1366,10 +1392,10 @@ function chainBox() {
     }
     const [bal, need] = await Promise.all([getBalance(net, keys.wallet.address), needLamports(net, memos.length)]);
     if (bal < need.fee + need.rent) {
-      throw new Error('お財布の残高が足りない（残高 ' + solText(bal) + '・要るのは 手数料 ' + solText(need.fee)
-        + ' ＋ 残しておく最低の額 ' + solText(need.rent) + '）。住所に SOL を入れてから書く');
+      throw new Error('ウォレットの残高が足りない（残高 ' + solText(bal) + '・要るのは 手数料 ' + solText(need.fee)
+        + ' ＋ 残しておく最低の額 ' + solText(need.rent) + '）。アドレスに SOL を入れてから保存する');
     }
-    if (!window.confirm(NETWORKS[net].label + ' に控えを書く？\n海 ' + sum.seas + ' つ・todo ' + sum.todos + ' 件'
+    if (!window.confirm(NETWORKS[net].label + ' にバックアップを保存する？\n海 ' + sum.seas + ' つ・todo ' + sum.todos + ' 件'
       + '\n取引 ' + memos.length + ' 件・手数料の目安 ' + solText(need.fee)
       + '\n書いたものは消せない（暗号化してある）。')) { line.textContent = 'やめた'; return; }
     const sigs = await writeMemos(net, keys.wallet, memos, {
@@ -1378,7 +1404,7 @@ function chainBox() {
     const id = memos[0].split(' ')[1];
     cfg = Object.assign(loadConfig(), { lastAt: Date.now(), lastId: id, lastCount: sigs.length });
     saveConfig(cfg);
-    line.textContent = '控えを書いた（取引 ' + sigs.length + ' 件）。';
+    line.textContent = 'バックアップを保存した（取引 ' + sigs.length + ' 件）。';
     paint();
   }
 
@@ -1387,33 +1413,33 @@ function chainBox() {
      パスキーは押した手の続きで呼ぶ（住所を訊く prompt は待たないので、その後でも続きのまま） */
   async function sweepOut() {
     const net = netSel.value;
-    const to = window.prompt('移す先の住所（Solana の住所。新しいお財布なら、その端末の「住所を写す」で写したもの）\n'
+    const to = window.prompt('送り先のアドレス（Solana のアドレス。この app の別のウォレットなら、その端末の「アドレスをコピー」で写したもの）\n'
       + 'ネット: ' + NETWORKS[net].label);
     if (!to) return;
     const keys = await unlock();
     await checkSame(keys);
     line.textContent = '残高を確かめている…';
     const plan = await planSweep(net, keys.wallet.address, to);
-    if (!window.confirm('残高を全部移す？\n移す先: ' + to.trim() + '\n移す額: ' + solText(plan.amount)
+    if (!window.confirm('残高を全部送る？\n送り先: ' + to.trim() + '\n送る額: ' + solText(plan.amount)
       + '（手数料 ' + solText(plan.fee) + ' を引いた残り）\nネット: ' + NETWORKS[net].label
-      + '\n送ったものは取り消せない。住所が合っているかを確かめる。')) { line.textContent = 'やめた'; return; }
-    line.textContent = '移している…';
+      + '\n送ったものは取り消せない。アドレスが合っているかを確かめる。')) { line.textContent = 'やめた'; return; }
+    line.textContent = '送っている…';
     await sweep(net, keys.wallet, to, plan.amount);
-    line.textContent = solText(plan.amount) + ' を移した。このお財布の残高は 0 になった（控えを書くには、また SOL を入れる）。';
+    line.textContent = solText(plan.amount) + ' を送った。このウォレットの残高は 0 になった（バックアップを保存するには、また SOL を入れる）。';
   }
 
   async function restoreWith(recordKey, address, net) {
-    line.textContent = '控えを探している…';
+    line.textContent = 'バックアップを探している…';
     const parts = await readLatestMemos(net, address);
     if (!parts) {
-      line.textContent = 'この住所には、全部そろった控えが無い（' + NETWORKS[net].label + '）。'
-        + (cfg.mode === 'passkey' ? 'この app のパスキーが複数あるなら、「パスキーを選び直す」で別のものを選ぶ（パスキーごとに別のお財布・別の控えになる）。' : '');
+      line.textContent = 'このアドレスには、全部そろったバックアップが無い（' + NETWORKS[net].label + '）。'
+        + (cfg.mode === 'passkey' ? 'この app のパスキーが複数あるなら、「パスキーを切り替える」で別のものを選ぶ（パスキーごとに別のウォレット・別のバックアップになる）。' : '');
       return false;
     }
     const p = await openMemos(parts, recordKey);
     const s = moveSummary(p);
     const at = s.at ? new Date(s.at).toLocaleString() : '不明';
-    if (!window.confirm('この端末に戻す？\n書いた時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
+    if (!window.confirm('このバックアップをこの端末に復元する？\n保存した時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
       + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) {
       line.textContent = 'やめた';
       return true;
@@ -1432,16 +1458,16 @@ function chainBox() {
     const got = await passkeyRoot(null);
     const keys = await keysFromRoot(got.root);
     if (keys.wallet.address === cfg.address) {
-      line.textContent = '同じパスキー（同じお財布）を選んだ。変わらない。';
+      line.textContent = '同じパスキー（同じウォレット）を選んだ。変わらない。';
       return;
     }
     if (cfg.address) {
       let old = 0;
       try { old = await getBalance(net, cfg.address); } catch (e) { old = 0; }
-      if (old > 0 && !window.confirm('前のお財布（' + cfg.address + '）に ' + solText(old) + ' 残っている。\n'
-        + '替えたあとで移すには、前のパスキーで選び直す必要がある。\n先に移すなら「キャンセル」→「残高をほかの住所へ移す」に、選んだパスキーのお財布の住所を貼る:\n'
-        + keys.wallet.address + '\n替える？')) {
-        line.textContent = 'やめた（前のパスキーのまま）。選んだパスキーのお財布の住所: ' + keys.wallet.address;
+      if (old > 0 && !window.confirm('前のウォレット（' + cfg.address + '）に ' + solText(old) + ' 残っている。\n'
+        + '切り替えたあとで送り出すには、前のパスキーに切り替え直す必要がある。\n先に送るなら「キャンセル」→「残高を別のアドレスへ送る」に、選んだパスキーのウォレットのアドレスを貼る:\n'
+        + keys.wallet.address + '\n切り替える？')) {
+        line.textContent = 'やめた（前のパスキーのまま）。選んだパスキーのウォレットのアドレス: ' + keys.wallet.address;
         return;
       }
     }
@@ -1458,7 +1484,7 @@ function chainBox() {
     const r = await readRecoveryCode(code);
     netSel.value = r.network;
     await restoreWith(r.recordKey, r.address, r.network);
-    if (!cfg.mode) line.textContent += '　復元コードでは読むだけ。続けて控えを書くなら「新しく作る」で始める。';
+    if (!cfg.mode) line.textContent += '　復元コードでは読むだけ。続けてバックアップを保存するなら「新しく作る」で始める。';
   }
 
   paint();

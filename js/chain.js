@@ -203,7 +203,7 @@ async function gzip(bytes) {
   return new Uint8Array(await out.arrayBuffer());
 }
 async function gunzip(bytes) {
-  if (typeof DecompressionStream !== 'function') throw new Error('このブラウザは縮めた控えを開けない');
+  if (typeof DecompressionStream !== 'function') throw new Error('このブラウザは縮めたバックアップを開けない');
   const ds = new DecompressionStream('gzip');
   return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer());
 }
@@ -237,22 +237,22 @@ export function parseMemo(text) {
 
 /* 切れ端のまとまり（同じ ID・全部そろった）→ 中身 */
 export async function openMemos(parts, recordKey) {
-  if (!parts.length) throw new Error('控えが無い');
+  if (!parts.length) throw new Error('バックアップが無い');
   const id = parts[0].id, n = parts[0].n;
   const byI = new Map();
   parts.forEach(p => { if (p.id === id) byI.set(p.i, p.part); });
-  for (let i = 1; i <= n; i++) if (!byI.has(i)) throw new Error('控えの切れ端が欠けている（' + i + '/' + n + '）');
+  for (let i = 1; i <= n; i++) if (!byI.has(i)) throw new Error('バックアップの切れ端が欠けている（' + i + '/' + n + '）');
   let b64 = '';
   for (let i = 1; i <= n; i++) b64 += byI.get(i);
   const all = fromB64(b64);
-  if (all[0] !== VER) throw new Error('この app より新しい版の控え');
+  if (all[0] !== VER) throw new Error('この app より新しい版のバックアップ');
   const flags = all[1], iv = all.subarray(2, 14), ct = all.subarray(14);
   const s = subtle();
   const key = await s.importKey('raw', recordKey, 'AES-GCM', false, ['decrypt']);
   let plain;
   try {
     plain = new Uint8Array(await s.decrypt({ name: 'AES-GCM', iv, additionalData: enc(SALT + '|' + id) }, key, ct));
-  } catch (e) { throw new Error('控えを開けない（鍵が違うか、控えが壊れている）'); }
+  } catch (e) { throw new Error('バックアップを開けない（鍵が違うか、バックアップが壊れている）'); }
   if (flags & 1) plain = await gunzip(plain);
   return JSON.parse(new TextDecoder().decode(plain));
 }
@@ -368,8 +368,8 @@ export function transferMessage(from, to, blockhash, lamports) {
 
 /* 移す前の見積もり → { balance, fee, amount, destBalance, rent }。移せないときは Error */
 export async function planSweep(network, fromAddress, toAddress, opt) {
-  if (!isAddress(toAddress)) throw new Error('送り先の住所の形が違う（Solana の住所を貼る）');
-  if (String(toAddress).trim() === fromAddress) throw new Error('送り先がこのお財布と同じ');
+  if (!isAddress(toAddress)) throw new Error('送り先のアドレスの形が違う（Solana のアドレスを貼る）');
+  if (String(toAddress).trim() === fromAddress) throw new Error('送り先がこのウォレットと同じ');
   const [balance, destBalance, rentRaw] = await Promise.all([
     getBalance(network, fromAddress, opt),
     getBalance(network, String(toAddress).trim(), opt),
@@ -381,7 +381,7 @@ export async function planSweep(network, fromAddress, toAddress, opt) {
   if (amount <= 0) throw new Error('移せる残高が無い（残高 ' + solText(balance) + '）');
   /* 空の住所へは、最低の額より少なく送れない（チェーンが断る） */
   if (destBalance === 0 && amount < rent) {
-    throw new Error('送り先がまだ空で、移せる額（' + solText(amount) + '）が最低の額（' + solText(rent) + '）より少ない');
+    throw new Error('送り先がまだ空で、送れる額（' + solText(amount) + '）が最低の額（' + solText(rent) + '）より少ない');
   }
   return { balance, fee, amount, destBalance, rent };
 }
@@ -496,7 +496,7 @@ export async function waitConfirmed(network, sigs, opt, { limitMs = 90000, every
     if (bad) throw new Error('書けなかった取引がある（もう一度書く）');
     const ok = vals.filter(v => v && (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized')).length;
     if (ok === sigs.length) return;
-    if (Date.now() > until) throw new Error('書いた取引の確認が終わらない（あとで「控えから戻す」で確かめる）');
+    if (Date.now() > until) throw new Error('書いた取引の確認が終わらない（あとで「バックアップから復元」で確かめる）');
     await sleep(every);
   }
 }
