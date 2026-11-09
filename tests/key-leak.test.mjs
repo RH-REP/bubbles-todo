@@ -78,11 +78,12 @@ await test('同期の設定の箱（bubble_todo_sync）と記録（bubble_todo_v
 /* ---- 2・3. 改善のコメント ---- */
 const src = readFileSync(new URL('../js/feedback.js', import.meta.url), 'utf8');
 
-await test('js/feedback.js はキーの箱を読まず、localStorage は feedback.errors だけを触る', async () => {
+await test('js/feedback.js はキーの箱を読まず、localStorage は feedback.errors と feedback.dest（送り先の選択）だけを触る', async () => {
   assert.ok(!src.includes('bubble_todo_ai_key'), 'feedback.js がキーの箱の名前を持っている');
   const uses = src.match(/localStorage\.\w+\(([^)]*)\)/g) || [];
   assert.ok(uses.length > 0);
-  for (const u of uses) assert.match(u, /\(ERR_KEY[,)]/, 'feedback.errors 以外を触っている: ' + u);
+  // feedback.dest は「!」の送り先（GitHub の Issue か対話か）を覚えるだけの値（2026-11-09。issue_hub の正本に合わせた）
+  for (const u of uses) assert.match(u, /\((ERR_KEY|"feedback\.dest")[,)]/, 'feedback.errors・feedback.dest 以外を触っている: ' + u);
   assert.ok(!/localStorage\s*\[|Object\.keys\(localStorage\)|localStorage\.key\(/.test(src), 'localStorage を丸ごと読んでいる');
 });
 
