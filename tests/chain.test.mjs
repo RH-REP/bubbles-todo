@@ -10,7 +10,7 @@ import {
   b58encode, b58decode, shortvec, walletFromSeed, keysFromRoot, rootFromPassphrase,
   makeRecoveryCode, readRecoveryCode, sealToMemos, parseMemo, openMemos, pickLatest,
   memoMessage, memoTransaction, readLatestMemos, writeMemos, rpc, MEMO_PROGRAM, CHUNK, NETWORKS, toB64, fromB64,
-  requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL,
+  requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL, COMPUTE_BUDGET_PROGRAM, COMPUTE_UNITS, memoFromMessage,
 } from '../js/chain.js';
 
 let n = 0;
@@ -102,7 +102,17 @@ await test('取引の形: 1232 バイトの内・署名がメッセージに合�
   const msg = memoMessage(wallet.publicKey, bh, memo);
   assert.deepEqual(tx.subarray(65), msg);
   assert.equal(tx[0], 1);
-  assert.deepEqual(Array.from(msg.subarray(0, 4)), [1, 0, 1, 2]);
+  assert.deepEqual(Array.from(msg.subarray(0, 4)), [1, 0, 2, 3]);
+  /* 2 番目の口座は ComputeBudget、命令の 1 つ目は SetComputeUnitLimit（判別子 2・u32 LE） */
+  assert.equal(b58encode(msg.subarray(4 + 32, 4 + 64)), COMPUTE_BUDGET_PROGRAM);
+  assert.equal(b58decode(COMPUTE_BUDGET_PROGRAM).length, 32);
+  const ins0 = 4 + 96 + 32 + 1;
+  assert.deepEqual(Array.from(msg.subarray(ins0, ins0 + 3)), [1, 0, 5]);
+  const units = msg[ins0 + 4] | (msg[ins0 + 5] << 8) | (msg[ins0 + 6] << 16) | (msg[ins0 + 7] << 24);
+  assert.equal(msg[ins0 + 3], 2);
+  assert.equal(units, COMPUTE_UNITS);
+  assert.ok(COMPUTE_UNITS <= 1400000, '取引 1 件の上限（140 万）を超えない');
+  assert.equal(memoFromMessage(msg), memo);
   const pub = await crypto.subtle.importKey('raw', wallet.publicKey, { name: 'Ed25519' }, false, ['verify']);
   assert.ok(await crypto.subtle.verify({ name: 'Ed25519' }, pub, tx.subarray(1, 65), msg));
   assert.equal(b58decode(signature).length, 64);
@@ -120,11 +130,7 @@ function fakeChain() {
     if (method === 'getLatestBlockhash') return ok({ value: { blockhash: b58encode(new Uint8Array(32).fill(5)) } });
     if (method === 'sendTransaction') {
       const tx = fromB64(params[0]);
-      const msg = tx.subarray(65);
-      /* メモの文は最後の命令のデータ。頭の固定部分（103 バイト）を読み飛ばし、長さ（shortvec）を読む */
-      let o = 3 + 1 + 64 + 32 + 1 + 1 + 1, v = 0, s = 0, b;
-      do { b = msg[o++]; v |= (b & 0x7f) << s; s += 7; } while (b & 0x80);
-      const memo = new TextDecoder().decode(msg.subarray(o, o + v));
+      const memo = memoFromMessage(tx.subarray(65));
       const sig = b58encode(tx.subarray(1, 65));
       sent.push({ sig, memo });
       return ok(sig);
@@ -154,6 +160,9 @@ await test('偽の窓口で、書いて読む（混んでいたらやり直す�
 await test('窓口の失敗は分かる言葉にする', async () => {
   const fetchFn = async () => ({ status: 200, ok: true, json: async () => ({ error: { message: 'bad' } }) });
   await assert.rejects(rpc('devnet', 'getBalance', [], { fetchFn, wait: 1 }), /断った/);
+  const sim = async () => ({ status: 200, ok: true, json: async () => ({ error: { message:
+    'Transaction simulation failed: Error processing Instruction 0: Program failed to complete' } }) });
+  await assert.rejects(rpc('devnet', 'sendTransaction', [], { fetchFn: sim, wait: 1 }), /手数料は掛かっていない/);
   await assert.rejects(rpc('nope', 'getBalance', [], { fetchFn }), /ネット/);
 });
 

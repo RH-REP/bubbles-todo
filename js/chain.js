@@ -27,7 +27,7 @@
 
    ■ 署名
    ブラウザの WebCrypto の Ed25519 だけで書く（外の部品を読み込まない）。古いブラウザで使えなければ、
-   そう言って止まる。取引は「手数料を払う 1 人＋ Memo 1 つ」の古い形（legacy）を自分で組む。 */
+   そう言って止まる。取引は「手数料を払う 1 人＋計算の上限＋ Memo 1 つ」の古い形（legacy）を自分で組む。 */
 
 export const NETWORKS = {
   devnet: { label: 'テスト用（devnet・無料・消えることがある）', rpc: 'https://api.devnet.solana.com', code: 0 },
@@ -35,7 +35,7 @@ export const NETWORKS = {
 };
 export const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 export const TAG = 'bt1';
-export const CHUNK = 600;          /* 1 つのメモに入れる base64 の字数（取引 1 件 1232 バイトの内に余裕を持って収める） */
+export const CHUNK = 500;          /* 1 つのメモに入れる base64 の字数（取引 1 件 1232 バイトの内に余裕を持って収め、計算も軽くする） */
 export const MAX_TX = 60;          /* これより多くの取引に分かれるなら書かない（ファイルの引っ越しを使ってもらう） */
 export const FEE_LAMPORTS = 5000;  /* 署名 1 つの手数料（目安） */
 export const LAMPORTS = 1e9;       /* 1 SOL */
@@ -273,7 +273,7 @@ export function pickLatest(memosNewestFirst) {
   return null;
 }
 
-/* ---- 取引を組む（legacy。手数料を払う 1 人＋ Memo 1 つ。Memo に口座は渡さない） ---- */
+/* ---- 取引を組む（legacy。手数料を払う 1 人＋計算の上限＋ Memo 1 つ。どちらの命令にも口座は渡さない） ---- */
 export function shortvec(n) {
   const out = [];
   let v = n;
@@ -286,16 +286,48 @@ export function shortvec(n) {
   return Uint8Array.from(out);
 }
 
-export function memoMessage(payer, blockhash, memoText) {
+/* 計算の上限（Issue #31 の返事: 600 字のメモで「Program failed to complete」）。
+   Memo プログラムはメモの字数に比例して計算を使い、命令 1 つに既定で付く上限（20 万）を数百字で超える。
+   先頭に ComputeBudget の SetComputeUnitLimit（判別子 2・u32 LE）を置いて上限を上げる。
+   計算の単価（SetComputeUnitPrice）は付けないので、手数料は署名ぶん（5,000 lamports）のまま */
+export const COMPUTE_BUDGET_PROGRAM = 'ComputeBudget111111111111111111111111111111';
+export const COMPUTE_UNITS = 1000000;
+
+export function memoMessage(payer, blockhash, memoText, units = COMPUTE_UNITS) {
   const data = enc(memoText);
+  const limit = Uint8Array.of(2, units & 0xff, (units >> 8) & 0xff, (units >> 16) & 0xff, (units >>> 24) & 0xff);
   return concat([
-    Uint8Array.of(1, 0, 1),           /* 署名 1・読むだけの署名者 0・読むだけの署名しない口座 1（Memo） */
-    shortvec(2), payer, b58decode(MEMO_PROGRAM),
+    Uint8Array.of(1, 0, 2),           /* 署名 1・読むだけの署名者 0・読むだけの署名しない口座 2（ComputeBudget・Memo） */
+    shortvec(3), payer, b58decode(COMPUTE_BUDGET_PROGRAM), b58decode(MEMO_PROGRAM),
     blockhash,
-    shortvec(1),                      /* 命令 1 つ */
-    Uint8Array.of(1), shortvec(0),    /* Memo（口座の 1 番目）・口座なし */
+    shortvec(2),                      /* 命令 2 つ */
+    Uint8Array.of(1), shortvec(0),    /* ComputeBudget（口座の 1 番目）・口座なし */
+    shortvec(limit.length), limit,
+    Uint8Array.of(2), shortvec(0),    /* Memo（口座の 2 番目）・口座なし */
     shortvec(data.length), data,
   ]);
+}
+
+/* 組んだメッセージ（memoMessage の形）からメモの文を読む（テストと、取引を読み直すときの確かめ用） */
+export function memoFromMessage(msg) {
+  let o = 0;
+  const vec = () => { let v = 0, s = 0, b; do { b = msg[o++]; v |= (b & 0x7f) << s; s += 7; } while (b & 0x80); return v; };
+  o = 3;
+  const nKeys = vec();
+  const keys = [];
+  for (let i = 0; i < nKeys; i++) { keys.push(b58encode(msg.subarray(o, o + 32))); o += 32; }
+  o += 32;   /* ブロックハッシュ */
+  const nIns = vec();
+  for (let k = 0; k < nIns; k++) {
+    const prog = msg[o++];
+    const nAcc = vec();
+    o += nAcc;
+    const len = vec();
+    const data = msg.subarray(o, o + len);
+    o += len;
+    if (keys[prog] === MEMO_PROGRAM) return new TextDecoder().decode(data);
+  }
+  return null;
 }
 
 export async function memoTransaction(wallet, blockhash, memoText) {
@@ -333,6 +365,10 @@ export async function rpc(network, method, params, { fetchFn = globalThis.fetch,
     if (j && j.error) {
       const m = String(j.error.message || '');
       if (/rate|too many/i.test(m)) { last = new Error('窓口が混んでいる（少し待ってやり直す）'); continue; }
+      if (/simulation failed/i.test(m)) {
+        /* 送る前の試し（preflight）で断られた。取引はチェーンに載っていないので、手数料は掛かっていない */
+        throw new Error('書く前の試しで断られた（手数料は掛かっていない）: ' + m);
+      }
       throw new Error('窓口が断った: ' + m);
     }
     return j.result;
