@@ -11,7 +11,7 @@ import {
   makeRecoveryCode, readRecoveryCode, sealToMemos, parseMemo, openMemos, pickLatest,
   memoMessage, memoTransaction, readLatestMemos, writeMemos, rpc, MEMO_PROGRAM, CHUNK, NETWORKS, toB64, fromB64,
   requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL, COMPUTE_BUDGET_PROGRAM, COMPUTE_UNITS, memoFromMessage,
-  isAddress, transferMessage, planSweep, SYSTEM_PROGRAM,
+  isAddress, transferMessage, planSweep, SYSTEM_PROGRAM, passkeyLabel,
 } from '../js/chain.js';
 
 let n = 0;
@@ -208,6 +208,12 @@ await test('残高を移す: 住所の形・取引の形・見積もり', async 
   assert.equal((await planSweep('devnet', wallet.address, other.address, { fetchFn })).amount, 595000);
   await assert.rejects(planSweep('devnet', wallet.address, wallet.address, { fetchFn }), /同じ/);
   await assert.rejects(planSweep('devnet', wallet.address, 'nope', { fetchFn }), /形が違う/);
+});
+
+await test('パスキーの名前に作った日時を入れる（複数あっても見分けられる）', () => {
+  const l = passkeyLabel(new Date(2026, 10, 9, 8, 5));
+  assert.equal(l.displayName, 'Bubbles の控え（2026-11-09 08:05 作成）');
+  assert.equal(l.name, 'bubbles-backup-202611090805');
 });
 
 await test('solo.html は index.html と CSP・印・manifest・title だけが違い、送り先は決め打ち', () => {

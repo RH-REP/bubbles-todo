@@ -542,11 +542,19 @@ function prfFirst(cred) {
   return r ? new Uint8Array(r) : null;
 }
 
+/* パスキーの名前（Issue #31 の返事: 複数作ると、選ぶ画面で同じ名前が並んで見分けられない）。作った日時を入れる */
+export function passkeyLabel(now = new Date()) {
+  const z = x => String(x).padStart(2, '0');
+  const d = `${now.getFullYear()}-${z(now.getMonth() + 1)}-${z(now.getDate())} ${z(now.getHours())}:${z(now.getMinutes())}`;
+  return { name: 'bubbles-backup-' + d.replace(/[-: ]/g, ''), displayName: 'Bubbles の控え（' + d + ' 作成）' };
+}
+
 /* 新しいパスキーを作る → { credId, root }（root は作ったときに返らない端末では null。続けて passkeyRoot を呼ぶ） */
 export async function createPasskey() {
+  const label = passkeyLabel();
   const cred = await navigator.credentials.create({ publicKey: {
     rp: { name: 'Bubbles の控え' },
-    user: { id: randomBytes(16), name: 'bubbles-backup', displayName: 'Bubbles の控え' },
+    user: { id: randomBytes(16), name: label.name, displayName: label.displayName },
     challenge: randomBytes(32),
     pubKeyCredParams: [{ type: 'public-key', alg: -8 }, { type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
     authenticatorSelection: { residentKey: 'required', userVerification: 'required' },

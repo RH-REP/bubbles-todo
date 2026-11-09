@@ -1255,7 +1255,8 @@ function chainBox() {
     row.textContent = '';
     const net = netSel.value;
     if (!cfg.mode) {
-      info.textContent = 'まだ始めていない。初めてなら「新しく作る」、前にほかの端末で作ったなら「読み込む」。';
+      info.textContent = 'まだ始めていない。初めてなら「新しく作る」、前にほかの端末で作ったなら「読み込む」。'
+        + '前にこの app のパスキーを作ったことがあるなら「読み込む（パスキー）」を使う（「新しく作る」と、別のお財布・別の控えになる）。';
       btn('新しく作る（パスキー）', async () => {
         if (!prfSupported()) throw new Error('この端末ではパスキーを使えない（合言葉で始める）');
         const made = await createPasskey();
@@ -1339,6 +1340,7 @@ function chainBox() {
       await showRecovery(keys);
     });
     btn('復元コードで戻す', restoreByCode);
+    if (prfSupported()) btn('パスキーを選び直す', switchPasskey);
     btn('この端末でやめる', async () => {
       if (!window.confirm('この端末の控えの設定を消す？（チェーンの上の控えは消えない。パスキー・合言葉・復元コードがあれば、また読み込める）\n'
         + 'お財布に SOL が残っているなら、先に「残高をほかの住所へ移す」で移しておく（復元コードではお金は動かせない）。')) return;
@@ -1403,17 +1405,51 @@ function chainBox() {
   async function restoreWith(recordKey, address, net) {
     line.textContent = '控えを探している…';
     const parts = await readLatestMemos(net, address);
-    if (!parts) { line.textContent = 'この住所には、全部そろった控えが無い（' + NETWORKS[net].label + '）。'; return; }
+    if (!parts) {
+      line.textContent = 'この住所には、全部そろった控えが無い（' + NETWORKS[net].label + '）。'
+        + (cfg.mode === 'passkey' ? 'この app のパスキーが複数あるなら、「パスキーを選び直す」で別のものを選ぶ（パスキーごとに別のお財布・別の控えになる）。' : '');
+      return false;
+    }
     const p = await openMemos(parts, recordKey);
     const s = moveSummary(p);
     const at = s.at ? new Date(s.at).toLocaleString() : '不明';
     if (!window.confirm('この端末に戻す？\n書いた時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
       + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) {
       line.textContent = 'やめた';
-      return;
+      return true;
     }
     const n = mergeIntoDevice(p);
     line.textContent = '海 ' + n + ' つの記録を戻した。';
+    return true;
+  }
+
+  /* パスキーを選び直す（Issue #31 の返事: パスキーが複数あると、読み込んだあとに別のものへ替えられなかった）。
+     パスキーごとに別のお財布・別の控えになる。前のお財布に残高があれば、替える前に知らせる
+     （替えたあとは、前のパスキーで選び直さない限り、前のお財布からは移せない）。
+     パスキーは押した手の続きで呼ぶ（ここより前で await しない） */
+  async function switchPasskey() {
+    const net = netSel.value;
+    const got = await passkeyRoot(null);
+    const keys = await keysFromRoot(got.root);
+    if (keys.wallet.address === cfg.address) {
+      line.textContent = '同じパスキー（同じお財布）を選んだ。変わらない。';
+      return;
+    }
+    if (cfg.address) {
+      let old = 0;
+      try { old = await getBalance(net, cfg.address); } catch (e) { old = 0; }
+      if (old > 0 && !window.confirm('前のお財布（' + cfg.address + '）に ' + solText(old) + ' 残っている。\n'
+        + '替えたあとで移すには、前のパスキーで選び直す必要がある。\n先に移すなら「キャンセル」→「残高をほかの住所へ移す」に、選んだパスキーのお財布の住所を貼る:\n'
+        + keys.wallet.address + '\n替える？')) {
+        line.textContent = 'やめた（前のパスキーのまま）。選んだパスキーのお財布の住所: ' + keys.wallet.address;
+        return;
+      }
+    }
+    cfg = Object.assign(loadConfig(), { network: net, mode: 'passkey', credId: got.credId, address: keys.wallet.address,
+      lastAt: null, lastId: null, lastCount: null });
+    saveConfig(cfg);
+    paint();
+    await restoreWith(keys.recordKey, keys.wallet.address, net);
   }
 
   async function restoreByCode() {
