@@ -17,7 +17,7 @@ import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, m
   boxToState, stateToBox, mergeBox } from '../movefile.js';
 import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
   readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports,
-  prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL } from '../chain.js';
+  prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL, planSweep, sweep } from '../chain.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel } from '../ai.js';
 import { openHelp } from '../help.js';
@@ -1327,6 +1327,7 @@ function chainBox() {
       });
     }
     btn('控えを書く', writeBackup);
+    btn('残高をほかの住所へ移す', sweepOut);
     btn('控えから戻す', async () => {
       const keys = await unlock();
       await checkSame(keys);
@@ -1339,7 +1340,8 @@ function chainBox() {
     });
     btn('復元コードで戻す', restoreByCode);
     btn('この端末でやめる', async () => {
-      if (!window.confirm('この端末の控えの設定を消す？（チェーンの上の控えは消えない。パスキー・合言葉・復元コードがあれば、また読み込める）')) return;
+      if (!window.confirm('この端末の控えの設定を消す？（チェーンの上の控えは消えない。パスキー・合言葉・復元コードがあれば、また読み込める）\n'
+        + 'お財布に SOL が残っているなら、先に「残高をほかの住所へ移す」で移しておく（復元コードではお金は動かせない）。')) return;
       try { localStorage.removeItem(CONFIG_KEY); } catch (e) { /* 消せなくても進む */ }
       cfg = loadConfig();
       line.textContent = '';
@@ -1376,6 +1378,26 @@ function chainBox() {
     saveConfig(cfg);
     line.textContent = '控えを書いた（取引 ' + sigs.length + ' 件）。';
     paint();
+  }
+
+  /* 残高を全部ほかの住所へ移す（2026-11-09 Issue #31 の返事）。このお財布はほかのウォレットに読み込めないので、
+     パスキーを替える・やめる前に、残りを新しいお財布や自分のウォレットへ移す。
+     パスキーは押した手の続きで呼ぶ（住所を訊く prompt は待たないので、その後でも続きのまま） */
+  async function sweepOut() {
+    const net = netSel.value;
+    const to = window.prompt('移す先の住所（Solana の住所。新しいお財布なら、その端末の「住所を写す」で写したもの）\n'
+      + 'ネット: ' + NETWORKS[net].label);
+    if (!to) return;
+    const keys = await unlock();
+    await checkSame(keys);
+    line.textContent = '残高を確かめている…';
+    const plan = await planSweep(net, keys.wallet.address, to);
+    if (!window.confirm('残高を全部移す？\n移す先: ' + to.trim() + '\n移す額: ' + solText(plan.amount)
+      + '（手数料 ' + solText(plan.fee) + ' を引いた残り）\nネット: ' + NETWORKS[net].label
+      + '\n送ったものは取り消せない。住所が合っているかを確かめる。')) { line.textContent = 'やめた'; return; }
+    line.textContent = '移している…';
+    await sweep(net, keys.wallet, to, plan.amount);
+    line.textContent = solText(plan.amount) + ' を移した。このお財布の残高は 0 になった（控えを書くには、また SOL を入れる）。';
   }
 
   async function restoreWith(recordKey, address, net) {

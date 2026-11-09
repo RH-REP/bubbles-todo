@@ -338,6 +338,65 @@ export async function memoTransaction(wallet, blockhash, memoText) {
   return { tx, signature: b58encode(sig) };
 }
 
+/* ---- 残高をほかの住所へ移す（2026-11-09 Issue #31 の返事） ----
+   このお財布は鍵の元（パスキー・合言葉）からしか作れず、ほかのウォレットに読み込めない。
+   パスキーを替える・合言葉に替える・やめるときに、残った SOL を新しいお財布や自分のウォレットへ全部移す。
+   取引は System プログラムの Transfer（判別子 2・u32 LE ＋ 額 u64 LE）1 つ。全部移すとお財布は 0 になり閉じる（最低の額は要らない）。 */
+export const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+
+/* Solana の住所の形か（base58 で 32 バイト）。曲線の上にあるかまでは見ない */
+export function isAddress(s) {
+  const t = String(s || '').trim();
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(t)) return false;
+  try { return b58decode(t).length === 32; } catch (e) { return false; }
+}
+
+export function transferMessage(from, to, blockhash, lamports) {
+  const data = new Uint8Array(12);
+  const dv = new DataView(data.buffer);
+  dv.setUint32(0, 2, true);
+  dv.setBigUint64(4, BigInt(lamports), true);
+  return concat([
+    Uint8Array.of(1, 0, 1),           /* 署名 1・読むだけの署名者 0・読むだけの署名しない口座 1（System） */
+    shortvec(3), from, to, b58decode(SYSTEM_PROGRAM),
+    blockhash,
+    shortvec(1),
+    Uint8Array.of(2), shortvec(2), Uint8Array.of(0, 1),   /* System（口座の 2 番目）・口座 [送る側, 受ける側] */
+    shortvec(data.length), data,
+  ]);
+}
+
+/* 移す前の見積もり → { balance, fee, amount, destBalance, rent }。移せないときは Error */
+export async function planSweep(network, fromAddress, toAddress, opt) {
+  if (!isAddress(toAddress)) throw new Error('送り先の住所の形が違う（Solana の住所を貼る）');
+  if (String(toAddress).trim() === fromAddress) throw new Error('送り先がこのお財布と同じ');
+  const [balance, destBalance, rentRaw] = await Promise.all([
+    getBalance(network, fromAddress, opt),
+    getBalance(network, String(toAddress).trim(), opt),
+    rpc(network, 'getMinimumBalanceForRentExemption', [0], opt),
+  ]);
+  const rent = Number(rentRaw) || 890880;
+  const fee = FEE_LAMPORTS;
+  const amount = balance - fee;
+  if (amount <= 0) throw new Error('移せる残高が無い（残高 ' + solText(balance) + '）');
+  /* 空の住所へは、最低の額より少なく送れない（チェーンが断る） */
+  if (destBalance === 0 && amount < rent) {
+    throw new Error('送り先がまだ空で、移せる額（' + solText(amount) + '）が最低の額（' + solText(rent) + '）より少ない');
+  }
+  return { balance, fee, amount, destBalance, rent };
+}
+
+/* 全部移す。戻り値 取引の ID */
+export async function sweep(network, wallet, toAddress, amount, opt) {
+  const r = await rpc(network, 'getLatestBlockhash', [{ commitment: 'confirmed' }], opt);
+  const msg = transferMessage(wallet.publicKey, b58decode(String(toAddress).trim()), b58decode(r.value.blockhash), amount);
+  const sig = await wallet.sign(msg);
+  const tx = concat([shortvec(1), sig, msg]);
+  const id = await rpc(network, 'sendTransaction', [toB64(tx), { encoding: 'base64', preflightCommitment: 'confirmed' }], opt);
+  await waitConfirmed(network, [id], opt);
+  return id;
+}
+
 /* ---- 窓口（RPC） ---- */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

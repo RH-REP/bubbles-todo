@@ -11,6 +11,7 @@ import {
   makeRecoveryCode, readRecoveryCode, sealToMemos, parseMemo, openMemos, pickLatest,
   memoMessage, memoTransaction, readLatestMemos, writeMemos, rpc, MEMO_PROGRAM, CHUNK, NETWORKS, toB64, fromB64,
   requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL, COMPUTE_BUDGET_PROGRAM, COMPUTE_UNITS, memoFromMessage,
+  isAddress, transferMessage, planSweep, SYSTEM_PROGRAM,
 } from '../js/chain.js';
 
 let n = 0;
@@ -174,6 +175,39 @@ await test('テスト用の SOL: 窓口が配っていない（410）ときは�
   assert.equal(AIRDROP_LAMPORTS, 1e8);
   await assert.rejects(requestAirdrop('mainnet', '1'.repeat(32), { fetchFn: gone }), /テスト用のネット/);
   assert.match(FAUCET_URL, /^https:\/\/faucet\.solana\.com\//);
+});
+
+await test('残高を移す: 住所の形・取引の形・見積もり', async () => {
+  const { wallet } = await keysFromRoot(new Uint8Array(32).fill(6));
+  const { wallet: other } = await keysFromRoot(new Uint8Array(32).fill(7));
+  assert.ok(isAddress(other.address));
+  assert.ok(!isAddress('abc'));
+  assert.ok(!isAddress('0'.repeat(44)));
+  assert.equal(b58decode(SYSTEM_PROGRAM).length, 32);
+  const bh = new Uint8Array(32).fill(2);
+  const msg = transferMessage(wallet.publicKey, other.publicKey, bh, 123456789);
+  assert.deepEqual(Array.from(msg.subarray(0, 4)), [1, 0, 1, 3]);
+  const ins = 4 + 96 + 32;
+  assert.deepEqual(Array.from(msg.subarray(ins, ins + 6)), [1, 2, 2, 0, 1, 12]);
+  const dv = new DataView(msg.buffer, msg.byteOffset + ins + 6, 12);
+  assert.equal(dv.getUint32(0, true), 2);
+  assert.equal(Number(dv.getBigUint64(4, true)), 123456789);
+  assert.equal(msg.length, ins + 6 + 12);
+  /* 見積もり（偽の窓口） */
+  const bal = { [wallet.address]: 1000000, [other.address]: 0 };
+  const fetchFn = async (url, init) => {
+    const { method, params } = JSON.parse(init.body);
+    const result = method === 'getBalance' ? { value: bal[params[0]] } : 890880;
+    return { status: 200, ok: true, json: async () => ({ result }) };
+  };
+  const plan = await planSweep('devnet', wallet.address, ' ' + other.address + ' ', { fetchFn });
+  assert.equal(plan.amount, 1000000 - 5000);
+  bal[wallet.address] = 600000;   /* 空の住所へ最低の額より少なくは送れない */
+  await assert.rejects(planSweep('devnet', wallet.address, other.address, { fetchFn }), /最低の額/);
+  bal[other.address] = 1;          /* 空でなければ少なくても送れる */
+  assert.equal((await planSweep('devnet', wallet.address, other.address, { fetchFn })).amount, 595000);
+  await assert.rejects(planSweep('devnet', wallet.address, wallet.address, { fetchFn }), /同じ/);
+  await assert.rejects(planSweep('devnet', wallet.address, 'nope', { fetchFn }), /形が違う/);
 });
 
 await test('solo.html は index.html と CSP・印・manifest・title だけが違い、送り先は決め打ち', () => {
