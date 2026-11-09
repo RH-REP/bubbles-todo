@@ -551,6 +551,14 @@ bash tests/server-setup.test.sh
 - 消さないもの: サーバーに置いた記録（また繋ぐと戻る）、チェーンに書いた控え、`feedback.errors`（「!」の記録）、service worker の箱（app 本体）
 - 作り: `js/reset.js`（消す範囲と確かめの字）、`js/screens/settings.js` の `resetAllBox`。テスト: `node --test tests/reset.test.mjs`（app のキーがどれも `bubble_todo` で始まることも見る）
 
+### キーボードが出ている間の枠（Issue #33）
+
+iPhone の Safari（と Chrome 108 からの Android）は、キーボードが出ても画面の高さ（`dvh`・`innerHeight`）を縮めず、見えている所（`visualViewport`）だけを縮める。そのままだと枠がキーボードの裏まで伸び、入力欄の下の下タブと安全領域が、送信とキーボードの間の大きな空白に見える。
+
+- 字を打つ欄に焦点があり、`visualViewport.height` が画面より 120px を超えて縮んでいる間だけ `html.kb-open` を付ける（`js/boot-dvh.js` の ■3）
+- その間は枠を見えている所の高さ・位置（`--kb-h`・`--kb-top`）に `position: fixed` で固定し、ページ全体もその高さにして、下タブを畳む（`css/base.css`）
+- まだ確かめていない: 本物の iPhone（Safari とホーム画面アプリ）・Android での見え方
+
 ## 使い方の記事
 
 `docs/guide/index.html`（スクリーンショットつき。2026-10-23）。app の設定のいちばん上の「使い方」から開き、記事の上の「アプリへ戻る」で戻る。

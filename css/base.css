@@ -168,6 +168,17 @@ body {
 }
 /* no-dvh … dvh を知らないブラウザ。fit-js … dvh でも立ち上げ直後にはみ出したので、実際の高さに合わせた（js/boot-dvh.js） */
 html.no-dvh .app, html.fit-js .app { height: var(--app-h, 100vh); }
+/* 端末のキーボードが出ている間（js/boot-dvh.js の ■3。Issue #33）。
+   iPhone はキーボードが出ても画面の高さを縮めないので、枠がキーボードの裏まで伸び、
+   入力欄の下の下タブと安全領域が「送信とキーボードの間の大きな空白」に見えていた。
+   見えている所（visualViewport）の高さと位置に枠を固定し、下タブを畳む。
+   ページ全体もその高さにして、下に地（黒）がのぞかないようにする。 */
+html.kb-open, html.kb-open body { height: var(--kb-h, 100%); overflow: hidden; }
+html.kb-open .app {
+  position: fixed; left: 0; right: 0; top: var(--kb-top, 0px);
+  height: var(--kb-h, 100%);
+}
+html.kb-open .tabbar { display: none; }
 .panes { flex: 1; min-height: 0; position: relative; }
 .pane { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
 .pane.is-active { display: flex; }

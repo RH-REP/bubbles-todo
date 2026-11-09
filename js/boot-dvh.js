@@ -46,6 +46,44 @@
     sample(why);
   }
 
+  /* ■ 3. 端末のキーボードが出ている間は、見えている所に枠を合わせる（2026-11-09 Issue #33）
+     iPhone の Safari（と Chrome 108 からの Android）は、キーボードが出ても画面の高さ（dvh・innerHeight）を
+     縮めず、見えている所（visualViewport）だけを縮める。枠はキーボードの裏まで伸びたままなので、
+     入力欄の下の下タブと安全領域のぶんが、送信とキーボードの間の大きな空白として見えていた。
+     そこで、字を打つ欄に焦点があり、見えている所が画面より大きく（120px 超）縮んでいる間だけ、
+     html.kb-open を付けて、枠を見えている所の高さ（--kb-h）・位置（--kb-top）に固定し、下タブを畳む
+     （css/base.css）。キーボードが引っ込めば外す。 */
+  function isEditable(el) {
+    if (!el || !el.tagName) return false;
+    var tag = el.tagName;
+    if (tag === 'TEXTAREA' || el.isContentEditable) return true;
+    if (tag !== 'INPUT') return false;
+    return !/^(button|submit|reset|checkbox|radio|range|color|file|image|hidden)$/i.test(el.type || '');
+  }
+  var kbTimer = 0;
+  function checkKb() {
+    var vv = window.visualViewport;
+    if (!vv) return;
+    var full = Math.max(window.innerHeight, root.clientHeight);
+    var open = isEditable(document.activeElement) && (full - vv.height > 120);
+    if (open) {
+      root.style.setProperty('--kb-h', Math.round(vv.height) + 'px');
+      root.style.setProperty('--kb-top', Math.round(vv.offsetTop) + 'px');
+      if (!root.classList.contains('kb-open')) root.classList.add('kb-open');
+    } else if (root.classList.contains('kb-open')) {
+      root.classList.remove('kb-open');
+      if (window.scrollY) window.scrollTo(0, 0);
+    }
+  }
+  function checkKbSoon() { clearTimeout(kbTimer); kbTimer = setTimeout(checkKb, 60); }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', checkKb);
+    window.visualViewport.addEventListener('scroll', checkKb);
+    /* 焦点が欄から欄へ移るときは、いったん外れてすぐ入る。少し待ってから見る */
+    document.addEventListener('focusin', checkKbSoon);
+    document.addEventListener('focusout', checkKbSoon);
+  }
+
   if (noDvh) setH();
   sample('start');
   window.addEventListener('resize', function () { check('resize'); });
