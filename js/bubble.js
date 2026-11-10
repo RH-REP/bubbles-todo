@@ -22,6 +22,7 @@ import { QUADRANTS, quadrantFor } from './priority.js';
 import { askFull, askWithSearchFull, hasKey } from './ai.js';
 import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, applyName, cleanText, appendSection, lostUrls, failLine,
   buildAskPrompt, parseAskReply, askSectionText, leadDay, relatedDetail, ASK_MAX, DEADLINE_LEAD } from './research.js';
+import { spanFromDetail, withSpan } from './deadline.js';
 
 export const MIN_D = 78;      /* バブルの最小直径 px（文字量で決まるとき） */
 export const MAX_D = 200;     /* 同 最大 */
@@ -784,6 +785,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let detailBtn = null, detailPane = null, detailArea = null;
   let detailView = null, detailEdit = null, detailNote = null;   /* 読む面と [編集]（Issue #16） */
   let detailDraft = '';
+  let syncSpanRow = null;       /* 盤の「期間」（Issue #34）。本文が変わったら読み直す */
   /* ひとこと（Issue #25）。入口と別の面。[書く] で1件ずつ積む（書き換えない） */
   let notesBtn = null, notesPane = null, notesList = null, notesArea = null, notesSaid = null, notesName = null;
   let draft0 = null;            /* 開いた時点の入力欄の中身（触ったかを見るため） */
@@ -1141,6 +1143,92 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         days0.clear();
         want.forEach(v => days0.add(v));      /* 二重に書かない */
       };
+    }
+
+    /* ---- 期間（開始日・終了日。2026-11-10 Issue #34）----
+
+       > TODOの開始日と終了日の入れ方は？ わかりやすく作れる？
+
+       前は、本文に `期間: 2026-11-10 〜 2026-11-20` と手で打つしかなかった（日付で見る がそれを読む）。
+       ここで2つの日付欄から選べるようにする。**書く先は本文のその行**（js/deadline.js の withSpan）。
+       泡に新しい欄は足さない——同期・CSV・先の予定・日付で見る は今のまま読める。
+       ・片方だけなら、その日1日（`日付: A`）。両方空なら行を消す
+       ・開始日は過ぎた日も選べる（もう始めているものもある）
+       ・書くのは本文と同じく、閉じるとき・[OK] のとき（ここでは本文の控えを替えるだけ）
+       いつの日・もどってくる日と同じく、既定では畳む。畳んだ姿でも期間は読める。 */
+    if (typeof (a || {}).setDetail === 'function') {
+      const box = el('div', 'bc-hold bc-span');
+      const head = el('button', 'bc-cal-head');
+      head.type = 'button';
+      head.setAttribute('aria-expanded', 'false');
+      const ssum = el('span', 'bc-cal-sum');
+      head.appendChild(el('span', 'bc-hold-lb', '期間'));
+      head.appendChild(ssum);
+      const body = el('div', 'bc-hold-body');
+      body.hidden = true;
+      head.addEventListener('click', ev => {
+        ev.preventDefault();
+        const open = body.hidden;
+        body.hidden = !open;
+        head.setAttribute('aria-expanded', open ? 'true' : 'false');
+        relayout();
+      });
+
+      const mk = (tx, key) => {
+        const row = el('label', 'bc-span-row');
+        row.appendChild(el('span', 'bc-span-lb', tx));
+        const inp = el('input', 'bc-hold-day');
+        inp.type = 'date';
+        inp.id = 'bc-span-' + key + '-' + String(id);
+        row.appendChild(inp);
+        body.appendChild(row);
+        return inp;
+      };
+      const startIn = mk('開始日', 'start');
+      const endIn = mk('終了日', 'end');
+      const picks = el('div', 'bc-hold-picks');
+      const clear = el('button', 'bc-hold-pick', '決めない');
+      clear.type = 'button';
+      picks.appendChild(clear);
+      body.appendChild(picks);
+      body.appendChild(el('p', 'bc-span-note', '本文の「期間:」の行に書く。日付で見る（▤）に帯で出る'));
+
+      /* いまの本文（書く面が開いていればそちら）に、選んだ期間を書き込む */
+      const curDetail = () => ((detailArea && detailPane && !detailPane.hidden) ? detailArea.value : detailDraft);
+      function write(s, e) {
+        detailDraft = withSpan(curDetail(), s, e);
+        if (detailArea) detailArea.value = detailDraft;
+        if (detailView && !detailView.hidden) detailView.textContent = detailDraft;
+        syncDetailBtn();                          /* syncSpanRow も呼ばれる */
+      }
+      startIn.addEventListener('change', () => {
+        let s = startIn.value, e = endIn.value;
+        if (s && e && e < s) e = s;               /* 終了日を開始日より前に残さない */
+        write(s, e);
+      });
+      endIn.addEventListener('change', () => {
+        let s = startIn.value, e = endIn.value;
+        if (s && e && e < s) s = e;
+        write(s, e);
+      });
+      clear.addEventListener('click', ev => { ev.preventDefault(); write('', ''); });
+
+      const md = k => Number(k.slice(5, 7)) + '/' + Number(k.slice(8, 10));
+      syncSpanRow = () => {
+        const sp = spanFromDetail(detailDraft);
+        startIn.value = sp ? sp.start : '';
+        endIn.value = sp ? sp.end : '';
+        if (sp) endIn.min = sp.start; else endIn.removeAttribute('min');
+        /* 数（あと◯日）は出さない。日だけ */
+        ssum.textContent = !sp ? '決めていない'
+          : (sp.start === sp.end ? md(sp.start) : md(sp.start) + ' 〜 ' + md(sp.end));
+        clear.setAttribute('aria-pressed', sp ? 'false' : 'true');
+        head.setAttribute('aria-label', '期間：' + ssum.textContent + '。押すと開始日と終了日を選べる');
+      };
+      box.appendChild(head);
+      box.appendChild(body);
+      fields.appendChild(box);
+      syncSpanRow();
     }
 
     /* ---- 長期保留の「戻ってくる日」（利用者の指示）----
@@ -1751,6 +1839,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailBtn.textContent = t ? trimTx(t.split('\n')[0], 16) : '書く';
     detailBtn.classList.toggle('is-empty', !t);
     detailBtn.setAttribute('aria-label', t ? '本文を読む' : '本文を書く');
+    if (syncSpanRow) syncSpanRow();
   }
 
   /* 読む面か書く面かを切り替える。editing=true で入力欄を出す */

@@ -22,7 +22,7 @@ export function createDeadlineView(host, opts = {}) {
   root.setAttribute('role', 'group');
   root.setAttribute('aria-label', '日付で見る（終了日の近い順）');
   const cap = el('p', 'dl-cap', '終了日の近い順');
-  const empty = el('p', 'dl-empty', '先の日付のあるものは、まだ無い。盤の「いつの日」で日を置くと、ここに並ぶ。');
+  const empty = el('p', 'dl-empty', '先の日付のあるものは、まだ無い。盤の「いつの日」で日を置くか、「期間」で開始日と終了日を選ぶと、ここに並ぶ。');
   empty.hidden = true;
   const scroller = el('div', 'dl-scroll');
   const table = el('div', 'dl-table');

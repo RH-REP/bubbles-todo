@@ -49,6 +49,40 @@ export function spanFromDetail(detail) {
   return null;
 }
 
+/* 本文の期間の行を書き替える（盤の「期間」。2026-11-10 Issue #34）。
+   泡に開始日・終了日の欄を足さず、上の spanFromDetail が読む行を本文に置く
+   ——同期・CSV・先の予定・日付で見る は今のまま読める。
+     ・開始日と終了日 → `期間: A 〜 B`（同じ日なら `日付: A`）
+     ・片方だけ      → その日1日（`日付: A`）
+     ・逆に入れた    → 入れ替える
+     ・両方空        → 行を消す
+   行の頭にある期間・日付の行（最初の1つ）を置き換え、日付のあとの文（「（予定）」など）は残す。
+   無ければ本文の終わりに1行足す。日付が読めないものは無いものとして扱う。 */
+const SPAN_LINE_RE = /^期間: \d{4}-\d{2}-\d{2} 〜 \d{4}-\d{2}-\d{2}(.*)$/m;
+const DATE_LINE_RE = /^日付: \d{4}-\d{2}-\d{2}(.*)$/m;
+
+export function withSpan(detail, start, end) {
+  const s = String(detail || '');
+  let a = dateOf(start) ? start : null;
+  let b = dateOf(end) ? end : null;
+  if (!a) a = b;
+  if (!b) b = a;
+  if (a && b && b < a) { const x = a; a = b; b = x; }
+  const line = !a ? '' : (a === b ? '日付: ' + a : '期間: ' + a + ' 〜 ' + b);
+
+  const m = SPAN_LINE_RE.exec(s) || DATE_LINE_RE.exec(s);
+  if (m) {
+    const head = s.slice(0, m.index), tail = s.slice(m.index + m[0].length);
+    if (line) return head + line + m[1] + tail;
+    /* 消すときは改行も1つ連れていく（空の行を残さない） */
+    if (tail.startsWith('\n')) return head + tail.slice(1);
+    return head.endsWith('\n') ? head.slice(0, -1) : head;
+  }
+  if (!line) return s;
+  if (!s) return line;
+  return s + (s.endsWith('\n') ? '' : '\n') + line;
+}
+
 /* 1つの泡の終了日と、表に印を付ける日。終了日が無い（今日から先の日が無い）なら null
    返り値 = { end, days: [今日から先の置いた日], span: {start,end}|null, from: 'days'|'detail' } */
 export function deadlineOf(t, today) {

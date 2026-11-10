@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  deadlineOf, deadlineRows, columnCount, columns, cellMark, inSpan, leftLabel, spanFromDetail, daysBetween,
+  deadlineOf, deadlineRows, columnCount, columns, cellMark, inSpan, leftLabel, spanFromDetail, daysBetween, withSpan,
   COLS_MIN, COLS_MAX,
 } from '../js/deadline.js';
 import { holidaysOf, holidayName } from '../js/holiday.js';
@@ -94,4 +94,26 @@ test('列に祝日と休みの印が付く', () => {
   const c = columns('2026-11-21', 4);   /* 土・日・月(勤労感謝の日)・火 */
   assert.deepEqual(c.map(x => [x.sat, x.off, x.hol]),
     [[true, false, ''], [false, true, ''], [false, true, '勤労感謝の日'], [false, false, '']]);
+});
+
+/* 盤の「期間」（Issue #34）。本文の行を書き替える */
+test('期間の行を足す・置き換える・消す', () => {
+  assert.equal(withSpan('', '2026-11-10', '2026-11-20'), '期間: 2026-11-10 〜 2026-11-20');
+  assert.equal(withSpan('メモ', '2026-11-10', '2026-11-20'), 'メモ\n期間: 2026-11-10 〜 2026-11-20');
+  assert.equal(withSpan('メモ\n', '2026-11-10', ''), 'メモ\n日付: 2026-11-10');          /* 片方だけは1日 */
+  assert.equal(withSpan('', '', '2026-11-20'), '日付: 2026-11-20');
+  assert.equal(withSpan('', '2026-11-20', '2026-11-10'), '期間: 2026-11-10 〜 2026-11-20'); /* 逆は入れ替える */
+  assert.equal(withSpan('', '2026-11-12', '2026-11-12'), '日付: 2026-11-12');
+  /* 置き換えでは、日付のあとの文と、前後の行を残す */
+  assert.equal(withSpan('上\n期間: 2026-11-01 〜 2026-11-30（予定）\n先の予定: x', '2026-11-05', '2026-11-09'),
+    '上\n期間: 2026-11-05 〜 2026-11-09（予定）\n先の予定: x');
+  assert.equal(withSpan('日付: 2026-12-31（期限）\nまとめ', '2026-12-01', '2026-12-24'),
+    '期間: 2026-12-01 〜 2026-12-24（期限）\nまとめ');
+  /* 両方空は行を消す（空の行を残さない） */
+  assert.equal(withSpan('上\n期間: 2026-11-01 〜 2026-11-30\n下', '', ''), '上\n下');
+  assert.equal(withSpan('上\n日付: 2026-11-01', '', ''), '上');
+  assert.equal(withSpan('メモ', '', ''), 'メモ');
+  assert.equal(withSpan('', 'x', '2026-02-30'), '');                                       /* 読めない日は無い扱い */
+  /* 書いた行は、日付で見る がそのまま読む */
+  assert.deepEqual(spanFromDetail(withSpan('メモ', '2026-11-10', '2026-11-20')), { start: '2026-11-10', end: '2026-11-20' });
 });
