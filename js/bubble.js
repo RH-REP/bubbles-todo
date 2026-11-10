@@ -784,7 +784,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   /* 本文（Issue #8）も入口と別の面。作業メモと違い、記録には積まず、閉じるときに書き替える */
   let detailBtn = null, detailPane = null, detailArea = null;
   let detailView = null, detailEdit = null, detailNote = null;   /* 読む面と [編集]（Issue #16） */
+  let detailClose = null, detailSave = null, detailCancel = null; /* 書く面の [保存]／[キャンセル]（Issue #35） */
   let detailDraft = '';
+  let detailBase = '';          /* 書く面に入った時点の本文。[キャンセル] でここへ戻す */
   let syncSpanRow = null;       /* 盤の「期間」（Issue #34）。本文が変わったら読み直す */
   /* ひとこと（Issue #25）。入口と別の面。[書く] で1件ずつ積む（書き換えない） */
   let notesBtn = null, notesPane = null, notesList = null, notesArea = null, notesSaid = null, notesName = null;
@@ -1842,14 +1844,25 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (syncSpanRow) syncSpanRow();
   }
 
-  /* 読む面か書く面かを切り替える。editing=true で入力欄を出す */
+  /* 読む面か書く面かを切り替える。editing=true で入力欄を出す。
+
+     書く面の見出しは [キャンセル] [保存]（Issue #35）。
+     前は [閉じる] だけで、書き替えを確かめる道も、やめる道も無かった
+     （外を触っても閉じても、そのまま上書きされた）。
+     ・[保存]     … 書いた本文を残して盤へ戻る
+     ・[キャンセル] … 書く面に入ったときの本文へ戻して盤へ戻る（何も書き替えない）
+     ・外を触る／Esc … いままでどおり残す（打った文字を黙って捨てない） */
   function setDetailMode(editing) {
     if (!detailPane) return;
     detailPane.classList.toggle('is-reading', !editing);
     detailView.hidden = editing;
     detailArea.hidden = !editing;
     detailEdit.hidden = editing;
-    detailNote.textContent = editing ? '閉じると残る。履歴には積まない' : '';
+    detailClose.hidden = editing;
+    detailSave.hidden = !editing;
+    detailCancel.hidden = !editing;
+    if (editing) detailBase = detailDraft;
+    detailNote.textContent = editing ? '[保存] か外を触ると残る。[キャンセル] で書く前に戻す。履歴には積まない' : '';
     detailNote.hidden = !editing;
     if (!editing) detailView.textContent = detailDraft;   /* 改行は CSS の pre-wrap で出す */
   }
@@ -1881,6 +1894,19 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     close.type = 'button';
     close.addEventListener('click', ev => { ev.preventDefault(); closeDetail(true); });
     btns.appendChild(close);
+    detailClose = close;
+    /* 書く面だけに出す2つ（Issue #35）。見出しに置くのは、スマホでキーボードが
+       下半分を隠しても押せるように。強いほう（保存）を右＝いつもの [閉じる] の場所に */
+    detailCancel = el('button', 'bm-close bm-cancel', 'キャンセル');
+    detailCancel.type = 'button';
+    detailCancel.setAttribute('aria-label', '本文の書き替えをやめる');
+    detailCancel.addEventListener('click', ev => { ev.preventDefault(); cancelDetail(); });
+    btns.appendChild(detailCancel);
+    detailSave = el('button', 'bm-close bm-ok', '保存');
+    detailSave.type = 'button';
+    detailSave.setAttribute('aria-label', '本文を保存して閉じる');
+    detailSave.addEventListener('click', ev => { ev.preventDefault(); closeDetail(true); });
+    btns.appendChild(detailSave);
     head.appendChild(btns);
     detailPane.appendChild(head);
     detailPane._close = close;
@@ -1905,7 +1931,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailArea.addEventListener('input', () => { detailDraft = detailArea.value; });
     detailPane.appendChild(detailArea);
 
-    detailNote = el('p', 'bm-said', '閉じると残る。履歴には積まない');
+    detailNote = el('p', 'bm-said', '');
     detailPane.appendChild(detailNote);
 
     buildAi();
@@ -2226,6 +2252,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     relayout();
     if (restoreFocus && detailBtn && detailBtn.isConnected) detailBtn.focus({ preventScroll: true });
     return true;
+  }
+
+  /* [キャンセル]（Issue #35）。書く面に入ったときの本文へ戻してから閉じる。
+     閉じるときの保存（saveDetail）は戻した本文を書くので、店から見れば何も変わらない */
+  function cancelDetail() {
+    if (!detailPane || detailPane.hidden) return;
+    detailDraft = detailBase;
+    if (detailArea) detailArea.value = detailBase;
+    closeDetail(true);
   }
 
   /* ---- ひとことの面（Issue #25）----

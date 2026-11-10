@@ -1008,6 +1008,9 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
   z-index: 2;                                  /* 泡の上に重ねて読む */
 }
 .bub-center .bm-btns { display: flex; gap: 6px; }
+/* 本文の書く面の [保存]（Issue #35）。[キャンセル] と並ぶので、縁と太さで決める側を示す */
+.bub-center .bm-close.bm-ok { border-color: var(--bub-edge); font-weight: 600; }
+.bub-center .bm-close[hidden] { display: none; }
 .bub-center .bm-view {
   flex: 1 1 auto; min-height: 120px;
   margin: 8px 12px 12px; padding: 4px 2px;
