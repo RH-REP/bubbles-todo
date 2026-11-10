@@ -34,14 +34,23 @@
 
 API:
     GET /api/health          → {"ok": true}（合言葉は要らない。届くかを見るだけ）
-    GET /api/data            → {"space": "me"|"share", "version": n, "data": {...} | null}
+    GET /api/data            → {"space": "me"|"share", "version": n, "data": {...} | null, "minSchema": n}
                                space はその合言葉の置き場（端末が取り違えに気づくため）
+                               minSchema は受け付ける最も古い記録の形の版（下の「記録の形の版」）。GET は版で断らない
     POST /api/spaces         ← {"spaces": [{id, name, color, at, alive}, ...]}
                              → {"spaces": [...]}  海の一覧。持ち主の鍵なら合わせて全部を返し、
                                招かれた鍵なら書き換えず、入れる海のぶんだけ返す
     PUT /api/data            ← {"base": n, "data": {...}}
                                base が今の版と違えば 409 と今の版・中身を返す（上書きしない）
                                同じなら書いて {"version": n+1}
+                               頭書き X-Bubbles-Schema が無いか minSchema より小さければ、書かずに
+                               426 {"error": "upgrade", "minSchema": n}（個人・共有・作った海のどれでも）
+
+記録の形の版（2026-11-10。共有の記録 v1.1 §6）:
+    記録は bubble・gantt_todo・diary が読み書きする。古い版の端末は新しい欄を知らずに落とし、
+    印が変わらないまま広げてしまう。そこで端末は分かる記録の形の版を X-Bubbles-Schema で送り、
+    このサーバーは --min-schema（環境変数 BUBBLE_TODO_MIN_SCHEMA。既定 1）より古い書き込みを断る。
+    互換性の無い変更を入れるときは、端末の SCHEMA を上げた版を配ってから --min-schema を上げる（DEV_NOTES.md）。
 書くたびに前の版を <データの場所>/backup/ に残す（新しいほうから BACKUP_KEEP 個）。
 
 入場の形は2つ:
@@ -417,7 +426,8 @@ class Config:
     """入場の仕方と守りの設定。token（合言葉。手元で使う）か passkey（公開して使う）"""
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
-                 guard=None, passkeys=None, stores=None, require_uv=True, devices=None, sea_list=None):
+                 guard=None, passkeys=None, stores=None, require_uv=True, devices=None, sea_list=None,
+                 min_schema=1):
         self.auth, self.origin, self.rp_id = auth, origin, rp_id
         self.trust_proxy = trust_proxy
         self.allow_origins = set(allow_origins)
@@ -427,6 +437,7 @@ class Config:
         self.require_uv = require_uv
         self.devices = devices or Devices()   # パスキーの形で、同時に使える端末の数
         self.sea_list = sea_list              # 海の一覧（SeaList）。無ければ /api/spaces は 404
+        self.min_schema = int(min_schema)     # 受け付ける最も古い記録の形の版（X-Bubbles-Schema）
 
 
 def make_handler(spaces, cfg: Config = None):
@@ -606,13 +617,18 @@ def make_handler(spaces, cfg: Config = None):
                 return self.deny('data')
             return sp
 
+        def schema(self):
+            """端末が言う記録の形の版（X-Bubbles-Schema）。無い・読めないときは 0"""
+            v = (self.headers.get('X-Bubbles-Schema', '') or '').strip()
+            return int(v) if v.isdigit() and len(v) < 6 else 0
+
         # --- 受ける ---
         def do_OPTIONS(self):
             if not self.gate():
                 return
             self.send(204, extra={
                 'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Bubbles-Space',
+                'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Bubbles-Space, X-Bubbles-Schema',
                 'Access-Control-Max-Age': '600',
             })
 
@@ -629,7 +645,7 @@ def make_handler(spaces, cfg: Config = None):
                 if not sp:
                     return
                 cur = sp[1].read()
-                out = {'space': sp[0], 'version': cur['version'], 'data': cur['data']}
+                out = {'space': sp[0], 'version': cur['version'], 'data': cur['data'], 'minSchema': cfg.min_schema}
                 if cfg.auth == 'passkey':
                     # 端末が「誰の個人か」「持ち主か」を知るため（パスキーを移したとき、手元の箱を入れ替える）
                     info = self.session() or {}
@@ -661,6 +677,10 @@ def make_handler(spaces, cfg: Config = None):
                     raise ValueError('data.doc')
             except (ValueError, KeyError, TypeError):
                 return self.send_json(400, {'error': 'bad body'})
+            # 記録の形の版。古い版（頭書きの無い前の版を含む）の書き込みは、記録に触れずに断る
+            if self.schema() < cfg.min_schema:
+                log_event('schema', self.ip(), f'{self.schema()} < {cfg.min_schema}')
+                return self.send_json(426, {'error': 'upgrade', 'minSchema': cfg.min_schema})
             ok, res = sp[1].write(base, data)
             if ok:
                 return self.send_json(200, {'version': res})
@@ -997,6 +1017,8 @@ def main(argv=None):
     ap.add_argument('--max-devices', type=int, default=int(os.environ.get('BUBBLE_TODO_MAX_DEVICES', '3')),
                     help='同時に使える端末の数（既定 3。--device-window 秒以内に使った端末を数える）')
     ap.add_argument('--device-window', type=int, default=int(os.environ.get('BUBBLE_TODO_DEVICE_WINDOW', '1800')))
+    ap.add_argument('--min-schema', type=int, default=int(os.environ.get('BUBBLE_TODO_MIN_SCHEMA', '1')),
+                    help='受け付ける最も古い記録の形の版（既定 1）。これより古い端末の書き込みは 426 で断る')
     ap.add_argument('command', nargs='?', default='serve',
                     choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
                              'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person',
@@ -1034,17 +1056,17 @@ def main(argv=None):
         cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy,
                      allow_origins=args.allow_origin or (), passkeys=PasskeyStore(data_dir, max_per_space=args.max_passkeys),
                      stores=SeaStores(data_dir), devices=Devices(max_active=args.max_devices, window=args.device_window),
-                     sea_list=SeaList(data_dir))
+                     sea_list=SeaList(data_dir), min_schema=args.min_schema)
         spaces = {}
     else:
         cfg = Config(auth='token', trust_proxy=args.trust_proxy,
                      allow_origins=args.allow_origin if args.allow_origin is not None
                      else ('https://localhost', 'capacitor://localhost'),
-                     sea_list=SeaList(data_dir))
+                     sea_list=SeaList(data_dir), min_schema=args.min_schema)
         spaces = Spaces(data_dir)
     Server.guard, Server.trust_proxy = cfg.guard, cfg.trust_proxy
     httpd = Server((args.host, args.port), make_handler(spaces, cfg))
-    print(f'Bubbles server: http://{args.host}:{args.port}/  data: {data_dir}  auth: {cfg.auth}'
+    print(f'Bubbles server: http://{args.host}:{args.port}/  data: {data_dir}  auth: {cfg.auth}  min-schema: {cfg.min_schema}'
           + (f'  origin: {cfg.origin}  rp_id: {cfg.rp_id}' if cfg.auth == 'passkey' else ''), flush=True)
     try:
         httpd.serve_forever()

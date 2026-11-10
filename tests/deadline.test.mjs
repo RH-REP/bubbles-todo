@@ -119,7 +119,7 @@ test('期間の行を足す・置き換える・消す', () => {
 });
 
 /* 共有の記録 v1 の start・due（gantt が書く欄。2026-11-10）も読む */
-test('共有の欄の due も終了日として読み、start があれば期間にする', () => {
+test('欄の due を先に読み、start があれば期間にする（v1.1）', () => {
   /* T = 2026-11-07 */
   const d = deadlineOf({ id: 'g1', text: 'g', days: [], start: '2026-11-08', due: '2026-11-12' }, T);
   assert.equal(d.end, '2026-11-12');
@@ -131,11 +131,15 @@ test('共有の欄の due も終了日として読み、start があれば期間
   const e = deadlineOf({ days: ['2026-11-30'], due: '2026-11-12' }, T);
   assert.equal(e.end, '2026-11-30');
   assert.equal(e.from, 'days');
-  /* 本文の期間があればそちらの帯。終了日は遠いほう */
-  const f = deadlineOf({ detail: '期間: 2026-11-08 〜 2026-11-10', due: '2026-11-15' }, T);
-  assert.deepEqual(f.span, { start: '2026-11-08', end: '2026-11-10' });
+  /* 欄があれば本文の行は読まない（期間の正本は start・due。v1.1） */
+  const f = deadlineOf({ detail: '期間: 2026-11-08 〜 2026-11-30', start: '2026-11-09', due: '2026-11-15' }, T);
+  assert.deepEqual(f.span, { start: '2026-11-09', end: '2026-11-15' });
   assert.equal(f.end, '2026-11-15');
   assert.equal(f.from, 'due');
+  /* 欄の無い古い記録は、本文の行から読む */
+  const g = deadlineOf({ detail: '期間: 2026-11-08 〜 2026-11-30' }, T);
+  assert.deepEqual(g.span, { start: '2026-11-08', end: '2026-11-30' });
+  assert.equal(g.from, 'detail');
   /* 過ぎた due・読めない due は無い扱い */
   assert.equal(deadlineOf({ due: '2026-11-01' }, T), null);
   assert.equal(deadlineOf({ due: '2026/11/12' }, T), null);

@@ -721,6 +721,7 @@ function serverBox(screen) {
     now.disabled = !sync.ready();
     off.disabled = !c.url;
     if (st.state === 'ok') line.textContent = who + '合わせた（' + hhmm(st.at) + '）: ' + c.url;
+    else if (st.state === 'outdated') line.textContent = who + st.message + '（' + c.url + '）';
     else if (st.state === 'error') line.textContent = who + '届かない: ' + st.message + '（' + c.url + '）';
     else if (st.state === 'off' && c.url) {
       line.textContent = who + (sync.space() === 'me' ? '自分の合言葉が無い（個人はこの端末の中だけ）' : '合言葉が無い（この海はこの端末の中だけ）');

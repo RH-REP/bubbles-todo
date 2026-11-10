@@ -11,6 +11,8 @@
 import { store } from './store.js';
 /* サーバーと記録を合わせる。設定で住所を入れていなければ何もしない（sync.js） */
 import './sync.js';
+/* 古い版だと断られたときの帯（js/schemaguard.js。共有の記録 v1.1） */
+import './schemaguard.js';
 /* 海の切り替え（space.js。2026-11-02 Issue #4 で名前を付けて複数作れる海に）。薄い帯の表示と、引き出しの頭の切り替え。持ち主は store が開くときに決まっている */
 import { spaceSwitcher } from './space.js';
 import { toast, holdRing, fromFeedback, undoLast } from './ui.js';
@@ -718,6 +720,9 @@ setCenterHandler({
   /* 本文（Issue #8）。名前とは別の説明。盤の「本文」の入口と面が読み書きする。無ければ出さない */
   detail:       (id) => (has('detailOf') ? store.detailOf(id) : ''),
   setDetail:    (id, v) => (has('setDetail') ? store.setDetail(id, v) : false),
+  /* 期間（start・due。共有の記録 v1.1） */
+  span:         (id) => (has('spanOf') ? store.spanOf(id) : null),
+  setSpan:      (id, s, e) => (has('setSpan') ? store.setSpan(id, s, e) : false),
   /* 関連 TODO（Issue #15）。本文の面の「書いて頼む」が、選んだ候補だけを新しい泡にする。
      元の泡と同じアンカー・自分で作ったタグに入れ、本文に「元: <名前>」。-> 新しい id か null */
   addRelated:   (fromId, text, detail) => {

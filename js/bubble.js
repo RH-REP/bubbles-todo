@@ -1154,13 +1154,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        > TODOの開始日と終了日の入れ方は？ わかりやすく作れる？
 
        前は、本文に `期間: 2026-11-10 〜 2026-11-20` と手で打つしかなかった（日付で見る がそれを読む）。
-       ここで2つの日付欄から選べるようにする。**書く先は本文のその行**（js/deadline.js の withSpan）。
-       泡に新しい欄は足さない——同期・CSV・先の予定・日付で見る は今のまま読める。
-       ・片方だけなら、その日1日（`日付: A`）。両方空なら行を消す
+       ここで2つの日付欄から選べるようにする。
+       **書く先は泡の欄 start・due**（2026-11-10 利用者の決定。共有の記録 v1.1。gantt_todo も同じ欄を読み書きする）。
+       Issue #34 の版は本文の「期間:」の行に書いていた。その行は、start・due が空の古い記録を読むときだけ使う。
+       ・片方だけなら、その日1日。両方空なら欄を外す（store.setSpan）
        ・開始日は過ぎた日も選べる（もう始めているものもある）
-       ・書くのは本文と同じく、閉じるとき・[OK] のとき（ここでは本文の控えを替えるだけ）
+       ・選んだらすぐ書く。本文に古い「期間:」「日付:」の行があれば、本文の控えからその行を外す
+         （外した本文は、本文と同じく閉じるとき・[OK] のときに書く。行のほかの文はそのまま）
        いつの日・もどってくる日と同じく、既定では畳む。畳んだ姿でも期間は読める。 */
-    if (typeof (a || {}).setDetail === 'function') {
+    if (typeof (a || {}).setSpan === 'function') {
       const box = el('div', 'bc-hold bc-span');
       const head = el('button', 'bc-cal-head');
       head.type = 'button';
@@ -1195,15 +1197,26 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       clear.type = 'button';
       picks.appendChild(clear);
       body.appendChild(picks);
-      body.appendChild(el('p', 'bc-span-note', '本文の「期間:」の行に書く。日付で見る（▤）に帯で出る'));
+      body.appendChild(el('p', 'bc-span-note', '日付で見る（▤）に帯で出る'));
 
-      /* いまの本文（書く面が開いていればそちら）に、選んだ期間を書き込む */
+      /* いまの本文（書く面が開いていればそちら） */
       const curDetail = () => ((detailArea && detailPane && !detailPane.hidden) ? detailArea.value : detailDraft);
+      /* いまの期間。欄（start・due）が先。どちらも空の古い記録だけ、本文の行から読む */
+      const curSpan = () => {
+        const f = ask(a, 'span', id) || {};
+        if (f.start || f.due) return { start: f.start || f.due, end: f.due || f.start };
+        return spanFromDetail(curDetail());
+      };
       function write(s, e) {
-        detailDraft = withSpan(curDetail(), s, e);
-        if (detailArea) detailArea.value = detailDraft;
-        if (detailView && !detailView.hidden) detailView.textContent = detailDraft;
-        syncDetailBtn();                          /* syncSpanRow も呼ばれる */
+        a.setSpan(id, s, e);
+        /* 古い書き方の行が本文にあれば外す（欄と食い違ったまま残さない） */
+        if (spanFromDetail(curDetail())) {
+          detailDraft = withSpan(curDetail(), '', '');
+          if (detailArea) detailArea.value = detailDraft;
+          if (detailView && !detailView.hidden) detailView.textContent = detailDraft;
+        }
+        syncDetailBtn();
+        syncSpanRow();                            /* 本文の釦が無い盤でも、期間の字を直す */
       }
       startIn.addEventListener('change', () => {
         let s = startIn.value, e = endIn.value;
@@ -1219,7 +1232,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
       const md = k => Number(k.slice(5, 7)) + '/' + Number(k.slice(8, 10));
       syncSpanRow = () => {
-        const sp = spanFromDetail(detailDraft);
+        const sp = curSpan();
         startIn.value = sp ? sp.start : '';
         endIn.value = sp ? sp.end : '';
         if (sp) endIn.min = sp.start; else endIn.removeAttribute('min');

@@ -305,8 +305,9 @@ function paint() {
   const st = sync.status();
   const seen = sync.seenAt();
   stateEl.hidden = !sync.ready() || settingsOpen();
-  stateEl.classList.toggle('is-off', st.state === 'error');
+  stateEl.classList.toggle('is-off', st.state === 'error' || st.state === 'outdated');
   if (st.state === 'ok') stateText('合わせた', hhmm(st.at));
+  else if (st.state === 'outdated') stateText('同期を止めた（古い版）', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
   else if (st.state === 'error') stateText('繋がっていない', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
   else stateText('合わせている…');
 }

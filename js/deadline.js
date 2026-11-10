@@ -1,9 +1,9 @@
 /* 日付で見る（終了日の近い順。2026-11-07 Issue #24）。計算だけ（DOM・保存・通信を触らない）。
 
-   泡に「終了日」という欄は無い。今ある日付から読む:
+   終了日は次のうち遠いほう:
+     ・泡の欄 due（期間の正本。start があれば期間の帯。盤の「期間」・先の予定・gantt_todo が書く。共有の記録 v1.1）
+       欄が無い古い記録だけ、本文の「期間: A 〜 B」の B、「日付: A」の A を読む（Issue #34 までの書き方）
      ・盤の「いつの日」で置いた日（days）のうち、今日から先の最後の日
-     ・先の予定（AI）で入れた泡の本文の「期間: A 〜 B」の B、「日付: A」の A
-     ・共有の記録 v1 の due（gantt が書く欄。start があれば期間の帯にも使う。本文の期間が先）
    今日から先のものだけを使う。**過ぎた日は数えない**（「期限切れ」「◯日過ぎ」を出さない。README の禁止事項）。
    完了したものは並べない。 */
 
@@ -50,7 +50,9 @@ export function spanFromDetail(detail) {
   return null;
 }
 
-/* 本文の期間の行を書き替える（盤の「期間」。2026-11-10 Issue #34）。
+/* 本文の期間の行を書き替える（2026-11-10 Issue #34）。
+   v1.1（同じ日）から盤の「期間」は start・due に書くので、新しくは書かない。
+   盤が古い行を外すとき（withSpan(本文, '', '')）にだけ使う。
    泡に開始日・終了日の欄を足さず、上の spanFromDetail が読む行を本文に置く
    ——同期・CSV・先の予定・日付で見る は今のまま読める。
      ・開始日と終了日 → `期間: A 〜 B`（同じ日なら `日付: A`）
@@ -89,16 +91,16 @@ export function withSpan(detail, start, end) {
 export function deadlineOf(t, today) {
   if (!t || t.done || t.trashed) return null;
   const days = (Array.isArray(t.days) ? t.days : []).filter(k => dateOf(k) && k >= today).sort();
-  const sp = spanFromDetail(t.detail);
-  /* 共有の記録 v1 の start・due（gantt が書く欄。2026-11-10）。本文の期間が無いときの期間にもする */
+  /* 期間の正本は start・due（共有の記録 v1.1。2026-11-10 利用者の決定）。
+     本文の「期間:」「日付:」の行は、欄の無い古い記録を読むときだけ使う */
   const sd = spanFromFields(t);
-  const span = sp && sp.end >= today ? sp : (sd && sd.end >= today ? sd : null);
+  const src = sd || spanFromDetail(t.detail);
+  const span = src && src.end >= today ? src : null;
   const a = days.length ? days[days.length - 1] : null;
   const b = span ? span.end : null;
-  const c = sd && sd.end >= today ? sd.end : null;
-  if (!a && !b && !c) return null;
-  const end = [a, b, c].filter(Boolean).sort().pop();
-  return { end, days, span, from: end === b ? (span === sd ? 'due' : 'detail') : end === c ? 'due' : 'days' };
+  if (!a && !b) return null;
+  const end = (a && b) ? (a > b ? a : b) : (a || b);
+  return { end, days, span, from: end === b ? (sd ? 'due' : 'detail') : 'days' };
 }
 
 /* 欄から読む期間。due が無ければ null。start が無いか due より後なら due の1日 */

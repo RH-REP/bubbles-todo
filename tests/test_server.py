@@ -32,11 +32,13 @@ class ServerTest(unittest.TestCase):
         self.httpd.server_close()
         self.tmp.cleanup()
 
-    def req(self, method, path, body=None, token=TOKEN):
+    def req(self, method, path, body=None, token=TOKEN, schema='1'):
         r = urllib.request.Request(self.base + path, method=method,
                                    data=json.dumps(body).encode() if body is not None else None)
         if token is not None:
             r.add_header('Authorization', 'Bearer ' + token)
+        if schema is not None:  # 記録の形の版（共有の記録 v1.1）。None で送らない（前の版の端末）
+            r.add_header('X-Bubbles-Schema', schema)
         if body is not None:
             r.add_header('Content-Type', 'application/json')
         try:
@@ -57,7 +59,7 @@ class ServerTest(unittest.TestCase):
 
     def test_empty_then_put_then_conflict(self):
         code, body = self.req('GET', '/api/data')
-        self.assertEqual((code, json.loads(body)), (200, {'space': 'me', 'version': 0, 'data': None}))
+        self.assertEqual((code, json.loads(body)), (200, {'space': 'me', 'version': 0, 'data': None, 'minSchema': 1}))
         doc = {'doc': {'todos': [{'id': 'a', 'text': '牛乳'}]}, 'stamps': {'todo:a': [5, 1]}}
         code, body = self.req('PUT', '/api/data', {'base': 0, 'data': doc})
         self.assertEqual((code, json.loads(body)), (200, {'version': 1}))
@@ -173,6 +175,7 @@ class ServerTest(unittest.TestCase):
             r = urllib.request.Request(base + path, method=method,
                                        data=json.dumps(body).encode() if body is not None else None)
             r.add_header('Authorization', 'Bearer ' + tok)
+            r.add_header('X-Bubbles-Schema', '1')
             if space:
                 r.add_header('X-Bubbles-Space', space)
             if body is not None:
@@ -187,7 +190,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(call('PUT', '/api/data', me, 'swork123', {'base': 0, 'data': doc}), (200, {'version': 1}))
             self.assertTrue((d / 'seas' / 'swork123' / 'state.json').exists(), '作った海は seas/<ID>/')
             self.assertEqual(call('GET', '/api/data', me, 'swork123')[1]['space'], 'swork123')
-            self.assertEqual(call('GET', '/api/data', me)[1], {'space': 'me', 'version': 0, 'data': None},
+            self.assertEqual(call('GET', '/api/data', me)[1], {'space': 'me', 'version': 0, 'data': None, 'minSchema': 1},
                              '海を言わなければ個人')
             self.assertEqual(call('GET', '/api/data', me, 'share')[1]['space'], 'share', '自分の合言葉で共有にも入る')
             self.assertEqual(call('GET', '/api/data', me, '../etc')[0], 401, '形の違う海は断る')
@@ -231,6 +234,43 @@ class ServerTest(unittest.TestCase):
     def test_cors_preflight(self):
         code, _ = self.req('OPTIONS', '/api/data', token=None)
         self.assertEqual(code, 204)
+
+    def test_cors_allows_schema_header(self):
+        r = urllib.request.Request(self.base + '/api/data', method='OPTIONS')
+        with urllib.request.urlopen(r) as res:
+            self.assertIn('X-Bubbles-Schema', res.headers.get('Access-Control-Allow-Headers', ''))
+
+    def test_old_client_without_schema_is_refused_426(self):
+        """共有の記録 v1.1 §6: 頭書きの無い端末（前の版の bubble）の書き込みは、記録に触れずに 426"""
+        doc = {'doc': {'todos': [{'id': 'g1', 'text': '架空', 'start': '2026-11-12', 'due': '2026-11-20',
+                                  'project': 'tp', 'ext': {'gantt': {'goal': 'x'}}}]},
+               'stamps': {'todo:g1': [5, 1]}, 'futureTop': {'k': 1}}
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 0, 'data': doc})[0], 200)
+        stripped = {'doc': {'todos': [{'id': 'g1', 'text': '架空'}]}, 'stamps': {'todo:g1': [5, 1]}}
+        for schema in (None, '0', 'x'):
+            code, body = self.req('PUT', '/api/data', {'base': 1, 'data': stripped}, schema=schema)
+            self.assertEqual((code, json.loads(body)), (426, {'error': 'upgrade', 'minSchema': 1}), schema)
+        # 共有の海でも同じ
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 0, 'data': stripped}, token=SHARE, schema=None)[0], 426)
+        # 記録は残っている（欄も、data の頂上の知らない欄も）。GET は頭書きが無くても断らない
+        code, body = self.req('GET', '/api/data', schema=None)
+        got = json.loads(body)
+        self.assertEqual((code, got['version'], got['data'], got['minSchema']), (200, 1, doc, 1))
+        self.assertEqual(json.loads(self.req('GET', '/api/data', token=SHARE)[1])['data'], None)
+
+    def test_min_schema_2_refuses_schema_1(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        spaces = {TOKEN: ('me', server.Store(self.data))}
+        self.httpd = server.Server(('127.0.0.1', 0), server.make_handler(spaces, server.Config(min_schema=2)))
+        self.base = f'http://127.0.0.1:{self.httpd.server_address[1]}'
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        code, body = self.req('GET', '/api/data')
+        self.assertEqual((code, json.loads(body)['minSchema']), (200, 2))
+        code, body = self.req('PUT', '/api/data', {'base': 0, 'data': {'doc': {}}})
+        self.assertEqual((code, json.loads(body)), (426, {'error': 'upgrade', 'minSchema': 2}))
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 0, 'data': {'doc': {}}}, schema='2')[0], 200)
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 1, 'data': {'doc': {}}}, schema='3')[0], 200)
 
     def test_token_file_created(self):
         d = self.data / 'other'

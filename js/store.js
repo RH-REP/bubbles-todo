@@ -348,6 +348,8 @@ let focusLogs = [];
    （泡を消しても、書いた記録は残す。着手ログと同じ） */
 let noteList = [];
 let lastDay = null;
+/* 保存データの頂上の、知らない欄（共有の記録 v1.1）。読んだまま docOf() で書き戻す */
+let docExtra = {};
 const listeners = new Set();
 
 /* 記録ごとの印（merge.js）と、前回保存したときの記録の中身（印を付けるための比較用） */
@@ -943,7 +945,11 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
       if (Number.isFinite(n)) gapAt[id] = n;
     });
   }
-  return defineToday({
+  /* 知らない欄は丸ごと残す（共有の記録 v1.1。2026-11-10）。ほかの app（gantt・diary）や
+     この先の版が足した欄を、読み込みで落とすと、印は変わらないまま中身だけ消えて
+     ほかの端末にも広がる（library/tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md）。
+     知っている欄は下で形を確かめて上書きする */
+  return defineToday(Object.assign(unknownFields(t, TODO_KNOWN), {
     id: typeof t.id === 'string' ? t.id : uid(),
     text: t.text,
     /* days が本体。today は defineToday() が days から出す（値は持たない） */
@@ -1001,12 +1007,32 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
        値の無いものは欄ごと省く（仕様で「省いてよい」。省いた欄は null / {} として読む）——
        これまでの記録の形を変えないため */
     ...sharedFields(t, tagIds),
+  }));
+}
+
+/* normalizeTodo が形を確かめる欄。ここに無い欄は知らない欄として、そのまま残す。
+   today は days から出す getter、gapSlot は前の版の単数の枠（gapSlots へ移す）なので、残さない */
+const TODO_KNOWN = new Set([
+  'id', 'text', 'days', 'today', 'hold', 'holdUntil', 'createdAt', 'fx', 'fy', 'slots', 'anchors', 'anchorAt',
+  'started', 'firstStep', 'url', 'detail', 'gap', 'gapSlots', 'gapSlot', 'gapAt', 'plan', 'steps', 'draft',
+  'tags', 'done', 'doneAt', 'trashed', 'trashedAt', 'fav', 'urgent', 'important',
+  'start', 'due', 'project', 'ext',
+]);
+
+/* 知らない欄の写し（known に無いもの）。値は JSON の写しにする（受け取った物を書き換えない） */
+function unknownFields(o, known) {
+  const out = {};
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
+  Object.keys(o).forEach(k => {
+    if (known.has(k) || o[k] === undefined || k === '__proto__') return;
+    try { out[k] = JSON.parse(JSON.stringify(o[k])); } catch (e) { /* 写せない値は落とす */ }
   });
+  return out;
 }
 
 /* 共有の欄の形を確かめる（共有の記録 v1 §4）。
      start・due … `YYYY-MM-DD` 以外は null
-     project    … 今あるタグの id 以外は null
+     project    … 今あるふつうのタグの id 以外は null（特別なタグは入れない。v1.1）
      ext        … app ごとの持ち物。中は見ずにそのまま残す。オブジェクト以外は {}
    null と {} は欄を置かない */
 function sharedFields(t, tagIds) {
@@ -1015,7 +1041,7 @@ function sharedFields(t, tagIds) {
   const due = dayKeyOrNull(t.due);
   if (start) out.start = start;
   if (due) out.due = due;
-  if (typeof t.project === 'string' && tagIds.has(t.project)) out.project = t.project;
+  if (typeof t.project === 'string' && tagIds.has(t.project) && !isSpecialTag(t.project)) out.project = t.project;
   if (t.ext && typeof t.ext === 'object' && !Array.isArray(t.ext) && Object.keys(t.ext).length) {
     out.ext = JSON.parse(JSON.stringify(t.ext));
   }
@@ -1229,6 +1255,8 @@ function fromDoc(parsed) {
       /* この版より前の保存データには無い（Issue #25） */
       notes: normalizeNotes(parsed.notes),
       lastDay: /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastDay) ? parsed.lastDay : null,
+      /* 頂上の知らない欄。stamps は localStorage の形で同じ段に入っているので外す */
+      extra: unknownFields(parsed, DOC_KNOWN),
     };
   } catch (e) {
     /* 壊れた保存データで起動不能にしない */
@@ -1236,9 +1264,14 @@ function fromDoc(parsed) {
   }
 }
 
-/* いまの状態を、保存する形に組む */
+/* 保存データの頂上で docOf() が書く欄（と、localStorage の形で横に入る stamps） */
+const DOC_KNOWN = new Set(['v', 'palVer', 'anchors', 'gapSlots', 'tags', 'seas', 'todos', 'removedStarters',
+  'log', 'todayLog', 'focusLog', 'notes', 'lastDay', 'stamps']);
+
+/* いまの状態を、保存する形に組む。知らない欄（docExtra）を先に置き、知っている欄で上書きする */
 function docOf() {
   return {
+    ...docExtra,
     v: 2, palVer: PAL_VER, anchors: anchorList, gapSlots: gapList, tags: tagList,
     seas: seaList, todos: items,
     removedStarters,
@@ -1359,6 +1392,7 @@ function useData(data) {
   focusLogs = data.focusLogs;
   noteList = Array.isArray(data.notes) ? data.notes : [];
   lastDay = data.lastDay;
+  docExtra = (data.extra && typeof data.extra === 'object') ? data.extra : {};
 }
 
 {
@@ -1606,7 +1640,7 @@ export const store = {
       t.tags = t.tags.filter(id => !isSpecialTag(id) && findTag(id));
     }
     /* 共有の欄の project も同じ（消えたタグを指したまま戻さない） */
-    if (t.project !== undefined && !(typeof t.project === 'string' && findTag(t.project))) delete t.project;
+    if (t.project !== undefined && !(typeof t.project === 'string' && findTag(t.project) && !isSpecialTag(t.project))) delete t.project;
     /* 消している／完了している間に枠そのものが消されていることがある。
        残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
        「押し出し」はもう無い——枠には何個でもぶら下がるので） */
@@ -2189,6 +2223,32 @@ export const store = {
     return (t && typeof t.detail === 'string') ? t.detail : '';
   },
 
+  /* 期間（共有の記録 v1.1。2026-11-10 利用者の決定：期間の正本は start・due）。
+     盤の「期間」と、先の予定（js/events.js）が書く。gantt_todo も同じ欄を読み書きする。
+       ・片方だけなら、その日1日（start = due）
+       ・逆に入れたら入れ替える
+       ・両方空（か読めない日）なら、欄ごと外す
+     本文の「期間: A 〜 B」の行（Issue #34 の書き方）は、もう書かない（古い記録を読むときだけ使う）。
+     -> 変えたか */
+  setSpan(id, start, due) {
+    const t = store.get(id);
+    if (!t) return false;
+    let a = dayKeyOrNull(start), b = dayKeyOrNull(due);
+    if (!a) a = b;
+    if (!b) b = a;
+    if (a && b && b < a) { const x = a; a = b; b = x; }
+    if ((t.start || null) === a && (t.due || null) === b) return false;
+    if (a) { t.start = a; t.due = b; } else { delete t.start; delete t.due; }
+    persist(); emit();
+    return true;
+  },
+
+  /* 期間の欄。{ start, due }（どちらも 'YYYY-MM-DD' か null）。泡が無ければ null */
+  spanOf(id) {
+    const t = store.get(id);
+    return t ? { start: t.start || null, due: t.due || null } : null;
+  },
+
   /* --- ひとこと（Issue #25。js/notes.js）---
      足すのと、自分の端末で書いたものに消した印を付けるのだけ。書き換えの口は作らない */
 
@@ -2757,7 +2817,7 @@ export const store = {
   wipe() {
     items = []; anchorList = []; gapList = normalizeGapSlots(null); tagList = normalizeTags(null);
     seaList = normalizeSeas(null, tagList);
-    logs = []; todayLogs = []; focusLogs = []; noteList = []; lastDay = dayOf(Date.now());
+    logs = []; todayLogs = []; focusLogs = []; noteList = []; lastDay = dayOf(Date.now()); docExtra = {};
     persist(); emit();
   },
 
@@ -3088,7 +3148,7 @@ export const WRITE_METHODS = [
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
-  'commitStep', 'editStep', 'amendLastStep', 'addNote', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
+  'setSpan', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
 ];
 /* 知らせない口（画面が裏で何度も呼ぶもの。断るだけ） */
 const QUIET = new Set(['flush', 'setDraft']);

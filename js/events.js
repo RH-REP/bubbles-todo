@@ -463,6 +463,8 @@ export function addEvents(store, picks, today) {
     const t = store.add(bubbleText(ev));
     if (!t) { skipped++; return; }
     store.setDetail(t.id, detailText(ev, today));
+    /* 期間の正本は start・due（共有の記録 v1.1）。本文の「期間:」「日付:」の行は予定の説明として残す */
+    if (typeof store.setSpan === 'function' && !(ev.topic === 'route' && !ev.end)) store.setSpan(t.id, ev.date, ev.end || ev.date);
     if (ev.source) store.setUrl(t.id, ev.source);
     if (day > today) store.setHold(t.id, true, day);
     days.forEach(d => store.setDay(t.id, d, true));   /* 期間中ずっと: 終わる日まで毎日の今日に置く */

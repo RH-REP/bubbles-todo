@@ -87,6 +87,8 @@ class PublicServerTest(unittest.TestCase):
                                    data=json.dumps(body).encode() if body is not None else None)
         for k, v in (headers or {}).items():
             r.add_header(k, v)
+        if path.startswith('/api/data') and 'X-Bubbles-Schema' not in (headers or {}):
+            r.add_header('X-Bubbles-Schema', '1')   # 記録の形の版（共有の記録 v1.1）
         if body is not None:
             r.add_header('Content-Type', 'application/json')
         try:

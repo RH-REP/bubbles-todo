@@ -41,7 +41,20 @@
    持ち主（どの海にも入れる鍵）は 1 番の人だけ。サーバーは GET /api/data で person と owner を返す。
    この端末が前に合わせた個人と番号が変わったら（サーバーでパスキーを移したとき）、
    手元の個人の箱をサーバーのものに入れ替える。前の中身は 'bubble_todo_v1_before_person_<時刻>' に残す。
-   番号を覚える前の版で個人を合わせていた端末は、1 番（持ち主）の個人を合わせていたとみなす。 */
+   番号を覚える前の版で個人を合わせていた端末は、1 番（持ち主）の個人を合わせていたとみなす。
+
+   ■ 記録の形の版（2026-11-10。共有の記録 v1.1 §6。利用者の指示「非互換性 update を通知するための機能」）
+   記録は gantt_todo・diary も読み書きする。古い版の端末が新しい欄を知らずに落とすと、印が変わらないまま
+   中身だけ消え、ほかの端末にも広がる。そこで、この版が分かる記録の形の版を SCHEMA で持ち、
+   すべての要求に X-Bubbles-Schema で付ける。サーバーは受け付ける最も古い版（minSchema）を持ち、
+     ・GET の応答の minSchema が SCHEMA より大きい → 合わせずに止める（サーバーの記録を古い読み方で読まない）
+     ・PUT が 426 {"error":"upgrade","minSchema":n}  → 書かずに止める
+   止めている間（状態 'outdated'）も、手元の記録はふだんどおり印つきで保存され、
+   新しい版に入れ替わったあとの同期で入る。帯と [今すぐ更新] は js/schemaguard.js。
+   互換性の無い変更を入れる手順は DEV_NOTES.md「記録の形の版」。
+
+   ■ data の頂上の知らない欄
+   サーバーの data（{doc, stamps}）の横に、この版の知らない欄があれば、そのまま残して PUT する。 */
 
 import { store } from './store.js';
 import { mergeState, sameStamps } from './merge.js';
@@ -51,6 +64,10 @@ const CONF_KEY = 'bubble_todo_sync';
 const PUSH_DELAY = 1500;      /* 保存してから送るまで。続けて打っている間はまとめる */
 const POLL_MS = 20000;        /* 開いている間、ほかの端末の書き換えを見に行く間隔 */
 const RETRY_MAX = 60000;      /* 届かないとき、見に行く間隔をここまで延ばす */
+/* この版が分かる記録の形の版。互換性の無い変更を入れたら1つ上げる（DEV_NOTES.md「記録の形の版」） */
+export const SCHEMA = 1;
+/* 古い版だと断られている間、見に行く間隔（新しい版が配られる・サーバーが戻すのを待つ） */
+const OUTDATED_POLL = 5 * 60000;
 
 /* 自分の機械の中の住所。http でも通す（checkUrl）。**readConf() より前に置く**——
    保存してある住所を読み込みの時点で確かめるので、後ろに置くと const の手前で読んで落ち、
@@ -67,6 +84,8 @@ let running = false;
 let again = false;
 let timer = null;
 let failures = 0;
+/* 古い版だと断られて同期を止めている間は { minSchema }。それ以外は null（js/schemaguard.js が帯を出す） */
+let outdated = null;
 
 function readConf() {
   try {
@@ -171,6 +190,8 @@ async function call(method, body, path = '/api/data', auth = key()) {
       { Authorization: 'Bearer ' + auth },
       /* 持ち主の鍵はどの海にも効くので、どの海の記録かを言う */
       { 'X-Bubbles-Space': SPACE },
+      /* 記録の形の版。サーバーはこれが minSchema より古い（か無い）書き込みを 426 で断る */
+      { 'X-Bubbles-Schema': String(SCHEMA) },
       body ? { 'Content-Type': 'application/json' } : {}),
     body: body ? JSON.stringify(body) : undefined,
     cache: 'no-store',
@@ -178,6 +199,22 @@ async function call(method, body, path = '/api/data', auth = key()) {
   let json = null;
   try { json = await res.json(); } catch (e) { /* 中身が無い応答 */ }
   return { status: res.status, json };
+}
+
+/* 古い版だと断られた。syncNow が状態 'outdated' にする */
+function outdatedError(min) {
+  const e = new Error('この版は古いので同期を止めた。更新すると続きから合わさる');
+  e.outdated = true;
+  e.minSchema = Number.isFinite(Number(min)) ? Number(min) : null;
+  return e;
+}
+
+/* data の頂上の、この版の知らない欄（doc・stamps 以外）。そのまま残して PUT する */
+function topExtras(data) {
+  const out = {};
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return out;
+  Object.keys(data).forEach(k => { if (k !== 'doc' && k !== 'stamps' && k !== '__proto__') out[k] = data[k]; });
+  return out;
 }
 
 /* 1回合わせる。食い違い（409）なら3回までやり直す */
@@ -198,8 +235,13 @@ async function syncOnce() {
       if (space === 'me') throw new Error('サーバーがこの海を知らない（サーバーを新しくする）');
       throw new Error('これは「' + seaName(SPACE) + '」の合言葉ではない');
     }
+    /* 記録の形の版。サーバーがこの版より新しい形を求めるなら、合わせない（読み込みで欄を落とさないため）。
+       前の版のサーバーは minSchema を返さないので、そのときは通す */
+    const min = Number(got.json.minSchema);
+    if (Number.isFinite(min) && min > SCHEMA) throw outdatedError(min);
     const version = Number(got.json.version) || 0;
     const remote = got.json.data && got.json.data.doc ? got.json.data : null;
+    const extras = topExtras(got.json.data);
 
     /* 持ち主か（サーバーが言う。パスキーを移すと変わる） */
     if (conf.session && typeof got.json.owner === 'boolean' && got.json.owner !== conf.sessionOwner) {
@@ -226,9 +268,10 @@ async function syncOnce() {
     const mine = store.exportState();
     if (remote && sameStamps(mine.stamps, remote.stamps)) return;   /* もう同じ */
 
-    const put = await call('PUT', { base: version, data: mine });
+    const put = await call('PUT', { base: version, data: Object.assign({}, extras, mine) });
     if (put.status === 200) return;
     if (put.status === 409) continue;          /* 間に別の端末が書いた。取り直す */
+    if (put.status === 426) throw outdatedError(put.json && put.json.minSchema);   /* この版は古い。書かない */
     if (put.status === 401) throw new Error('合言葉が違う');
     throw new Error('サーバーに書けなかった（' + put.status + '）');
   }
@@ -267,17 +310,25 @@ export async function syncNow() {
     await syncSeas();
     failures = 0;
     ok = true;
+    outdated = null;
     writeSeen(Date.now());
     setStatus('ok');
   } catch (e) {
-    failures++;
-    /* fetch が投げる TypeError は「網に出られなかった」（文言はブラウザの英語）。字は揃える */
-    setStatus('error', (e instanceof TypeError || !e || !e.message) ? 'サーバーに届かない' : e.message);
+    if (e && e.outdated) {
+      outdated = { minSchema: e.minSchema };
+      setStatus('outdated', e.message);
+    } else {
+      failures++;
+      /* fetch が投げる TypeError は「網に出られなかった」（文言はブラウザの英語）。字は揃える */
+      setStatus('error', (e instanceof TypeError || !e || !e.message) ? 'サーバーに届かない' : e.message);
+    }
   } finally {
     running = false;
   }
-  if (again) { again = false; return syncNow(); }
-  schedule(ok ? POLL_MS : Math.min(RETRY_MAX, 3000 * 2 ** Math.min(failures, 5)));
+  /* 古い版で止めている間は、保存のたびに見に行かない（書けないので） */
+  if (again && !outdated) { again = false; return syncNow(); }
+  again = false;
+  schedule(ok ? POLL_MS : outdated ? OUTDATED_POLL : Math.min(RETRY_MAX, 3000 * 2 ** Math.min(failures, 5)));
   return ok;
 }
 
@@ -308,6 +359,7 @@ export const sync = {
     saveConf();
     clearTimeout(timer);
     failures = 0;
+    outdated = null;   /* 繋ぎ直したら、もう一度確かめる */
     syncSeas();
     if (!ready()) { setStatus('off'); return true; }
     setStatus('idle');
@@ -332,6 +384,8 @@ export const sync = {
     return { url: conf.url, token: conf.token, shareToken: conf.shareToken };
   },
   status() { return status; },
+  /* 古い版だと断られて同期を止めているなら { minSchema }（分からなければ null）。止めていなければ null */
+  outdated() { return outdated ? Object.assign({}, outdated) : null; },
   /* いま開いている海 */
   space() { return SPACE; },
   ready,
@@ -356,6 +410,7 @@ export const sync = {
     saveConf();
     clearTimeout(timer);
     failures = 0;
+    outdated = null;   /* 繋ぎ直したら、もう一度確かめる */
     if (!ready()) { syncSeas(); setStatus('off'); return true; }
     setStatus('idle');
     syncNow();
@@ -366,7 +421,10 @@ export const sync = {
 };
 
 /* 起動。保存のたびに少し待って送る。画面に戻ったとき・網が戻ったときにも合わせる */
-store.onPersist(() => { if (ready() && !running) schedule(PUSH_DELAY); else if (running) again = true; });
+store.onPersist(() => {
+  if (outdated) return;   /* 古い版で止めている間は送らない（手元の印は残り、入れ替わったあとの同期で入る） */
+  if (ready() && !running) schedule(PUSH_DELAY); else if (running) again = true;
+});
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => syncNow());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
