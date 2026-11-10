@@ -12,6 +12,7 @@ import {
   memoMessage, memoTransaction, readLatestMemos, writeMemos, rpc, MEMO_PROGRAM, CHUNK, NETWORKS, toB64, fromB64,
   requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL, COMPUTE_BUDGET_PROGRAM, COMPUTE_UNITS, memoFromMessage,
   isAddress, transferMessage, planSweep, SYSTEM_PROGRAM, passkeyLabel,
+  MOVE_KEY, loadMove, saveMove, clearMove, moveStep, moveSteps,
 } from '../js/chain.js';
 
 let n = 0;
@@ -214,6 +215,48 @@ await test('パスキーの名前に作った日時を入れる（複数あっ�
   const l = passkeyLabel(new Date(2026, 10, 9, 8, 5));
   assert.equal(l.displayName, 'Bubbles の控え（2026-11-09 08:05 作成）');
   assert.equal(l.name, 'bubbles-backup-202611090805');
+});
+
+await test('鍵の移し替え（Issue #39）: 段の進み・秘密を置かない・やめたら消える', () => {
+  const mem = new Map();
+  const st = { getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k) };
+  assert.equal(loadMove(st), null);
+  assert.equal(moveStep(null), null);
+  const m = { network: 'devnet', from: { mode: 'passkey', credId: 'c1', address: 'A1' }, startedAt: 1 };
+  saveMove(m, st);
+  assert.ok(MOVE_KEY.startsWith('bubble_todo_'), '初期化で一緒に消える名前');
+  let got = loadMove(st);
+  assert.equal(moveStep(got), 'key');
+  assert.deepEqual(moveSteps(got).map(s => s.state), ['next', 'todo', 'todo']);
+  /* パスキーは作れたが鍵がまだ出ていない → まだ 1 */
+  got.to = { mode: 'passkey', credId: 'c2', address: null };
+  saveMove(got, st);
+  assert.equal(moveStep(loadMove(st)), 'key');
+  /* 合言葉・元・鍵などの余計な欄は置かない */
+  got.to = { mode: 'pass', address: 'B1', pass: 'SECRET', root: [1, 2] };
+  got.seed = 'SECRET';
+  saveMove(got, st);
+  assert.ok(!mem.get(MOVE_KEY).includes('SECRET'));
+  assert.ok(!mem.get(MOVE_KEY).includes('root'));
+  got = loadMove(st);
+  assert.equal(moveStep(got), 'send');
+  assert.match(moveSteps(got)[0].detail, /合言葉・アドレス B1/);
+  got.sent = { amount: 1500000000, tx: 'T', at: 2 };
+  saveMove(got, st);
+  got = loadMove(st);
+  assert.equal(moveStep(got), 'backup');
+  const steps = moveSteps(got, () => 'いつか');
+  assert.deepEqual(steps.map(s => s.state), ['done', 'done', 'next']);
+  assert.equal(steps[1].detail, '1.5 SOL を送った（いつか）');
+  got.sent = { skipped: true };
+  assert.equal(moveSteps(got)[1].detail, '送らずに進めた');
+  got.backup = { id: 'X', count: 3, at: 3 };
+  assert.equal(moveStep(got), 'done');
+  assert.deepEqual(moveSteps(got).map(s => s.state), ['done', 'done', 'done']);
+  clearMove(st);
+  assert.equal(loadMove(st), null);
+  mem.set(MOVE_KEY, '{壊れた');
+  assert.equal(loadMove(st), null);
 });
 
 await test('solo.html は index.html と CSP・印・manifest・title だけが違い、送り先は決め打ち', () => {

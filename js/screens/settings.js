@@ -17,7 +17,8 @@ import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, m
   boxToState, stateToBox, mergeBox } from '../movefile.js';
 import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
   readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports,
-  prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL, planSweep, sweep } from '../chain.js';
+  prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL, planSweep, sweep,
+  loadMove, saveMove, clearMove, moveStep, moveSteps } from '../chain.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
 import { ITEMS, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
@@ -1304,9 +1305,9 @@ function chainBox() {
     await showRecovery(keys);
     paint();
   }
-  async function showRecovery(keys) {
-    const code = await makeRecoveryCode(keys.recordKey, keys.wallet.publicKey, netSel.value);
-    line.textContent = '復元コード（' + NETWORKS[netSel.value].label + '）: ' + code
+  async function showRecovery(keys, net = netSel.value) {
+    const code = await makeRecoveryCode(keys.recordKey, keys.wallet.publicKey, net);
+    line.textContent = '復元コード（' + NETWORKS[net].label + '）: ' + code
       + '　← 紙に書き留める。パスキーが使えなくなったとき（このページを開くドメインが変わった・OS を替えた）に、バックアップを読むために使う（お金は動かせない）。';
   }
 
@@ -1340,7 +1341,7 @@ function chainBox() {
         + 'OS をまたいで複数の端末で使う（iPhone と Windows・Android など、パスキーが引き継がれない組み合わせ）なら、こちら。'
         + '合言葉（24 字）はパスキーの代わりで、ウォレットとバックアップの両方を開く。紙に書き留め、どの端末でも同じ合言葉を打つ。'
         + '漏れるとお金も記録も取られるので、パスキーより扱いに気をつける。'
-        + 'パスキーで使っていた記録を合言葉へ移すときは、合言葉で新しく作り、前のウォレットの残高をこのアドレスへ送り、記録を復元コード（下）か引っ越しのファイルで持ってくる。');
+        + 'パスキーで使っていた記録を合言葉へ移すときは、先にパスキーで開き、「新しい鍵へ移し替える」を押す（鍵を作る → 残高を送る → バックアップする、を順に案内する）。');
       btn('合言葉で新しく作る', async () => {
         const pass = makePassphrase();
         if (!window.confirm('合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。'
@@ -1382,6 +1383,10 @@ function chainBox() {
     info.textContent = 'ウォレットのアドレス: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : '合言葉') + 'で開く）'
       + (cfg.lastAt ? '。最後に保存したバックアップ: ' + new Date(cfg.lastAt).toLocaleString() + '（取引 ' + cfg.lastCount + ' 件）' : '');
 
+    /* 鍵の移し替えの途中なら、いちばん上に段と次のボタンを出す（Issue #39） */
+    const mv = currentMove();
+    if (mv) paintMove(mv);
+
     group('wallet', 'ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
     btn('アドレスをコピー', async () => {
       await navigator.clipboard.writeText(cfg.address);
@@ -1415,6 +1420,15 @@ function chainBox() {
       });
     }
     btn('残高を別のアドレスへ送る', sweepOut);
+    if (!mv) {
+      btn('新しい鍵へ移し替える', async () => {
+        /* 前の鍵（いま開いているもの）を覚えて、1段目へ。秘密は置かない */
+        saveMove({ network: net, from: { mode: cfg.mode, credId: cfg.credId, address: cfg.address }, startedAt: Date.now() });
+        paint();
+        curKey = 'move';
+        line.textContent = '移し替えを始めた。上の「鍵の移し替え」の1から順に押す。';
+      });
+    }
     if (pk) btn('パスキーを切り替える', switchPasskey);
     btn('合言葉を切り替える', switchPassphrase);
 
@@ -1450,6 +1464,16 @@ function chainBox() {
     const net = netSel.value;
     const keys = await unlock();
     await checkSame(keys);
+    const r = await saveBackup(keys, net);
+    if (!r) return;
+    cfg = Object.assign(loadConfig(), { lastAt: r.at, lastId: r.id, lastCount: r.count });
+    saveConfig(cfg);
+    line.textContent = 'バックアップを保存した（取引 ' + r.count + ' 件）。';
+    paint();
+  }
+
+  /* いまの記録を keys のウォレットでチェーンに書く → { id, count, at }。確かめの画面でやめたら null */
+  async function saveBackup(keys, net) {
     try { store.flush(); } catch (e) { /* 書くのは止めない */ }
     line.textContent = 'バックアップを作っている…';
     const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
@@ -1472,15 +1496,163 @@ function chainBox() {
       + '\n大きさ ' + kb(rawBytes) + ' → 縮めて暗号化 ' + kb(sealedBytes)
       + '（' + Math.round(sealedBytes / Math.max(1, rawBytes) * 100) + '%）'
       + '\n取引 ' + memos.length + ' 件・手数料の目安 ' + solText(need.fee)
-      + '\n書いたものは消せない（暗号化してある）。')) { line.textContent = 'やめた'; return; }
+      + '\n書いたものは消せない（暗号化してある）。')) { line.textContent = 'やめた'; return null; }
     const sigs = await writeMemos(net, keys.wallet, memos, {
       onStep: (i, n) => { line.textContent = '書いている… ' + i + '/' + n; },
     });
-    const id = memos[0].split(' ')[1];
-    cfg = Object.assign(loadConfig(), { lastAt: Date.now(), lastId: id, lastCount: sigs.length });
-    saveConfig(cfg);
-    line.textContent = 'バックアップを保存した（取引 ' + sigs.length + ' 件）。';
+    return { id: memos[0].split(' ')[1], count: sigs.length, at: Date.now() };
+  }
+
+  /* ---- 鍵の移し替え（2026-11-11 Issue #39。#31 の2段目） ----
+     1. 新しい鍵を作る → 2. 前のウォレットの残高を新しいアドレスへ送る → 3. 記録を新しいウォレットにバックアップする。
+     段ごとにボタンを分ける（パスキーは押した手の続きで1回しか呼べない端末があるため、1回押すと鍵を1つだけ出す）。
+     いま開いている鍵（cfg）は、3 が済むまで前の鍵のまま。済んだら新しい鍵に替えて、移し替えの記録を消す。
+     途中の様子は chain.js の loadMove・saveMove（秘密は置かない）。 */
+  function currentMove() {
+    const m = loadMove();
+    /* 前の鍵で開いているときだけ続ける（ほかの鍵へ切り替えたら出さない。前の鍵に戻せば、また出る） */
+    return m && m.from && m.from.address === cfg.address ? m : null;
+  }
+
+  function paintMove(m) {
+    const step = moveStep(m);
+    const what = s => (s && s.mode === 'passkey') ? 'パスキー' : '合言葉';
+    group('move', '鍵の移し替え（途中）',
+      '前の鍵（' + what(m.from) + '）のウォレットから、新しい鍵のウォレットへ移す。1から順に押す。途中でやめても、ここに続きが残る。'
+      + 'ネット: ' + NETWORKS[m.network].label + '。');
+    const list = el('ol', 'note');
+    list.style.cssText = 'margin:4px 0 0 1.4em;padding:0';
+    moveSteps(m).forEach(s => {
+      const mark = s.state === 'done' ? '✓ 済み' : (s.state === 'next' ? '→ 次' : 'まだ');
+      const li = el('li', null);
+      li.textContent = s.label + '　' + mark + (s.detail ? '（' + s.detail + '）' : '');   /* アドレスは端末に置いた値なので文字として入れる */
+      if (s.state === 'next') li.style.fontWeight = 'bold';
+      list.appendChild(li);
+    });
+    into.parentNode.insertBefore(list, into);
+    if (netSel.value !== m.network) {
+      inlineText('移し替えは ' + NETWORKS[m.network].label + ' で始めた。上のネットを戻すと続けられる。');
+    } else if (step === 'key') {
+      if (m.to && m.to.credId && !m.to.address) {
+        btn('1. いま作ったパスキーで続ける', async () => {
+          const got = await passkeyRoot(m.to.credId);
+          await moveKeyReady(m, 'passkey', await keysFromRoot(got.root), got.credId);
+        });
+      }
+      if (prfSupported()) {
+        btn('1. パスキーを新しく作る', async () => {
+          const made = await createPasskey();
+          let got = made;
+          if (!made.root) {
+            /* 作ったときに値を返さない端末がある。続けて出す。断られたら、もう一度押してもらう */
+            try { got = await passkeyRoot(made.credId); } catch (e) {
+              saveMove(Object.assign(m, { to: { mode: 'passkey', credId: made.credId, address: null } }));
+              paint();
+              curKey = 'move';
+              throw new Error('パスキーは作れた。続けて「1. いま作ったパスキーで続ける」を押す');
+            }
+          }
+          await moveKeyReady(m, 'passkey', await keysFromRoot(got.root), got.credId);
+        });
+      }
+      btn('1. 合言葉で新しく作る', async () => {
+        const pass = makePassphrase();
+        if (!window.confirm('新しい合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。3（バックアップ）でもう一度打つ。'
+          + '合言葉はウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
+        line.textContent = '鍵を作っている…';
+        await moveKeyReady(m, 'pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
+      });
+    } else if (step === 'send') {
+      btn('2. 前のウォレットの残高を送る', async () => {
+        const keys = await unlock();   /* 前の鍵（いま開いているもの）。パスキーは押した手の続きで呼ぶ */
+        await checkSame(keys);
+        line.textContent = '残高を確かめている…';
+        let plan;
+        try { plan = await planSweep(m.network, keys.wallet.address, m.to.address); } catch (e) {
+          throw new Error(e.message + '。送れないときは「2. 送らずに次へ」');
+        }
+        if (!window.confirm('前のウォレットの残高を全部、新しいウォレットへ送る？\n送り先（新しい' + what(m.to) + 'のウォレット）: ' + m.to.address
+          + '\n送る額: ' + solText(plan.amount) + '（手数料 ' + solText(plan.fee) + ' を引いた残り）\nネット: ' + NETWORKS[m.network].label
+          + '\n送ったものは取り消せない。')) { line.textContent = 'やめた'; return; }
+        line.textContent = '送っている…';
+        const tx = await sweep(m.network, keys.wallet, m.to.address, plan.amount);
+        saveMove(Object.assign(m, { sent: { amount: plan.amount, tx, at: Date.now() } }));
+        paint();
+        curKey = 'move';
+        line.textContent = solText(plan.amount) + ' を送った。続けて「3. 新しいウォレットにバックアップする」。';
+      });
+      btn('2. 送らずに次へ', async () => {
+        if (!window.confirm('前のウォレットの残高を送らずに次へ進む？\n'
+          + '前のウォレットに残った SOL は、あとで前の鍵に切り替え直さないと送り出せない。')) return;
+        saveMove(Object.assign(m, { sent: { amount: 0, skipped: true, at: Date.now() } }));
+        paint();
+        curKey = 'move';
+        line.textContent = '送らずに進めた。新しいウォレットに SOL が無ければ、3 の前に新しいアドレスへ入れる。';
+      });
+    } else if (step === 'backup') {
+      btn('3. 新しいウォレットにバックアップする', async () => {
+        const keys = await unlockNew(m);
+        const r = await saveBackup(keys, m.network);
+        if (!r) return;
+        saveMove(Object.assign(m, { backup: { id: r.id, count: r.count, at: r.at } }));
+        finishMove(m, { lastAt: r.at, lastId: r.id, lastCount: r.count });
+        line.textContent = '移し替えが済んだ。これからは新しい' + what(m.to) + 'で開く（バックアップ: 取引 ' + r.count + ' 件）。'
+          + (m.from.mode === 'passkey' ? '前のパスキーが要らなければ、端末のパスワードの管理で消す（app からは消せない）。' : '前の合言葉の紙は、もう要らない。');
+      });
+      btn('3. 保存せずに新しい鍵に切り替える', async () => {
+        if (!window.confirm('バックアップを保存せずに、新しい' + what(m.to) + 'に切り替える？\n'
+          + '記録はこの端末に残るが、チェーンの上の新しいウォレットにはまだバックアップが無い（あとで「バックアップを保存」で書ける）。')) return;
+        saveMove(Object.assign(m, { backup: { skipped: true, at: Date.now() } }));
+        finishMove(m, { lastAt: null, lastId: null, lastCount: null });
+        line.textContent = '新しい' + what(m.to) + 'に切り替えた。新しいウォレットに SOL を入れてから「バックアップを保存」を押す。';
+      });
+    }
+    btn('移し替えをやめる', async () => {
+      const warn = m.sent && !m.sent.skipped
+        ? '残高はもう新しいウォレット（' + m.to.address + '）へ送ってある。やめると前の鍵のままになり、新しいウォレットの SOL は新しい鍵に切り替えないと使えない。\n'
+        : '';
+      if (!window.confirm(warn + '鍵の移し替えをやめる？（前の鍵のまま。作った新しい鍵・合言葉は使わない）')) return;
+      clearMove();
+      paint();
+      line.textContent = '移し替えをやめた。';
+    });
+  }
+
+  /* 1 が済んだ: 新しい鍵のアドレスを覚え、新しい鍵の復元コードを見せる */
+  async function moveKeyReady(m, mode, keys, credId) {
+    if (keys.wallet.address === m.from.address) {
+      throw new Error('前と同じ鍵（同じウォレット）になった。別のパスキーか、新しい合言葉を作る');
+    }
+    saveMove(Object.assign(m, { to: { mode, credId: credId || null, address: keys.wallet.address } }));
     paint();
+    curKey = 'move';
+    await showRecovery(keys, m.network);
+    line.textContent = '新しい鍵を作った（新しいアドレス ' + keys.wallet.address + '）。'
+      + line.textContent + '　続けて「2. 前のウォレットの残高を送る」。';
+  }
+
+  /* 新しい鍵を出してもらう（パスキーは押した手の続きで呼ぶ。ここより前で await しない） */
+  async function unlockNew(m) {
+    let keys;
+    if (m.to.mode === 'passkey') {
+      keys = await keysFromRoot((await passkeyRoot(m.to.credId)).root);
+    } else {
+      const pass = window.prompt('新しい合言葉（1 で書き留めた 24 字）');
+      if (!pass) throw new Error('やめた');
+      line.textContent = '鍵を作っている…';
+      keys = await keysFromRoot(await rootFromPassphrase(pass));
+    }
+    if (keys.wallet.address !== m.to.address) throw new Error('鍵が違う（1 で作った新しいウォレットのアドレスと合わない）');
+    return keys;
+  }
+
+  /* 3 が済んだ（または保存せずに進めた）: 開く鍵を新しいものに替え、移し替えの記録を消す */
+  function finishMove(m, last) {
+    cfg = Object.assign(loadConfig(), { network: m.network, mode: m.to.mode, credId: m.to.credId || null, address: m.to.address }, last);
+    saveConfig(cfg);
+    clearMove();
+    paint();
+    curKey = 'wallet';
   }
 
   /* 残高を全部ほかの住所へ移す（2026-11-09 Issue #31 の返事）。このお財布はほかのウォレットに読み込めないので、
@@ -1551,7 +1723,8 @@ function chainBox() {
       let old = 0;
       try { old = await getBalance(net, cfg.address); } catch (e) { old = 0; }
       if (old > 0 && !window.confirm('前のウォレット（' + cfg.address + '）に ' + solText(old) + ' 残っている。\n'
-        + '切り替えたあとで送り出すには、前の鍵に切り替え直す必要がある。\n先に送るなら「キャンセル」→「残高を別のアドレスへ送る」に、選んだ' + what + 'のウォレットのアドレスを貼る:\n'
+        + '切り替えたあとで送り出すには、前の鍵に切り替え直す必要がある。\n新しい鍵を作って移すなら「キャンセル」→「新しい鍵へ移し替える」（残高と記録を順に移す）。'
+        + '\n作ってある鍵へ先に送るなら「キャンセル」→「残高を別のアドレスへ送る」に、選んだ' + what + 'のウォレットのアドレスを貼る:\n'
         + keys.wallet.address + '\n切り替える？')) {
         line.textContent = 'やめた（前の鍵のまま）。選んだ' + what + 'のウォレットのアドレス: ' + keys.wallet.address;
         return;

@@ -596,6 +596,74 @@ export function saveConfig(c, storage = globalThis.localStorage) {
   storage.setItem(CONFIG_KEY, JSON.stringify(keep));
 }
 
+/* ---- 鍵の移し替え（2026-11-11 Issue #39。#31 の2段目） ----
+   パスキー ↔ 合言葉（またはパスキー → 別のパスキー）を替えると別のウォレットになる。これを3段で案内する:
+     1. 新しい鍵を作る  2. 前のウォレットの残高を新しいアドレスへ送る  3. 記録を新しいウォレットにバックアップする
+   途中でやめても、どこまで済んだかをこの端末に残して見せる。置くのは設定と同じく秘密でないものだけ
+   （ネット・前と新しいやり方・パスキーの ID・アドレス・送った額と取引の ID・保存した控えの ID と件数・時刻）。
+   合言葉・元・鍵は置かない（段ごとに、その段で要る鍵をもう一度出してもらう）。 */
+export const MOVE_KEY = 'bubble_todo_chain_move_v1';
+const keepSide = s => (s && typeof s === 'object')
+  ? { mode: s.mode === 'passkey' ? 'passkey' : 'pass', credId: s.credId || null, address: s.address || null } : null;
+export function loadMove(storage = globalThis.localStorage) {
+  try {
+    const m = JSON.parse(storage.getItem(MOVE_KEY) || 'null');
+    if (m && typeof m === 'object' && m.from && m.from.address) return cleanMove(m);
+  } catch (e) { /* 壊れていれば無いことにする */ }
+  return null;
+}
+function cleanMove(m) {
+  const out = { network: m.network in NETWORKS ? m.network : 'devnet', from: keepSide(m.from), to: keepSide(m.to),
+    sent: null, backup: null, startedAt: Number(m.startedAt) || null };
+  if (m.sent && typeof m.sent === 'object') {
+    out.sent = { amount: Number(m.sent.amount) || 0, tx: m.sent.tx ? String(m.sent.tx) : null,
+      skipped: !!m.sent.skipped, at: Number(m.sent.at) || null };
+  }
+  if (m.backup && typeof m.backup === 'object') {
+    out.backup = { id: m.backup.id ? String(m.backup.id) : null, count: Number(m.backup.count) || 0,
+      skipped: !!m.backup.skipped, at: Number(m.backup.at) || null };
+  }
+  return out;
+}
+export function saveMove(m, storage = globalThis.localStorage) {
+  storage.setItem(MOVE_KEY, JSON.stringify(cleanMove(m)));
+}
+export function clearMove(storage = globalThis.localStorage) {
+  try { storage.removeItem(MOVE_KEY); } catch (e) { /* 消せなくても進む */ }
+}
+/* いまの段 → 'key' | 'send' | 'backup' | 'done' */
+export function moveStep(m) {
+  if (!m) return null;
+  if (!m.to || !m.to.address) return 'key';
+  if (!m.sent) return 'send';
+  if (!m.backup) return 'backup';
+  return 'done';
+}
+/* 段の一覧（画面に出す） → [{ n, label, state: 'done' | 'next' | 'todo', detail }] */
+export function moveSteps(m, fmtTime = t => new Date(t).toLocaleString()) {
+  const cur = moveStep(m);
+  const order = ['key', 'send', 'backup'];
+  const at = order.indexOf(cur);
+  const state = i => (cur === 'done' || i < at) ? 'done' : (i === at ? 'next' : 'todo');
+  const kind = s => (s && s.mode === 'passkey') ? 'パスキー' : '合言葉';
+  const steps = [
+    { n: 1, label: '新しい鍵を作る', detail: '' },
+    { n: 2, label: '前のウォレットの残高を新しいアドレスへ送る', detail: '' },
+    { n: 3, label: '記録を新しいウォレットにバックアップする', detail: '' },
+  ];
+  if (m && m.to && m.to.address) steps[0].detail = kind(m.to) + '・アドレス ' + m.to.address;
+  else if (m && m.to && m.to.credId) steps[0].detail = 'パスキーは作れた。鍵を出すところが残っている';
+  if (m && m.sent) {
+    steps[1].detail = m.sent.skipped ? '送らずに進めた'
+      : solText(m.sent.amount) + ' を送った' + (m.sent.at ? '（' + fmtTime(m.sent.at) + '）' : '');
+  }
+  if (m && m.backup) {
+    steps[2].detail = m.backup.skipped ? '保存せずに切り替えた'
+      : '取引 ' + m.backup.count + ' 件で保存した' + (m.backup.at ? '（' + fmtTime(m.backup.at) + '）' : '');
+  }
+  return steps.map((s, i) => Object.assign(s, { state: state(i) }));
+}
+
 export function solText(lamports) {
   return (Number(lamports) / LAMPORTS).toFixed(6).replace(/0+$/, '').replace(/\.$/, '') + ' SOL';
 }
