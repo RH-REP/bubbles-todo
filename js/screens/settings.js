@@ -1416,6 +1416,7 @@ function chainBox() {
     }
     btn('残高を別のアドレスへ送る', sweepOut);
     if (pk) btn('パスキーを切り替える', switchPasskey);
+    btn('合言葉を切り替える', switchPassphrase);
 
     group('backup', 'バックアップ', '保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
       + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに控えていなければ表示して書き留める。');
@@ -1528,24 +1529,35 @@ function chainBox() {
      （替えたあとは、前のパスキーで選び直さない限り、前のお財布からは移せない）。
      パスキーは押した手の続きで呼ぶ（ここより前で await しない） */
   async function switchPasskey() {
-    const net = netSel.value;
     const got = await passkeyRoot(null);
-    const keys = await keysFromRoot(got.root);
+    await switchTo('passkey', await keysFromRoot(got.root), got.credId);
+  }
+  /* 合言葉を切り替える（2026-11-11 Issue #31 の返事: パスキーを切り替えると対になるもの）。
+     ほかの合言葉（＝別のウォレット）を打って替える。パスキーで開いていても、合言葉のウォレットへ替えられる */
+  async function switchPassphrase() {
+    const pass = window.prompt('切り替える先の合言葉（24 字）');
+    if (!pass) return;
+    line.textContent = '鍵を作っている…';
+    await switchTo('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
+  }
+  async function switchTo(mode, keys, credId) {
+    const net = netSel.value;
+    const what = mode === 'passkey' ? 'パスキー' : '合言葉';
     if (keys.wallet.address === cfg.address) {
-      line.textContent = '同じパスキー（同じウォレット）を選んだ。変わらない。';
+      line.textContent = '同じ' + what + '（同じウォレット）を選んだ。変わらない。';
       return;
     }
     if (cfg.address) {
       let old = 0;
       try { old = await getBalance(net, cfg.address); } catch (e) { old = 0; }
       if (old > 0 && !window.confirm('前のウォレット（' + cfg.address + '）に ' + solText(old) + ' 残っている。\n'
-        + '切り替えたあとで送り出すには、前のパスキーに切り替え直す必要がある。\n先に送るなら「キャンセル」→「残高を別のアドレスへ送る」に、選んだパスキーのウォレットのアドレスを貼る:\n'
+        + '切り替えたあとで送り出すには、前の鍵に切り替え直す必要がある。\n先に送るなら「キャンセル」→「残高を別のアドレスへ送る」に、選んだ' + what + 'のウォレットのアドレスを貼る:\n'
         + keys.wallet.address + '\n切り替える？')) {
-        line.textContent = 'やめた（前のパスキーのまま）。選んだパスキーのウォレットのアドレス: ' + keys.wallet.address;
+        line.textContent = 'やめた（前の鍵のまま）。選んだ' + what + 'のウォレットのアドレス: ' + keys.wallet.address;
         return;
       }
     }
-    cfg = Object.assign(loadConfig(), { network: net, mode: 'passkey', credId: got.credId, address: keys.wallet.address,
+    cfg = Object.assign(loadConfig(), { network: net, mode, credId: credId || null, address: keys.wallet.address,
       lastAt: null, lastId: null, lastCount: null });
     saveConfig(cfg);
     paint();
