@@ -70,10 +70,10 @@ h2, h3 { scroll-margin-top: 76px; }
   <li><a href="#screens">画面の見方</a></li>
   <li><a href="#priority">急ぐ・大事で分ける（優先度）</a></li>
   <li><a href="#space">海を切り替える・つくる</a></li>
-  <li><a href="#connect">サーバーに繋ぐ（自分の端末）</a></li>
+  <li><a href="#connect">海域に繋ぐ（自分の端末）</a></li>
   <li><a href="#invited">招かれた海に入る（招かれた人）</a></li>
   <li><a href="#offline">繋がっていないとき</a></li>
-  <li><a href="#host">サーバーを立てる（持ち主）</a></li>
+  <li><a href="#host">海域を立てる（持ち主）</a></li>
   <li><a href="#tokens">招待とパスキーの管理</a></li>
   <li><a href="#csv">引っ越し（CSV の書き出し・読み込み）</a></li>
   <li><a href="#security">安全のための決まり</a></li>
@@ -148,8 +148,8 @@ h2, h3 { scroll-margin-top: 76px; }
 </figure>
 <div class="box share">海から海へ泡を移す道はありません（間違えて人に見せないため）。その海に置きたいものは、その海に切り替えてから書きます。件数や人数は出しません。</div>
 
-<h2 id="connect">3. サーバーに繋ぐ（自分の端末）</h2>
-<p>複数の端末で同じ記録を使うには、自分で立てたサーバー（<a href="#host">6章</a>）に繋ぎます。入るのはパスキー（Face ID・指紋・画面ロックの PIN）で、合言葉は使いません。サーバーが無くても、今までどおり端末の中だけで使えます。</p>
+<h2 id="connect">3. 海域に繋ぐ（自分の端末）</h2>
+<p><strong>海域</strong>は、自分で立てたサーバーが預かる海のまとまり（個人・共有・作った海）です。複数の端末で同じ記録を使うには、海域（<a href="#host">6章</a>）に繋ぎます。入るのはパスキー（Face ID・指紋・画面ロックの PIN）で、合言葉は使いません。サーバーが無くても、今までどおり端末の中だけで使えます。</p>
 <ol class="steps">
   <li>持ち主（自分）がサーバーで招待コードを作る：<code>invite-add 自分のスマホ me:1</code>（<a href="#tokens">7章</a>。<code>me:1</code> は 1 番の人＝持ち主の個人で、どの海にも入れます）。1回きり・24時間有効の <code>ABCD-EFGH-JKLM</code> の形のコードが出ます。</li>
   <li>端末のブラウザでサーバーの住所（<code>https://&lt;名前&gt;</code>）を開き、設定（⚙）の「サーバー」までスクロールする。サーバーがパスキーの形なら、招待コードの欄が出ます。</li>
@@ -186,8 +186,8 @@ h2, h3 { scroll-margin-top: 76px; }
 </figure>
 <p class="note">持ち主の端末では、個人もほかの海も、繋がっていなくても見た目は変わらず、今までどおり書けます（届いたら合わせます）。</p>
 
-<h2 id="host">6. サーバーを立てる（持ち主）</h2>
-<p>Linux のサーバー（Oracle Cloud の無料枠など）に、名前の住所（例 <code>bubbles.example.org</code>。DuckDNS などの無料の名前でもよい）で公開します。server.py は自分の機械の中（<code>127.0.0.1</code>）だけで待ち受け、前段の Caddy が HTTPS を受けて渡します。</p>
+<h2 id="host">6. 海域を立てる（持ち主）</h2>
+<p>海域は、サーバーを1台立てるとできます。Linux のサーバー（Oracle Cloud の無料枠など）に、名前の住所（例 <code>bubbles.example.org</code>。DuckDNS などの無料の名前でもよい）で公開します。server.py は自分の機械の中（<code>127.0.0.1</code>）だけで待ち受け、前段の Caddy が HTTPS を受けて渡します。</p>
 
 <h3>6-1. 準備</h3>
 <ol class="steps">

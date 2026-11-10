@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Bubbles の記録を置くサーバー（server.py）を、Linux のサーバー（Oracle Cloud など）に公開して立ち上げる。
+# 立てたサーバーが預かる海のまとまりを、画面では「海域」と呼ぶ（2026-11-10）。
 # 入場はパスキーだけ（合言葉では入れない）。前段に Caddy（HTTPS）、あれば fail2ban。
 #
 #   git clone https://github.com/RH-REP/bubbles-todo.git

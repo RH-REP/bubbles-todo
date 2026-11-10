@@ -120,7 +120,7 @@ export default {
     help.type = 'button';
     const hpT = el('span', 'tx');
     hpT.appendChild(el('span', 'nm', '使い方'));
-    hpT.appendChild(el('span', 'sub', '画面の見方・サーバーと海の始め方'));
+    hpT.appendChild(el('span', 'sub', '画面の見方・海域と海の始め方'));
     help.appendChild(hpT);
     const hpA = el('span', 'ar', '›');
     hpA.setAttribute('aria-hidden', 'true');
@@ -391,15 +391,17 @@ function hhmm(ms) {
 }
 function serverBox(screen) {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'サーバー'));
+  wrap.appendChild(el('h3', null, '海域（サーバー）'));
   wrap.appendChild(el(
     'p', 'note',
-    '自分で立てたサーバーに繋ぐと、ほかの端末と同じ記録を使える。'
+    /* 海域（2026-11-10 利用者の決定）＝1つのサーバーが預かる海のまとまり（個人・共有・作った海）。
+       入る・記録を送る・持ち主、のときは「海域」。住所・コマンド・サーバーのプログラムのときは「サーバー」 */
+    '海域は、自分で立てたサーバーが預かる海のまとまり。海域に繋ぐと、ほかの端末と同じ記録を使える。'
     + '食い違ったときは、項目ごとに新しく書き換えたほうが残る。'
     + '届かない間もこの端末には記録され、届いたら合わせる。'
-    + '海は左上の ≡ の引き出しで作り、切り替える。自分の合言葉（個人に入れるパスキー）で、どの海もサーバーと合わせる。'
+    + '海は左上の ≡ の引き出しで作り、切り替える。自分の合言葉（個人に入れるパスキー）で、海域のどの海も合わせる。'
     + '人を招いた海は、招かれた人の端末とも同じ海になる。'
-    + '公開したサーバーはパスキーで入り、手元のサーバーは合言葉で入る。'
+    + '公開した海域にはパスキーで入り、手元の海域には合言葉で入る。'
   ));
 
   const form = el('form', 'tagadd');
@@ -465,7 +467,7 @@ function serverBox(screen) {
   const pkBox = el('div', 'pkbox');
   pkBox.hidden = true;
   pkBox.style.cssText = 'margin-top:12px';
-  pkBox.appendChild(el('p', 'note', 'このサーバーはパスキーで入る。初めての端末は、招待コードを入れて登録する。'
+  pkBox.appendChild(el('p', 'note', 'この海域にはパスキーで入る。初めての端末は、招待コードを入れて登録する。'
     + '登録した端末は、次から「パスキーで入る」だけでよい（合言葉は使わない）。'));
   const pkForm = el('form', 'tagadd');
   const invIn = document.createElement('input');
@@ -497,7 +499,7 @@ function serverBox(screen) {
      持ち主がサーバーで認める（request-ok <字>）。送るのは呼び名だけ。頼みの鍵は端末の別の箱に置き、
      登録したら・やめたら消す */
   pkBox.appendChild(el('p', 'note', '招待コードが無いときは、この端末から登録を頼める。'
-    + '画面に出る字をサーバーの持ち主に伝え、認めてもらってから「登録を仕上げる」を押す。'));
+    + '画面に出る字を海域の持ち主に伝え、認めてもらってから「登録を仕上げる」を押す。'));
   const askForm = el('form', 'tagadd');
   const askIn = document.createElement('input');
   askIn.type = 'text';
@@ -620,7 +622,7 @@ function serverBox(screen) {
       askLine.textContent = '「' + r.name + '」の登録が認められた。「登録を仕上げる」で、この端末のパスキーを作る。';
       askHow.textContent = '';
     } else {
-      askLine.textContent = '「' + r.name + '」として頼んだ。サーバーの持ち主に、次の字を伝える（認められるまで待つ。24 時間）。';
+      askLine.textContent = '「' + r.name + '」として頼んだ。海域の持ち主に、次の字を伝える（認められるまで待つ。24 時間）。';
       askHow.textContent = '持ち主はサーバーで request-list を見て、この字と同じものを request-ok ' + r.code
         + ' --space …（新しい人は me、持ち主の端末は me:1,share、招く海は海の ID）で認める。';
     }
@@ -828,7 +830,7 @@ function moveBox() {
   wrap.appendChild(el('h3', null, '引っ越し（暗号化したファイル）'));
   wrap.appendChild(el(
     'p', 'note',
-    'すべての海の記録と、サーバーに入る鍵を1つのファイルにして、合言葉で暗号化する。'
+    'すべての海の記録と、海域に入る鍵を1つのファイルにして、合言葉で暗号化する。'
     + '新しい端末でこのファイルを開いて合言葉を入れると、記録が戻り、招かれた海にもそのまま入れる（持ち主に招待を頼まなくてよい）。'
     + 'ファイルは iCloud Drive・Google Drive など自分の置き場へ。合言葉はファイルと別に書き留める（忘れたら開けない）。'
   ));
@@ -873,7 +875,7 @@ function moveBox() {
   line.setAttribute('aria-live', 'polite');
   wrap.appendChild(line);
   /* パスキーを作るのは、押した手の続きでないと断る端末がある（iPhone）。だからボタンで始める */
-  const retry = el('button', 'btn', 'サーバーに入る（この端末のパスキーを作る）');
+  const retry = el('button', 'btn', '海域に入る（この端末のパスキーを作る）');
   retry.type = 'button';
   retry.hidden = true;
   wrap.appendChild(retry);
@@ -896,13 +898,13 @@ function moveBox() {
           server = { url: sec.url, move: got.move };
         } catch (e) {
           server = { url: sec.url };
-          warn = '（サーバーに入る鍵は入っていない: ' + e.message + '）';
+          warn = '（海域に入る鍵は入っていない: ' + e.message + '）';
         }
       } else if (sec && ('token' in sec)) {
         server = { url: sec.url, token: sec.token, shareToken: sec.shareToken };
       } else if (sec) {
         server = { url: sec.url };
-        warn = '（パスキーで入っていないので、サーバーに入る鍵は入っていない）';
+        warn = '（パスキーで入っていないので、海域に入る鍵は入っていない）';
       }
       const now = Date.now();
       const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
@@ -914,7 +916,7 @@ function moveBox() {
       const info = moveSummary(payload);
       passLine.textContent = '合言葉: ' + pass + '　← 書き留めてから「ファイルを保存する」。'
         + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + warn
-        + (server && server.move ? '。前に作った引っ越しのファイルでは、もうサーバーに入れない（記録は戻せる）' : '');
+        + (server && server.move ? '。前に作った引っ越しのファイルでは、もう海域に入れない（記録は戻せる）' : '');
       save.hidden = false;
       save.focus();
     } catch (e) {
@@ -981,7 +983,7 @@ function moveBox() {
     line.textContent = '海 ' + n + ' つの記録を戻した。';
     pendingServer = p.server && p.server.url ? p.server : null;
     if (pendingServer && pendingServer.move && !(sync.config().passkey && sync.config().passkey.valid)) {
-      line.textContent += '続けて下のボタンで、サーバーに入る。';
+      line.textContent += '続けて下のボタンで、海域に入る。';
       retry.hidden = false;
     } else if (pendingServer) joinServer();
   }
@@ -992,18 +994,18 @@ function moveBox() {
     if (!s) return;
     const cur = sync.config();
     if (cur.url && cur.url !== s.url) {
-      line.textContent += 'この端末はほかのサーバー（' + cur.url + '）に繋いでいるので、サーバーの設定は変えない。';
+      line.textContent += 'この端末はほかの海域（' + cur.url + '）に繋いでいるので、繋ぐ先の設定は変えない。';
       pendingServer = null;
       return;
     }
     if (s.token || s.shareToken) {
       sync.configure(s.url, s.token || '', s.shareToken || '');
-      line.textContent += 'サーバーに合言葉で繋いだ。';
+      line.textContent += '海域に合言葉で繋いだ。';
       pendingServer = null;
       return;
     }
     if (!s.move) {
-      line.textContent += 'サーバーに入る鍵は入っていない（住所だけ入れた。持ち主に招待コードを頼む）。';
+      line.textContent += '海域に入る鍵は入っていない（住所だけ入れた。持ち主に招待コードを頼む）。';
       if (!cur.url) sync.configure(s.url, '', '');
       pendingServer = null;
       return;
@@ -1017,11 +1019,11 @@ function moveBox() {
     try {
       const out = await registerPasskey(s.url, s.move);
       sync.usePasskeySession(s.url, out);
-      line.textContent += '「' + out.name + '」としてサーバーに入った。この引っ越しの鍵は使い終わったので、'
+      line.textContent += '「' + out.name + '」として海域に入った。この引っ越しの鍵は使い終わったので、'
         + '次の引っ越しのファイルはこの端末で作り直す。';
       pendingServer = null;
     } catch (e) {
-      line.textContent += 'サーバーに入れなかった: ' + ((e && e.message) || e) + '。';
+      line.textContent += '海域に入れなかった: ' + ((e && e.message) || e) + '。';
       retry.hidden = false;
     }
   }
@@ -1104,7 +1106,7 @@ function resetAllBox() {
   panel.appendChild(gone);
   panel.appendChild(el('p', 'note', '消えないもの:'));
   const kept = el('ul');
-  ['サーバーに置いた記録（同じサーバーにまた繋ぐと戻ってくる）',
+  ['海域に置いた記録（同じ海域にまた繋ぐと戻ってくる）',
     'ブロックチェーンに保存したバックアップ（消せない。同じパスキーか合言葉で戻せる）',
     '画面の「!」が覚えているエラーの記録と、app 本体'].forEach(s => { const li = el('li'); li.textContent = s; kept.appendChild(li); });
   panel.appendChild(kept);
@@ -1564,7 +1566,7 @@ function rollbackBox() {
       status.textContent = '戻せる前の版はまだ無い（次に新しい版が入ると、今の版を1つだけ残す）。';
       return;
     }
-    status.textContent = '戻すと、戻している間はサーバーへ送らない（この端末の中だけで書く）。'
+    status.textContent = '戻すと、戻している間は海域へ送らない（この端末の中だけで書く）。'
       + '記録はそのまま使い、戻す前に写しを取る。最新に戻ったとき、前の版が落とした欄を写しから埋め戻す。'
       + '上の帯の「最新に戻る」か、次の新しい版が届くと最新に戻る。';
     const row = el('div', 'row');
@@ -1572,7 +1574,7 @@ function rollbackBox() {
     const btn = el('button', 'btn', '前の版（v' + prev + '）に戻す');
     btn.type = 'button';
     btn.addEventListener('click', () => {
-      if (!window.confirm('この端末を前の版 v' + prev + ' に戻す？\n戻している間はサーバーへ送らない。上の帯の「最新に戻る」で戻せる。')) return;
+      if (!window.confirm('この端末を前の版 v' + prev + ' に戻す？\n戻している間は海域へ送らない。上の帯の「最新に戻る」で戻せる。')) return;
       btn.disabled = true;
       RB.rollbackTo(prev).catch((e) => { toast((e && e.message) || '戻せなかった'); btn.disabled = false; });
     });
@@ -1655,7 +1657,7 @@ function helpAiBox() {
       row.appendChild(cancel);
     }
     keyBox.appendChild(row);
-    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ置く（サーバー・CSV・同期には入らない）。'
+    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ置く（海域・CSV・同期には入らない）。'
       + 'Anthropic Console で、この app 専用のワークスペースと使える上限額を決めておくと安心。'));
     if (editing) setTimeout(() => keyIn.focus(), 0);
   }
