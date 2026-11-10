@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-11c';
+const VERSION = '2026-11-11d';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -107,6 +107,7 @@ const ASSETS = [
   './js/suggest.js',       /* 今日のおすすめ（2026-11-07 Issue #12） */
   './js/movefile.js',      /* 引っ越しのファイル（2026-11-07 Issue #19） */
   './js/chain.js',         /* ブロックチェーンへの控え（2026-11-08 Issue #31） */
+  './js/board.js',         /* 共有の海（ブロックチェーンの掲示板。2026-11-11 Issue #37） */
   './js/prefs.js',         /* この端末の表示（2026-11-10 Issue #36） */
   './js/version.js',
   './js/sync.js',

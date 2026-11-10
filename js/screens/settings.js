@@ -19,6 +19,8 @@ import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphras
   readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports,
   prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL, planSweep, sweep,
   loadMove, saveMove, clearMove, moveStep, moveSteps } from '../chain.js';
+import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, writeEnvelope,
+  findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr } from '../board.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
 import { ITEMS, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
@@ -1485,6 +1487,8 @@ function chainBox() {
       await showRecovery(keys);
     });
 
+    paintShare(net);
+
     const alt = fold('パスキーを失ったとき・この端末での設定', false);
     group('code', '復元コードで読む', '別のウォレットのバックアップも、復元コードがあれば読める（読むだけ）。', alt);
     btn('復元コードで復元（読むだけ）', restoreByCode);
@@ -1497,6 +1501,316 @@ function chainBox() {
       line.textContent = '';
       paint();
     });
+  }
+
+  /* ---- 共有の海（2026-11-11 Issue #37。#31 の2段目。仕組みと形は js/board.js） ----
+     名前を付けた海を1つずつ、特定の人と共有する。渡すのは共有用のアドレス（BTA1-…。人に見られてよい）だけ。
+     招く・外すのは海の持ち主（共有を始めた人）だけ。保存・読み込みはボタンで（押したときだけ手数料が掛かる）。
+     海の鍵は自分の記録のカギで包んで端末に置くので、どの操作でもパスキーか合言葉で開く */
+  function paintShare(net) {
+    group('share', '共有の海（特定の人と・試し）',
+      '名前を付けた海を、決めた人とだけ共有する。相手に渡すのは「共有用のアドレス」（人に見られてよい）だけで、鍵は渡さない。'
+      + '招かれる人は自分の共有用のアドレスを招く人に送り、招く人が「招く」を押すと、チェーンに招待が書かれる。招かれた人は「招待を探す」で受け取る。'
+      + '中身は暗号化してあり、メンバーしか読めない。ただし、誰と誰が同じ海にいるか（ウォレットのアドレスどうし）と、書いた時刻・大きさは、チェーンの上で誰でも見られる。'
+      + '書いたものは消せない。外したメンバーも、外す前に書かれた記録は読める。');
+    btn('共有用のアドレスをコピー', async () => {
+      const keys = await unlock();
+      await checkSame(keys);
+      const addr = await makeShareAddress(keys, net);
+      cfg = Object.assign(loadConfig(), { share: addr });
+      saveConfig(cfg);
+      try { await navigator.clipboard.writeText(addr); line.textContent = '共有用のアドレスをコピーした（招いてほしい人に送る）: ' + addr; } catch (e) {
+        line.textContent = '共有用のアドレス（招いてほしい人に送る）: ' + addr;
+      }
+    });
+    btn('招待を探す', acceptInvites);
+    btn('この端末の海を共有する…', startSharing);
+
+    const mine = sharedFor(loadShared(), cfg.address, net);
+    mine.forEach(rec => {
+      const ent = allEntries().find(e => e.id === rec.id);
+      const name = ent ? ent.name : rec.id;
+      const owner = rec.owner === cfg.address;
+      const who = (rec.members || []).map(m => (m.a === cfg.address ? '自分' : (m.n || shortAddr(m.a)))).join('・');
+      /* group の見出しと説明は HTML として入る。海の名前と呼び名はほかのメンバーが書くので、必ず escapeHtml を通す */
+      group('sea:' + rec.id, '「' + escapeHtml(name) + '」' + (owner ? '（自分が持ち主）' : '（招かれた）'),
+        'メンバー ' + ((rec.members || []).length || '?') + ' 人' + (who ? '（' + escapeHtml(who) + '）' : '')
+        + '・鍵の代 ' + rec.gen
+        + (rec.savedAt ? '・最後に保存 ' + new Date(rec.savedAt).toLocaleString() : '')
+        + (rec.readAt ? '・最後に読み込み ' + new Date(rec.readAt).toLocaleString() : ''));
+      btn('保存（自分の記録を書く）', () => saveShared1(rec.id));
+      btn('読み込む（みんなの記録を重ねる）', () => readShared1(rec.id));
+      if (owner) {
+        btn('招く…', () => inviteTo(rec.id));
+        btn('メンバーを外す…', () => removeFrom(rec.id));
+      }
+      btn('この端末で共有をやめる', async () => {
+        if (!window.confirm('この端末で「' + name + '」の共有をやめる？\n海と記録はこの端末に残る（ほかのメンバーには知らせない。チェーンの上の記録も消えない）。'
+          + '\nまた使うときは「招待を探す」で受け取り直す。')) return;
+        const all = loadShared();
+        delete all[rec.id];
+        saveShared(all);
+        paint();
+        curKey = 'share';
+        line.textContent = '「' + name + '」の共有をやめた（この端末だけ）。';
+      });
+    });
+  }
+
+  function sharedRec(id) {
+    const rec = loadShared()[id];
+    if (!rec || rec.me !== cfg.address) throw new Error('この海の共有がこの端末に無い');
+    return rec;
+  }
+  function putShared(rec) {
+    const all = loadShared();
+    all[rec.id] = rec;
+    saveShared(all);
+  }
+  /* 鍵を開け（パスキーは押した手の続きで呼ぶ。ここより前で await しない）、海の鍵を出す */
+  async function openShared(rec) {
+    const keys = await unlock();
+    await checkSame(keys);
+    const seaKey = await unwrapSeaKey(rec, keys.recordKey);
+    return { keys, seaKey };
+  }
+  async function needFunds(net, count) {
+    const [bal, need] = await Promise.all([getBalance(net, cfg.address), needLamports(net, count)]);
+    if (bal < need.fee + need.rent) {
+      throw new Error('ウォレットの残高が足りない（残高 ' + solText(bal) + '・要るのは 手数料 ' + solText(need.fee)
+        + ' ＋ 残しておく最低の額 ' + solText(need.rent) + '）。アドレスに SOL を入れてから押す');
+    }
+    return need;
+  }
+  function seaBox(id) {
+    try { store.flush(); } catch (e) { /* 書くのは止めない */ }
+    return collectBoxes()[id] || null;
+  }
+  function rosterInner(rec) {
+    return { kind: 'roster', sea: rec.id, g: rec.gen, at: Date.now(), members: rec.members };
+  }
+
+  /* 共有を始める（持ち主になる）。自分宛ての招待も書く（自分のほかの端末が「招待を探す」で受け取れるように） */
+  async function startSharing() {
+    const net = netSel.value;
+    const shared = loadShared();
+    /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
+    const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
+    if (!cands.length) {
+      throw new Error('共有できる海が無い。先に新しい海を作る（前の版からある「共有」の海は、ほかの人の同じ名前の海とまざるので共有できない）');
+    }
+    const pick = window.prompt('共有する海の番号\n' + cands.map((e, i) => (i + 1) + '. ' + e.name).join('\n'));
+    if (!pick) return;
+    const sea = cands[Number(pick) - 1];
+    if (!sea) throw new Error('番号が違う');
+    const keys = await unlock();
+    await checkSame(keys);
+    line.textContent = '鍵を作っている…';
+    const myShare = await makeShareAddress(keys, net);
+    const to = await readShareAddress(myShare);
+    const seaKey = newSeaKey();
+    const board = await boardOf(seaKey);
+    const rec = { id: sea.id, net, gen: 1, owner: keys.wallet.address, me: keys.wallet.address,
+      wrapped: await wrapSeaKey(seaKey, keys.recordKey, sea.id, 1, keys.wallet.address), board: board.address,
+      members: [{ a: keys.wallet.address, x: myShare, n: '' }], savedAt: null, readAt: null };
+    const env = await sealEnvelope({ network: net, sea, key: seaKey, gen: 1, owner: keys.wallet }, to);
+    const roster = await postMemos(keys.wallet, rosterInner(rec), board);
+    const need = await needFunds(net, 1 + roster.length);
+    if (!window.confirm('「' + sea.name + '」を共有する？（' + NETWORKS[net].label + '）\n'
+      + 'この海の鍵を作り、自分宛ての招待と名簿をチェーンに書く（取引 ' + (1 + roster.length) + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
+      + '続けて「招く…」で相手の共有用のアドレスを貼る。記録は「保存」で書く。')) { line.textContent = 'やめた'; return; }
+    line.textContent = '書いている…';
+    await writeEnvelope(net, keys.wallet, env, to.wallet);
+    await writePost(net, keys.wallet, roster, board);
+    putShared(rec);
+    cfg = Object.assign(loadConfig(), { share: myShare });
+    saveConfig(cfg);
+    paint();
+    curKey = 'sea:' + rec.id;
+    line.textContent = '共有を始めた。「招く…」で相手を招き、「保存」で記録を書く。';
+  }
+
+  /* 招く（持ち主だけ）。相手の共有用のアドレスを貼ってもらい、封筒と新しい名簿を書く */
+  async function inviteTo(id) {
+    const net = netSel.value;
+    const rec = sharedRec(id);
+    const text = window.prompt('招く人の共有用のアドレス（BTA1-…。相手の設定の「共有用のアドレスをコピー」で写したもの）');
+    if (!text) return;
+    const nick = (window.prompt('この人の呼び名（メンバーの一覧に出す。メンバーだけが読める。空でもよい）') || '').trim().slice(0, 24);
+    const to = await readShareAddress(text);
+    if (to.network !== net) throw new Error('相手の共有用のアドレスは ' + NETWORKS[to.network].label + ' のもの。ネットをそろえる');
+    if ((rec.members || []).some(m => m.a === to.wallet)) throw new Error('この人はもうメンバー');
+    const { keys, seaKey } = await openShared(rec);
+    if (rec.owner !== keys.wallet.address) throw new Error('招けるのは海の持ち主だけ');
+    const board = await boardOf(seaKey);
+    const next = Object.assign({}, rec, { members: cleanMembers((rec.members || []).concat([{ a: to.wallet, x: to.text, n: nick }])) });
+    const sea = allEntries().find(e => e.id === id) || { id, name: id, color: 'magma', at: 0 };
+    const env = await sealEnvelope({ network: net, sea, key: seaKey, gen: rec.gen, owner: keys.wallet }, to);
+    const roster = await postMemos(keys.wallet, rosterInner(next), board);
+    const need = await needFunds(net, 1 + roster.length);
+    if (!window.confirm('「' + sea.name + '」に招く？\n相手のウォレット: ' + to.wallet + (nick ? '（' + nick + '）' : '')
+      + '\n招待と新しい名簿をチェーンに書く（取引 ' + (1 + roster.length) + ' 件・手数料の目安 ' + solText(need.fee) + '）。'
+      + '\n招いたことは取り消せない（外すときは「メンバーを外す…」で鍵を作り替える）。'
+      + '\n相手のアドレスとこのウォレットのアドレスが、同じ海にいることはチェーンの上で見える。')) { line.textContent = 'やめた'; return; }
+    line.textContent = '書いている…';
+    await writeEnvelope(net, keys.wallet, env, to.wallet);
+    await writePost(net, keys.wallet, roster, board);
+    putShared(next);
+    paint();
+    curKey = 'sea:' + id;
+    line.textContent = '招いた。相手に「招待を探す」を押してもらう。記録がまだ無ければ「保存」で書く。';
+  }
+
+  /* メンバーを外す（持ち主だけ）。海の鍵を作り替え、残る人にだけ新しい招待を書く */
+  async function removeFrom(id) {
+    const net = netSel.value;
+    const rec = sharedRec(id);
+    const others = (rec.members || []).filter(m => m.a !== rec.owner);
+    if (!others.length) throw new Error('外せるメンバーがいない');
+    const pick = window.prompt('外す人の番号\n' + others.map((m, i) => (i + 1) + '. ' + (m.n || '') + ' ' + m.a).join('\n'));
+    if (!pick) return;
+    const gone = others[Number(pick) - 1];
+    if (!gone) throw new Error('番号が違う');
+    const { keys } = await openShared(rec);
+    if (rec.owner !== keys.wallet.address) throw new Error('外せるのは海の持ち主だけ');
+    const stay = (rec.members || []).filter(m => m.a !== gone.a);
+    const lost = stay.filter(m => !m.x);
+    if (lost.length) throw new Error('共有用のアドレスが分からないメンバーがいる（' + lost.map(m => m.n || shortAddr(m.a)).join('・') + '）。先に「読み込む」で名簿を読む');
+    const tos = await Promise.all(stay.map(m => readShareAddress(m.x)));
+    const seaKey = newSeaKey();
+    const gen = rec.gen + 1;
+    const board = await boardOf(seaKey);
+    const sea = allEntries().find(e => e.id === id) || { id, name: id, color: 'magma', at: 0 };
+    const next = Object.assign({}, rec, { gen, board: board.address, members: stay,
+      wrapped: await wrapSeaKey(seaKey, keys.recordKey, id, gen, keys.wallet.address), savedAt: null, readAt: null });
+    const envs = [];
+    for (const to of tos) envs.push({ to, text: await sealEnvelope({ network: net, sea, key: seaKey, gen, owner: keys.wallet }, to) });
+    const roster = await postMemos(keys.wallet, rosterInner(next), board);
+    const box = seaBox(id);
+    const snap = box ? await postMemos(keys.wallet, { kind: 'snap', sea: id, g: gen, at: Date.now(), entry: sea, box }, board) : [];
+    if (envs.length + roster.length + snap.length > MAX_TX * 2) throw new Error('取引が多すぎる（記録が大きい）');
+    const count = envs.length + roster.length + snap.length;
+    const need = await needFunds(net, count);
+    if (!window.confirm('「' + sea.name + '」から ' + (gone.n || gone.a) + ' を外す？\n'
+      + '海の鍵を作り替え（代 ' + rec.gen + ' → ' + gen + '）、残る ' + stay.length + ' 人（自分を含む）に新しい招待を書き、新しい掲示板に名簿と自分の記録を書く'
+      + '（取引 ' + count + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
+      + '外した人は、これからの記録を読めない。ただし、これまでに書かれた記録は読める（チェーンの上のものは消せない）。\n'
+      + 'ほかのメンバーには「招待を探す」を押してもらう（押すまでは前の鍵のままで、新しい記録が見えない）。')) { line.textContent = 'やめた'; return; }
+    let done = 0;
+    for (const e of envs) {
+      await writeEnvelope(net, keys.wallet, e.text, e.to.wallet);
+      line.textContent = '書いている… ' + (++done) + '/' + count;
+    }
+    await writePost(net, keys.wallet, roster.concat(snap), board, {
+      onStep: (i) => { line.textContent = '書いている… ' + (done + i) + '/' + count; },
+    });
+    if (snap.length) next.savedAt = Date.now();
+    putShared(next);
+    paint();
+    curKey = 'sea:' + id;
+    line.textContent = '外した（鍵の代 ' + gen + '）。残るメンバーに「招待を探す」を押してもらう。';
+  }
+
+  /* 自分の記録を掲示板に書く */
+  async function saveShared1(id) {
+    const net = netSel.value;
+    const rec = sharedRec(id);
+    const { keys, seaKey } = await openShared(rec);
+    const board = await boardOf(seaKey);
+    const box = seaBox(id);
+    if (!box) throw new Error('この海の記録がこの端末に無い');
+    const sea = allEntries().find(e => e.id === id);
+    line.textContent = '作っている…';
+    const memos = await postMemos(keys.wallet, { kind: 'snap', sea: id, g: rec.gen, at: Date.now(), entry: sea || null, box }, board);
+    if (memos.length > MAX_TX) throw new Error('記録が大きすぎる（取引 ' + memos.length + ' 件に分かれる）');
+    const need = await needFunds(net, memos.length);
+    const todos = Array.isArray(box.doc && box.doc.todos) ? box.doc.todos.filter(t => t && !t.trashed).length : 0;
+    if (!window.confirm('「' + (sea ? sea.name : id) + '」の自分の記録を共有の掲示板に書く？\ntodo ' + todos + ' 件・取引 ' + memos.length
+      + ' 件・手数料の目安 ' + solText(need.fee) + '\n書いたものは消せない（メンバーだけが読める）。')) { line.textContent = 'やめた'; return; }
+    await writePost(net, keys.wallet, memos, board, { onStep: (i, n) => { line.textContent = '書いている… ' + i + '/' + n; } });
+    putShared(Object.assign(sharedRec(id), { savedAt: Date.now() }));
+    paint();
+    curKey = 'sea:' + id;
+    line.textContent = '保存した（取引 ' + memos.length + ' 件）。ほかのメンバーは「読み込む」で重ねる。';
+  }
+
+  /* 掲示板を読み、メンバーごとにいちばん新しい記録を重ねる */
+  async function readShared1(id) {
+    const rec = sharedRec(id);
+    const { seaKey } = await openShared(rec);
+    await readWith(rec, seaKey);
+  }
+  async function readWith(rec, seaKey) {
+    const id = rec.id;
+    line.textContent = '掲示板を読んでいる…';
+    const got = await readBoard(rec.net, rec, seaKey);
+    let next = sharedRec(id);
+    if (got.members) next = Object.assign(next, { members: got.members });
+    const snaps = got.snaps;
+    if (!snaps.length) {
+      putShared(next);
+      paint();
+      curKey = 'sea:' + id;
+      line.textContent = 'まだ誰も記録を書いていない（鍵の代 ' + rec.gen + '）。読めないときは、持ち主が鍵を作り替えたかもしれないので「招待を探す」を押す。';
+      return;
+    }
+    const nameOf = a => (a === cfg.address ? '自分' : ((next.members || []).find(m => m.a === a) || {}).n || shortAddr(a));
+    if (!window.confirm('共有の記録を重ねる？\n' + snaps.map(s => nameOf(s.by) + '（' + new Date(s.at).toLocaleString() + '）').join('\n')
+      + '\nいまの記録は消さずに重ねる（記録ごとに新しく書き換えたほうが残る）。')) { line.textContent = 'やめた'; return; }
+    /* 写しの中の海の ID は見ず、この海の箱にだけ重ねる（メンバーがほかの海を書き換えられないように） */
+    snaps.forEach(s => {
+      const entry = s.entry && s.entry.id === id ? s.entry : null;
+      mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [id]: s.box } });
+    });
+    putShared(Object.assign(next, { readAt: Date.now() }));
+    paint();
+    curKey = 'sea:' + id;
+    line.textContent = snaps.length + ' 人ぶんの記録を重ねた。';
+  }
+
+  /* 自分のウォレットに届いた招待を開け、新しいもの（初めての海・新しい代の鍵）を受け取る */
+  async function acceptInvites() {
+    const net = netSel.value;
+    const keys = await unlock();
+    await checkSame(keys);
+    line.textContent = '招待を探している…';
+    const found = await findInvites(net, keys);
+    const all = loadShared();
+    const fresh = found.filter(f => {
+      const r = all[f.sea.id];
+      return !r || r.me !== keys.wallet.address || f.gen > r.gen;
+    });
+    if (!fresh.length) {
+      line.textContent = found.length ? '新しい招待は無い（受け取った招待は ' + found.length + ' 件。どれも受け取り済み）。' : '招待は届いていない（' + NETWORKS[net].label + '）。';
+      return;
+    }
+    let took = 0;
+    for (const f of fresh) {
+      const mine = f.owner === keys.wallet.address;
+      const local = allEntries().find(e => e.id === f.sea.id && e.alive);
+      if (local && !all[f.sea.id] && !mine) {
+        line.textContent = '「' + f.sea.name + '」の招待は受け取れない（この端末に同じ ID の別の海がある）。';
+        continue;
+      }
+      const again = all[f.sea.id] && all[f.sea.id].me === keys.wallet.address;
+      if (!window.confirm((again ? '「' + f.sea.name + '」の新しい鍵（代 ' + f.gen + '）を受け取る？' : '海「' + f.sea.name + '」に招かれている。受け取る？')
+        + '\n招いた人のウォレット: ' + (mine ? '自分' : f.owner)
+        + '\n受け取ると、この海がこの端末に足され、メンバーの記録を読み込む。')) continue;
+      const board = await boardOf(f.key);
+      const prev = all[f.sea.id];
+      const rec = { id: f.sea.id, net, gen: f.gen, owner: f.owner, me: keys.wallet.address,
+        wrapped: await wrapSeaKey(f.key, keys.recordKey, f.sea.id, f.gen, keys.wallet.address), board: board.address,
+        members: (prev && prev.me === keys.wallet.address && prev.members) || [], savedAt: null, readAt: null };
+      putShared(rec);
+      all[f.sea.id] = rec;
+      if (!local) mergeSeas([f.sea]);
+      took++;
+      curKey = 'share';
+      await readWith(rec, f.key);
+    }
+    paint();
+    curKey = 'share';
+    line.textContent = took ? '招待を ' + took + ' 件受け取った。' : (line.textContent || 'どれも受け取らなかった。');
   }
 
   async function writeBackup() {

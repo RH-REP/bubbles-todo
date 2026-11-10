@@ -35,6 +35,9 @@ export const NETWORKS = {
 };
 export const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 export const TAG = 'bt1';
+/* 共有の海の掲示板に書く記録の写し・名簿（js/board.js。2026-11-11 Issue #37）。形は bt1 と同じで、頭と暗号の AAD だけが違う */
+export const BOARD_TAG = 'bt2';
+const BOARD_SALT = 'bubbles-board-v1';
 export const CHUNK = 500;          /* 1 つのメモに入れる base64 の字数（取引 1 件 1232 バイトの内に余裕を持って収め、計算も軽くする） */
 export const MAX_TX = 60;          /* これより多くの取引に分かれるなら書かない（ファイルの引っ越しを使ってもらう） */
 export const FEE_LAMPORTS = 5000;  /* 署名 1 つの手数料（目安） */
@@ -160,12 +163,14 @@ export async function walletFromSeed(seed) {
   };
 }
 
-/* 元 → { recordKey（32 バイト）, wallet } */
+/* 元 → { recordKey（32 バイト）, wallet, shareSeed }。
+   shareSeed は共有用のアドレス（X25519。js/board.js）の種。ウォレットと同じく元から毎回同じものができる */
 export async function keysFromRoot(root) {
   if (!root || root.length !== 32) throw new Error('鍵の元が正しくない');
   const recordKey = await hkdf(root, 'record');
   const wallet = await walletFromSeed(await hkdf(root, 'wallet'));
-  return { recordKey, wallet };
+  const shareSeed = await hkdf(root, 'share');
+  return { recordKey, wallet, shareSeed };
 }
 
 /* ---- 復元コード（記録のカギ＋住所＋ネット。お金は動かせない） ---- */
@@ -212,23 +217,31 @@ export function newBackupId() {
   return Array.from(randomBytes(4), x => x.toString(16).padStart(2, '0')).join('');
 }
 
-/* 中身（オブジェクト）→ メモの文の並び */
-export async function sealToMemos(payload, recordKey, id = newBackupId()) {
+/* 暗号の AAD。bt1（自分のバックアップ）と bt2（共有の海の掲示板）で分ける（片方の切れ端をもう片方として開かせない） */
+const aadOf = (tag, id) => enc((tag === BOARD_TAG ? BOARD_SALT : SALT) + '|' + id);
+const MEMO_RE = {};
+function memoRe(tag) {
+  if (!MEMO_RE[tag]) MEMO_RE[tag] = new RegExp('(?:^|\\s|\\])' + tag + ' ([0-9a-f]{8}) (\\d+)\\/(\\d+) ([A-Za-z0-9+/=]+)');
+  return MEMO_RE[tag];
+}
+
+/* 中身（オブジェクト）→ メモの文の並び。tag は bt1（バックアップ）か bt2（掲示板） */
+export async function sealToMemos(payload, recordKey, id = newBackupId(), tag = TAG) {
   const plain = enc(JSON.stringify(payload));
   const z = await gzip(plain);
   const flags = z ? 1 : 0;
   const s = subtle();
   const key = await s.importKey('raw', recordKey, 'AES-GCM', false, ['encrypt']);
   const iv = randomBytes(12);
-  const ct = new Uint8Array(await s.encrypt({ name: 'AES-GCM', iv, additionalData: enc(SALT + '|' + id) }, key, z || plain));
+  const ct = new Uint8Array(await s.encrypt({ name: 'AES-GCM', iv, additionalData: aadOf(tag, id) }, key, z || plain));
   const b64 = toB64(concat([Uint8Array.of(VER, flags), iv, ct]));
   const parts = b64.match(new RegExp('.{1,' + CHUNK + '}', 'g')) || [''];
-  return parts.map((p, i) => `${TAG} ${id} ${i + 1}/${parts.length} ${p}`);
+  return parts.map((p, i) => `${tag} ${id} ${i + 1}/${parts.length} ${p}`);
 }
 
-/* メモの文 → { id, i, n, part }。この app の控えでなければ null */
-export function parseMemo(text) {
-  const m = /(?:^|\s|\])bt1 ([0-9a-f]{8}) (\d+)\/(\d+) ([A-Za-z0-9+/=]+)/.exec(String(text || ''));
+/* メモの文 → { id, i, n, part }。この app の控え（tag の形）でなければ null */
+export function parseMemo(text, tag = TAG) {
+  const m = memoRe(tag).exec(String(text || ''));
   if (!m) return null;
   const i = Number(m[2]), n = Number(m[3]);
   if (!(i >= 1 && n >= 1 && i <= n && n <= 1000)) return null;
@@ -236,7 +249,7 @@ export function parseMemo(text) {
 }
 
 /* 切れ端のまとまり（同じ ID・全部そろった）→ 中身 */
-export async function openMemos(parts, recordKey) {
+export async function openMemos(parts, recordKey, tag = TAG) {
   if (!parts.length) throw new Error('バックアップが無い');
   const id = parts[0].id, n = parts[0].n;
   const byI = new Map();
@@ -251,7 +264,7 @@ export async function openMemos(parts, recordKey) {
   const key = await s.importKey('raw', recordKey, 'AES-GCM', false, ['decrypt']);
   let plain;
   try {
-    plain = new Uint8Array(await s.decrypt({ name: 'AES-GCM', iv, additionalData: enc(SALT + '|' + id) }, key, ct));
+    plain = new Uint8Array(await s.decrypt({ name: 'AES-GCM', iv, additionalData: aadOf(tag, id) }, key, ct));
   } catch (e) { throw new Error('バックアップを開けない（鍵が違うか、バックアップが壊れている）'); }
   if (flags & 1) plain = await gunzip(plain);
   return JSON.parse(new TextDecoder().decode(plain));
@@ -293,17 +306,23 @@ export function shortvec(n) {
 export const COMPUTE_BUDGET_PROGRAM = 'ComputeBudget111111111111111111111111111111';
 export const COMPUTE_UNITS = 1000000;
 
-export function memoMessage(payer, blockhash, memoText, units = COMPUTE_UNITS) {
+/* extra … 取引に載せるだけの口座（読むだけ・署名しない。どの命令にも渡さない）。
+   共有の海の掲示板のアドレスや、招待の宛先のウォレットを載せ、その口座の取引の一覧（getSignaturesForAddress）に出す。
+   Memo プログラムに渡す口座は署名者でなければならないので、命令には渡さず、口座の並びに置くだけにする */
+export function memoMessage(payer, blockhash, memoText, units = COMPUTE_UNITS, extra = []) {
   const data = enc(memoText);
   const limit = Uint8Array.of(2, units & 0xff, (units >> 8) & 0xff, (units >> 16) & 0xff, (units >>> 24) & 0xff);
+  const ex = (extra || []).map(k => (typeof k === 'string' ? b58decode(k) : k));
+  ex.forEach(k => { if (k.length !== 32) throw new Error('載せる口座の形が違う'); });
+  const cb = 1 + ex.length, memo = 2 + ex.length;
   return concat([
-    Uint8Array.of(1, 0, 2),           /* 署名 1・読むだけの署名者 0・読むだけの署名しない口座 2（ComputeBudget・Memo） */
-    shortvec(3), payer, b58decode(COMPUTE_BUDGET_PROGRAM), b58decode(MEMO_PROGRAM),
+    Uint8Array.of(1, 0, 2 + ex.length),  /* 署名 1・読むだけの署名者 0・読むだけの署名しない口座（載せるだけの口座・ComputeBudget・Memo） */
+    shortvec(3 + ex.length), payer, ...ex, b58decode(COMPUTE_BUDGET_PROGRAM), b58decode(MEMO_PROGRAM),
     blockhash,
     shortvec(2),                      /* 命令 2 つ */
-    Uint8Array.of(1), shortvec(0),    /* ComputeBudget（口座の 1 番目）・口座なし */
+    Uint8Array.of(cb), shortvec(0),   /* ComputeBudget・口座なし */
     shortvec(limit.length), limit,
-    Uint8Array.of(2), shortvec(0),    /* Memo（口座の 2 番目）・口座なし */
+    Uint8Array.of(memo), shortvec(0), /* Memo・口座なし */
     shortvec(data.length), data,
   ]);
 }
@@ -330,8 +349,8 @@ export function memoFromMessage(msg) {
   return null;
 }
 
-export async function memoTransaction(wallet, blockhash, memoText) {
-  const msg = memoMessage(wallet.publicKey, blockhash, memoText);
+export async function memoTransaction(wallet, blockhash, memoText, extra = []) {
+  const msg = memoMessage(wallet.publicKey, blockhash, memoText, COMPUTE_UNITS, extra);
   const sig = await wallet.sign(msg);
   const tx = concat([shortvec(1), sig, msg]);
   if (tx.length > 1232) throw new Error('取引が大きすぎる（' + tx.length + ' バイト）');
@@ -468,7 +487,7 @@ export async function needLamports(network, count, opt) {
 }
 
 /* メモの並びを書く。onStep(済んだ数, 全部) で進み具合を返す。戻り値 取引の ID の並び */
-export async function writeMemos(network, wallet, memos, { onStep = () => {}, gap = 400, opt } = {}) {
+export async function writeMemos(network, wallet, memos, { onStep = () => {}, gap = 400, opt, extra = [] } = {}) {
   const sigs = [];
   let bh = null, bhAt = 0;
   for (let i = 0; i < memos.length; i++) {
@@ -477,7 +496,7 @@ export async function writeMemos(network, wallet, memos, { onStep = () => {}, ga
       bh = b58decode(r.value.blockhash);
       bhAt = Date.now();
     }
-    const { tx } = await memoTransaction(wallet, bh, memos[i]);
+    const { tx } = await memoTransaction(wallet, bh, memos[i], extra);
     const sig = await rpc(network, 'sendTransaction', [toB64(tx), { encoding: 'base64', preflightCommitment: 'confirmed' }], opt);
     sigs.push(sig);
     onStep(i + 1, memos.length);
@@ -523,12 +542,26 @@ export async function readLatestMemos(network, address, { limit = 200, opt } = {
     if (!it || it.err) continue;
     let p = parseMemo(it.memo);
     if (!p && it.memo == null) continue;   /* メモの無い取引（お金を受け取った、など） */
+    /* 共有の海の掲示板へ書いた取引・届いた招待（Issue #37）。このウォレットの一覧にも出るが、バックアップではない */
+    if (!p && /(?:^|\s|\])bt2e? /.test(String(it.memo))) continue;
     if (!p) p = parseMemo(await memoOfTx(network, it.signature, opt));
     if (p) memos.push(p);
     const got = pickLatest(memos);
     if (got && got[0].id === memos[0].id) return got;   /* いちばん新しい控えがそろった */
   }
   return pickLatest(memos);
+}
+
+/* アドレスの新しい取引のメモの文 → [{ signature, text }]（新しい順。メモの無い取引・失敗した取引は除く）。
+   共有の海の掲示板と招待（js/board.js）が使う。text は窓口の memo 欄のまま（"[長さ] 文" の形） */
+export async function readMemos(network, address, { limit = 200, opt } = {}) {
+  const list = await rpc(network, 'getSignaturesForAddress', [address, { limit, commitment: 'confirmed' }], opt) || [];
+  const out = [];
+  list.forEach(it => {
+    if (!it || it.err || it.memo == null) return;
+    out.push({ signature: it.signature, text: String(it.memo) });
+  });
+  return out;
 }
 
 /* ---- パスキーの PRF で元を作る（押した手の続きで呼ぶ） ---- */
@@ -601,7 +634,7 @@ export function loadConfig(storage = globalThis.localStorage) {
 }
 export function saveConfig(c, storage = globalThis.localStorage) {
   const keep = {};
-  ['network', 'mode', 'credId', 'address', 'lastAt', 'lastId', 'lastCount'].forEach(k => { if (c[k] != null) keep[k] = c[k]; });
+  ['network', 'mode', 'credId', 'address', 'lastAt', 'lastId', 'lastCount', 'share'].forEach(k => { if (c[k] != null) keep[k] = c[k]; });
   storage.setItem(CONFIG_KEY, JSON.stringify(keep));
 }
 
