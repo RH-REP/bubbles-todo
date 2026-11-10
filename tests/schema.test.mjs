@@ -238,13 +238,81 @@ await test('minSchema を返さない前の版のサーバーとは、今まで�
 
 function fakeDocument() {
   const mk = (tag) => ({
-    tag, children: [], style: {}, attrs: {}, hidden: false, textContent: '', listeners: {}, disabled: false,
+    tag, children: [], style: { props: {}, setProperty(k, v) { this.props[k] = v; }, removeProperty(k) { delete this.props[k]; } },
+    attrs: {}, hidden: false, textContent: '', listeners: {}, disabled: false,
+    offsetHeight: 0,
     setAttribute(k, v) { this.attrs[k] = v; },
     appendChild(c) { this.children.push(c); return c; },
     addEventListener(t, f) { this.listeners[t] = f; },
   });
-  return { createElement: mk, body: mk('body') };
+  const cls = new Set();
+  const root = mk('html');
+  root.classList = { add: c => cls.add(c), remove: c => cls.delete(c), contains: c => cls.has(c) };
+  return { createElement: mk, body: mk('body'), head: mk('head'), documentElement: root };
 }
+/* 止まっている sync の代わり（帯の出し分けだけを見る） */
+function stuckSync(on = { minSchema: 2 }) {
+  const fns = [];
+  return { state: on, outdated() { return this.state; }, on(f) { fns.push(f); }, fire() { fns.forEach(f => f()); } };
+}
+
+await test('[今すぐ更新]：Android の app なら確かめに行かず「作り直して入れ直す」', async () => {
+  const { mountSchemaGuard, NATIVE_TEXT, isNativeApp } = await import(GUARD_URL);
+  let checked = 0;
+  const g = mountSchemaGuard({ document: fakeDocument(), sync: stuckSync(), native: true,
+    checkForUpdate: async () => { checked++; return false; }, applyUpdate: async () => {} });
+  await g.bar.children[1].listeners.click();
+  assert.equal(g.bar.children[0].textContent, NATIVE_TEXT);
+  assert.equal(checked, 0, 'service worker を見に行っても新しくならない');
+  /* 判定 */
+  assert.equal(isNativeApp({}), false);
+  assert.equal(isNativeApp({ Capacitor: { isNativePlatform: () => true } }), true);
+  assert.equal(isNativeApp({ Capacitor: { isNativePlatform: () => false } }), false);
+  assert.equal(isNativeApp({ Capacitor: {} }), true);
+});
+
+await test('[今すぐ更新]：service worker の登録が無いブラウザなら「読み直す」に変わり、押すと読み直す', async () => {
+  const { mountSchemaGuard, RELOAD_TEXT, NATIVE_TEXT, OUTDATED_TEXT } = await import(GUARD_URL);
+  let reloads = 0;
+  const api = stuckSync();
+  const g = mountSchemaGuard({ document: fakeDocument(), sync: api, native: false,
+    checkForUpdate: async () => null, applyUpdate: async () => {}, reload: () => { reloads++; } });
+  const [msg, btn] = g.bar.children;
+  await btn.listeners.click();
+  assert.equal(msg.textContent, RELOAD_TEXT);
+  assert.notEqual(msg.textContent, NATIVE_TEXT, 'Android の文を出さない');
+  assert.equal(btn.textContent, '読み直す');
+  assert.equal(reloads, 0);
+  await btn.listeners.click();
+  assert.equal(reloads, 1);
+  /* いちど消えてまた出たら、初めの字とボタンに戻る */
+  api.state = null; api.fire();
+  api.state = { minSchema: 2 }; api.fire();
+  assert.equal(msg.textContent, OUTDATED_TEXT);
+  assert.equal(btn.textContent, '今すぐ更新');
+});
+
+await test('帯が出ている間は、帯の高さだけ上の段を下げる（has-guard と --guard-h）。消えたら戻す', async () => {
+  const { mountSchemaGuard } = await import(GUARD_URL);
+  const doc = fakeDocument();
+  const api = stuckSync(null);
+  const g = mountSchemaGuard({ document: doc, sync: api, native: false, checkForUpdate: async () => false, applyUpdate: async () => {} });
+  const root = doc.documentElement;
+  const css = doc.head.children.map(c => c.textContent).join('');
+  assert.match(css, /html\.has-guard\s*\{\s*--safe-t:\s*calc\(var\(--guard-h/, '--safe-t に帯の高さを足す');
+  assert.match(css, /\.space-strip\s*\{\s*top:\s*var\(--guard-h/, '海の帯は帯の下に置く');
+  assert.equal(root.classList.contains('has-guard'), false, '出ていなければ下げない');
+  g.bar.offsetHeight = 44;
+  api.state = { minSchema: 2 }; api.fire();
+  assert.equal(root.classList.contains('has-guard'), true);
+  assert.equal(root.style.props['--guard-h'], '44px');
+  /* 折り返して高くなったら付け直す */
+  g.bar.offsetHeight = 62; g.place();
+  assert.equal(root.style.props['--guard-h'], '62px');
+  api.state = null; api.fire();
+  assert.equal(root.classList.contains('has-guard'), false);
+  assert.equal(root.style.props['--guard-h'], undefined);
+});
 
 /* ============================================================ */
 /* 3. 期間の正本は start・due */
