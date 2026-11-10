@@ -532,7 +532,16 @@ export async function readLatestMemos(network, address, { limit = 200, opt } = {
 }
 
 /* ---- パスキーの PRF で元を作る（押した手の続きで呼ぶ） ---- */
+/* Android の app（Capacitor）では使わない（2026-11-11 Issue #38 の A 案）。ページが https://localhost なので、
+   パスキーを作れてもブラウザの版（github.io）とは別物になり、WebView は既定でパスキーを扱わない。
+   ネイティブの部品（Credential Manager）と、ドメインに置く assetlinks.json が要るので、今は合言葉だけにする */
+export function inNativeApp(g = typeof window !== 'undefined' ? window : null) {
+  const C = g && g.Capacitor;
+  if (!C) return false;
+  return typeof C.isNativePlatform === 'function' ? !!C.isNativePlatform() : true;
+}
 export function prfSupported() {
+  if (inNativeApp()) return false;
   return !!(typeof window !== 'undefined' && window.PublicKeyCredential && navigator.credentials);
 }
 

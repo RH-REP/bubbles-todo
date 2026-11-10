@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-11b';
+const VERSION = '2026-11-11c';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -70,6 +70,7 @@ const ASSETS = [
   /* 本体（実際に import されている20本＋ feedback.js。todo.js / stub.js は誰も読まない） */
   './js/app.js',
   './js/boot-dvh.js',   /* head で読む（画面の高さに枠を合わせる） */
+  './js/boot-edition.js',   /* head で読む（サーバーの有無で index.html と solo.html の合うほうへ移す。Issue #38） */
   './js/bubble.js',
   './js/calendar.js',
   './js/csvio.js',

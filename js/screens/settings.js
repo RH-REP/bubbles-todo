@@ -231,6 +231,7 @@ export default {
     /* --- サーバー（複数の端末で同じ記録を使う）---
        サーバーなし版（solo.html）では出さない。通信してよい先を決め打ちにしているので、サーバーには繋がらない */
     if (!isSolo()) box.appendChild(serverBox(this));
+    else box.appendChild(soloServerBox());
 
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
     box.appendChild(csvBox());
@@ -1074,6 +1075,29 @@ function isSolo() {
   try { return !!document.querySelector('meta[name="bubbles-edition"][content="solo"]'); } catch (e) { return false; }
 }
 
+/* 入口を1つにした（2026-11-11 Issue #38）。開いたときに js/boot-edition.js が、サーバーに繋いでいなければ
+   サーバーなし版（solo.html）へ移す。サーバーに繋ぐときは、ここからサーバーありの版（index.html）を開く。
+   その窓の間だけ移さない印（sessionStorage）を置く。住所を入れて繋げば、次からはずっとサーバーありの版で開く */
+const EDITION_STAY_KEY = 'bubble_todo_edition_stay';   /* js/boot-edition.js の STAY_KEY */
+function soloServerBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, 'サーバー（複数の端末で同じ記録を使う）'));
+  wrap.appendChild(el('p', 'note',
+    'いまはサーバーなし版（通信してよい先を決め打ちにして守っている版）で開いている。'
+    + 'サーバーに繋ぐときは、下のボタンでサーバーありの版を開き、住所を入れる。繋いだあとは、開くとサーバーありの版になる'
+    + '（サーバーに繋いでいる間は、ブロックチェーンへのバックアップは使えない）。'));
+  const b = el('button', 'btn', 'サーバーありの版を開く');
+  b.type = 'button';
+  b.addEventListener('click', () => {
+    try { sessionStorage.setItem(EDITION_STAY_KEY, 'server'); } catch (e) { /* 置けなければ、開いた先でまた戻る */ }
+    location.href = 'index.html';
+  });
+  const row = el('div', 'row');
+  row.appendChild(b);
+  wrap.appendChild(row);
+  return wrap;
+}
+
 /* すべて初期化（設定も含めて。2026-11-08 Issue #32）。
    この端末に app が置いたものを全部消して、初めて開いたときの状態に戻す（消す範囲は js/reset.js）。
    上の確認用の「全部消す」「この海だけ初期化」は、いま開いている海の中身だけで、設定は残る。こちらは端末ごと。
@@ -1176,9 +1200,24 @@ function chainBox() {
      ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
   wrap.appendChild(el('h3', null, 'ブロックチェーンにバックアップ（Solana・試し）'));
   if (!isSolo()) {
+    /* 入口を1つにした（Issue #38）。サーバーに繋いでいなければ、開いたときにサーバーなし版へ移る（js/boot-edition.js） */
+    const connected = !!(sync.config().url);
     wrap.appendChild(el('p', 'note',
-      'ブロックチェーンへのバックアップは、サーバーなし版（このページと同じ場所の solo.html）で使える。'
-      + 'サーバーなし版は、通信してよい先を決め打ちにして守っている。'));
+      'ブロックチェーンへのバックアップは、サーバーなし版（通信してよい先を決め打ちにして守っている版）で使える。'
+      + (connected
+        ? 'サーバーに繋いでいる間は使えない。使うときは、サーバーの設定を外してから開き直す。'
+        : '下のボタンでサーバーなし版を開く（記録は同じものが見える）。')));
+    if (!connected) {
+      const b = el('button', 'btn', 'サーバーなし版を開く');
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        try { sessionStorage.removeItem(EDITION_STAY_KEY); } catch (e) { /* 消せなくても開く */ }
+        location.href = 'solo.html';
+      });
+      const r = el('div', 'row');
+      r.appendChild(b);
+      wrap.appendChild(r);
+    }
     return wrap;
   }
   wrap.appendChild(el('p', 'note',

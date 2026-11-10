@@ -676,6 +676,14 @@ CSV は開いている海だけで、サーバーに入る鍵も入らないの�
 - **入口**: `solo.html`（GitHub Pages ならリポジトリのページの `solo.html`）。中身は index.html と同じ app で、違いは
   `<meta>` の CSP・`<meta name="bubbles-edition" content="solo">`・`manifest-solo.json`・題名だけ（`tests/chain.test.mjs` が見る）。
   index.html を直したら solo.html も同じに直す
+- **入口は1つ**（2026-11-11 Issue #38「solo.html をまとめられる？」）: 両方の head の先頭で `js/boot-edition.js` を読み、開いたときに合うほうへ移す。
+  index.html は、サーバーに繋いでいない（`localStorage` の `bubble_todo_sync` に住所が無い）かつ、ページを配っているのがサーバーでない
+  （GitHub Pages・Android の app）なら solo.html へ。solo.html は、サーバーに繋いでいれば index.html へ。server.py が配るページは移さない（そのサーバーに繋ぐ欄を出すため）。
+  solo.html の設定には、サーバーの欄の代わりに「サーバーありの版を開く」を出す（その窓の間だけ移さない印を `sessionStorage` に置く。住所を入れて繋げば、次からはサーバーありの版で開く）。
+  CSP は `<meta>` で読み込みの時点に決まるので、1つのページの中では切り替えず、ファイルは2つのまま移す形にした
+- **Android の app（Capacitor）**（Issue #38 の A 案）: パスキーは使わず、合言葉と復元コードだけ（`chain.js` の `inNativeApp` で `prfSupported` が偽になり、パスキーのまとまりを出さない）。
+  ページが `https://localhost` なのでパスキーを作れてもブラウザの版とは別物になり、WebView は既定でパスキーを扱わない。
+  使うなら、ネイティブの部品（Android の Credential Manager を呼ぶ Capacitor のプラグイン）と、ドメインの `/.well-known/assetlinks.json`（app の署名の鍵の指紋）が要る（今は作らない）
 - **CSP（`<meta>`）**: connect-src は `'self'`・`api.anthropic.com`・`api.open-meteo.com`・Solana の公式 RPC（`api.devnet.solana.com`・`api.mainnet-beta.solana.com`）だけ。
   ページに悪いプログラムが入っても、AI のキーや記録をよその住所へ送れない（ブラウザが止める）。`<meta>` では frame-ancestors は効かない。
   サーバーには繋がらないので、設定にサーバーの欄を出さない（同じ住所の index.html で入れたサーバーの設定は残るが、繋がらない）
@@ -730,7 +738,7 @@ CSV は開いている海だけで、サーバーに入る鍵も入らないの�
   （守りは暗号の強さ＝AES-256 と、鍵を漏らさないことにある）
 - **API キー**: AI のキーは今までどおり端末の `localStorage`（上の「AI に訊く」の運用：専用のワークスペース・上限額・作り直し）。
   サーバーなし版では CSP の決め打ちで、よそへ送り出されるのを止める。有料 RPC は入れていない（2段目）
-- **2段目に回したもの**（2026-11-11 利用者が別の Issue に分けた）: 共同 TODO の共有、Android の版（アプリの中ではパスキーの PRF に別の作業が要る）、
+- **2段目に回したもの**（2026-11-11 利用者が別の Issue に分けた）: 共同 TODO の共有、Android の版（Issue #38 で合言葉だけにした。上の「Android の app」。パスキーのネイティブの部品は作らない）、
   パスキー ↔ 合言葉の移し替えを1つの流れにする（Issue #39 で作った。上の「鍵の移し替え」。実機ではまだ確かめていない）。
   有料 RPC・外部ウォレット（A 案）・混んだ mainnet での計算の単価の上乗せは、今は作らない（利用者の判断）
 - **確かめたこと**: 2026-11-09 利用者が devnet で、パスキーで作る→控えを書く→別の端末で戻す、まで通した（計算の上限を上げたあと）

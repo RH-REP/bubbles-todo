@@ -12,7 +12,7 @@ import {
   memoMessage, memoTransaction, readLatestMemos, writeMemos, rpc, MEMO_PROGRAM, CHUNK, NETWORKS, toB64, fromB64,
   requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL, COMPUTE_BUDGET_PROGRAM, COMPUTE_UNITS, memoFromMessage,
   isAddress, transferMessage, planSweep, SYSTEM_PROGRAM, passkeyLabel,
-  MOVE_KEY, loadMove, saveMove, clearMove, moveStep, moveSteps,
+  MOVE_KEY, loadMove, saveMove, clearMove, moveStep, moveSteps, inNativeApp,
 } from '../js/chain.js';
 
 let n = 0;
@@ -277,6 +277,29 @@ await test('solo.html は index.html と CSP・印・manifest・title だけが�
   Object.values(NETWORKS).forEach(x => assert.ok(connect.includes(x.rpc), x.rpc + ' が CSP に無い'));
   const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
   ["'./js/chain.js'", "'./solo.html'", "'./manifest-solo.json'"].forEach(a => assert.ok(sw.includes(a), 'sw.js の ASSETS に ' + a + ' が無い'));
+});
+
+await test('Android の app（Capacitor）ではパスキーを使わない・入口を1つにする script を両方の head で読む（Issue #38）', () => {
+  assert.equal(inNativeApp(null), false);
+  assert.equal(inNativeApp({}), false);
+  assert.equal(inNativeApp({ Capacitor: { isNativePlatform: () => true } }), true);
+  assert.equal(inNativeApp({ Capacitor: { isNativePlatform: () => false } }), false);
+  assert.equal(inNativeApp({ Capacitor: {} }), true);
+  const tag = '<script src="js/boot-edition.js"></script>';
+  ['../index.html', '../solo.html'].forEach(f => {
+    const html = readFileSync(new URL(f, import.meta.url), 'utf8');
+    assert.ok(html.includes(tag), f + ' に ' + tag + ' が無い');
+    /* 移す前に画面の部品を読まないよう、ほかの script より前に置く */
+    assert.ok(html.indexOf(tag) < html.indexOf('<script src="js/boot-dvh.js">'), f + ' で boot-edition.js が後ろにある');
+  });
+  const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  assert.ok(sw.includes("'./js/boot-edition.js'"), 'sw.js の ASSETS に boot-edition.js が無い');
+  /* 置く印の名前は、読む側（boot-edition.js）と書く側（settings.js）・sync.js でそろえる */
+  const boot = readFileSync(new URL('../js/boot-edition.js', import.meta.url), 'utf8');
+  const settings = readFileSync(new URL('../js/screens/settings.js', import.meta.url), 'utf8');
+  const syncSrc = readFileSync(new URL('../js/sync.js', import.meta.url), 'utf8');
+  assert.ok(boot.includes("'bubble_todo_edition_stay'") && settings.includes("'bubble_todo_edition_stay'"));
+  assert.ok(boot.includes("'bubble_todo_sync'") && syncSrc.includes("CONF_KEY = 'bubble_todo_sync'"));
 });
 
 void toB64;
