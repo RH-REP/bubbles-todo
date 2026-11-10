@@ -996,7 +996,30 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
        旧データには無いので null から始まる。日付から自動では付けない */
     urgent: triState(t.urgent),
     important: triState(t.important),
+    /* 3つの app（bubble・gantt・diary）が共有する欄（共有の記録 v1。2026-11-10）。
+       gantt が書く。bubble が落とすと、開いた時点で gantt の書いたものを消し、新しい印で上書きしてしまう。
+       値の無いものは欄ごと省く（仕様で「省いてよい」。省いた欄は null / {} として読む）——
+       これまでの記録の形を変えないため */
+    ...sharedFields(t, tagIds),
   });
+}
+
+/* 共有の欄の形を確かめる（共有の記録 v1 §4）。
+     start・due … `YYYY-MM-DD` 以外は null
+     project    … 今あるタグの id 以外は null
+     ext        … app ごとの持ち物。中は見ずにそのまま残す。オブジェクト以外は {}
+   null と {} は欄を置かない */
+function sharedFields(t, tagIds) {
+  const out = {};
+  const start = dayKeyOrNull(t.start);
+  const due = dayKeyOrNull(t.due);
+  if (start) out.start = start;
+  if (due) out.due = due;
+  if (typeof t.project === 'string' && tagIds.has(t.project)) out.project = t.project;
+  if (t.ext && typeof t.ext === 'object' && !Array.isArray(t.ext) && Object.keys(t.ext).length) {
+    out.ext = JSON.parse(JSON.stringify(t.ext));
+  }
+  return out;
 }
 
 function triState(v) { return v === true ? true : v === false ? false : null; }
@@ -1582,6 +1605,8 @@ export const store = {
     if (Array.isArray(t.tags)) {
       t.tags = t.tags.filter(id => !isSpecialTag(id) && findTag(id));
     }
+    /* 共有の欄の project も同じ（消えたタグを指したまま戻さない） */
+    if (t.project !== undefined && !(typeof t.project === 'string' && findTag(t.project))) delete t.project;
     /* 消している／完了している間に枠そのものが消されていることがある。
        残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
        「押し出し」はもう無い——枠には何個でもぶら下がるので） */
@@ -2447,6 +2472,8 @@ export const store = {
     items.forEach(t => {
       const box = tagBoxOf(t);
       if (box.indexOf(id) >= 0) t.tags = box.filter(x => x !== id);
+      /* 共有の欄の project（gantt のプロジェクトの行）も外す。読み込みでも落ちるが、ここで揃える */
+      if (t.project === id) delete t.project;
     });
     persist(); emit();
     return true;

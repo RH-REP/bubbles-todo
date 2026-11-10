@@ -351,6 +351,7 @@ ES モジュールが強くキャッシュされるので `Cache-Control: no-sto
 ```bash
 node tests/store.test.mjs
 node tests/sync.test.mjs
+node tests/shared-fields.test.mjs
 node tests/space.test.mjs
 node tests/spacelist.test.mjs
 node tests/sea.test.mjs
@@ -388,6 +389,10 @@ bash tests/server-setup.test.sh
   - 時刻は端末の時計。時計が大きくずれた端末の書き換えは、新しくても負けることがある
   - 日の切り替え（はじめた記録が消える）は「その日の0時」の時刻で付ける。あとから開いた端末の切り替えが、今日ほかの端末で付けたはじめたを消さないため
   - 印を持たない前の版の記録は、最初に開いたときに「前からの記録」の印（1）を付けて引き継ぐ。新しい端末の空の既定値（0）には負けない
+- **ほかの app と共有する欄（共有の記録 v1。2026-11-10）**: サーバーの記録は gantt_todo・diary も読む（gantt は書く）。
+  todo の `start`・`due`（`YYYY-MM-DD`）・`project`（タグの id）・`ext`（app ごとの持ち物。中は見ない）を、bubble は読み込みで落とさずに残す
+  （`js/store.js` の `sharedFields`。形の違う値と null・空は欄ごと省く）。`due` は「日付で見る」の終了日にも使う（`js/deadline.js`）。
+  形の決まりはこの repo の外の仕様書（共有の記録 v1）が正。テスト: `node tests/shared-fields.test.mjs`
 - **Android エミュレーターから Mac のサーバーに繋ぐ（開発用）**: `adb reverse tcp:8931 tcp:8931` をしてから、アプリの設定で住所に `http://localhost:8931` を入れる
   （2026-10-23 に、エミュレーターのアプリとブラウザの web 版で同じ記録になるのを確かめた）。
   - `http://10.0.2.2:8931`（エミュレーターから見た Mac）は使えない。アプリのページは `https://localhost` なので、http の住所は混在コンテンツとして止められる

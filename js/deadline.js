@@ -3,6 +3,7 @@
    泡に「終了日」という欄は無い。今ある日付から読む:
      ・盤の「いつの日」で置いた日（days）のうち、今日から先の最後の日
      ・先の予定（AI）で入れた泡の本文の「期間: A 〜 B」の B、「日付: A」の A
+     ・共有の記録 v1 の due（gantt が書く欄。start があれば期間の帯にも使う。本文の期間が先）
    今日から先のものだけを使う。**過ぎた日は数えない**（「期限切れ」「◯日過ぎ」を出さない。README の禁止事項）。
    完了したものは並べない。 */
 
@@ -89,12 +90,23 @@ export function deadlineOf(t, today) {
   if (!t || t.done || t.trashed) return null;
   const days = (Array.isArray(t.days) ? t.days : []).filter(k => dateOf(k) && k >= today).sort();
   const sp = spanFromDetail(t.detail);
-  const span = sp && sp.end >= today ? sp : null;
+  /* 共有の記録 v1 の start・due（gantt が書く欄。2026-11-10）。本文の期間が無いときの期間にもする */
+  const sd = spanFromFields(t);
+  const span = sp && sp.end >= today ? sp : (sd && sd.end >= today ? sd : null);
   const a = days.length ? days[days.length - 1] : null;
   const b = span ? span.end : null;
-  if (!a && !b) return null;
-  const end = (a && b) ? (a > b ? a : b) : (a || b);
-  return { end, days, span, from: end === b ? 'detail' : 'days' };
+  const c = sd && sd.end >= today ? sd.end : null;
+  if (!a && !b && !c) return null;
+  const end = [a, b, c].filter(Boolean).sort().pop();
+  return { end, days, span, from: end === b ? (span === sd ? 'due' : 'detail') : end === c ? 'due' : 'days' };
+}
+
+/* 欄から読む期間。due が無ければ null。start が無いか due より後なら due の1日 */
+function spanFromFields(t) {
+  const end = dateOf(t.due) ? t.due : null;
+  if (!end) return null;
+  const start = dateOf(t.start) && t.start <= end ? t.start : end;
+  return { start, end };
 }
 
 /* 並べる行。終了日の近い順、同じ日なら書いた順（古いほうが上） */
