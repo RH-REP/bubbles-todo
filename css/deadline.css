@@ -104,6 +104,11 @@
 .dl-col .dl-wx { font-size: 13px; line-height: 1.1; }
 .dl-col .dl-tp { font-size: 9.5px; letter-spacing: -.02em; white-space: nowrap; color: var(--text); }
 .dl-col .dl-pp { font-size: 9px; white-space: nowrap; color: var(--q-quick-e); }
+/* 風（最大 m/s）。この端末の表示で「風の強さも出す」にしたときだけ（Issue #36。body.pref-wind）。
+   列が細い狭い画面では出さない（日を押すと出る1行には、いつも出る） */
+.dl-col .dl-wind { display: none; font-size: 9px; white-space: nowrap; color: var(--text-2); }
+body.pref-wind .dl-col .dl-wind { display: block; }
+@media (max-width: 360px) { body.pref-wind .dl-col .dl-wind { display: none; } }
 .dl-col.is-tap { cursor: pointer; }
 .dl-col.is-tap:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
 .dl-col.is-sel { box-shadow: inset 0 -3px 0 var(--bub-edge); }

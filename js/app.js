@@ -24,6 +24,8 @@ import { closeHelp } from './help.js';
 import { closeUpcoming } from './upcoming.js';
 import { askFull, hasKey } from './ai.js';
 import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js';
+/* この端末の表示（Issue #36）。起動時の画面・タブの並び・body の印（pref-wind・pref-hide-tags） */
+import { loadPrefs, PREFS_EVENT } from './prefs.js';
 import sea from './screens/sea.js';
 import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
@@ -251,6 +253,7 @@ function recentList(key) {
    並びは設定のタグの並び。中は新しい順 */
 function tagSections() {
   if (!has('tags') || !has('all')) return [];
+  if (prefs.hideTags) return [];            /* この端末の表示で「タグ類を隠す」（Issue #36） */
   const live = store.all().filter(t => !t.done)
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return store.tags().filter(tag => tag && tag.id && !tag.special).map(tag => ({
@@ -788,7 +791,27 @@ window.addEventListener('bubbles:goto', (ev) => {
   if (d.face && typeof target.openFace === 'function') target.openFace(d.face);
 });
 
-show(SCREENS[0].id);
+/* ---- この端末の表示（2026-11-10。Issue #36。js/prefs.js）----
+   決まった項目だけを、この端末で当てる。設定で変えると PREFS_EVENT が来るので当て直す。
+     ・タブの並び … 下タブのボタンを並べ直す（落とし先の判定は data 属性を見るので、並びに依らない）
+     ・風・タグ類 … body の印。中身は CSS（deadline.css の .dl-wind、bubble.css の .bc-tag-btn）
+     ・起動時の画面 … 起動の1回だけ見る */
+let prefs = loadPrefs();
+function applyPrefs() {
+  prefs = loadPrefs();
+  document.body.classList.toggle('pref-wind', !!prefs.wind);
+  document.body.classList.toggle('pref-hide-tags', !!prefs.hideTags);
+  const btns = [...tabbar.children];
+  prefs.tabOrder.forEach(id => {
+    const b = btns.find(x => x.dataset.screen === id);
+    if (b) tabbar.appendChild(b);
+  });
+  if (drawer) renderDrawer();
+}
+applyPrefs();
+window.addEventListener(PREFS_EVENT, applyPrefs);
+
+show(SCREENS.some(s => s.id === prefs.start) ? prefs.start : SCREENS[0].id);
 
 /* ---------------- 戻る（Android の戻るボタン。利用者の指示） ----------------
 

@@ -204,6 +204,13 @@ export function createDeadlineView(host, opts = {}) {
           pp.textContent = f.pp + '%';
           h.appendChild(pp);
         }
+        /* 風（Issue #36）。いつも置き、出すかは CSS（body.pref-wind と画面の幅）が決める */
+        if (f.wd !== null && f.wd !== undefined) {
+          const wn = el('span', 'dl-wind');
+          wn.textContent = f.wd + 'm';
+          wn.setAttribute('aria-hidden', 'true');      /* 読み上げは h の aria-label（detailText）に入っている */
+          h.appendChild(wn);
+        }
         h.title = (h.title ? h.title + '　' : '') + detailText(f);
         h.classList.add('has-wx');
       }

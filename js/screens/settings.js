@@ -19,7 +19,9 @@ import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphras
   readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports,
   prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL, planSweep, sweep } from '../chain.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
-import { getKey, setKey, hasKey, MODELS, getModel, setModel } from '../ai.js';
+import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
+import { ITEMS, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
+  changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
 import { openHelp } from '../help.js';
 import { openUpcoming, lastLine } from '../upcoming.js';
 import { clearAppStorage, confirmed, CONFIRM_WORD } from '../reset.js';
@@ -221,6 +223,9 @@ export default {
     affRow.appendChild(affCb);
     affRow.appendChild(el('span', null, '似ている泡（名前が似ている・同じタグ）を、海と今日でゆっくり近くに寄せる'));
     box.appendChild(affRow);
+
+    /* --- この端末の表示（2026-11-10。Issue #36。js/prefs.js）--- */
+    box.appendChild(prefsBox());
 
     /* --- サーバー（複数の端末で同じ記録を使う）---
        サーバーなし版（solo.html）では出さない。通信してよい先を決め打ちにしているので、サーバーには繋がらない */
@@ -1698,6 +1703,232 @@ function helpAiBox() {
     });
   });
 
+  return wrap;
+}
+
+/* この端末の表示（2026-11-10。Issue #36。案A と案X）。
+   決まった項目（js/prefs.js の ITEMS）を、手でも AI のチャットでも変えられる。どれもこの端末にだけ置く。
+     ・チャット: 書いた文・項目の一覧・今の値だけを AI に送り、返ってきた変更案を「この変更をする？」で見せる。
+       押したときだけ変える。変えたあとのトーストに「元に戻す」。項目に無い頼みは改善の Issue の下書きへ
+     ・「全体に提案する」: 既定から変えた項目だけを書いた新しい Issue の画面を開く（Create は人が押す）
+   AI の返事は textContent で出す（HTML として描かない） */
+/* 文字を textContent で入れる el（el の第3引数は innerHTML なので、項目の説明はこちらで入れる） */
+function textEl(tag, cls, text) {
+  const n = el(tag, cls);
+  n.textContent = String(text == null ? '' : text);
+  return n;
+}
+const selStyle = 'font:inherit;font-size:16px;min-height:40px;padding:0 8px;border-radius:10px;'
+  + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
+
+function prefsBox() {
+  const wrap = el('div', 'tags prefs-box');
+  wrap.appendChild(el('h3', null, 'この端末の表示'));
+  wrap.appendChild(el('p', 'note', '好みで見た目と動きを変える。この端末にだけ置く（同期・CSV・引っ越しには乗らない）。'));
+
+  let cur = loadPrefs();
+  const controls = el('div', 'prefs-ctl');
+  wrap.appendChild(controls);
+
+  function commit(next, msg, undoTo) {
+    const before = cur;
+    if (!savePrefs(next)) { toast('保存できなかった'); return false; }
+    cur = loadPrefs();
+    window.dispatchEvent(new CustomEvent(PREFS_EVENT));
+    renderControls();
+    if (msg) {
+      toast(msg, undoTo === false ? null : {
+        label: '元に戻す',
+        on: () => { savePrefs(before); cur = loadPrefs(); window.dispatchEvent(new CustomEvent(PREFS_EVENT)); renderControls(); },
+      });
+    }
+    return true;
+  }
+
+  function renderControls() {
+    controls.textContent = '';
+    ITEMS.forEach(it => {
+      if (it.type === 'bool') {
+        const row = el('label', 'setrow');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!cur[it.id];
+        cb.addEventListener('change', () => {
+          commit(applyChanges(cur, { [it.id]: cb.checked }).next, it.label.replace(/（.*$/, '') + ': ' + (cb.checked ? 'オン' : 'オフ'));
+        });
+        row.appendChild(cb);
+        row.appendChild(textEl('span', null, it.label));
+        controls.appendChild(row);
+        if (it.note) controls.appendChild(textEl('p', 'note', it.note));
+        return;
+      }
+      if (it.type === 'choice') {
+        const row = el('label', 'row');
+        row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center;font-size:13.5px';
+        row.appendChild(textEl('span', null, it.label));
+        const sel = document.createElement('select');
+        sel.setAttribute('aria-label', it.label);
+        sel.style.cssText = selStyle;
+        it.choices.forEach(c => { const op = document.createElement('option'); op.value = c[0]; op.textContent = c[1]; sel.appendChild(op); });
+        sel.value = cur[it.id];
+        sel.addEventListener('change', () => {
+          commit(applyChanges(cur, { [it.id]: sel.value }).next, it.label + ': ' + sel.options[sel.selectedIndex].textContent + '（次に開いたときから）');
+        });
+        row.appendChild(sel);
+        controls.appendChild(row);
+        return;
+      }
+      if (it.type === 'order') {
+        controls.appendChild(textEl('p', 'note', it.label + '（↑↓ で動かす）'));
+        const list = el('div', 'prefs-order');
+        list.setAttribute('role', 'list');
+        cur[it.id].forEach((id, i, arr) => {
+          const r = el('div', 'prefs-order-row');
+          r.setAttribute('role', 'listitem');
+          r.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:4px;font-size:13.5px';
+          const nm = el('span', null, TAB_LABEL[id] || id);
+          nm.style.cssText = 'flex:1';
+          r.appendChild(nm);
+          [[-1, '↑', '上へ'], [1, '↓', '下へ']].forEach(([d, mk, lb]) => {
+            const b = el('button', 'btn', mk);
+            b.type = 'button';
+            b.setAttribute('aria-label', (TAB_LABEL[id] || id) + 'を' + lb);
+            b.style.cssText = 'min-width:44px';
+            const j = i + d;
+            b.disabled = j < 0 || j >= arr.length;
+            b.addEventListener('click', () => {
+              const a = arr.slice();
+              [a[i], a[j]] = [a[j], a[i]];
+              commit(applyChanges(cur, { [it.id]: a }).next, '下のタブを並べ替えた');
+            });
+            r.appendChild(b);
+          });
+          list.appendChild(r);
+        });
+        controls.appendChild(list);
+      }
+    });
+    const row = el('div', 'row');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:12px';
+    const reset = el('button', 'btn', '既定に戻す');
+    reset.type = 'button';
+    reset.disabled = !Object.keys(changedFromDefault(cur)).length;
+    reset.addEventListener('click', () => commit(defaults(), 'この端末の表示を既定に戻した'));
+    const propose = el('button', 'btn', 'この設定を全体に提案する');
+    propose.type = 'button';
+    propose.disabled = reset.disabled;
+    propose.addEventListener('click', () => openProposal());
+    row.appendChild(reset);
+    row.appendChild(propose);
+    controls.appendChild(row);
+    controls.appendChild(el('p', 'note',
+      '「全体に提案する」は、既定から変えた項目と値だけを書いた新しい Issue の画面を GitHub で開く（送るのは開いた画面で Create を押したとき。公開の repo なので誰でも読める）。'
+      + '全体の既定にするかはそこで決め、決まれば版の更新で届く。'));
+  }
+
+  /* GitHub の新しい Issue の画面を開く（右上の ! と同じ仕組み。押した操作の中で開く） */
+  function openIssue(comment, title) {
+    if (!window.AppFeedback || typeof window.AppFeedback.newIssueUrl !== 'function') { toast('GitHub の画面を開けない（部品が無い）'); return; }
+    const payload = {
+      screen: 'prefs', comment, title: title || '', app: 'bubble_todo', version: '0.1.0',
+      at: new Date().toISOString(), context: null, screenshot: null,
+    };
+    window.open(window.AppFeedback.newIssueUrl(REPO, payload), '_blank', 'noopener');
+    try {
+      const p = navigator.clipboard && navigator.clipboard.writeText(
+        window.AppFeedback.issueTitle(payload) + '\n\n' + window.AppFeedback.issueBody(payload));
+      if (p && p.catch) p.catch(() => { /* 置けなくても開くのは済んでいる */ });
+    } catch (e) { /* 同上 */ }
+    toast('GitHub を開いた。空欄で開いたら、コピーした題名・本文を貼り付けてください');
+  }
+  function openProposal() {
+    const body = proposalText(cur);
+    if (!body) { toast('既定から変えた項目が無い'); return; }
+    openIssue(body, proposalTitle(cur));
+  }
+
+  /* --- チャット（AI に頼む）--- */
+  const chat = el('div', 'prefs-chat');
+  chat.style.cssText = 'margin-top:14px';
+  chat.appendChild(el('p', 'note',
+    'AI に頼んで変える（例: 「起動したら今日を開いて」「天気に風も出して」「タグを隠して」）。'
+    + '送るのは書いた文と、上の項目・今の値だけ（泡の中身は送らない）。変える前に確かめる。API キーは「ヘルプと AI」で入れる。'));
+  const inRow = el('div', 'row');
+  inRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:flex-end';
+  const ta = document.createElement('textarea');
+  ta.rows = 2;
+  ta.maxLength = 1000;
+  ta.placeholder = 'どう変えたいか';
+  ta.setAttribute('aria-label', 'この端末の表示を AI に頼む');
+  ta.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:16px;padding:8px 12px;border-radius:10px;'
+    + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text);resize:vertical';
+  const send = el('button', 'btn', '頼む');
+  send.type = 'button';
+  inRow.appendChild(ta);
+  inRow.appendChild(send);
+  chat.appendChild(inRow);
+  const out = el('div', 'prefs-out');
+  out.setAttribute('role', 'status');
+  chat.appendChild(out);
+  wrap.appendChild(chat);
+
+  let busy = false;
+  async function ask() {
+    const text = ta.value.trim();
+    if (busy || !text) return;
+    out.textContent = '';
+    if (!hasKey()) { out.appendChild(el('p', 'note', 'API キーがまだ入っていない。下の「ヘルプと AI」に入れると使える（上の項目は手でも変えられる）。')); return; }
+    busy = true; send.disabled = true;
+    out.appendChild(el('p', 'note', '考えています…'));
+    let r = null, err = '';
+    try {
+      const p = buildPrefsPrompt(text, cur);
+      const res = await askFull(p.system, p.user, { maxTokens: 2000 });
+      r = readPrefsReply(res.text);
+    } catch (e) { err = (e && e.message) || '届かなかった'; }
+    busy = false; send.disabled = false;
+    out.textContent = '';
+    if (err) { out.appendChild(el('p', 'note', 'AI に届かなかった: ' + err)); return; }
+    const { next, applied, ignored } = applyChanges(cur, r.changes);
+    if (r.reply) { const p = el('p', 'note'); p.textContent = 'AI: ' + r.reply; out.appendChild(p); }   /* AI の文。innerHTML には入れない */
+    if (!applied.length) {
+      out.appendChild(el('p', 'note', ignored.length || !Object.keys(r.changes).length
+        ? 'いまの項目では変えられない（または、すでにその設定）。新しい項目が欲しいときは改善の Issue にできる。'
+        : 'すでにその設定になっている。'));
+      const row = el('div', 'row');
+      row.style.cssText = 'margin-top:6px';
+      const b = el('button', 'btn', '改善の Issue の下書きを開く');
+      b.type = 'button';
+      b.addEventListener('click', () => openIssue('この端末の表示で、次のことをしたい（いまの項目では変えられなかった）:\n\n' + text, ''));
+      row.appendChild(b);
+      out.appendChild(row);
+      return;
+    }
+    const lines = changeLines(cur, next, applied);
+    out.appendChild(el('p', 'note', 'この変更をする？'));
+    const ul = el('ul', 'note');
+    lines.forEach(s => { const li = document.createElement('li'); li.textContent = s; ul.appendChild(li); });
+    out.appendChild(ul);
+    const row = el('div', 'row');
+    row.style.cssText = 'display:flex;gap:8px;margin-top:6px';
+    const ok = el('button', 'btn', 'この変更をする');
+    ok.type = 'button';
+    ok.addEventListener('click', () => {
+      if (commit(next, '変えた（' + lines.length + '項目）')) { out.textContent = ''; ta.value = ''; }
+    });
+    const no = el('button', 'btn', 'やめる');
+    no.type = 'button';
+    no.addEventListener('click', () => { out.textContent = ''; });
+    row.appendChild(ok);
+    row.appendChild(no);
+    out.appendChild(row);
+  }
+  send.addEventListener('click', ask);
+  ta.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey) && !ev.isComposing) { ev.preventDefault(); ask(); }
+  });
+
+  renderControls();
   return wrap;
 }
 

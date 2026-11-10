@@ -996,6 +996,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const chip = el('button', 'bc-tag bc-tag-btn');
       chip.type = 'button';
       chip.setAttribute('aria-pressed', want.has(t.id) ? 'true' : 'false');
+      /* 特別なタグ（今日・きっかけ・すきま・長期保留）の印。この端末の表示の「タグ類を隠す」でも残す（Issue #36） */
+      if (t.special) chip.dataset.special = '1';
       const dot = el('span', 'bc-tag-dot');
       dot.setAttribute('aria-hidden', 'true');
       if (t.color) dot.style.setProperty('--tcd', t.color);

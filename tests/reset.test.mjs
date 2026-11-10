@@ -56,7 +56,7 @@ test('合図の字は「初期化」ちょうど（前後の空白だけ許す�
 test('app が使う localStorage のキーは、どれも頭が bubble_todo（消し漏れを作らない）', () => {
   /* キーの名前を直書きしている所を拾い、頭を確かめる。'feedback.errors' は ! の部品のもので、消さない側 */
   const files = ['js/store.js', 'js/sync.js', 'js/sound.js', 'js/related.js', 'js/ai.js', 'js/chain.js',
-    'js/notes.js', 'js/upcoming.js', 'js/weather.js', 'js/rollback.js', 'js/spacelist.js', 'js/screens/settings.js'];
+    'js/notes.js', 'js/upcoming.js', 'js/weather.js', 'js/rollback.js', 'js/spacelist.js', 'js/prefs.js', 'js/screens/settings.js'];
   const re = /(?:_KEY|_STORE)\s*=\s*'([^']+)'/g;
   files.forEach(f => {
     const src = readFileSync(new URL('../' + f, import.meta.url), 'utf8');

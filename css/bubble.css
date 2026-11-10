@@ -1423,6 +1423,9 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
 }
 .bub-center .bc-tag-btn:hover { border-color: var(--line-strong); }
 .bub-center .bc-tag-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* この端末の表示の「タグ類を隠す」（Issue #36）。自分で作ったタグの札だけ隠す。
+   今日・きっかけ・すきま・長期保留（data-special）は、置き場を変える札なので残す */
+body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: none; }
 
 /* ---------- いつの日（カレンダー。利用者の指示） ----------
    3週間ぶん（今週の日曜から）。押すとその日を入り切りする。
