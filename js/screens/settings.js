@@ -1203,37 +1203,71 @@ function chainBox() {
   const info = el('p', 'note');
   info.setAttribute('aria-live', 'polite');
   wrap.appendChild(info);
+  /* 知らせの行（2026-11-10 Issue #31 の返事: 押したボタンと知らせが離れて見にくい）。
+     まとまりごとにボタンのすぐ下へ知らせの行を置き、押したボタンのまとまりの行に出す。
+     画面を描き直しても同じ名前のまとまりの行へ出す。無ければ上の共通の行へ */
+  const mainLine = el('p', 'note');
+  mainLine.setAttribute('aria-live', 'polite');
+  wrap.appendChild(mainLine);
   const row = el('div', 'row');
-  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
-  wrap.appendChild(row);
-  const line = el('p', 'note');
-  line.setAttribute('aria-live', 'polite');
-  wrap.appendChild(line);
-
   row.style.cssText = 'margin-top:8px';
+  wrap.appendChild(row);
+  const lines = new Map();
+  let curKey = null;
+  const target = () => (curKey && lines.get(curKey)) || mainLine;
+  const line = {
+    get textContent() { return target().textContent; },
+    set textContent(v) { target().textContent = v; },
+  };
+
   let into = row;
-  /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる */
-  function group(title, note) {
+  let groupKey = null;
+  /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる。parent は畳む箱（fold）に入れるとき */
+  function group(key, title, note, parent = row) {
     const g = el('div', null);
     g.style.cssText = 'margin-top:10px';
     g.appendChild(el('h4', null, title));
     if (note) g.appendChild(el('p', 'note', note));
     const r = el('div', 'row');
-    r.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px';
+    r.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center';
     g.appendChild(r);
-    row.appendChild(g);
+    const st = el('p', 'note');
+    st.setAttribute('aria-live', 'polite');
+    g.appendChild(st);
+    lines.set(key, st);
+    parent.appendChild(g);
     into = r;
+    groupKey = key;
+  }
+  /* ふだんは畳んでおく箱（パスキーが使えない端末・パスキーを失ったとき用） */
+  function fold(summary, open) {
+    const d = document.createElement('details');
+    d.style.cssText = 'margin-top:12px';
+    if (open) d.open = true;
+    d.appendChild(el('summary', null, summary));
+    row.appendChild(d);
+    return d;
   }
   function btn(label, fn) {
     const b = el('button', 'btn', label);
     b.type = 'button';
+    const key = groupKey;
     b.addEventListener('click', async () => {
       b.disabled = true;
+      curKey = key;
+      line.textContent = '';
       try { await fn(); } catch (e) { line.textContent = (e && e.message) || String(e); }
       finally { b.disabled = false; }
     });
     into.appendChild(b);
     return b;
+  }
+  /* ボタンの横に並べる文字（残高など） */
+  function inlineText(text) {
+    const s = el('span', 'note', text);
+    s.setAttribute('aria-live', 'polite');
+    into.appendChild(s);
+    return s;
   }
 
   netSel.addEventListener('change', () => {
@@ -1272,44 +1306,44 @@ function chainBox() {
   async function showRecovery(keys) {
     const code = await makeRecoveryCode(keys.recordKey, keys.wallet.publicKey, netSel.value);
     line.textContent = '復元コード（' + NETWORKS[netSel.value].label + '）: ' + code
-      + '　← 紙に書き留める。パスキーが使えなくなったとき（サイトの住所が変わった・OS を替えた）に、バックアップを読むために使う（お金は動かせない）。';
+      + '　← 紙に書き留める。パスキーが使えなくなったとき（このページを開くドメインが変わった・OS を替えた）に、バックアップを読むために使う（お金は動かせない）。';
   }
 
   function paint() {
     row.textContent = '';
+    lines.clear();
     into = row;
     const net = netSel.value;
+    const pk = prfSupported();
     if (!cfg.mode) {
-      info.textContent = 'まだ始めていない。';
-      group('はじめて使う', '新しいウォレットとバックアップの鍵を作る。前にこの app のパスキーや合言葉を作ったことがあるなら、下の「前に作ったものを使う」へ（新しく作ると、別のウォレット・別のバックアップになる）。');
-      btn('新しく作る（パスキー）', async () => {
-        if (!prfSupported()) throw new Error('この端末ではパスキーを使えない（合言葉で始める）');
-        const made = await createPasskey();
-        let got = made;
-        if (!made.root) {
-          /* 作ったときに値を返さない端末がある。続けて使う（押した手の続きでないと断る端末では、もう一度押してもらう） */
-          try { got = await passkeyRoot(made.credId); } catch (e) {
-            throw new Error('パスキーは作れた。続けて「パスキーで開く」を押して、いま作ったパスキーを選ぶ');
-          }
-        }
-        await start('passkey', await keysFromRoot(got.root), got.credId);
-      });
-      btn('新しく作る（合言葉）', async () => {
+      /* パスキーを使う前提で並べる（2026-11-10 Issue #31 の返事）。パスキーが使えない端末の道は畳んでおく
+         （この端末でパスキーが使えなければ、開いた状態で出す） */
+      info.textContent = 'まだ始めていない。ふつうはパスキー（Face ID・指紋）で、ウォレットもバックアップも開ける。';
+      if (pk) {
+        group('start', 'パスキーで始める',
+          '前にこの app のパスキーを作ったことがあるなら「パスキーで開く」（同じウォレットを開き、いちばん新しいバックアップを戻す）。'
+          + '初めてなら「パスキーを新しく作る」（作るたびに別のウォレット・別のバックアップになる）。');
+        btn('パスキーで開く', async () => {
+          const got = await passkeyRoot(null);
+          const keys = await keysFromRoot(got.root);
+          cfg = Object.assign(loadConfig(), { network: net, mode: 'passkey', credId: got.credId, address: keys.wallet.address });
+          saveConfig(cfg);
+          paint();
+          await restoreWith(keys.recordKey, keys.wallet.address, net);
+        });
+      }
+      const alt = fold('パスキーが使えない端末・パスキーを失ったとき', !pk);
+      if (!pk) alt.appendChild(el('p', 'note', 'この端末（ブラウザ）では、鍵を作れるパスキーが使えない。合言葉で始める。'));
+      group('pass', '合言葉で使う',
+        '合言葉（24 字）はパスキーの代わり。ウォレットとバックアップの両方を開く。'
+        + 'パスキーが使えない端末で新しいアドレスを作るときは「合言葉で新しく作る」。前の端末のウォレットに残高があれば、前の端末で「残高を別のアドレスへ送る」にこのアドレスを貼る。'
+        + '記録は前の端末の復元コード（下）か引っ越しのファイルで持ってくる。', alt);
+      btn('合言葉で新しく作る', async () => {
         const pass = makePassphrase();
         if (!window.confirm('合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。'
           + '合言葉はウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
         line.textContent = '鍵を作っている…';
         await start('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
-      });
-      group('前に作ったものを使う', 'ほかの端末で作ったパスキー・合言葉で、同じウォレットを開き、いちばん新しいバックアップを戻す。復元コードはバックアップを読むだけ。');
-      btn('パスキーで開く', async () => {
-        if (!prfSupported()) throw new Error('この端末ではパスキーを使えない');
-        const got = await passkeyRoot(null);
-        const keys = await keysFromRoot(got.root);
-        cfg = Object.assign(loadConfig(), { network: net, mode: 'passkey', credId: got.credId, address: keys.wallet.address });
-        saveConfig(cfg);
-        paint();
-        await restoreWith(keys.recordKey, keys.wallet.address, net);
       });
       btn('合言葉で開く', async () => {
         const pass = window.prompt('合言葉（24 字）');
@@ -1321,20 +1355,40 @@ function chainBox() {
         paint();
         await restoreWith(keys.recordKey, keys.wallet.address, net);
       });
+      group('code', '復元コードで読む', 'パスキーを失った・このページを開くドメインが変わったときに、バックアップを読むだけ（お金は動かせず、新しく保存もできない）。', alt);
       btn('復元コードで復元（読むだけ）', restoreByCode);
+      if (pk) {
+        /* 新しく作るのは最後に置く（前に作った人が押し間違えて別のウォレットを作らないように） */
+        into = lines.get('start').previousSibling;
+        groupKey = 'start';
+        btn('パスキーを新しく作る', async () => {
+          const made = await createPasskey();
+          let got = made;
+          if (!made.root) {
+            /* 作ったときに値を返さない端末がある。続けて使う（押した手の続きでないと断る端末では、もう一度押してもらう） */
+            try { got = await passkeyRoot(made.credId); } catch (e) {
+              throw new Error('パスキーは作れた。続けて「パスキーで開く」を押して、いま作ったパスキーを選ぶ');
+            }
+          }
+          await start('passkey', await keysFromRoot(got.root), got.credId);
+        });
+      }
       return;
     }
     info.textContent = 'ウォレットのアドレス: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : '合言葉') + 'で開く）'
       + (cfg.lastAt ? '。最後に保存したバックアップ: ' + new Date(cfg.lastAt).toLocaleString() + '（取引 ' + cfg.lastCount + ' 件）' : '');
 
-    group('ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
+    group('wallet', 'ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
     btn('アドレスをコピー', async () => {
       await navigator.clipboard.writeText(cfg.address);
       toast('アドレスをコピーした');
     });
+    /* 残高はボタンのすぐ横に出す（2026-11-10 Issue #31 の返事: 離れていて見にくい） */
     btn('残高を見る', async () => {
-      line.textContent = '残高: ' + solText(await getBalance(net, cfg.address));
+      balEl.textContent = '確かめている…';
+      try { balEl.textContent = '残高 ' + solText(await getBalance(net, cfg.address)); } catch (e) { balEl.textContent = ''; throw e; }
     });
+    const balEl = inlineText('');
     if (net === 'devnet') {
       btn('テスト用の SOL をもらう', async () => {
         line.textContent = 'もらっている…';
@@ -1357,9 +1411,10 @@ function chainBox() {
       });
     }
     btn('残高を別のアドレスへ送る', sweepOut);
-    if (prfSupported()) btn('パスキーを切り替える', switchPasskey);
+    if (pk) btn('パスキーを切り替える', switchPasskey);
 
-    group('バックアップ', '保存すると、いまの記録を暗号化してチェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。');
+    group('backup', 'バックアップ', '保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
+      + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに控えていなければ表示して書き留める。');
     btn('バックアップを保存', writeBackup);
     btn('バックアップから復元', async () => {
       const keys = await unlock();
@@ -1371,9 +1426,11 @@ function chainBox() {
       await checkSame(keys);
       await showRecovery(keys);
     });
-    btn('復元コードで復元（読むだけ）', restoreByCode);
 
-    group('この端末', null);
+    const alt = fold('パスキーを失ったとき・この端末での設定', false);
+    group('code', '復元コードで読む', '別のウォレットのバックアップも、復元コードがあれば読める（読むだけ）。', alt);
+    btn('復元コードで復元（読むだけ）', restoreByCode);
+    group('device', 'この端末', null, alt);
     btn('この端末での設定を消す', async () => {
       if (!window.confirm('この端末のバックアップの設定を消す？（チェーンの上のバックアップとウォレットは消えない。パスキー・合言葉・復元コードがあれば、また開ける）\n'
         + 'ウォレットに SOL が残っているなら、先に「残高を別のアドレスへ送る」で送り出しておく（復元コードではお金は動かせない）。')) return;
@@ -1402,7 +1459,13 @@ function chainBox() {
       throw new Error('ウォレットの残高が足りない（残高 ' + solText(bal) + '・要るのは 手数料 ' + solText(need.fee)
         + ' ＋ 残しておく最低の額 ' + solText(need.rent) + '）。アドレスに SOL を入れてから保存する');
     }
+    /* 縮めた効き目を見せる（Issue #31 の返事: 圧縮で節約できているか） */
+    const rawBytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+    const sealedBytes = Math.round(memos.reduce((n, m) => n + m.slice(m.lastIndexOf(' ') + 1).length, 0) * 3 / 4);
+    const kb = b => (b / 1024).toFixed(1) + ' KB';
     if (!window.confirm(NETWORKS[net].label + ' にバックアップを保存する？\n海 ' + sum.seas + ' つ・todo ' + sum.todos + ' 件'
+      + '\n大きさ ' + kb(rawBytes) + ' → 縮めて暗号化 ' + kb(sealedBytes)
+      + '（' + Math.round(sealedBytes / Math.max(1, rawBytes) * 100) + '%）'
       + '\n取引 ' + memos.length + ' 件・手数料の目安 ' + solText(need.fee)
       + '\n書いたものは消せない（暗号化してある）。')) { line.textContent = 'やめた'; return; }
     const sigs = await writeMemos(net, keys.wallet, memos, {
