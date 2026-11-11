@@ -32,6 +32,20 @@
 .stub .setrow input { width: 24px; height: 24px; accent-color: var(--bub-edge); }
 .stub .note { font-size: 12px; color: var(--text-2); margin: 6px 0 0; line-height: 1.7; }
 
+/* 説明の文は ⓘ を押すまで出さない（Issue #40 の返事。js/screens/settings.js の markInfo）。
+   状態・知らせ・エラーの行（aria-live）には .is-info を付けないので、いつも出る */
+.stub .is-info { display: none; }
+.stub .show-info .is-info { display: block; }
+.stub .info-btn {
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; margin: -14px -8px -14px 0;   /* 押す的は 44px、見出しの行の高さは変えない */
+  padding: 0; border: 0; background: transparent;
+  font-size: 15px; color: var(--text-2); vertical-align: middle;
+}
+.stub .info-btn:hover, .stub .info-btn[aria-expanded="true"] { color: var(--text); }
+.stub .info-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -6px; border-radius: 50%; }
+
 /* 1行にまとめた箱（Issue #40）。「音と表示」「AI を使う」「他の人と一緒に使う」…。
    押すと中身が開く。1行目は名前、2行目に中身の一覧（.gorow と同じ文字の大きさ）。押す的は 44px */
 .stub .set-more { padding: 4px 0; border-top: 1px solid var(--line); }

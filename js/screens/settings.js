@@ -322,6 +322,9 @@ export default {
     /* 並び: 個人で使うもの → AI → 他の人と → 引っ越しと版 → その他 */
     groups.forEach(d => box.appendChild(d));
 
+    /* 説明の文は ⓘ を押すまで畳む（Issue #40 の返事）。あとから描き直す節（ブロックチェーンなど）にも付くよう見張る */
+    watchInfo(box);
+
     pane.appendChild(box);
     this._cb = cb;
   },
@@ -333,6 +336,51 @@ export default {
     if (this._taglist) renderTags(this._taglist);
   },
 };
+
+/* ---- 説明の文を ⓘ の裏へ（2026-11-11。Issue #40 の返事）----
+   > デフォルトで表示されてる文字による説明も info ボタンを押すかエラーが出るまで非表示にできない？
+   見出し（h3・h4）のある節で、その節の中の説明の文（p.note）に .is-info を付けて隠し、見出しの横に ⓘ を置く。
+   ⓘ を押すと節に .show-info が付いて出る（css/screens/stub.css）。
+   隠さないもの:
+     ・aria-live の付いた行（状態・知らせ・エラー。押したボタンの結果はここに出るので、エラーはいつも見える）
+     ・この端末の表示の AI の返事（.prefs-out）
+     ・見出しの無い所の文（ⓘ を置く場所が無いため）
+   節は描き直されることがあるので、MutationObserver で見張って付け直す（付いているものは飛ばす） */
+function markInfo(root) {
+  root.querySelectorAll('h3, h4').forEach(h => {
+    const sec = h.parentElement;
+    if (!sec) return;
+    const notes = [...sec.querySelectorAll('p.note')].filter(p =>
+      !p.hasAttribute('aria-live') && !p.closest('.prefs-out') && !p.classList.contains('is-info')
+      && (p.textContent || '').trim());
+    notes.forEach(p => p.classList.add('is-info'));
+    if (h.querySelector('.info-btn')) return;
+    if (!sec.querySelector('p.is-info')) return;
+    const b = el('button', 'info-btn', 'ⓘ');
+    b.type = 'button';
+    b.setAttribute('aria-expanded', 'false');
+    b.setAttribute('aria-label', '説明を出す');
+    b.addEventListener('click', ev => {
+      ev.preventDefault();
+      const on = !sec.classList.contains('show-info');
+      sec.classList.toggle('show-info', on);
+      b.setAttribute('aria-expanded', on ? 'true' : 'false');
+      b.setAttribute('aria-label', on ? '説明を隠す' : '説明を出す');
+    });
+    h.appendChild(b);
+  });
+}
+function watchInfo(root) {
+  markInfo(root);
+  if (!window.MutationObserver) return;
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    /* 描き直しが終わってからまとめて付ける */
+    setTimeout(() => { queued = false; markInfo(root); }, 0);
+  }).observe(root, { childList: true, subtree: true });
+}
 
 /* タグの一覧。1行 = 色 / 名前 / 置く向き / 消す。
    特別なタグ（今日・きっかけ・すきま・完了）は名前を変えられず、消せない。 */
@@ -560,6 +608,7 @@ function serverBox(screen) {
   const askCode = el('p');
   askCode.style.cssText = 'font-size:1.6em;letter-spacing:.12em;font-weight:600;margin:4px 0';
   const askHow = el('p', 'note');
+  askHow.setAttribute('aria-live', 'polite');   /* 頼んだあとの案内。説明の文として畳まない（Issue #40） */
   const askRow = el('div', 'row');
   askRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:4px';
   const doneBtn = el('button', 'btn', '登録を仕上げる');
@@ -1302,6 +1351,7 @@ function chainBox() {
 
   let into = row;
   let groupKey = null;
+  let walletFold = null;        /* ウォレットの操作を畳んだ箱（paint のたびに作り直す） */
   /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる。parent は畳む箱（fold）に入れるとき */
   function group(key, title, note, parent = row) {
     const g = el('div', null);
@@ -1336,7 +1386,12 @@ function chainBox() {
       b.disabled = true;
       curKey = key;
       line.textContent = '';
-      try { await fn(); } catch (e) { line.textContent = (e && e.message) || String(e); }
+      try { await fn(); } catch (e) {
+        const msg = (e && e.message) || String(e);
+        line.textContent = msg;
+        /* 残高・手数料・SOL に関わる失敗なら、畳んだウォレットの操作を開いて見せる（Issue #40 の返事） */
+        if (walletFold && /残高|手数料|SOL/.test(msg)) walletFold.open = true;
+      }
       finally { b.disabled = false; }
     });
     into.appendChild(b);
@@ -1394,6 +1449,7 @@ function chainBox() {
     row.textContent = '';
     lines.clear();
     into = row;
+    walletFold = null;
     const net = netSel.value;
     const pk = prfSupported();
     if (!cfg.mode) {
@@ -1466,7 +1522,10 @@ function chainBox() {
     const mv = currentMove();
     if (mv) paintMove(mv);
 
-    group('wallet', 'ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
+    /* ウォレットの操作（残高を見る・送る・鍵の切り替えなど）は、ふだん畳む（Issue #40 の返事）。
+       押せば開く。残高・手数料が足りないなどの失敗が出たら、btn() が開く（walletFold） */
+    walletFold = fold('ウォレット（残高を見る・テスト用の SOL・送る・鍵の切り替え）', false);
+    group('wallet', 'ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。', walletFold);
     btn('アドレスをコピー', async () => {
       await navigator.clipboard.writeText(cfg.address);
       toast('アドレスをコピーした');
@@ -2407,6 +2466,7 @@ function rollbackBox() {
   wrap.appendChild(note);
   const RB = window.BubblesRollback;
   const status = el('p', 'note', '確かめている…');
+  status.setAttribute('aria-live', 'polite');   /* 状態の行。説明の文として畳まない（Issue #40） */
   wrap.appendChild(status);
   if (!RB) { status.textContent = 'このブラウザでは戻せない。'; return wrap; }
   RB.available().then((prev) => {
@@ -2791,6 +2851,7 @@ function upcomingBox() {
   wrap.appendChild(el('p', 'note',
     '調べたい予定やキャンペーン（FOMC・決算日・セール・支払いの還元など）を書いて送ると、AI が日付と説明を調べ、その少し前に今日へ出す。'));
   const last = el('p', 'note');
+  last.setAttribute('aria-live', 'polite');     /* 前に調べた日（状態の行）。説明の文として畳まない（Issue #40） */
   const refresh = () => { last.textContent = lastLine(store.todayKey()); };
   refresh();
   wrap.appendChild(last);
