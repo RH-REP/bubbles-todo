@@ -183,6 +183,36 @@ export default {
       renderTags(list);
     }
 
+    /* --- 1行にまとめた箱（Issue #40。利用者の返事）---
+       基本は個人の TODO なので、ふだん開いて見えるのは ふりかえり・使い方・タグ だけにし、
+       ほかは「音と表示」「AI を使う」「他の人と一緒に使う」「記録の引っ越しと版」「その他」の
+       1行ずつにまとめる。押すと中身が開く。
+       「この端末の表示」で「あまり使わない機能も出す」にしていれば、開いた姿で始める */
+    const allOpen = () => !!loadPrefs().allTools;
+    const groups = [];
+    const group = (title, sub) => {
+      const d = document.createElement('details');
+      d.className = 'set-more';
+      d.open = allOpen();
+      const s = document.createElement('summary');
+      const tx = el('span', 'tx');
+      tx.appendChild(el('span', 'nm', title));
+      tx.appendChild(el('span', 'sub', sub));
+      s.appendChild(tx);
+      d.appendChild(s);
+      groups.push(d);
+      return d;
+    };
+    window.addEventListener(PREFS_EVENT, () => { if (allOpen()) groups.forEach(d => { d.open = true; }); });
+
+    const gLook = group('音と表示', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
+    const gAi = group('AI を使う', 'ヘルプ（AI に訊く）・API キー・モデル・先の予定');
+    const gShare = group('他の人と一緒に使う',
+      isSolo() ? 'サーバー・共有の海・ブロックチェーンのバックアップ' : '海域（サーバー）・共有の海・複数の端末で同じ記録');
+    const gMove = group('記録の引っ越しと版',
+      'CSV の書き出し・読み込み・引っ越しのファイル・' + (isSolo() ? '' : 'ブロックチェーンのバックアップ・') + '最新の版・前の版に戻す');
+    const gEtc = group('その他', '画面の大きさの記録・プロトタイプ操作・すべて初期化');
+
     /* --- 音 --- */
     const soundRow = el('label', 'setrow');
     const cb = document.createElement('input');
@@ -194,7 +224,7 @@ export default {
     });
     soundRow.appendChild(cb);
     soundRow.appendChild(el('span', null, '完了したときに音を鳴らす'));
-    box.appendChild(soundRow);
+    gLook.appendChild(soundRow);
 
     /* 効果音（2026-11-07 利用者の指示 Issue #18）。完了音とは別のスイッチ */
     const sfxRow = el('label', 'setrow');
@@ -208,26 +238,13 @@ export default {
     });
     sfxRow.appendChild(sfxCb);
     sfxRow.appendChild(el('span', null, '泡を足す・はじめた・タブに置くときに小さく鳴らす'));
-    box.appendChild(sfxRow);
-    box.appendChild(el(
+    gLook.appendChild(sfxRow);
+    gLook.appendChild(el(
       'p', 'note',
       '完了の音は自分で「完了」を押したときだけ。消す・戻すときには鳴らない。'
       + '端末が消音のとき（iPhone の消音スイッチなど）や、'
       + '「視差効果を減らす」をオンにしているときは鳴らない。'
     ));
-
-    /* --- その他の設定（Issue #40）---
-       あまり使わないものは、いちばん下の畳んだ箱にまとめる。押せば開く。
-       「この端末の表示」で「あまり使わない機能も出す」にしていれば、開いた姿で始める。
-       中に入れるもの: 似ている泡を寄せる・CSV・引っ越し・前の版に戻す・先の予定・画面の大きさの記録・
-       プロトタイプ操作・すべて初期化。下の各節で more に足す */
-    const more = document.createElement('details');
-    more.className = 'set-more';
-    more.open = !!loadPrefs().allTools;
-    const moreSum = document.createElement('summary');
-    moreSum.textContent = 'その他の設定（引っ越し・前の版・先の予定・初期化 など）';
-    more.appendChild(moreSum);
-    window.addEventListener(PREFS_EVENT, () => { if (loadPrefs().allTools) more.open = true; });
 
     /* 似ている泡を近くに寄せる（2026-11-07 Issue #23）。端末にだけ置く */
     const affRow = el('label', 'setrow');
@@ -240,41 +257,43 @@ export default {
     });
     affRow.appendChild(affCb);
     affRow.appendChild(el('span', null, '似ている泡（名前が似ている・同じタグ）を、海と今日でゆっくり近くに寄せる'));
-    more.appendChild(affRow);
+    gLook.appendChild(affRow);
 
     /* --- この端末の表示（2026-11-10。Issue #36。js/prefs.js）--- */
-    box.appendChild(prefsBox());
+    gLook.appendChild(prefsBox());
 
     /* --- サーバー（複数の端末で同じ記録を使う）---
        サーバーなし版（solo.html）では出さない。通信してよい先を決め打ちにしているので、サーバーには繋がらない */
-    if (!isSolo()) box.appendChild(serverBox(this));
-    else box.appendChild(soloServerBox());
+    if (!isSolo()) gShare.appendChild(serverBox(this));
+    else gShare.appendChild(soloServerBox());
 
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
-    more.appendChild(csvBox());
+    gMove.appendChild(csvBox());
     /* --- 引っ越し（暗号化したファイル。2026-11-07 Issue #19）--- */
-    more.appendChild(moveBox());
-    /* --- ブロックチェーンに控え（2026-11-08 Issue #31。サーバーなし版だけ）--- */
-    box.appendChild(chainBox());
+    gMove.appendChild(moveBox());
+    /* --- ブロックチェーンに控え（2026-11-08 Issue #31。サーバーなし版だけ）---
+       サーバーなし版では共有の海（Issue #37）もこの中にあるので「他の人と一緒に使う」へ。
+       サーバー版では「サーバーなし版を開く」の案内だけなので、引っ越しの箱へ */
+    (isSolo() ? gShare : gMove).appendChild(chainBox());
 
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
        （WebKit の既知の挙動）。その逃げ道として、押した人だけがその場で確かめて入れ替えられる */
-    box.appendChild(updateBox());
+    gMove.appendChild(updateBox());
     /* --- 前の版に戻す（2026-11-07。Issue #21）--- */
-    more.appendChild(rollbackBox());
+    gMove.appendChild(rollbackBox());
 
     /* --- ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）---
        「ヘルプを開く」（キーが無くても押せる）・API キー・repo の URL */
-    box.appendChild(helpAiBox());
+    gAi.appendChild(helpAiBox());
 
     /* --- 先の予定（AI。2026-11-04。利用者の指示 Issue #13）---
        日付が先に分かっている予定を AI に Web で調べさせ、長期保留のバブルにする。押したときだけ調べる */
-    more.appendChild(upcomingBox());
+    gAi.appendChild(upcomingBox());
 
     /* --- 画面の大きさの記録（不具合を調べる用。2026-10-25）---
        立ち上げ直後に下のタブが隠れる件で、実機の値を見るため。js/boot-dvh.js が測った値を出し、写せる */
-    more.appendChild(sizeBox());
+    gEtc.appendChild(sizeBox());
 
     /* --- プロトタイプ操作 --- */
     const proto = el('div', 'proto');
@@ -294,13 +313,14 @@ export default {
       + 'それに対して「全部消す」は、その残っているぶんまで本当に消す。'
       + '空の画面を見たいときは「この海だけ初期化」を使う（ほかの海と設定は残る）。'
     ));
-    more.appendChild(proto);
+    gEtc.appendChild(proto);
 
     /* --- すべて初期化（設定も含めて。2026-11-08 Issue #32）---
        上の確認用の操作とは別の箱にし、いちばん下に置く */
-    more.appendChild(resetAllBox());
+    gEtc.appendChild(resetAllBox());
 
-    box.appendChild(more);
+    /* 並び: 個人で使うもの → AI → 他の人と → 引っ越しと版 → その他 */
+    groups.forEach(d => box.appendChild(d));
 
     pane.appendChild(box);
     this._cb = cb;
