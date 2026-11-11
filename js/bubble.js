@@ -3379,5 +3379,3 @@ export function closeMenu(restoreFocus) {
   m.box.remove();
   if (restoreFocus && m.anchor && m.anchor.isConnected) m.anchor.focus({ preventScroll: true });
 }
-
-export function isMenuOpen() { return !!openState; }

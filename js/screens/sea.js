@@ -2898,8 +2898,8 @@ function renderGrid() {
 /* ---------------- 四つに分けて見る（優先度・利用者の指示 2026-10-25）----------------
    箱・泡の出し入れ・当たり・書き込みは js/quadview.js。ここは「リスト表示のもう1つの形」として
    出し入れするだけ（海の物理を降ろす・滑らせない・ズームしない、が gathering ひとつで効くため）。
-   中身は listItems()——フィルター・長期保留・完了の扱いは海と同じ規則のまま。 */
-function setQuadView(on) { setGridMode(on ? 'quad' : null); }
+   中身は listItems()——フィルター・長期保留・完了の扱いは海と同じ規則のまま。
+   切り替えは setGridMode('quad')。 */
 
 /* リスト表示の形を切り替える。'quad'／'days'。null は海へもどす。
    並べている最中なら、いまの形を片づけてから新しい形を出す（海の物理は降ろしたまま） */
@@ -2923,8 +2923,8 @@ function setGridMode(mode) {
 /* ---------------- 日付で見る（終了日の近い順。2026-11-07 Issue #24）----------------
    表と計算は js/deadlineview.js・js/deadline.js。並べるのは**どの海のものも**（長期保留も）——
    先の予定（AI）で入れたものは長期保留で待っているので、海ごとに切ると肝心のものが見えない。
-   完了したもの・先の日付の無いものは出さない。名前を押すと、ふだんと同じ盤 */
-function setDaysView(on) { setGridMode(on ? 'days' : null); }
+   完了したもの・先の日付の無いものは出さない。名前を押すと、ふだんと同じ盤。
+   切り替えは setGridMode('days')。 */
 
 function renderDays() {
   if (!dl) return;

@@ -315,6 +315,11 @@ export function createField(host, opts = {}) {
       const a = (b.sqa * 180 / Math.PI).toFixed(1);
       t += ` rotate(${a}deg) scale(${(1 - b.sq).toFixed(3)}, ${(1 + b.sq).toFixed(3)}) rotate(${-a}deg)`;
     }
+    /* 前のコマと同じ文字なら書かない（底で休んでいる泡に、毎コマ同じ値を書き込んで
+       スタイルの再計算を起こさないため。Issue #44）。掴んで外へ持ち出す間は b.held で
+       ここへ来ず、返すときは持ち出す前の値（= b.tf）へ戻るので、控えはずれない */
+    if (b.tf === t) return;
+    b.tf = t;
     b.el.style.transform = t;
   }
 
@@ -338,16 +343,25 @@ export function createField(host, opts = {}) {
     return { fx: Number(t.fx), fy: Number(t.fy) };
   }
 
+  /* 位置が前と変わったときだけ true を返す（saveAllPos が保存を省くのに使う） */
   function savePos(b) {
-    if (!persist || typeof store.setPos !== 'function') return;
+    if (!persist || typeof store.setPos !== 'function') return false;
     const w = host.clientWidth, h = host.clientHeight;
-    if (!w || !h || !b.placed) return;    /* 寸法が取れないときに 0 を書き込まない */
+    if (!w || !h || !b.placed) return false;    /* 寸法が取れないときに 0 を書き込まない */
+    const t = typeof store.get === 'function' ? store.get(b.id) : null;
+    const before = t ? t.fx + ',' + t.fy : null;
     store.setPos(b.id, b.cx / w, b.cy / h);
+    return !t || before !== t.fx + ',' + t.fy;
   }
 
+  /* 動いた泡があるときだけ store を書き出す（Issue #44）。
+     海の面を替えるたびに、裏の面の数だけ stop() が呼ばれ、そのたびに記録全体を
+     JSON にして localStorage へ書いていた。止まっている面の泡は動いていないので、省いてよい。
+     位置のほかの書き換えは、それぞれの口がその場で保存している */
   function saveAllPos() {
-    bubbles.forEach(savePos);
-    if (persist && typeof store.flush === 'function') store.flush();
+    let moved = false;
+    bubbles.forEach(b => { if (savePos(b)) moved = true; });
+    if (moved && persist && typeof store.flush === 'function') store.flush();
   }
 
   /* 保存されている割合から実座標を引き直す。

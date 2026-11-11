@@ -82,8 +82,6 @@ export function closeUpcoming(restoreFocus) {
   return true;
 }
 
-export function isUpcomingOpen() { return !!root; }
-
 /* opts = { was, onClose } */
 export function openUpcoming(opts) {
   const o = opts || {};

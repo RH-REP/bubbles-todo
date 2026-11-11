@@ -167,7 +167,6 @@ export const POINTS = [
 
 /* 地点の ID（保存に使う。並びを変えても選んだ地域がずれないよう、番号ではなく名前で持つ） */
 export function pointId(p) { return p[0] + '/' + p[1]; }
-export function pointLabel(p) { return p[0] + ' ' + p[1] + '（' + p[2] + '）'; }
 export function findPoint(id) { return POINTS.findIndex(p => pointId(p) === id); }
 
 /* 日ごとに取る欄（2026-11-08 Issue #30 の返事で降水確率・降水量・風を足した）。
