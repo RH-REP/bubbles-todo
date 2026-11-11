@@ -20,7 +20,8 @@ import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphras
   prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL, planSweep, sweep,
   loadMove, saveMove, clearMove, moveStep, moveSteps } from '../chain.js';
 import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, writeEnvelope,
-  findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr } from '../board.js';
+  findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr,
+  chatBoardOf, readChat, MSG_MAX, SELF_SEA } from '../board.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
@@ -1369,6 +1370,7 @@ function chainBox() {
   }
 
   function paint() {
+    closeChat();
     row.textContent = '';
     lines.clear();
     into = row;
@@ -1571,6 +1573,7 @@ function chainBox() {
         + (rec.readAt ? '・最後に取り込んだ ' + new Date(rec.readAt).toLocaleString() : ''));
       btn('自分の変更を送る', () => saveShared1(rec.id));
       btn('みんなの変更を取り込む', () => readShared1(rec.id));
+      btn('チャット', () => openChat('sea:' + rec.id, rec));
       if (owner) {
         /* 招く相手の受け取りIDは、この海の欄に貼る（前は押してから文字の窓に貼っていた） */
         const idIn = document.createElement('input');
@@ -1626,6 +1629,125 @@ function chainBox() {
       });
       into = keep;
     });
+
+    /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
+    group('self-chat', '自分あてのメモ（端末どうし）',
+      '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
+    btn('メモを開く', () => openChat('self-chat', null));
+  }
+
+  /* ---- チャット（段2。2026-11-11 Issue #37 の返事「OK」。仕組みは js/board.js の chatBoardOf） ----
+     共有中の海ごとに「チャット」、自分の端末どうしには「自分あてのメモ」。メッセージ 1 件 = 取引 1〜2 件（書いた人が手数料を払う）。
+     開いている間は 15 秒ごとに読みに行く（公式の窓口の回数の上限に当たらない間隔）。閉じている間は読まない（知らせは出ない）。
+     開くときに 1 度だけパスキーか合言葉で鍵を開け、開いている間は鍵をメモリに置く（毎回の送信でパスキーを求めないため）。
+     閉じる・画面を描き直す・設定を離れる・10 分たつ、のどれかで捨てる。端末には置かない */
+  let chat = null;
+  function closeChat() {
+    if (!chat) return;
+    clearInterval(chat.timer);
+    if (chat.panel && chat.panel.parentNode) chat.panel.parentNode.removeChild(chat.panel);
+    chat = null;
+  }
+  async function openChat(gkey, rec) {
+    closeChat();
+    const net = rec ? rec.net : netSel.value;
+    const keys = await unlock();   /* パスキーは押した手の続きで呼ぶ。ここより前で await しない */
+    await checkSame(keys);
+    const base = rec ? await unwrapSeaKey(rec, keys.recordKey) : keys.recordKey;
+    const board = await chatBoardOf(base);
+    const sea = rec ? rec.id : SELF_SEA;
+    const gen = rec ? rec.gen : 0;
+    const allowed = () => (rec ? [rec.owner].concat(((loadShared()[rec.id] || rec).members || []).map(m => m.a)) : [keys.wallet.address]);
+    const members = () => (rec ? ((loadShared()[rec.id] || rec).members || []) : []);
+    const nameOf = a => (a === keys.wallet.address ? '自分' : ((members().find(m => m.a === a) || {}).n || shortAddr(a)));
+
+    const anchor = lines.get(gkey);
+    if (!anchor) throw new Error('チャットを開けなかった（画面を開き直す）');
+    const panel = el('div', null);
+    panel.style.cssText = 'margin-top:6px;padding:8px;border:1px solid rgba(127,127,127,.35);border-radius:8px';
+    const list = el('div', null);
+    list.setAttribute('role', 'log');
+    list.setAttribute('aria-live', 'polite');
+    list.style.cssText = 'max-height:16em;overflow:auto;display:flex;flex-direction:column;gap:4px';
+    panel.appendChild(list);
+    const form = el('form', null);
+    form.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = MSG_MAX;
+    input.autocomplete = 'off';
+    input.placeholder = rec ? 'メッセージ（メンバーだけが読める）' : 'メモ（自分の端末どうしだけが読める）';
+    input.setAttribute('aria-label', rec ? 'メッセージ' : 'メモ');
+    input.style.cssText = 'flex:1 1 14em;min-width:10em';
+    const send = el('button', 'btn', '送る');
+    send.type = 'submit';
+    const shut = el('button', 'btn', '閉じる');
+    shut.type = 'button';
+    form.appendChild(input);
+    form.appendChild(send);
+    form.appendChild(shut);
+    panel.appendChild(form);
+    const status = el('p', 'note');
+    status.setAttribute('aria-live', 'polite');
+    status.textContent = '1 件送るごとに手数料（取引 1〜2 件ぶん）が掛かる。開いている間は 15 秒ごとに新しいメッセージを読む。';
+    panel.appendChild(status);
+    anchor.parentNode.insertBefore(panel, anchor.nextSibling);
+
+    const until = Date.now() + 10 * 60 * 1000;
+    let busy = false;
+    async function refresh() {
+      if (!chat || chat.panel !== panel) return;
+      if (!panel.isConnected || Date.now() > until) {
+        closeChat();
+        if (Date.now() > until) { curKey = gkey; line.textContent = '10 分たったので閉じた（鍵をメモリから捨てた）。続けるときは、もう一度開く。'; }
+        return;
+      }
+      if (busy) return;
+      busy = true;
+      try {
+        const msgs = await readChat(net, board, { sea, gen, allowed: allowed() });
+        const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
+        list.textContent = '';
+        if (!msgs.length) list.appendChild(el('p', 'note', 'まだメッセージは無い。'));
+        msgs.slice(-100).forEach(m => {
+          const item = el('div', null);
+          const head = el('span', 'note');
+          head.textContent = nameOf(m.by) + '・' + new Date(m.at).toLocaleString() + '　';   /* 呼び名・本文はほかの人が書くので文字として入れる */
+          const body = el('span', null);
+          body.textContent = m.text;
+          item.appendChild(head);
+          item.appendChild(body);
+          list.appendChild(item);
+        });
+        if (atBottom) list.scrollTop = list.scrollHeight;
+      } catch (e) {
+        status.textContent = '読めなかった: ' + ((e && e.message) || String(e));
+      } finally { busy = false; }
+    }
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const text = input.value.trim();
+      if (!text || send.disabled) return;
+      send.disabled = true;
+      try {
+        const memos = await postMemos(keys.wallet, { kind: 'msg', sea, g: gen, at: Date.now(), text: text.slice(0, MSG_MAX) }, board);
+        if (memos.length > 4) throw new Error('長すぎる（短く分けて送る）');
+        await needFunds(net, memos.length);
+        status.textContent = '送っている…';
+        await writePost(net, keys.wallet, memos, board);
+        input.value = '';
+        status.textContent = '送った（取引 ' + memos.length + ' 件）。';
+        await refresh();
+      } catch (e) {
+        status.textContent = '送れなかった: ' + ((e && e.message) || String(e));
+      } finally { send.disabled = false; }
+    });
+    shut.addEventListener('click', () => { closeChat(); });
+    chat = { panel, timer: setInterval(refresh, 15000) };
+    curKey = gkey;
+    line.textContent = '';
+    await refresh();
+    input.focus();
   }
 
   function sharedRec(id) {

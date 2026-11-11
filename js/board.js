@@ -124,6 +124,32 @@ export async function boardOf(seaKey) {
   return { address: w.address, recordKey: await hkdf(seaKey, 'record') };
 }
 
+/* ---- チャット（段2。2026-11-11 Issue #37 の返事「OK」） ----
+   メッセージは記録の写しと別の掲示板に書く（同じ掲示板だと、メッセージが増えて読み出しの 300 件から写しが押し出される）。
+   チャットの掲示板 = 元の鍵（共有の海なら海の鍵、自分あてのメモなら自分の記録のカギ）から HKDF で作る。
+   書き込み = 署名した { kind: 'msg', sea, g, at, text }（記録の写しと同じ包み方）。読む人・書く人の限り方も同じ */
+export const MSG_MAX = 300;
+export const SELF_SEA = 'self';
+export async function chatBoardOf(base) {
+  if (!base || base.length !== 32) throw new Error('チャットの鍵が正しくない');
+  const w = await walletFromSeed(await hkdf(base, 'chat-board'));
+  return { address: w.address, recordKey: await hkdf(base, 'chat-record') };
+}
+/* 書き込み → 使ってよいメッセージ（古い順）。allowed にあるアドレスが書いた、その海・その代のものだけ */
+export function chatMessages(posts, { sea, gen, allowed }) {
+  const ok = new Set(allowed || []);
+  return posts
+    .filter(p => p.kind === 'msg' && p.sea === sea && Number(p.g) === gen && ok.has(p.by) && typeof p.text === 'string')
+    .map(p => ({ by: p.by, at: Number(p.at) || 0, text: p.text.slice(0, MSG_MAX) }))
+    .sort((a, b) => a.at - b.at);
+}
+/* チャットの掲示板を読む → メッセージ（古い順・新しい limit 件まで） */
+export async function readChat(network, board, { sea, gen, allowed, limit = 200, opt } = {}) {
+  const list = await readMemos(network, board.address, { limit, opt });
+  const posts = await collectPosts(list.map(x => x.text), board.recordKey, { maxGroups: limit });
+  return chatMessages(posts, { sea, gen, allowed });
+}
+
 /* 海の鍵を自分の記録のカギで包む（端末に置く形）。AAD に海の ID・代・自分のアドレスを入れる */
 const wrapAad = (id, gen, me) => enc(SALT + '|seakey|' + id + '|' + gen + '|' + me);
 export async function wrapSeaKey(seaKey, recordKey, id, gen, me) {

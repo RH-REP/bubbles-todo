@@ -14,6 +14,7 @@ import {
   makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, parseEnvelope,
   openEnvelope, findInvites, writeEnvelope, postMemos, writePost, readBoard, collectPosts, signedPost, verifyPost,
   acceptedSnaps, rosterOf, cleanMembers, loadShared, saveShared, sharedFor, STORE_KEY, ENV_TAG,
+  chatBoardOf, chatMessages, readChat, MSG_MAX, SELF_SEA,
 } from '../js/board.js';
 
 let n = 0;
@@ -240,6 +241,38 @@ await test('この端末に置く一覧: 秘密は包んだ鍵だけ・ウォレ
   st.setItem(STORE_KEY, '{broken');
   assert.deepEqual(loadShared(st), {});
   assert.ok(STORE_KEY.startsWith('bubble_todo'), '「すべて初期化」で消える名前');
+});
+
+await test('チャット: 写しと別の掲示板・メンバーのメッセージだけ・古い順', async () => {
+  const chain = fakeChain();
+  const { opt } = chain;
+  const ann = await keysOf(30), bob = await keysOf(31), eve = await keysOf(32);
+  const seaKey = newSeaKey();
+  const board = await boardOf(seaKey);
+  const chatB = await chatBoardOf(seaKey);
+  assert.notEqual(chatB.address, board.address, '記録の写しと別の掲示板');
+  assert.equal(chatB.address, (await chatBoardOf(seaKey)).address);
+  const say = async (k, text, at, extra = {}) => writePost('devnet', k.wallet,
+    await postMemos(k.wallet, Object.assign({ kind: 'msg', sea: 's1x', g: 1, at, text }, extra), chatB), chatB, { opt });
+  await say(bob, 'b1', 2);
+  await say(ann, 'a1', 1);
+  await say(eve, 'spam', 3);                       /* メンバーでない */
+  await say(ann, 'old', 0, { g: 0 });              /* 前の代 */
+  await say(ann, '日本語'.repeat(90), 4);           /* 長いものは切れ端が 2 つ以上になる */
+  const allowed = [ann.wallet.address, bob.wallet.address];
+  const msgs = await readChat('devnet', chatB, { sea: 's1x', gen: 1, allowed, opt });
+  assert.deepEqual(msgs.map(m => m.text.slice(0, 3)), ['a1', 'b1', '日本語']);
+  assert.equal(msgs[0].by, ann.wallet.address);
+  /* 写しの掲示板には出ない */
+  assert.equal(chain.sent.filter(x => x.keys.includes(board.address)).length, 0);
+  /* 自分あてのメモ: 自分の記録のカギから。ほかの人のカギでは開かない */
+  const mine = await chatBoardOf(ann.recordKey);
+  await writePost('devnet', ann.wallet, await postMemos(ann.wallet, { kind: 'msg', sea: SELF_SEA, g: 0, at: 5, text: 'memo' }, mine), mine, { opt });
+  assert.deepEqual((await readChat('devnet', mine, { sea: SELF_SEA, gen: 0, allowed: [ann.wallet.address], opt })).map(m => m.text), ['memo']);
+  const other = await chatBoardOf(bob.recordKey);
+  assert.notEqual(other.address, mine.address);
+  assert.equal(chatMessages([{ kind: 'msg', sea: 'x', g: 1, by: 'A', at: 1, text: 'y'.repeat(MSG_MAX + 9) }],
+    { sea: 'x', gen: 1, allowed: ['A'] })[0].text.length, MSG_MAX);
 });
 
 console.log(n + ' tests passed');
