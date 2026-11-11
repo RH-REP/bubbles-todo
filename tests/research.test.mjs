@@ -130,7 +130,7 @@ await test('applyName: 本文が空で名前が長いときだけ、元の名前
 await test('本文の面に AI のボタンがあり、キーが無いときの案内がある（js/bubble.js）', () => {
   const src = readFileSync(new URL('../js/bubble.js', import.meta.url), 'utf8');
   assert.ok(src.includes("'AI で調べる'") && src.includes("'AI で整理'") && src.includes("'AI で名前'"));
-  assert.ok(src.includes('設定の「ヘルプと AI」に Anthropic の API キーを入れると使える'));
+  assert.ok(src.includes('設定の「AI を使う設定をする」に Anthropic の API キーを入れると使える'));
   const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
   assert.ok(sw.includes("'./js/research.js'"), 'sw.js の ASSETS に js/research.js が無い');
 });

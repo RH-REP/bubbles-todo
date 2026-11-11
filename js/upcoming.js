@@ -354,7 +354,7 @@ export function openUpcoming(opts) {
     if (busy) return;
     askNote.classList.remove('is-error');
     askNote.textContent = !hasKey()
-      ? 'API キーを設定の「ヘルプと AI」に入れると調べられる。'
+      ? 'API キーを設定の「AI を使う設定をする」に入れると調べられる。'
       : !events.length && !prefs.lastDay ? '1 回調べるのに 10〜60 秒ほどかかる。'
       : '';
   }

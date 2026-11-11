@@ -944,7 +944,7 @@ if (window.AppFeedback) {
     makeTitleLabel: 'AI で題名',
     makeTitleNote: '「AI で題名」を押すと、コメントの文だけを Anthropic へ送る（写真・件数・泡の中身は送らない）',
     makeTitle: async (comment) => {
-      if (!hasKey()) throw new Error('API キーがまだ入っていない。設定の「ヘルプと AI」に入れると使える');
+      if (!hasKey()) throw new Error('API キーがまだ入っていない。設定の「AI を使う設定をする」に入れると使える');
       const p = buildIssueTitlePrompt(comment);
       const r = await askFull(p.system, p.user, { maxTokens: 2000 });
       const t = cleanIssueTitle(r.text);

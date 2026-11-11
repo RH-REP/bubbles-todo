@@ -2105,7 +2105,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       undo.hidden = true;
       hidePre();
       if (!hasKey()) {
-        said.textContent = 'API キーがまだ入っていない。設定の「ヘルプと AI」に Anthropic の API キーを入れると使える。';
+        said.textContent = 'API キーがまだ入っていない。設定の「AI を使う設定をする」に Anthropic の API キーを入れると使える。';
         relayout();
         return;
       }

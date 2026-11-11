@@ -179,7 +179,7 @@ export function openHelp(opts) {
   /* キーが無いときは、入力欄の前に「どこで入れるか」をはっきり出す（打ってから断られないように） */
   if (!hasKey()) {
     chatBox.appendChild(el('p', 'help-nokey',
-      'API キーがまだ入っていない。設定の「ヘルプと AI」の欄に Anthropic の API キーを入れると訊ける。'));
+      'API キーがまだ入っていない。設定の「AI を使う設定をする」の欄に Anthropic の API キーを入れると訊ける。'));
   }
 
   /* 例の質問（会話がまだ無いときだけ出す） */
@@ -338,7 +338,7 @@ export function openHelp(opts) {
     const text = input.value.trim();
     if (!text) return;
     if (!hasKey()) {
-      addBubble('system', 'API キーが入っていない。設定の「ヘルプと AI」で入れてから訊いてください。');
+      addBubble('system', 'API キーが入っていない。設定の「AI を使う設定をする」で入れてから訊いてください。');
       return;
     }
     /* 会話が始まったら、目次と例は畳む（会話の場所を広く使う） */

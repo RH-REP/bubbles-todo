@@ -140,6 +140,21 @@ export default {
     });
     box.appendChild(help);
 
+    /* --- ヘルプ（2026-11-11 Issue #45: 「ヘルプと AI を使う」からヘルプを分けた）---
+       ヘルプはキーが無くても開ける（使い方の記事の目次）ので、AI の設定の箱に入れず、使い方の下に1行で置く。
+       AI に訊くのに要る API キーとモデルは「AI を使う設定をする」の箱にある */
+    const ask = el('button', 'gorow');
+    ask.type = 'button';
+    const akT = el('span', 'tx');
+    akT.appendChild(el('span', 'nm', 'ヘルプを開く'));
+    akT.appendChild(el('span', 'sub', '記事の目次・AI に訊く'));
+    ask.appendChild(akT);
+    const akA = el('span', 'ar', '›');
+    akA.setAttribute('aria-hidden', 'true');
+    ask.appendChild(akA);
+    ask.addEventListener('click', () => openHelpScreen(ask));
+    box.appendChild(ask);
+
     /* --- タグ --- */
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */
     if (hasTags()) {
@@ -189,7 +204,7 @@ export default {
 
     /* --- 1行にまとめた箱（Issue #40。利用者の返事）---
        基本は個人の TODO なので、ふだん開いて見えるのは ふりかえり・使い方・タグ だけにし、
-       ほかは「音と表示」「AI を使う」「他の人と一緒に使う」「記録の引っ越しと版」「その他」の
+       ほかは「音と表示」「AI を使う設定をする」「他の人と一緒に使う」「記録の引っ越しと版」「その他」の
        1行ずつにまとめる。押すと中身が開く。
        「この端末の表示」で「あまり使わない機能も出す」にしていれば、開いた姿で始める */
     const allOpen = () => !!loadPrefs().allTools;
@@ -213,7 +228,8 @@ export default {
 
     /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
     const gLook = group('音と表示を変える', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
-    const gAi = group('AI を使う', 'ヘルプ（AI に訊く）・API キー・モデル・先の予定');
+    /* 「AI を使う」ではなく「AI を使う設定をする」（Issue #45）。ヘルプそのものは上の1行へ分けた */
+    const gAi = group('AI を使う設定をする', 'API キー・モデル・先の予定');
     const gShare = group('他の人と一緒に使う', 'サーバーを使う・ブロックチェーンを使う');
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
@@ -358,8 +374,7 @@ export default {
     /* --- 前の版に戻す（2026-11-07。Issue #21）--- */
     gVer.appendChild(rollbackBox());
 
-    /* --- ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）---
-       「ヘルプを開く」（キーが無くても押せる）・API キー・repo の URL */
+    /* --- AI の API キーとモデル（2026-11-04 Issue #9。2026-11-11 Issue #45 で「ヘルプを開く」を上の1行へ分けた）--- */
     gAi.appendChild(helpAiBox());
 
     /* --- 先の予定（AI。2026-11-04。利用者の指示 Issue #13）---
@@ -3119,28 +3134,43 @@ const REPO = 'RH-REP/bubbles-todo';
 /* 2026-11-04 UI 見直し（Issue #9）:
    ・「ヘルプを開く」はキーが無くても押せる（使い方の記事の目次はキー無しで読める。前はキーが無いと押せず、目次にも辿り着けなかった）
    ・キーは「入っている（…末尾4字）」の1行＋「変える」「消す」。入っていないときだけ入力欄（Enter でも保存）
-   ・キーはヘルプと先の予定の両方で使うので、節の名前を「ヘルプと AI」にした */
+   ・キーはヘルプと先の予定の両方で使うので、節の名前を「ヘルプと AI」にした
+   ・2026-11-11 Issue #45: ヘルプは設定の上の1行へ分け、箱の名前を「AI を使う設定をする」、節を「AI の API キーとモデル」にした */
 function maskKey(k) { const s = String(k || ''); return s ? '…' + s.slice(-4) : ''; }
 
+/* 2026-11-11 Issue #45: 「ヘルプを開く」は設定の上の1行（使い方の下）へ分けた。ここは AI の API キーとモデルだけ。
+   キーの欄が空の欄と「保存」だけでは何を入れるのか分からない、という指摘で、欄の上に「何を入れるか・何に使うか・どこで取るか」を
+   いつも見える字で出す（p.note ではないので ⓘ の裏に隠れない） */
 function helpAiBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'ヘルプと AI を使う'));
-
-  const askRow = el('div', 'row');
-  askRow.style.cssText = 'margin-top:4px';
-  const askBtn = el('button', 'btn', 'ヘルプを開く');
-  askBtn.type = 'button';
-  askRow.appendChild(askBtn);
-  wrap.appendChild(askRow);
+  wrap.appendChild(el('h3', null, 'AI の API キーとモデル'));
   wrap.appendChild(el('p', 'note',
-    '使い方の記事の目次と、AI（Anthropic・Claude）への質問。AI は下の API キーで動く（先の予定でも使う）。'
-    + '送るのは質問の文とこの app の説明・版・画面だけ（バブルの本文は送らない）。'));
+    'AI（Anthropic・Claude）は、ここに入れた API キーで動く。ヘルプで訊く・先の予定を探す・この端末の表示をチャットで変えるときに使う。'
+    + 'ヘルプで送るのは質問の文とこの app の説明・版・画面だけ（バブルの本文は送らない）。'));
 
   /* --- API キー --- */
   const keyBox = el('div', 'aikey');
   wrap.appendChild(keyBox);
   function renderKey(editing) {
     keyBox.textContent = '';
+    if (!hasKey() || editing) {
+      /* 何を入れる欄かを、欄の上に出す（Issue #45） */
+      const lb = el('p', 'aikey-lb');
+      lb.style.cssText = 'margin:8px 0 0;font-size:13.5px';
+      lb.appendChild(textEl('span', null, editing
+        ? '新しい Anthropic の API キーを貼り付けて「キーを保存」を押す。'
+        : 'AI を使うには、Anthropic の API キー（sk-ant- で始まる字）を下の欄に貼り付けて「キーを保存」を押す。キーが無くてもヘルプの記事は読める。'));
+      keyBox.appendChild(lb);
+      const how = el('p', 'aikey-lb');
+      how.style.cssText = 'margin:4px 0 0;font-size:13px';
+      const a = el('a', null);
+      a.textContent = 'キーを取る（Anthropic Console の API Keys）';
+      a.href = 'https://console.anthropic.com/settings/keys';
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      how.appendChild(a);
+      keyBox.appendChild(how);
+    }
     const row = el('div', 'row');
     row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
     if (hasKey() && !editing) {
@@ -3172,7 +3202,7 @@ function helpAiBox() {
       renderKey(false);
     };
     keyIn.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); save(); } });
-    const sv = el('button', 'btn', '保存');
+    const sv = el('button', 'btn', 'キーを保存');
     sv.type = 'button';
     sv.addEventListener('click', save);
     row.appendChild(keyIn); row.appendChild(sv);
@@ -3214,24 +3244,25 @@ function helpAiBox() {
   repoRow.appendChild(repoLink);
   wrap.appendChild(repoRow);
 
-  askBtn.addEventListener('click', () => {
-    openHelp({
-      repo: REPO, app: 'bubble_todo', version: '0.1.0', was: askBtn,
-      getContext: () => {
-        const n = (f) => { try { const a = f(); return Array.isArray(a) ? a.length : '?'; } catch (err) { return '?'; } };
-        return {
-          summary: '版 ' + (window.BUBBLES_VERSION || '?') + ' ・ 画面 settings'
-            + ' ・ 海 ' + n(() => store.floating())
-            + ' ・ 今日 ' + n(() => store.todays())
-            + ' ・ 長期保留 ' + n(() => store.holds())
-            + ' ・ 完了 ' + n(() => store.doneItems())
-            + ' ・ タグ ' + n(() => store.tags()),
-        };
-      },
-    });
-  });
-
   return wrap;
+}
+
+/* ヘルプの画面を開く（設定の上の「ヘルプを開く」から。Issue #45 で helpAiBox から分けた） */
+function openHelpScreen(was) {
+  openHelp({
+    repo: REPO, app: 'bubble_todo', version: '0.1.0', was,
+    getContext: () => {
+      const n = (f) => { try { const a = f(); return Array.isArray(a) ? a.length : '?'; } catch (err) { return '?'; } };
+      return {
+        summary: '版 ' + (window.BUBBLES_VERSION || '?') + ' ・ 画面 settings'
+          + ' ・ 海 ' + n(() => store.floating())
+          + ' ・ 今日 ' + n(() => store.todays())
+          + ' ・ 長期保留 ' + n(() => store.holds())
+          + ' ・ 完了 ' + n(() => store.doneItems())
+          + ' ・ タグ ' + n(() => store.tags()),
+      };
+    },
+  });
 }
 
 /* この端末の表示（2026-11-10。Issue #36。案A と案X）。
@@ -3380,7 +3411,7 @@ function prefsBox() {
   chat.style.cssText = 'margin-top:14px';
   chat.appendChild(el('p', 'note',
     'AI に頼んで変える（例: 「起動したら今日を開いて」「天気に風も出して」「タグを隠して」）。'
-    + '送るのは書いた文と、上の項目・今の値だけ（泡の中身は送らない）。変える前に確かめる。API キーは「ヘルプと AI」で入れる。'));
+    + '送るのは書いた文と、上の項目・今の値だけ（泡の中身は送らない）。変える前に確かめる。API キーは「AI を使う設定をする」で入れる。'));
   const inRow = el('div', 'row');
   inRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:flex-end';
   const ta = document.createElement('textarea');
@@ -3405,7 +3436,7 @@ function prefsBox() {
     const text = ta.value.trim();
     if (busy || !text) return;
     out.textContent = '';
-    if (!hasKey()) { out.appendChild(el('p', 'note', 'API キーがまだ入っていない。下の「ヘルプと AI」に入れると使える（上の項目は手でも変えられる）。')); return; }
+    if (!hasKey()) { out.appendChild(el('p', 'note', 'API キーがまだ入っていない。「AI を使う設定をする」に入れると使える（上の項目は手でも変えられる）。')); return; }
     busy = true; send.disabled = true;
     out.appendChild(el('p', 'note', '考えています…'));
     let r = null, err = '';
