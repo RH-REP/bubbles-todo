@@ -215,8 +215,11 @@ export default {
     const gLook = group('音と表示を変える', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
     const gAi = group('AI を使う', 'ヘルプ（AI に訊く）・API キー・モデル・先の予定');
     const gShare = group('他の人と一緒に使う', 'サーバーを使う・ブロックチェーンを使う');
-    const gMove = group('記録を引っ越す・版を確かめる',
-      'CSV の書き出し・読み込み・引っ越しのファイル・最新の版・前の版に戻す');
+    /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
+       引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
+       「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
+    const gSave = group('記録を保存する・読み込む', 'ファイル（CSV・暗号化）・サーバー・ブロックチェーン');
+    const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
     /* --- 音 --- */
@@ -283,10 +286,55 @@ export default {
       shareChoice.add('server', 'サーバーを使う', [serverEl]);
     }
 
+    /* --- 記録を保存する・読み込む（Issue #43 の返事）---
+       置き場の選択肢: CSV のファイル・暗号化したファイル（この端末に書き出す）・サーバー・ブロックチェーン。
+       サーバーとブロックチェーンの操作は「他の人と一緒に使う」にあるので、ここでは働きの違いを書き、そちらを開くボタンを置く */
+    const saveChoice = choiceRow(gSave, 'どこに保存するか');
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
-    gMove.appendChild(csvBox());
+    saveChoice.add('csv', 'CSV ファイル', [csvBox()]);
     /* --- 引っ越し（暗号化したファイル。2026-11-07 Issue #19）--- */
-    gMove.appendChild(moveBox());
+    saveChoice.add('file', '暗号化したファイル', [moveBox()]);
+    const openShare = (k, then) => {
+      gShare.open = true;
+      shareChoice.pick(k);
+      if (then) then();
+      const t = k === 'chain' ? chainEl : serverEl;
+      try { t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
+    };
+    {
+      const w = el('div', 'tags');
+      w.appendChild(el('h3', null, 'サーバーに置く'));
+      w.appendChild(el('p', 'note',
+        'サーバー（海域）に繋いでいる間は、記録は自動でサーバーにも置かれ、ほかの端末と合う。押して保存・読み込みしなくてよい。'
+        + 'ファイルやブロックチェーンのような「その時点の控え」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'));
+      const st = el('p', 'note');
+      st.setAttribute('aria-live', 'polite');
+      const r = el('div', 'row');
+      const b = el('button', 'btn', 'サーバーの設定を開く');
+      b.type = 'button';
+      b.addEventListener('click', () => openShare('server'));
+      r.appendChild(b);
+      w.appendChild(r);
+      w.appendChild(st);
+      saveChoice.add('server', 'サーバー', [w]);
+      gSave.addEventListener('toggle', () => {
+        if (gSave.open) st.textContent = sync.config().url ? 'いま: サーバーに繋いでいる（自動で置いている）。' : 'いま: サーバーには繋いでいない。';
+      });
+    }
+    {
+      const w = el('div', 'tags');
+      w.appendChild(el('h3', null, 'ブロックチェーンに置く'));
+      w.appendChild(el('p', 'note',
+        '記録を暗号化して、Solana のチェーンにバックアップとして書く。押したときだけ書き（手数料が掛かる）、読み込みは今の記録に重ねる。'
+        + 'パスキーか合言葉で開く。どの端末からでも戻せる。'));
+      const r = el('div', 'row');
+      const b = el('button', 'btn', 'ブロックチェーンでバックアップする');
+      b.type = 'button';
+      b.addEventListener('click', () => openShare('chain', () => chainEl.openTask && chainEl.openTask('backup')));
+      r.appendChild(b);
+      w.appendChild(r);
+      saveChoice.add('chain', 'ブロックチェーン', [w]);
+    }
     /* --- ブロックチェーンに控え（2026-11-08 Issue #31）---
        共有の海（Issue #37）もこの中にあるので「他の人と一緒に使う」へ。
        サーバーが配るページでも使える（2026-11-11 Issue #42 の A 案。server.py の CSP に Solana の RPC を足した） */
@@ -306,9 +354,9 @@ export default {
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
        （WebKit の既知の挙動）。その逃げ道として、押した人だけがその場で確かめて入れ替えられる */
-    gMove.appendChild(updateBox());
+    gVer.appendChild(updateBox());
     /* --- 前の版に戻す（2026-11-07。Issue #21）--- */
-    gMove.appendChild(rollbackBox());
+    gVer.appendChild(rollbackBox());
 
     /* --- ヘルプ（AI に訊く。2026-11-04。利用者の指示 Issue #9）---
        「ヘルプを開く」（キーが無くても押せる）・API キー・repo の URL */
@@ -1139,7 +1187,7 @@ function csvBox() {
    形と暗号は js/movefile.js。サーバーの「引っ越しの鍵」は server.py の /api/passkey/move */
 function moveBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'ファイルで引っ越す（暗号化）'));
+  wrap.appendChild(el('h3', null, '暗号化したファイルに書き出す・読み込む'));
   wrap.appendChild(el(
     'p', 'note',
     'すべての海の記録と、海域に入る鍵を1つのファイルにして、合言葉で暗号化する。'
@@ -1542,7 +1590,7 @@ function resetAllBox() {
     '画面の「!」が覚えているエラーの記録と、app 本体'].forEach(s => { const li = el('li'); li.textContent = s; kept.appendChild(li); });
   panel.appendChild(kept);
   panel.appendChild(el('p', 'note',
-    '残しておきたい記録があれば、先に上の「引っ越しのファイルを作る」か「CSV で書き出す」で控えを取る。'
+    '残しておきたい記録があれば、先に上の「記録を保存する・読み込む」の「引っ越しのファイルを作る」か「CSV で書き出す」で控えを取る。'
     + 'サーバーなし版と通常版は、この端末では同じ記録を使うので、どちらも初期化される。'));
 
   const form = el('form', 'tagadd');
@@ -2966,6 +3014,10 @@ function chainBox() {
     await restoreWith(r.recordKey, r.address, r.network);
     if (!cfg.mode) line.textContent += '　復元コードでは読むだけ。続けてバックアップを保存するなら「新しく作る」で始める。';
   }
+
+  /* ほかの箱から「やりたいこと」を選んで開く（Issue #43 の返事:「記録を保存する・読み込む」→ ブロックチェーン）。
+     まだ始めていなければ、鍵を選ぶ画面のまま */
+  wrap.openTask = k => { if (cfg.mode) { task = k; paint(); } };
 
   paint();
   return wrap;
