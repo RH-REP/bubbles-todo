@@ -122,8 +122,11 @@ export function spaceSwitcher() {
 }
 
 /* ---- 海を作る・直す板 ----
-   sea = null なら作る。名前（空にはできない）と水の色を選ぶ。直すときは、人を招くやり方と「この海を消す」も出す */
-function openSheet(sea) {
+   sea = null なら作る。名前（空にはできない）と水の色を選ぶ。直すときは、人を招くやり方と「この海を消す」も出す。
+   opts.onMade(e) … 作ったあと、その海へ切り替えずに呼ぶ（設定の「共有の海」から作るとき。2026-11-11 Issue #37 の返事:
+   設定の画面で海の作り方を探していた）。opts.note … 下の説明を置き換える */
+export function openSeaSheet(sea, opts) { openSheet(sea, opts); }
+function openSheet(sea, opts = {}) {
   /* 引き出しは閉じる（引き出しの焦点の囲い込み・Escape と取り合わないように） */
   const closeBtn = document.querySelector('.drawer-close');
   if (closeBtn) closeBtn.click();
@@ -180,6 +183,7 @@ function openSheet(sea) {
       + (sea.id === 'share' ? '前の版の「共有の合言葉」でも、この海に入れる。' : '')
     : '初めはこの端末だけの海。海域に繋いでいれば、ほかの端末とも同じ海になる。'
       + '人を招くのは、作ったあとに「この海の名前・色」から。';
+  if (opts.note) note.textContent = opts.note;
   box.appendChild(note);
 
   const row = document.createElement('div');
@@ -237,6 +241,13 @@ function openSheet(sea) {
     const e = addSea(nameIn.value, color);
     if (!e) { toast('海をつくれなかった'); return; }
     done();
+    if (typeof opts.onMade === 'function') {
+      renderSeg();
+      window.dispatchEvent(new CustomEvent('bubbles:seas'));
+      sync.syncSeas();
+      opts.onMade(e);
+      return;
+    }
     switchTo(e.id);
   });
   back.addEventListener('click', ev => { if (ev.target === back) done(); });

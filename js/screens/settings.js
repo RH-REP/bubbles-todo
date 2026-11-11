@@ -22,6 +22,7 @@ import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphras
 import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, writeEnvelope,
   findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr } from '../board.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
+import { openSeaSheet } from '../space.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
 import { ITEMS, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
   changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
@@ -1513,7 +1514,8 @@ function chainBox() {
       + '招かれる人は自分の共有用のアドレスを招く人に送り、招く人が「招く」を押すと、チェーンに招待が書かれる。招かれた人は「招待を探す」で受け取る。'
       + '中身は暗号化してあり、メンバーしか読めない。ただし、誰と誰が同じ海にいるか（ウォレットのアドレスどうし）と、書いた時刻・大きさは、チェーンの上で誰でも見られる。'
       + '書いたものは消せない。外したメンバーも、外す前に書かれた記録は読める。'
-      + '共有する海は、先に左上の ≡（引き出し）→「＋ 海をつくる」で作っておく（招かれる人は作らなくてよい。受け取ると海が足される）。');
+      + '共有する海は「＋ 新しい海をつくって共有する…」でここから作れる（左上の ≡ の「＋ 海をつくる」で作った海は「作ってある海を共有する…」）。'
+      + '招かれる人は海を作らなくてよい（受け取ると海が足される）。');
     btn('共有用のアドレスをコピー', async () => {
       const keys = await unlock();
       await checkSame(keys);
@@ -1525,7 +1527,10 @@ function chainBox() {
       }
     });
     btn('招待を探す', acceptInvites);
-    btn('この端末の海を共有する…', startSharing);
+    /* 設定の画面で海の作り方を探していた（2026-11-11 Issue #37 の返事）。引き出しと同じ「海をつくる」板をここからも開き、
+       作ったらそのまま共有へ進む（その海へは切り替えない） */
+    btn('＋ 新しい海をつくって共有する…', async () => { makeSeaThenShare(); });
+    btn('作ってある海を共有する…', startSharing);
 
     const mine = sharedFor(loadShared(), cfg.address, net);
     mine.forEach(rec => {
@@ -1598,13 +1603,36 @@ function chainBox() {
     /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
     if (!cands.length) {
-      throw new Error('共有できる海が無い。先に新しい海を作る: 左上の ≡（引き出し）→「＋ 海をつくる」で名前と水の色を決める。'
-        + '作ったら、ここへ戻って「この端末の海を共有する…」を押す（前の版からある「共有」の海は、ほかの人の同じ ID の海とまざるので共有できない）');
+      /* 共有できる海が無ければ、作る板をそのまま開く（前の版からある「共有」の海は、ほかの人の同じ ID の海とまざるので選べない） */
+      makeSeaThenShare();
+      line.textContent = '共有できる海がまだ無いので、新しく作る（前の版からある「共有」の海は共有できない）。';
+      return;
     }
     const pick = window.prompt('共有する海の番号\n' + cands.map((e, i) => (i + 1) + '. ' + e.name).join('\n'));
     if (!pick) return;
     const sea = cands[Number(pick) - 1];
     if (!sea) throw new Error('番号が違う');
+    await shareSea(sea);
+  }
+
+  /* 「海をつくる」板を開き、作ったらその海で共有を始める。板の「つくる」を押した手の続きで鍵を開く（パスキーはそこで出る） */
+  function makeSeaThenShare() {
+    openSeaSheet(null, {
+      note: '作ったら、続けてこの海の共有を始める（パスキーか合言葉を求め、チェーンに書く前に確かめる）。'
+        + 'やめても海はこの端末に残り、あとで「作ってある海を共有する…」から共有できる。',
+      onMade: async (sea) => {
+        curKey = 'share';
+        line.textContent = '海「' + sea.name + '」を作った。共有を始める…';
+        try { await shareSea(sea); } catch (e) {
+          curKey = 'share';
+          line.textContent = ((e && e.message) || String(e)) + '（海はこの端末に残っている。「作ってある海を共有する…」でやり直せる）';
+        }
+      },
+    });
+  }
+
+  async function shareSea(sea) {
+    const net = netSel.value;
     const keys = await unlock();
     await checkSame(keys);
     line.textContent = '鍵を作っている…';
