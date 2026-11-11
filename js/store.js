@@ -108,7 +108,7 @@
 import { stampChanges, initialStamps, recordsOf } from './merge.js';
 import { quadrantFor } from './priority.js';
 import { findSea, boxKey } from './spacelist.js';
-import { normalizeNotes, notesFor, makeNote, canRemove, byTime } from './notes.js';
+import { normalizeNotes, notesFor, makeNote, canRemove, byTime, CHAT_TODO, chatFor } from './notes.js';
 
 /* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
    2026-11-02（Issue #4）: 「共有」は名前を付けて複数作れる海の1つになった（js/spacelist.js）。
@@ -2266,6 +2266,22 @@ export const store = {
     return { ...n };
   },
 
+  /* --- 海のチャット（サーバーあり版。Issue #42。js/notes.js の CHAT_TODO）---
+     ひとことと同じ notes 欄に、泡でない宛先で積む。サーバーへは記録と一緒に写る。消すのは removeNote */
+
+  /* この海のメッセージ（古い順の写し。消したものも gone:1 で入る） */
+  chatOf() { return chatFor(noteList); },
+
+  /* 1件足す -> 足した1件（写し）か null */
+  addChat(text, by, dev) {
+    const n = makeNote(CHAT_TODO, text, by, dev, Date.now());
+    if (!n) return null;
+    noteList.push(n);
+    noteList.sort(byTime);
+    persist(); emit();
+    return { ...n };
+  },
+
   /* 消した印を付ける。自分の端末（dev）で書いたものだけ -> 消したか */
   removeNote(noteId, dev) {
     const n = noteList.find(x => x.id === noteId);
@@ -3148,7 +3164,7 @@ export const WRITE_METHODS = [
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
-  'setSpan', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
+  'setSpan', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'addChat', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
 ];
 /* 知らせない口（画面が裏で何度も呼ぶもの。断るだけ） */
 const QUIET = new Set(['flush', 'setDraft']);

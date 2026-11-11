@@ -24,6 +24,8 @@ import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unw
   chatBoardOf, readChatPosts, MSG_MAX, SELF_SEA, GIFT_MESSAGES, giftPlan } from '../board.js';
 import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, loadHistory, saveHistory, mergeHistory, markState,
   signMsg, messagesFromPosts, signSnap } from '../p2p.js';
+/* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
+import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX } from '../notes.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
@@ -266,8 +268,11 @@ export default {
 
     /* --- サーバー（複数の端末で同じ記録を使う）---
        サーバーなし版（solo.html）では出さない。通信してよい先を決め打ちにしているので、サーバーには繋がらない */
-    if (!isSolo()) gShare.appendChild(serverBox(this));
-    else gShare.appendChild(soloServerBox());
+    if (!isSolo()) {
+      gShare.appendChild(serverBox(this));
+      /* --- この海のチャット（サーバーあり版。2026-11-11 Issue #42）--- */
+      gShare.appendChild(serverChatBox(this));
+    } else gShare.appendChild(soloServerBox());
 
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
     gMove.appendChild(csvBox());
@@ -335,6 +340,7 @@ export default {
   onShow() {
     if (this._cb) this._cb.checked = isOn();
     if (this._server) this._server();
+    if (this._chat) this._chat();
     if (this._taglist) renderTags(this._taglist);
   },
 };
@@ -833,6 +839,137 @@ function serverBox(screen) {
     if (document.activeElement !== shareIn) shareIn.value = c.shareToken || '';
     paint();
   };
+  return wrap;
+}
+
+/* この海のチャット（サーバーあり版。2026-11-11 Issue #42。#37 の作る順の 3「サーバーあり版のチャットとサーバーへの写し」）。
+   メッセージは、いま開いている海の記録に積む（js/notes.js の CHAT_TODO。ひとことと同じ notes 欄）。
+   だから送り先は増えない: ふだんの同期（js/sync.js）が、ほかの記録と一緒に自分のサーバーへ写し、
+   その海に入れる人の端末へ届ける（開いている間は 20 秒ごと・送った直後）。履歴はサーバーと各端末に残る。
+   個人の海では、自分の端末どうしのメモになる。招かれた海は、サーバーと合わせられた間だけ書ける（ほかの記録と同じ）。
+   件数は出さない（サーバーの欄と同じ筋）。本文と名前はほかの人が書くので、文字として入れる */
+const CHAT_SHOW = 100;
+function serverChatBox(screen) {
+  const wrap = el('div', 'tags');
+  /* 見出しの字は span に入れる（h3 には説明の ⓘ が後から足されるので、h3 ごと書き換えない） */
+  const h3 = el('h3', null);
+  const head = el('span', null);
+  h3.appendChild(head);
+  wrap.appendChild(h3);
+  wrap.appendChild(el('p', 'note',
+    '海域に繋いでいるとき、この海に入れる人どうしで短いメッセージを送り合う（個人の海では、自分の端末どうしのメモ）。'
+    + 'メッセージはこの海の記録と一緒に自分のサーバーへ写り、ほかの端末には次に合わせたとき（開いている間はおよそ 20 秒ごと）に届く。'
+    + '履歴はサーバーと端末に残る。消せるのはこの端末で書いたものだけで、消しても「（消した）」と残る。'
+    + '名前は泡の「ひとこと」と同じ（この端末だけの設定）。'));
+
+  const list = el('div', null);
+  list.setAttribute('role', 'log');
+  list.setAttribute('aria-live', 'polite');
+  list.style.cssText = 'max-height:16em;overflow:auto;display:flex;flex-direction:column;gap:4px;margin-top:6px;'
+    + 'padding:8px;border:1px solid rgba(127,127,127,.35);border-radius:8px';
+  wrap.appendChild(list);
+
+  const form = el('form', null);
+  form.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
+  const nameIn = document.createElement('input');
+  nameIn.type = 'text';
+  nameIn.maxLength = BY_MAX;
+  nameIn.autocomplete = 'off';
+  nameIn.placeholder = '名前';
+  nameIn.setAttribute('aria-label', '名前（ひとことと同じ）');
+  nameIn.style.cssText = 'flex:0 1 7em;min-width:5em';
+  nameIn.addEventListener('change', () => { nameIn.value = setNoteName(nameIn.value); });
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = NOTE_MAX;
+  input.autocomplete = 'off';
+  input.style.cssText = 'flex:1 1 14em;min-width:10em';
+  const send = el('button', 'btn', '送る');
+  send.type = 'submit';
+  form.appendChild(nameIn);
+  form.appendChild(input);
+  form.appendChild(send);
+  wrap.appendChild(form);
+  const line = el('p', 'note');
+  line.setAttribute('aria-live', 'polite');
+  wrap.appendChild(line);
+
+  const has = typeof store.chatOf === 'function' && typeof store.addChat === 'function';
+  const mine = () => store.space() === 'me';
+  let said = '';   /* 押した結果の字（状態の字より先に出す） */
+
+  function paint() {
+    head.textContent = mine() ? '自分あてのメモ（海域・自分の端末どうし）' : 'この海のチャット（海域）「' + seaName(store.space()) + '」';
+    input.placeholder = mine() ? 'メモ（自分の端末どうし）' : 'メッセージ（この海に入れる人が読める）';
+    input.setAttribute('aria-label', mine() ? 'メモ' : 'メッセージ');
+    if (document.activeElement !== nameIn) nameIn.value = noteName();
+
+    const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
+    list.textContent = '';
+    const rows = has ? store.chatOf().slice(-CHAT_SHOW) : [];
+    /* p.note にしない（説明の文として ⓘ の裏に畳まれるため） */
+    if (!rows.length) list.appendChild(el('div', 'note', 'まだメッセージは無い。'));
+    const dev = noteDevice();
+    rows.forEach(n => {
+      const item = el('div', null);
+      const who = el('span', 'note');
+      who.textContent = (n.by || '名前なし') + '・' + new Date(n.at).toLocaleString() + '　';
+      const body = el('span', null);
+      body.textContent = n.gone ? '（消した）' : n.text;
+      body.style.whiteSpace = 'pre-wrap';
+      item.appendChild(who);
+      item.appendChild(body);
+      if (canRemove(n, dev)) {
+        const rm = el('button', 'btn', '消す');
+        rm.type = 'button';
+        rm.style.cssText = 'margin-left:6px;padding:0 6px;font-size:12px';
+        rm.addEventListener('click', () => {
+          if (!window.confirm('このメッセージを消す？\nほかの端末でも「（消した）」になる（すでに読んだ人の画面からは消せない）。')) return;
+          said = store.removeNote(n.id, dev) ? '消した。' : '消せなかった（読むだけの間は書けない）。';
+          paint();
+        });
+        item.appendChild(rm);
+      }
+      list.appendChild(item);
+    });
+    if (atBottom) list.scrollTop = list.scrollHeight;
+
+    /* 書けるか: 海域に繋いでいて、この海の鍵があること。読むだけ（招かれた海で合わせる前）は待つ */
+    const st = sync.status();
+    let state = '';
+    if (!has) state = 'この版ではチャットを使えない。';
+    else if (!sync.ready()) state = sync.config().url
+      ? 'この海の鍵が無いので使えない（海域の欄でパスキーか合言葉を入れる）。'
+      : '海域に繋ぐと使える（上の「海域（サーバー）」）。';
+    else if (store.readOnly()) state = 'サーバーと合わせてから書ける（合わせている…）。';
+    else if (st.state === 'error') state = 'サーバーに届かない: ' + st.message + '（送ったものはこの端末に残り、届いたら写る）。';
+    else if (st.state === 'outdated') state = st.message;
+    else if (st.state === 'ok') state = '合わせた（' + hhmm(st.at) + '）。';
+    const can = has && sync.ready() && !store.readOnly();
+    input.disabled = send.disabled = !can;
+    line.textContent = (said ? said + ' ' : '') + state;
+  }
+
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    if (send.disabled) return;
+    const text = input.value;
+    if (!text.trim()) return;
+    nameIn.value = setNoteName(nameIn.value);
+    const n = store.addChat(text, noteName(), noteDevice());
+    if (!n) { said = '送れなかった（読むだけの間は書けない）。'; paint(); return; }
+    input.value = '';
+    said = '送った（自分のサーバーへ写している）。';
+    paint();
+    list.scrollTop = list.scrollHeight;
+    /* 少し待ってまとめる同期を待たずに、すぐ写す */
+    sync.syncNow();
+  });
+
+  if (typeof store.on === 'function') store.on(paint);
+  sync.on(paint);
+  screen._chat = () => { said = ''; paint(); };
+  paint();
   return wrap;
 }
 

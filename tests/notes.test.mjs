@@ -129,6 +129,45 @@ test('2つの端末のひとことは、合わせると両方残る。消した�
   assert.equal(m1.doc.notes[0].gone, 1);
 });
 
+/* 海のチャット（サーバーあり版。Issue #42）。ひとことと同じ notes 欄に、泡でない宛先で積む */
+test('チャット: 泡が無くても足せる。泡のひとことと混ざらない。保存と印に入る', async () => {
+  const store = await openStore(null);
+  const id = store.add('資料を集める').id;
+  store.addNote(id, '泡のひとこと', 'たろう', 'd1');
+  assert.equal(store.addChat('   ', 'たろう', 'd1'), null);
+  const m = store.addChat('明日の打ち合わせは 10 時', 'たろう', 'd1');
+  assert.equal(m.todo, N.CHAT_TODO);
+  assert.deepEqual(store.chatOf().map(x => x.text), ['明日の打ち合わせは 10 時']);
+  assert.deepEqual(store.notesOf(id).map(x => x.text), ['泡のひとこと']);
+  assert.ok(!id.startsWith(N.CHAT_TODO));                      /* 泡の id と重ならない */
+  const saved = JSON.parse(mem.get('bubble_todo_share_v1'));
+  assert.equal(saved.notes.length, 2);
+  assert.ok(saved.stamps['note:' + m.id]);                     /* サーバーへ写す印 */
+  /* 消すのはひとことと同じ口。自分の端末のものだけ */
+  assert.equal(store.removeNote(m.id, 'd2'), false);
+  assert.equal(store.removeNote(m.id, 'd1'), true);
+  assert.equal(store.chatOf()[0].gone, 1);
+});
+
+test('チャット: 読むだけの間は書けない', async () => {
+  const store = await openStore(null);
+  store.setReadOnly(true);
+  assert.ok(!store.addChat('だめ', 'a', 'd1'));
+  assert.equal(store.chatOf().length, 0);
+});
+
+test('チャット: 2つの端末（サーバーを通した写し）を合わせると両方残る。前の版の読み方でも落ちない', () => {
+  const a = { doc: { notes: [{ id: 'n1', todo: N.CHAT_TODO, at: 10, by: 'A', dev: 'da', text: 'Aから' }] },
+    stamps: { 'note:n1': [10, 1] } };
+  const b = { doc: { notes: [{ id: 'n2', todo: N.CHAT_TODO, at: 15, by: 'B', dev: 'db', text: 'Bから' }] },
+    stamps: { 'note:n2': [15, 1] } };
+  const m = mergeState(a, b);
+  assert.deepEqual(N.chatFor(m.doc.notes).map(x => x.text), ['Aから', 'Bから']);
+  assert.deepEqual(mergeState(b, a).doc.notes, m.doc.notes);
+  /* 前の版の端末の読み込み（normalizeNotes）でも、そのまま残る */
+  assert.equal(N.normalizeNotes(m.doc.notes).length, 2);
+});
+
 test('CSV の書き出し・読み込みにも入る', () => {
   const state = { doc: { notes: [{ id: 'n1', todo: 'b1', at: 10, by: 'A', dev: 'da', text: '進んだ' }] },
     stamps: { 'note:n1': [10, 1] } };

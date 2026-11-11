@@ -24,7 +24,13 @@
 
    ■ 置き場
    その海の記録と同じ所（自分のサーバー）。新しい送り先は足していない。
-   中身は泡の本文と同じ扱い（自分のサーバーに平文で置く）。 */
+   中身は泡の本文と同じ扱い（自分のサーバーに平文で置く）。
+
+   ■ 海のチャット（サーバーあり版。2026-11-11 Issue #42。#37 の作る順の 3）
+   泡に付かない、海ごとのメッセージ。形はひとことと同じで、todo に泡でない宛先 CHAT_TODO を入れる。
+   同じ notes 欄・同じ鍵（note:<id>）なので、合わせ方・サーバーへの写し・CSV・消し方はひとことのまま。
+   新しい欄を足さないのは、前の版の端末も notes をそのまま合わせて残すため（新しい頂上の欄だと、
+   前の版が合わせるたびに自分の古い写しで上書きし、印を落とす）。泡の id は 'b' で始まるので重ならない。 */
 
 export const NOTE_MAX = 280;      /* 1件の字数の上限 */
 export const BY_MAX = 20;         /* 名前の字数の上限 */
@@ -86,6 +92,10 @@ export function byTime(a, b) {
 export function notesFor(list, todoId) {
   return (Array.isArray(list) ? list : []).filter(n => n.todo === todoId).sort(byTime).map(n => ({ ...n }));
 }
+
+/* 海のチャットの宛先（泡の id とは重ならない）と、その一覧（古い順の写し） */
+export const CHAT_TODO = '~chat';
+export function chatFor(list) { return notesFor(list, CHAT_TODO); }
 
 /* 新しい1件。text が空なら null */
 export function makeNote(todoId, text, by, dev, now, rnd) {
