@@ -1490,7 +1490,17 @@ function chainBox() {
 
   let into = row;
   let groupKey = null;
-  let walletFold = null;        /* ウォレットの操作を畳んだ箱（paint のたびに作り直す） */
+  /* やりたいこと（2026-11-11 Issue #43）。始めたあとは、ボタンを全部並べずに「やりたいこと」のボタンだけを出し、
+     押したものの操作だけを下に出す。もう一度押すと畳む。paint をまたいで覚える（設定を開き直しても同じ所） */
+  let task = null;
+  const TASKS = [
+    ['backup', 'バックアップ', '保存・復元・復元コードを表示'],
+    ['wallet', 'ウォレット', '残高を見る・テスト用の SOL・送る'],
+    ['key', '鍵を替える', '新しい鍵へ移し替える・パスキー／合言葉を切り替える'],
+    ['share', '共有の海', '招待を受ける・自分の海に人を招く・共有中の海'],
+    ['memo', '自分あてのメモ', '自分の端末どうしで短いメモを送り合う'],
+    ['lost', '困ったとき', '復元コードで読む・この端末での設定を消す'],
+  ];
   /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる。parent は畳む箱（fold）に入れるとき */
   function group(key, title, note, parent = row) {
     const g = el('div', null);
@@ -1528,13 +1538,50 @@ function chainBox() {
       try { await fn(); } catch (e) {
         const msg = (e && e.message) || String(e);
         line.textContent = msg;
-        /* 残高・手数料・SOL に関わる失敗なら、畳んだウォレットの操作を開いて見せる（Issue #40 の返事） */
-        if (walletFold && /残高|手数料|SOL/.test(msg)) walletFold.open = true;
+        /* 残高・手数料・SOL に関わる失敗なら、知らせのすぐ横に「ウォレットを開く」を出す（Issue #40 の返事・#43）。
+           押したときだけウォレットに切り替える（共有の海などを見ている途中で勝手に替えない） */
+        if (cfg.mode && task !== 'wallet' && /残高|手数料|SOL/.test(msg)) offerTask('wallet', 'ウォレットを開く（残高を見る・SOL を足す）');
       }
       finally { b.disabled = false; }
     });
     into.appendChild(b);
     return b;
+  }
+  /* やりたいことのボタンを並べる（Issue #43） */
+  function taskBar(counts) {
+    const bar = el('div', 'row chain-tasks');
+    bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center';
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-label', 'やりたいこと');
+    TASKS.forEach(([k, label, sub]) => {
+      const b = el('button', 'btn');
+      b.type = 'button';
+      b.textContent = label + (counts[k] ? '（' + counts[k] + '）' : '');
+      b.title = sub;
+      b.setAttribute('aria-pressed', task === k ? 'true' : 'false');
+      b.addEventListener('click', () => {
+        task = task === k ? null : k;
+        line.textContent = '';
+        paint();
+      });
+      bar.appendChild(b);
+    });
+    row.appendChild(bar);
+  }
+  /* 失敗の知らせの横に、別のやりたいことへ移るボタンを出す */
+  function offerTask(k, label) {
+    const t = target();
+    const b = el('button', 'btn');
+    b.type = 'button';
+    b.textContent = label;
+    b.style.cssText = 'margin-left:8px';
+    b.addEventListener('click', () => {
+      task = k;
+      paint();
+      curKey = k;
+      line.textContent = '';
+    });
+    t.appendChild(b);
   }
   /* ボタンの横に並べる文字（残高など） */
   function inlineText(text) {
@@ -1588,7 +1635,6 @@ function chainBox() {
     row.textContent = '';
     lines.clear();
     into = row;
-    walletFold = null;
     const net = netSel.value;
     const pk = prfSupported();
     if (!cfg.mode) {
@@ -1615,7 +1661,7 @@ function chainBox() {
         + 'OS をまたいで複数の端末で使う（iPhone と Windows・Android など、パスキーが引き継がれない組み合わせ）なら、こちら。'
         + '合言葉（24 字）はパスキーの代わりで、ウォレットとバックアップの両方を開く。紙に書き留め、どの端末でも同じ合言葉を打つ。'
         + '漏れるとお金も記録も取られるので、パスキーより扱いに気をつける。'
-        + 'パスキーで使っていた記録を合言葉へ移すときは、先にパスキーで開き、「新しい鍵へ移し替える」を押す（鍵を作る → 残高を送る → バックアップする、を順に案内する）。');
+        + 'パスキーで使っていた記録を合言葉へ移すときは、先にパスキーで開き、「鍵を替える」→「新しい鍵へ移し替える」を押す（鍵を作る → 残高を送る → バックアップする、を順に案内する）。');
       btn('合言葉で新しく作る', async () => {
         const pass = makePassphrase();
         if (!window.confirm('合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。'
@@ -1661,10 +1707,24 @@ function chainBox() {
     const mv = currentMove();
     if (mv) paintMove(mv);
 
-    /* ウォレットの操作（残高を見る・送る・鍵の切り替えなど）は、ふだん畳む（Issue #40 の返事）。
-       押せば開く。残高・手数料が足りないなどの失敗が出たら、btn() が開く（walletFold） */
-    walletFold = fold('ウォレット（残高を見る・テスト用の SOL・送る・鍵の切り替え）', false);
-    group('wallet', 'ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。', walletFold);
+    /* やりたいこと（2026-11-11 Issue #43）。前はウォレット・バックアップ・共有・困ったときのボタンを全部並べていた。
+       いまは「やりたいこと」のボタンだけを並べ、押したものの操作だけを下に出す。
+       残高・手数料が足りないなどの失敗が出たら、知らせの横に「ウォレットを開く」を出す（btn() の offerTask） */
+    taskBar({ share: sharedFor(loadShared(), cfg.address, net).length });
+    if (task === 'wallet') paintWallet(net);
+    else if (task === 'key') paintKey(net, mv, pk);
+    else if (task === 'backup') paintBackup(net);
+    else if (task === 'share') paintShare(net);
+    else if (task === 'memo') {
+      /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
+      group('self-chat', '自分あてのメモ（端末どうし）',
+        '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
+      btn('メモを開く', () => openChat('self-chat', null));
+    } else if (task === 'lost') paintLost();
+  }
+
+  function paintWallet(net) {
+    group('wallet', 'ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
     btn('アドレスをコピー', async () => {
       await navigator.clipboard.writeText(cfg.address);
       toast('アドレスをコピーした');
@@ -1697,6 +1757,12 @@ function chainBox() {
       });
     }
     btn('残高を別のアドレスへ送る', sweepOut);
+  }
+
+  function paintKey(net, mv, pk) {
+    group('key', '鍵を替える',
+      '新しい鍵を作って移すなら「新しい鍵へ移し替える」（鍵を作る → 残高を送る → バックアップする、を順に案内する）。'
+      + '作ってある別の鍵へ替えるなら「パスキーを切り替える」「合言葉を切り替える」（替えると別のウォレット・別のバックアップになる。先に残高を送り出しておく）。');
     if (!mv) {
       btn('新しい鍵へ移し替える', async () => {
         /* 前の鍵（いま開いているもの）を覚えて、1段目へ。秘密は置かない */
@@ -1708,7 +1774,9 @@ function chainBox() {
     }
     if (pk) btn('パスキーを切り替える', switchPasskey);
     btn('合言葉を切り替える', switchPassphrase);
+  }
 
+  function paintBackup(net) {
     group('backup', 'バックアップ', '保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
       + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに控えていなければ表示して書き留める。');
     btn('バックアップを保存', writeBackup);
@@ -1722,13 +1790,12 @@ function chainBox() {
       await checkSame(keys);
       await showRecovery(keys);
     });
+  }
 
-    paintShare(net);
-
-    const alt = fold('パスキーを失ったとき・この端末での設定', false);
-    group('code', '復元コードで読む', '別のウォレットのバックアップも、復元コードがあれば読める（読むだけ）。', alt);
+  function paintLost() {
+    group('code', '復元コードで読む', '別のウォレットのバックアップも、復元コードがあれば読める（読むだけ）。');
     btn('復元コードで復元（読むだけ）', restoreByCode);
-    group('device', 'この端末', null, alt);
+    group('device', 'この端末', null);
     btn('この端末での設定を消す', async () => {
       if (!window.confirm('この端末のバックアップの設定を消す？（チェーンの上のバックアップとウォレットは消えない。パスキー・合言葉・復元コードがあれば、また開ける）\n'
         + 'ウォレットに SOL が残っているなら、先に「残高を別のアドレスへ送る」で送り出しておく（復元コードではお金は動かせない）。')) return;
@@ -1852,11 +1919,6 @@ function chainBox() {
       });
       into = keep;
     });
-
-    /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
-    group('self-chat', '自分あてのメモ（端末どうし）',
-      '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
-    btn('メモを開く', () => openChat('self-chat', null));
   }
 
   /* ---- チャット（段2。2026-11-11 Issue #37 の返事「OK」。仕組みは js/board.js の chatBoardOf） ----

@@ -196,6 +196,9 @@
 .stub .reset-all ul { font-size: 12.5px; line-height: 1.7; margin: 6px 0 10px; }
 .stub .reset-all .tagadd { margin-top: 8px; }
 .stub .reset-all .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+/* ブロックチェーンの「やりたいこと」（Issue #43）。選んでいるものを塗る */
+.stub .chain-tasks .btn[aria-pressed="true"] { border-color: var(--bub-edge); background: var(--surface); font-weight: 600; }
+.stub .chain-tasks .btn[aria-pressed="true"]::before { content: '▾ '; }
 
 /* 画面の大きさの記録（不具合を調べる用） */
 .stub .size-log { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-2); }
