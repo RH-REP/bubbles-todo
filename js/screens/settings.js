@@ -23,7 +23,7 @@ import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unw
   findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr,
   chatBoardOf, readChatPosts, MSG_MAX, SELF_SEA, GIFT_MESSAGES, giftPlan } from '../board.js';
 import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, loadHistory, saveHistory, mergeHistory, markState,
-  signMsg, messagesFromPosts } from '../p2p.js';
+  signMsg, messagesFromPosts, signSnap } from '../p2p.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
@@ -1817,7 +1817,8 @@ function chainBox() {
     /* 使い分け（2026-11-11 返事「おすすめで」）: 直につながっていれば直に（手数料なし）、いなければチェーンに書く（手数料あり。相手が後で開いても届く）。
        チェーンに書いたメッセージが「ここにいる」の知らせを兼ねるので、開いただけでは何も書かない */
     status.textContent = '直につながっている相手がいれば直に送る（手数料なし・チェーンに残らない）。いなければブロックチェーンに書く（手数料あり・相手が後で開いても届く）。'
-      + '直に送ったものの履歴はこの端末にだけ置く（残したいときは「ブロックチェーンにも残す」）。';
+      + '直に送ったものの履歴はこの端末にだけ置く（残したいときは「ブロックチェーンにも残す」）。'
+      + (rec ? '直につながると、この海の記録も互いに直に送り合って重ねる（手数料なし）。' : '');
     panel.appendChild(status);
     anchor.parentNode.insertBefore(panel, anchor.nextSibling);
 
@@ -1869,6 +1870,13 @@ function chainBox() {
       return count;
     }
 
+    /* この海の記録の写し（署名つき。js/p2p.js の signSnap）。記録が無ければ null */
+    async function snapOf() {
+      const box = seaBox(rec.id);
+      if (!box) return null;
+      return signSnap(keys.wallet, { sea: rec.id, g: gen, entry: allEntries().find(e => e.id === rec.id) || null, box });
+    }
+
     let mesh = null;
     if (prefs.on && p2pSupported()) {
       mesh = new Mesh({
@@ -1882,6 +1890,16 @@ function chainBox() {
         },
         onState: () => render(),
         onError: (e) => { status.textContent = '直のつながりで困った: ' + ((e && e.message) || String(e)); },
+        /* 共有の海の記録も直に送り合う（2026-11-11 Issue #41。作る順の 2）。自分あてのメモには記録を載せない */
+        snapshot: rec ? snapOf : null,
+        onSnap: rec ? (inner) => {
+          /* 写しの中の海の ID は見ず、この海の箱にだけ重ねる（readWith と同じ。メンバーがほかの海を書き換えられないように）。
+             設定の画面は描き直さない（描き直すとチャットが閉じる） */
+          const entry = inner.entry && inner.entry.id === rec.id ? inner.entry : null;
+          mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [rec.id]: inner.box } });
+          try { putShared(Object.assign(sharedRec(rec.id), { readAt: Date.now() })); } catch (e) { /* 共有をやめていれば印は付けない */ }
+          status.textContent = nameOf(inner.by) + ' の記録を直に受け取って重ねた（' + new Date(Number(inner.at) || Date.now()).toLocaleString() + ' の写し・手数料なし）。';
+        } : null,
       });
     } else if (prefs.on) {
       status.textContent = 'このブラウザは端末どうしの直の通信（WebRTC）を使えない。メッセージはいつもブロックチェーンに書く。';
@@ -1979,7 +1997,13 @@ function chainBox() {
       }
       closeChat();
     });
-    chat = { panel, mesh, timer: setInterval(refresh, 15000) };
+    /* 「自分の変更を送る」が、つながっている間は直に送るための口（saveShared1 が使う） */
+    const sendSnap = rec && mesh ? async () => {
+      const env = await snapOf();
+      if (!env) throw new Error('この海の記録がこの端末に無い');
+      return mesh.broadcastSnap(env);
+    } : null;
+    chat = { panel, mesh, gkey, sendSnap, timer: setInterval(refresh, 15000) };
     curKey = gkey;
     line.textContent = '';
     render();
@@ -2173,6 +2197,21 @@ function chainBox() {
   async function saveShared1(id) {
     const net = netSel.value;
     const rec = sharedRec(id);
+    /* この海のチャットで直につながっている相手がいれば、チェーンではなく直に送る（2026-11-11 Issue #41。手数料なし・チェーンに残らない）。
+       鍵はチャットを開いたときに開けてあるので、パスキーは求めない。画面は描き直さない（描き直すとチャットが閉じる） */
+    if (chat && chat.gkey === 'sea:' + id && chat.sendSnap && chat.mesh && chat.mesh.openCount()) {
+      curKey = 'sea:' + id;
+      line.textContent = '直に送っている…';
+      const n = await chat.sendSnap();
+      if (n) {
+        line.textContent = n + ' 台に直に送った（手数料なし・チェーンに残らない）。相手の端末では、届いたときに重なる。'
+          + 'あとから開くメンバーにも届けたいときは、チャットを閉じてから「自分の変更を送る」でブロックチェーンに書く。';
+        return;
+      }
+      /* ここからパスキーを求めると、押した手の続きでなくなる（iPhone で断られる）。もう一度押してもらう */
+      line.textContent = '直に送れなかった（つながりが切れたかもしれない）。もう一度押すと、つながっていなければブロックチェーンに書く。';
+      return;
+    }
     const { keys, seaKey } = await openShared(rec);
     const board = await boardOf(seaKey);
     const box = seaBox(id);

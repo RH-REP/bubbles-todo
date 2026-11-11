@@ -25,7 +25,14 @@
    ■ メッセージ
    1 通 = 署名した { kind: 'm', id, sea, g, at, by, text }（board.js の signedPost の包み）。
    p2p でも、ブロックチェーン（kind 'msgs' にまとめて）でも、同じ包みのまま運ぶ。受け取った側は、署名・名簿・海・代を確かめる。
-   つながったら、互いに手元の新しい 100 通を送り合う（重なりは id で除く）。ほかのメンバーのメッセージも署名ごと渡せる */
+   つながったら、互いに手元の新しい 100 通を送り合う（重なりは id で除く）。ほかのメンバーのメッセージも署名ごと渡せる
+
+   ■ 共有の海の記録（2026-11-11 Issue #41。作る順の 2）
+   つながったら、メッセージに続けて、互いにその海の記録の写しを 1 つずつ送り合う（手数料なし・チェーンに残らない）。
+   写し = 署名した { kind: 'snap', sea, g, at, entry, box }（チェーンの掲示板に書く board.js の snap と同じ中身）。
+   受け取った側は、署名・名簿・海・代を確かめ、merge.js で重ねる（記録ごとに新しいほうが残る。消した印も残る）。
+   つながっている間に「自分の変更を送る」を押すと、チェーンではなく直に送る（broadcastSnap）。
+   写しは大きいことがあるので、PART_CHARS 字ずつに分けて送る（{ t: 'part', id, i, n, d }。データの通り道の 1 通の上限より小さく） */
 
 import { signedPost, verifyPost, MSG_MAX } from './board.js';
 
@@ -34,6 +41,8 @@ export const HELLO_MS = 10 * 60 * 1000;
 export const SIG_MS = 3 * 60 * 1000;
 export const GATHER_MS = 5000;
 export const HIST_MAX = 300;
+export const PART_CHARS = 16000;
+export const SNAP_MAX_CHARS = 4000000;
 export const PREFS_KEY = 'bubble_todo_p2p_v1';
 export const DEV_KEY = 'bubble_todo_p2p_dev';
 const HIST_PREFIX = 'bubble_todo_chat_';
@@ -133,6 +142,28 @@ export async function messagesFromPosts(posts, { sea, g, allowed }) {
   return out;
 }
 
+/* ---- 記録の写し（Issue #41） ---- */
+export async function signSnap(wallet, { sea, g, entry, box }) {
+  return signedPost(wallet, { kind: 'snap', sea, g, at: Date.now(), entry: entry || null, box });
+}
+/* → 中身（使えなければ null）。名簿にある人が書いた、その海・その代の、形の合う写しだけ */
+export async function openSnap(env, { sea, g, allowed }) {
+  const inner = await verifyPost(env);
+  if (!inner || inner.kind !== 'snap' || inner.sea !== sea || Number(inner.g) !== g) return null;
+  if (!(allowed || []).includes(inner.by)) return null;
+  const box = inner.box;
+  if (!box || typeof box !== 'object' || !box.doc || typeof box.doc !== 'object' || !box.stamps || typeof box.stamps !== 'object') return null;
+  return inner;
+}
+/* 文字列 → 分けた切れ端 { t: 'part', id, i, n, d } の並び */
+export function splitParts(str, size = PART_CHARS) {
+  const id = hex(8);
+  const n = Math.max(1, Math.ceil(str.length / size));
+  const out = [];
+  for (let i = 0; i < n; i++) out.push({ t: 'part', id, i, n, d: str.slice(i * size, (i + 1) * size) });
+  return out;
+}
+
 /* ICE の候補を集め終えるのを待つ（集まらなくても limit で進む） */
 export function waitGathering(pc, limit = GATHER_MS) {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
@@ -147,11 +178,14 @@ export function waitGathering(pc, limit = GATHER_MS) {
 
 /* ---- つながりの網（部屋 1 つ・開いている間だけ） ----
    o = { sea, g, dev, allowed()（使ってよいアドレス）, post(inner)（顔合わせを掲示板に書く）, history()（手元の履歴）,
-         onMessages(list, peer), onPeerOpen(peer), onState(), ice, RTC } */
+         onMessages(list, peer), onPeerOpen(peer), onState(), ice, RTC,
+         snapshot()（Issue #41。この海の記録の写しを signSnap で包んだもの。無ければ null。省くと記録は送らない）,
+         onSnap(inner, peer)（受け取って確かめた写し） } */
 export class Mesh {
   constructor(o) {
     Object.assign(this, o);
     this.peers = new Map();
+    this.parts = new Map();
     this.seen = new Set();
     this.closed = false;
     if (!this.RTC) this.RTC = globalThis.RTCPeerConnection;
@@ -208,6 +242,8 @@ export class Mesh {
       this.sendTo(peer, { t: 'msgs', msgs: (this.history() || []).filter(m => m.env).slice(-100).map(m => m.env) });
       if (this.onPeerOpen) this.onPeerOpen(peer);
       if (this.onState) this.onState();
+      /* 続けて、この海の記録の写しを送る（Issue #41。相手も同じように送ってくるので、両方で重なる） */
+      this.sendSnapTo(peer).catch(e => { if (this.onError) this.onError(e); });
     };
     ch.onclose = () => { if (this.onState) this.onState(); };
     ch.onmessage = ev => { this.onData(peer, ev.data); };
@@ -257,9 +293,39 @@ export class Mesh {
     this.peers.forEach(peer => { if (this.sendTo(peer, { t: 'msgs', msgs: envs })) n++; });
     return n;
   }
+  /* 大きいものは切れ端に分けて送る。戻り値 全部送れたか */
+  sendBig(peer, obj) {
+    const s = JSON.stringify(obj);
+    if (s.length > SNAP_MAX_CHARS) return false;
+    if (s.length <= PART_CHARS) return this.sendTo(peer, obj);
+    return splitParts(s).every(p => this.sendTo(peer, p));
+  }
+  async sendSnapTo(peer) {
+    if (!this.snapshot) return false;
+    const env = await this.snapshot();
+    return env ? this.sendBig(peer, { t: 'snap', env }) : false;
+  }
+  /* 写しを、つながっている全員へ。戻り値 届けた相手の数 */
+  broadcastSnap(env) {
+    let n = 0;
+    this.peers.forEach(peer => { if (this.sendBig(peer, { t: 'snap', env })) n++; });
+    return n;
+  }
   async onData(peer, data) {
     let o;
     try { o = JSON.parse(String(data)); } catch (e) { return; }
+    if (o && o.t === 'part') {
+      const whole = this.takePart(peer, o);
+      if (whole === null) return;
+      try { o = JSON.parse(whole); } catch (e) { return; }
+      if (!o || o.t === 'part') return;   /* 切れ端の中の切れ端は受けない */
+    }
+    if (o && o.t === 'snap') {
+      if (!this.onSnap) return;
+      const inner = await openSnap(o.env, { sea: this.sea, g: this.g, allowed: this.allowed() });
+      if (inner) this.onSnap(inner, peer);
+      return;
+    }
     if (!o || o.t !== 'msgs' || !Array.isArray(o.msgs)) return;
     const list = [];
     for (const env of o.msgs.slice(0, 200)) {
@@ -268,10 +334,33 @@ export class Mesh {
     }
     if (list.length && this.onMessages) this.onMessages(list, peer);
   }
+  /* 切れ端を集める。そろったら元の文字列、まだなら null。形の合わないもの・大きすぎるものは捨てる */
+  takePart(peer, p) {
+    const maxN = Math.ceil(SNAP_MAX_CHARS / PART_CHARS);
+    if (!/^[0-9a-f]{16}$/.test(String(p.id)) || !Number.isInteger(p.n) || p.n < 1 || p.n > maxN
+      || !Number.isInteger(p.i) || p.i < 0 || p.i >= p.n || typeof p.d !== 'string' || p.d.length > PART_CHARS) return null;
+    const key = peer.dev + '|' + p.id;
+    let g = this.parts.get(key);
+    if (!g) {
+      /* 集めかけを溜めすぎない（相手ごとに 2 つまで。古いものから捨てる） */
+      const mine = Array.from(this.parts.keys()).filter(k => k.startsWith(peer.dev + '|'));
+      if (mine.length >= 2) this.parts.delete(mine[0]);
+      g = { n: p.n, got: new Map() };
+      this.parts.set(key, g);
+    }
+    if (g.n !== p.n) return null;
+    g.got.set(p.i, p.d);
+    if (g.got.size !== g.n) return null;
+    this.parts.delete(key);
+    let s = '';
+    for (let i = 0; i < g.n; i++) s += g.got.get(i);
+    return s;
+  }
   drop(dev) {
     const peer = this.peers.get(dev);
     if (!peer) return;
     this.peers.delete(dev);
+    Array.from(this.parts.keys()).filter(k => k.startsWith(dev + '|')).forEach(k => this.parts.delete(k));
     try { if (peer.ch) peer.ch.close(); } catch (e) { /* 閉じられなくても進む */ }
     try { peer.pc.close(); } catch (e) { /* 同じ */ }
   }

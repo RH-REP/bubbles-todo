@@ -10,7 +10,7 @@ import { keysFromRoot } from '../js/chain.js';
 import { signedPost, MSG_MAX } from '../js/board.js';
 import {
   Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, STUN_URL, deviceId, loadHistory, saveHistory, mergeHistory, markState,
-  signMsg, openMsg, messagesFromPosts, HIST_MAX, histKey,
+  signMsg, openMsg, messagesFromPosts, HIST_MAX, histKey, signSnap, openSnap, splitParts, PART_CHARS,
 } from '../js/p2p.js';
 
 let n = 0;
@@ -203,6 +203,88 @@ await test('顔合わせ: 名簿に無い人・古い offer は相手にしな�
     { kind: 'offer', sea: 's1x', g: 1, by: a.wallet.address, dev: 'c'.repeat(16), to: 'a'.repeat(16), sid: 's', sdp: 'offer-x', at: Date.now() - 10 * 60 * 1000 },
   ]);
   assert.equal(posted.length, 0);
+});
+
+await test('記録の写し（Issue #41）: 署名・名簿・海・代・形を確かめる', async () => {
+  const a = await keysOf(51), x = await keysOf(52);
+  const box = { doc: { todos: [{ id: 't1', text: 'x' }] }, stamps: { t1: 1 } };
+  const env = await signSnap(a.wallet, { sea: 's1x', g: 1, entry: { id: 's1x', name: 'n' }, box });
+  const opt = { sea: 's1x', g: 1, allowed: [a.wallet.address] };
+  const got = await openSnap(env, opt);
+  assert.equal(got.by, a.wallet.address);
+  assert.deepEqual(got.box, box);
+  assert.equal(await openSnap(env, Object.assign({}, opt, { allowed: [x.wallet.address] })), null, '名簿に無い');
+  assert.equal(await openSnap(env, Object.assign({}, opt, { sea: 'other' })), null, 'ほかの海');
+  assert.equal(await openSnap(env, Object.assign({}, opt, { g: 2 })), null, '前の代');
+  assert.equal(await openSnap(Object.assign({}, env, { p: env.p.replace('"x"', '"y"') }), opt), null, '書き換え');
+  const bad = await signSnap(a.wallet, { sea: 's1x', g: 1, box: { doc: {} } });
+  assert.equal(await openSnap(bad, opt), null, 'stamps が無い');
+  const m = await signMsg(a.wallet, { sea: 's1x', g: 1, text: 'hi' });
+  assert.equal(await openSnap(m.env, opt), null, 'メッセージは写しでない');
+});
+
+await test('切れ端: 分けて元に戻る', () => {
+  const s = 'あ'.repeat(PART_CHARS * 2 + 5);
+  const parts = splitParts(s);
+  assert.equal(parts.length, 3);
+  assert.ok(parts.every(p => p.t === 'part' && p.n === 3 && p.d.length <= PART_CHARS && p.id === parts[0].id));
+  assert.equal(parts.map(p => p.d).join(''), s);
+  assert.equal(splitParts('').length, 1);
+});
+
+await test('記録の写し: つながったら互いに送り合い、大きい写しも切れ端で届く。名簿に無い人の写しは捨てる', async () => {
+  const a = await keysOf(53), b = await keysOf(54), x = await keysOf(55);
+  const board = [];
+  const allowed = () => [a.wallet.address, b.wallet.address];
+  const big = 'z'.repeat(PART_CHARS * 3);   /* 切れ端 4 つ以上になる大きさ */
+  const make = (k, dev, text) => {
+    const got = [];
+    const mesh = new Mesh({ sea: 's1x', g: 1, dev, allowed, ice: [], RTC: FakeRTC, history: () => [],
+      post: async (inner) => { const env = await signedPost(k.wallet, inner); board.push(JSON.parse(env.p)); },
+      snapshot: async () => signSnap(k.wallet, { sea: 's1x', g: 1, entry: null, box: { doc: { todos: [{ id: dev, text }] }, stamps: { [dev]: 1 } } }),
+      onSnap: (inner) => got.push(inner) });
+    return { mesh, got };
+  };
+  const A = make(a, 'a'.repeat(16), 'small'), B = make(b, 'b'.repeat(16), big);
+  await A.mesh.hello();
+  const view = () => board.slice().reverse();
+  await B.mesh.onPosts(view());
+  await A.mesh.onPosts(view());
+  await B.mesh.onPosts(view());
+  assert.equal(A.mesh.openCount(), 1);
+  await until(() => A.got.length === 1 && B.got.length === 1);
+  assert.equal(B.got[0].by, a.wallet.address);
+  assert.equal(B.got[0].box.doc.todos[0].text, 'small');
+  assert.equal(A.got[0].box.doc.todos[0].text, big, '大きい写しが切れ端から戻る');
+  assert.equal(A.mesh.parts.size, 0, '集めかけが残らない');
+  /* 「自分の変更を送る」= broadcastSnap */
+  const again = await signSnap(b.wallet, { sea: 's1x', g: 1, box: { doc: { todos: [] }, stamps: {} } });
+  assert.equal(B.mesh.broadcastSnap(again), 1);
+  await until(() => A.got.length === 2);
+  /* 名簿に無い人が署名した写しは捨てる */
+  const forged = await signSnap(x.wallet, { sea: 's1x', g: 1, box: { doc: { todos: [] }, stamps: {} } });
+  B.mesh.broadcastSnap(forged);
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(A.got.length, 2);
+  A.mesh.close(); B.mesh.close();
+});
+
+await test('記録の写し: snapshot を渡さない（自分あてのメモ）なら送らない', async () => {
+  const a = await keysOf(56), b = await keysOf(57);
+  const board = [];
+  const allowed = () => [a.wallet.address, b.wallet.address];
+  const got = [];
+  const make = (k, dev, withSnap) => new Mesh({ sea: 'self', g: 0, dev, allowed, ice: [], RTC: FakeRTC, history: () => [],
+    post: async (inner) => { const env = await signedPost(k.wallet, inner); board.push(JSON.parse(env.p)); },
+    snapshot: null, onSnap: withSnap ? (i) => got.push(i) : null });
+  const A = make(a, 'a'.repeat(16), true), B = make(b, 'b'.repeat(16), false);
+  await A.hello();
+  const view = () => board.slice().reverse();
+  await B.onPosts(view()); await A.onPosts(view()); await B.onPosts(view());
+  assert.equal(A.openCount(), 1);
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(got.length, 0);
+  A.close(); B.close();
 });
 
 console.log(n + ' tests passed');
