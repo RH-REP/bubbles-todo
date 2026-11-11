@@ -108,7 +108,7 @@ export default {
        ふりかえりは「見る」もの。混ぜず、先頭に1行だけ置いて別の画面へ渡す。 */
     const go = el('button', 'gorow');
     go.type = 'button';
-    const goL = el('span', 'nm', 'ふりかえり');
+    const goL = el('span', 'nm', 'ふりかえる');
     const goS = el('span', 'sub', '記録を眺める');
     const goT = el('span', 'tx');
     goT.appendChild(goL);
@@ -128,7 +128,7 @@ export default {
     const help = el('button', 'gorow');
     help.type = 'button';
     const hpT = el('span', 'tx');
-    hpT.appendChild(el('span', 'nm', '使い方'));
+    hpT.appendChild(el('span', 'nm', '使い方を読む'));
     hpT.appendChild(el('span', 'sub', '画面の見方・海域と海の始め方'));
     help.appendChild(hpT);
     const hpA = el('span', 'ar', '›');
@@ -144,7 +144,7 @@ export default {
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */
     if (hasTags()) {
       const tagBox = el('div', 'tags');
-      tagBox.appendChild(el('h3', null, 'タグ'));
+      tagBox.appendChild(el('h3', null, 'タグを編集する'));
       tagBox.appendChild(el(
         'p', 'note',
         'タグは海にできる（横一列に並ぶ。10個まで）。並べ替えは海を長押しして引きから。'
@@ -201,7 +201,9 @@ export default {
       const s = document.createElement('summary');
       const tx = el('span', 'tx');
       tx.appendChild(el('span', 'nm', title));
-      tx.appendChild(el('span', 'sub', sub));
+      const subEl = el('span', 'sub', sub);
+      subEl.setAttribute('data-gsub', '');   /* 説明なので ⓘ を押すまで隠す（markInfo。Issue #43 の返事） */
+      tx.appendChild(subEl);
       s.appendChild(tx);
       d.appendChild(s);
       groups.push(d);
@@ -209,13 +211,13 @@ export default {
     };
     window.addEventListener(PREFS_EVENT, () => { if (allOpen()) groups.forEach(d => { d.open = true; }); });
 
-    const gLook = group('音と表示', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
+    /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
+    const gLook = group('音と表示を変える', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
     const gAi = group('AI を使う', 'ヘルプ（AI に訊く）・API キー・モデル・先の予定');
-    const gShare = group('他の人と一緒に使う',
-      isSolo() ? 'サーバー・共有の海・ブロックチェーンのバックアップ' : '海域（サーバー）・チャット・共有の海・ブロックチェーンのバックアップ');
-    const gMove = group('記録の引っ越しと版',
+    const gShare = group('他の人と一緒に使う', 'サーバーを使う・ブロックチェーンを使う');
+    const gMove = group('記録を引っ越す・版を確かめる',
       'CSV の書き出し・読み込み・引っ越しのファイル・最新の版・前の版に戻す');
-    const gEtc = group('その他', '画面の大きさの記録・プロトタイプ操作・すべて初期化');
+    const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
     /* --- 音 --- */
     const soundRow = el('label', 'setrow');
@@ -268,13 +270,18 @@ export default {
 
     /* --- サーバー（複数の端末で同じ記録を使う）---
        サーバーなし版（solo.html）では出さない。通信してよい先を決め打ちにしているので、サーバーには繋がらない */
+    /* 「他の人と一緒に使う」は、開くとまず「サーバーを使う」「ブロックチェーンを使う」の選択肢だけを出し、
+       選んだほうの欄だけを下に出す（2026-11-11 Issue #43 の返事: 選択肢で誘導する） */
+    const shareChoice = choiceRow(gShare, 'どれで一緒に使うか');
     let serverEl = null;
     if (!isSolo()) {
       serverEl = serverBox(this);
-      gShare.appendChild(serverEl);
       /* --- この海のチャット（サーバーあり版。2026-11-11 Issue #42）--- */
-      gShare.appendChild(serverChatBox(this));
-    } else gShare.appendChild(soloServerBox());
+      shareChoice.add('server', 'サーバーを使う', [serverEl, serverChatBox(this)]);
+    } else {
+      serverEl = soloServerBox();
+      shareChoice.add('server', 'サーバーを使う', [serverEl]);
+    }
 
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
     gMove.appendChild(csvBox());
@@ -284,11 +291,17 @@ export default {
        共有の海（Issue #37）もこの中にあるので「他の人と一緒に使う」へ。
        サーバーが配るページでも使える（2026-11-11 Issue #42 の A 案。server.py の CSP に Solana の RPC を足した） */
     const chainEl = chainBox();
-    gShare.appendChild(chainEl);
+    shareChoice.add('chain', 'ブロックチェーンを使う', [chainEl]);
+    /* いま使っているほうを選んだ姿で始める（サーバーに繋いでいればサーバー、ブロックチェーンを始めていればそちら） */
+    {
+      const c = loadConfig();
+      if (sync.config().url) shareChoice.pick('server');
+      else if (c.mode || c.address) shareChoice.pick('chain');
+    }
 
     /* --- 記録の置き場（2026-11-11 Issue #42 の A 案）---
        版（サーバーあり・なし）の違いを見せず、ここで置き場を選ぶ。選ぶと合うほうのページへ移るか、その欄を開く */
-    box.appendChild(placeBox({ gShare, serverEl, chainEl }));
+    box.appendChild(placeBox({ gShare, serverEl, chainEl, pick: shareChoice.pick }));
 
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
@@ -311,7 +324,7 @@ export default {
 
     /* --- プロトタイプ操作 --- */
     const proto = el('div', 'proto');
-    proto.appendChild(el('h3', null, 'プロトタイプ操作'));
+    proto.appendChild(el('h3', null, 'プロトタイプで試す'));
     const row = el('div', 'row');
     ACTIONS.forEach(a => {
       const btn = el('button', 'btn', escapeHtml(a.label));
@@ -359,8 +372,40 @@ export default {
    隠さないもの:
      ・aria-live の付いた行（状態・知らせ・エラー。押したボタンの結果はここに出るので、エラーはいつも見える）
      ・この端末の表示の AI の返事（.prefs-out）
-     ・見出しの無い所の文（ⓘ を置く場所が無いため）
+   見出しの無い所の文と、1行の箱の下の説明（.sub）は、箱の行（summary）の ⓘ で出す（Issue #43 の返事。下）
    節は描き直されることがあるので、MutationObserver で見張って付け直す（付いているものは飛ばす） */
+/* 選択肢のボタンを1行に並べ、選んだものの欄だけを出す（2026-11-11 Issue #43 の返事: 選択肢で誘導する）。
+   add(key, 字, [欄…]) で足し、pick(key) で選ぶ（null で畳む）。同じボタンをもう一度押すと畳む */
+function choiceRow(parent, label) {
+  const bar = el('div', 'row choice-row');
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', label);
+  parent.appendChild(bar);
+  const items = new Map();
+  let cur = null;
+  function pick(k) {
+    cur = k && items.has(k) ? k : null;
+    items.forEach((it, key) => {
+      const on = key === cur;
+      it.btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      it.els.forEach(e => { e.hidden = !on; });
+    });
+  }
+  return {
+    add(k, text, els) {
+      const b = el('button', 'btn');
+      b.type = 'button';
+      b.textContent = text;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', () => pick(cur === k ? null : k));
+      bar.appendChild(b);
+      els.forEach(e => { e.classList.add('choice-pane'); e.hidden = true; parent.appendChild(e); });
+      items.set(k, { btn: b, els });
+    },
+    pick,
+  };
+}
+
 function markInfo(root) {
   root.querySelectorAll('h3, h4').forEach(h => {
     const sec = h.parentElement;
@@ -383,6 +428,36 @@ function markInfo(root) {
       b.setAttribute('aria-label', on ? '説明を隠す' : '説明を出す');
     });
     h.appendChild(b);
+  });
+  /* 見出しの無い所の文と、1行の箱の行の下の小さな説明（.sub）も隠し、箱の行（summary）の ⓘ で出す
+     （2026-11-11 Issue #43 の返事:「文字による説明はデフォルト非表示で、info ボタンを押した時やエラーの時だけ」）。
+     見出しの節の文は上で印を付けてあるので、ここに残るのは見出しの無い所の文だけ。
+     状態を出す .sub（記録の置き場の「この端末＋…」）は data-gsub を付けないので隠さない */
+  root.querySelectorAll('details.set-more').forEach(d => {
+    const sum = d.querySelector(':scope > summary');
+    if (!sum) return;
+    const loose = [...d.querySelectorAll('p.note')].filter(p =>
+      !p.hasAttribute('aria-live') && !p.closest('.prefs-out') && !p.classList.contains('is-info')
+      && (p.textContent || '').trim());
+    loose.concat([...sum.querySelectorAll('.sub[data-gsub]:not(.is-info)')]).forEach(p => {
+      p.classList.add('is-info');
+      p.setAttribute('data-ginfo', '');
+    });
+    if (sum.querySelector('.info-btn')) return;
+    if (!d.querySelector('[data-ginfo]')) return;
+    const b = el('button', 'info-btn', 'ⓘ');
+    b.type = 'button';
+    b.setAttribute('aria-expanded', 'false');
+    b.setAttribute('aria-label', '説明を出す');
+    b.addEventListener('click', ev => {
+      ev.preventDefault();     /* 箱を開け閉めしない */
+      ev.stopPropagation();
+      const on = !d.classList.contains('show-ginfo');
+      d.classList.toggle('show-ginfo', on);
+      b.setAttribute('aria-expanded', on ? 'true' : 'false');
+      b.setAttribute('aria-label', on ? '説明を隠す' : '説明を出す');
+    });
+    sum.appendChild(b);
   });
 }
 function watchInfo(root) {
@@ -495,7 +570,7 @@ function hhmm(ms) {
 }
 function serverBox(screen) {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '海域（サーバー）'));
+  wrap.appendChild(el('h3', null, '海域（サーバー）に繋ぐ'));
   wrap.appendChild(el(
     'p', 'note',
     /* 海域（2026-11-10 利用者の決定）＝1つのサーバーが預かる海のまとまり（個人・共有・作った海）。
@@ -947,7 +1022,7 @@ function serverChatBox(screen) {
     if (!has) state = 'この版ではチャットを使えない。';
     else if (!sync.ready()) state = sync.config().url
       ? 'この海の鍵が無いので使えない（海域の欄でパスキーか合言葉を入れる）。'
-      : '海域に繋ぐと使える（上の「海域（サーバー）」）。';
+      : '海域に繋ぐと使える（上の「海域（サーバー）に繋ぐ」）。';
     else if (store.readOnly()) state = 'サーバーと合わせてから書ける（合わせている…）。';
     else if (st.state === 'error') state = 'サーバーに届かない: ' + st.message + '（送ったものはこの端末に残り、届いたら写る）。';
     else if (st.state === 'outdated') state = st.message;
@@ -984,7 +1059,7 @@ function serverChatBox(screen) {
    対象は、いま開いている海。形とやり方は js/csvio.js */
 function csvBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '書き出し・読み込み（CSV）'));
+  wrap.appendChild(el('h3', null, '書き出す・読み込む（CSV）'));
   const shareNote = store.space() !== 'me' ? '人を招いた海で読み込むと、招いた人の端末にも届く。' : '';
   wrap.appendChild(el(
     'p', 'note',
@@ -1064,7 +1139,7 @@ function csvBox() {
    形と暗号は js/movefile.js。サーバーの「引っ越しの鍵」は server.py の /api/passkey/move */
 function moveBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '引っ越し（暗号化したファイル）'));
+  wrap.appendChild(el('h3', null, 'ファイルで引っ越す（暗号化）'));
   wrap.appendChild(el(
     'p', 'note',
     'すべての海の記録と、海域に入る鍵を1つのファイルにして、合言葉で暗号化する。'
@@ -1315,10 +1390,10 @@ function isSolo() {
 const EDITION_STAY_KEY = 'bubble_todo_edition_stay';   /* js/boot-edition.js の STAY_KEY */
 function soloServerBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'サーバー（複数の端末で同じ記録を使う）'));
+  wrap.appendChild(el('h3', null, 'サーバーに繋ぐ（複数の端末で同じ記録を使う）'));
   wrap.appendChild(el('p', 'note',
     'いまはサーバーに繋がないページ（通信してよい先を決め打ちにして守っている）で開いている。'
-    + 'サーバーに繋ぐときは、下のボタン（または上の「記録の置き場」の「自分のサーバー」）でサーバーに繋ぐページを開き、住所を入れる。繋いだあとは、開くとそのページになる'
+    + 'サーバーに繋ぐときは、下のボタン（または上の「記録の置き場を選ぶ」の「自分のサーバー」）でサーバーに繋ぐページを開き、住所を入れる。繋いだあとは、開くとそのページになる'
     + '（サーバーが配るページでは、サーバーと一緒にブロックチェーンのバックアップ・共有の海・チャットも使える）。'));
   const b = el('button', 'btn', 'サーバーに繋ぐページを開く');
   b.type = 'button';
@@ -1340,20 +1415,20 @@ function soloServerBox() {
      ・自分のサーバー … solo.html なら index.html へ移って住所を入れる。index.html なら海域の欄を開く
      ・ブロックチェーン … ブロックチェーンの欄を開く（どちらのページでも使える。サーバーと一緒にも使える）
    1 行に畳む（Issue #40。ふだん開いて見えるのは ふりかえり・使い方・タグ だけ） */
-function placeBox({ gShare, serverEl, chainEl }) {
+function placeBox({ gShare, serverEl, chainEl, pick }) {
   const d = document.createElement('details');
   d.className = 'set-more';
   d.open = !!loadPrefs().allTools;
   const s = document.createElement('summary');
   const tx = el('span', 'tx');
-  tx.appendChild(el('span', 'nm', '記録の置き場'));
+  tx.appendChild(el('span', 'nm', '記録の置き場を選ぶ'));
   const sub = el('span', 'sub');
   tx.appendChild(sub);
   s.appendChild(tx);
   d.appendChild(s);
 
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'どこに記録を置くか'));
+  wrap.appendChild(el('h3', null, '記録をどこに置くかを選ぶ'));
   wrap.appendChild(el('p', 'note',
     '記録はいつもこの端末に置く。加えて、自分のサーバー（海域。ほかの端末・招いた人と自動で合わせる）と、'
     + 'ブロックチェーン（暗号化したバックアップ・共有の海・チャット。押したときだけ書き、手数料が掛かる）を選べる。'
@@ -1371,6 +1446,8 @@ function placeBox({ gShare, serverEl, chainEl }) {
   function show(target) {
     gShare.open = true;
     if (!target) return;
+    /* 「他の人と一緒に使う」の中は選んだ欄だけを出す（Issue #43）。開く欄を選んだ姿にする */
+    if (pick) pick(target === chainEl ? 'chain' : 'server');
     try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
   }
   function choice(label, on) {
@@ -1398,7 +1475,7 @@ function placeBox({ gShare, serverEl, chainEl }) {
     if (isSolo()) {
       /* solo.html はサーバーに繋がらない（CSP）。サーバーに繋ぐページへ移り、住所を入れる */
       try { sessionStorage.setItem(EDITION_STAY_KEY, 'server'); } catch (e) { /* 置けなければ、開いた先でまた戻る */ }
-      said = 'サーバーに繋ぐページに切り替える（「他の人と一緒に使う」の「海域（サーバー）」に住所を入れる）…';
+      said = 'サーバーに繋ぐページに切り替える（「他の人と一緒に使う」→「サーバーを使う」の「海域（サーバー）に繋ぐ」に住所を入れる）…';
       paint();
       setTimeout(() => { location.href = 'index.html'; }, 300);
       return;
@@ -1437,7 +1514,7 @@ function placeBox({ gShare, serverEl, chainEl }) {
    - 開いた欄は、画面を離れると閉じる（開いたまま後で押すことが無いよう、mount のたびに閉じた形で作る） */
 function resetAllBox() {
   const wrap = el('div', 'reset-all');
-  wrap.appendChild(el('h3', null, 'すべて初期化（設定も含めて）'));
+  wrap.appendChild(el('h3', null, 'すべて初期化する（設定も含めて）'));
   wrap.appendChild(el('p', 'note',
     'この端末から、すべての海の記録と設定を消して、初めて開いたときの状態に戻す。元に戻せない。'
     + '上の「全部消す」「この海だけ初期化」は、いま開いている海の中身だけを消し、設定は残す。'));
@@ -1526,7 +1603,7 @@ function chainBox() {
   const wrap = el('div', 'tags');
   /* 用語（2026-11-09 Issue #31 の返事で見直し）: ほかのウォレット・取引所と行き来するので、そちらと同じ言葉にそろえる。
      ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
-  wrap.appendChild(el('h3', null, 'ブロックチェーンにバックアップ（Solana・試し）'));
+  wrap.appendChild(el('h3', null, 'ブロックチェーンを使う（Solana・試し）'));
   /* サーバーが配るページでも使う（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
      server.py の CSP に Solana の公式 RPC を足したので、サーバーに繋いだままバックアップ・共有の海・チャットを使える。
      サーバーでない所（GitHub Pages・Android の app）で繋いでいない index.html は、開いたときに solo.html へ移る（js/boot-edition.js） */
@@ -1577,12 +1654,13 @@ function chainBox() {
      押したものの操作だけを下に出す。もう一度押すと畳む。paint をまたいで覚える（設定を開き直しても同じ所） */
   let task = null;
   const TASKS = [
-    ['backup', 'バックアップ', '保存・復元・復元コードを表示'],
-    ['wallet', 'ウォレット', '残高を見る・テスト用の SOL・送る'],
+    /* 名前は「何をするか」で書く（Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
+    ['backup', 'バックアップする', '保存・復元・復元コードを表示'],
+    ['wallet', 'ウォレットを見る', '残高を見る・テスト用の SOL・送る'],
     ['key', '鍵を替える', '新しい鍵へ移し替える・パスキー／合言葉を切り替える'],
-    ['share', '共有の海', '招待を受ける・自分の海に人を招く・共有中の海'],
-    ['memo', '自分あてのメモ', '自分の端末どうしで短いメモを送り合う'],
-    ['lost', '困ったとき', '復元コードで読む・この端末での設定を消す'],
+    ['share', '海を共有する', '招待を受ける・自分の海に人を招く・共有中の海'],
+    ['memo', '自分にメモを送る', '自分の端末どうしで短いメモを送り合う'],
+    ['lost', '鍵を失ったときに読む', '復元コードで読む・この端末での設定を消す'],
   ];
   /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる。parent は畳む箱（fold）に入れるとき */
   function group(key, title, note, parent = row) {
@@ -1632,8 +1710,7 @@ function chainBox() {
   }
   /* やりたいことのボタンを並べる（Issue #43） */
   function taskBar(counts) {
-    const bar = el('div', 'row chain-tasks');
-    bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center';
+    const bar = el('div', 'row choice-row');
     bar.setAttribute('role', 'group');
     bar.setAttribute('aria-label', 'やりたいこと');
     TASKS.forEach(([k, label, sub]) => {
@@ -1800,14 +1877,14 @@ function chainBox() {
     else if (task === 'share') paintShare(net);
     else if (task === 'memo') {
       /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
-      group('self-chat', '自分あてのメモ（端末どうし）',
+      group('self-chat', '自分にメモを送る（端末どうし）',
         '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
       btn('メモを開く', () => openChat('self-chat', null));
     } else if (task === 'lost') paintLost();
   }
 
   function paintWallet(net) {
-    group('wallet', 'ウォレット（手数料を払う）', 'バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
+    group('wallet', 'ウォレットを見る（手数料を払う）','バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
     btn('アドレスをコピー', async () => {
       await navigator.clipboard.writeText(cfg.address);
       toast('アドレスをコピーした');
@@ -1860,7 +1937,7 @@ function chainBox() {
   }
 
   function paintBackup(net) {
-    group('backup', 'バックアップ', '保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
+    group('backup', 'バックアップする','保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
       + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに控えていなければ表示して書き留める。');
     btn('バックアップを保存', writeBackup);
     btn('バックアップから復元', async () => {
@@ -1878,7 +1955,7 @@ function chainBox() {
   function paintLost() {
     group('code', '復元コードで読む', '別のウォレットのバックアップも、復元コードがあれば読める（読むだけ）。');
     btn('復元コードで復元（読むだけ）', restoreByCode);
-    group('device', 'この端末', null);
+    group('device', 'この端末での設定を消す', null);
     btn('この端末での設定を消す', async () => {
       if (!window.confirm('この端末のバックアップの設定を消す？（チェーンの上のバックアップとウォレットは消えない。パスキー・合言葉・復元コードがあれば、また開ける）\n'
         + 'ウォレットに SOL が残っているなら、先に「残高を別のアドレスへ送る」で送り出しておく（復元コードではお金は動かせない）。')) return;
@@ -2995,7 +3072,7 @@ function maskKey(k) { const s = String(k || ''); return s ? '…' + s.slice(-4) 
 
 function helpAiBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'ヘルプと AI'));
+  wrap.appendChild(el('h3', null, 'ヘルプと AI を使う'));
 
   const askRow = el('div', 'row');
   askRow.style.cssText = 'margin-top:4px';
@@ -3122,7 +3199,7 @@ const selStyle = 'font:inherit;font-size:16px;min-height:40px;padding:0 8px;bord
 
 function prefsBox() {
   const wrap = el('div', 'tags prefs-box');
-  wrap.appendChild(el('h3', null, 'この端末の表示'));
+  wrap.appendChild(el('h3', null, 'この端末の表示を変える'));
   wrap.appendChild(el('p', 'note', '好みで見た目と動きを変える。この端末にだけ置く（同期・CSV・引っ越しには乗らない）。'));
 
   let cur = loadPrefs();
@@ -3336,7 +3413,7 @@ function prefsBox() {
    キーが無くても開ける（トピックを選んでおける）。調べるボタンはキーが無いと押せない */
 function upcomingBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '先の予定（AI）'));
+  wrap.appendChild(el('h3', null, '先の予定を AI で探す'));
   wrap.appendChild(el('p', 'note',
     '調べたい予定やキャンペーン（FOMC・決算日・セール・支払いの還元など）を書いて送ると、AI が日付と説明を調べ、その少し前に今日へ出す。'));
   const last = el('p', 'note');
@@ -3406,7 +3483,7 @@ function sizeBox() {
   const d = document.createElement('details');
   d.className = 'size-log';
   const sum = document.createElement('summary');
-  sum.textContent = '画面の大きさの記録（不具合を調べる用）';
+  sum.textContent = '画面の大きさを記録する（不具合を調べる用）';
   d.appendChild(sum);
   const pre = document.createElement('pre');
   const copy = el('button', 'btn', '写す');
