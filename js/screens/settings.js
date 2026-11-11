@@ -16,12 +16,12 @@ import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE } from '../space
 import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, moveSummary, moveFileName,
   boxToState, stateToBox, mergeBox } from '../movefile.js';
 import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
-  readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports,
+  readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports, rpc,
   prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL, planSweep, sweep,
   loadMove, saveMove, clearMove, moveStep, moveSteps } from '../chain.js';
 import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, writeEnvelope,
   findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr,
-  chatBoardOf, readChat, MSG_MAX, SELF_SEA } from '../board.js';
+  chatBoardOf, readChat, MSG_MAX, SELF_SEA, GIFT_MESSAGES, giftPlan } from '../board.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
@@ -1602,6 +1602,11 @@ function chainBox() {
         });
         into = keep;
       }
+      /* 新しいメンバーへ手数料を送る（2026-11-11 Issue #37 の返事）。招かれた人は、受け取る（招待を探す・取り込む）だけなら手数料は要らないが、
+         自分の変更を送る・チャットには SOL が要る。始めの一歩を持ち主などが肩代わりできるように */
+      (rec.members || []).filter(m => m.a !== cfg.address).forEach(m => {
+        btn('手数料を送る: ' + escapeHtml(m.n || shortAddr(m.a)) + '（約' + GIFT_MESSAGES + '通ぶん）', () => giftTo(rec, m));
+      });
       /* ふだんは使わないものは畳む */
       const more = document.createElement('details');
       more.style.cssText = 'margin-top:6px;width:100%';
@@ -1748,6 +1753,28 @@ function chainBox() {
     line.textContent = '';
     await refresh();
     input.focus();
+  }
+
+  /* メンバーのウォレットへ、メッセージ約 100 通ぶんの SOL を送る（額は js/board.js の giftPlan）。送り先は名簿のアドレスだけ（貼らせない） */
+  async function giftTo(rec, m) {
+    const net = rec.net;
+    const keys = await unlock();   /* パスキーは押した手の続きで呼ぶ */
+    await checkSame(keys);
+    line.textContent = '残高を確かめている…';
+    const [myBalance, destBalance, rentRaw] = await Promise.all([
+      getBalance(net, keys.wallet.address), getBalance(net, m.a), rpc(net, 'getMinimumBalanceForRentExemption', [0])]);
+    const plan = giftPlan({ myBalance, destBalance, rent: Number(rentRaw) || 890880 });
+    if (!plan.ok) {
+      throw new Error('残高が足りない（残高 ' + solText(myBalance) + '・要るのは ' + solText(plan.need) + '。送る額＋手数料＋自分に残す最低の額）');
+    }
+    const who = m.n || m.a;
+    if (!window.confirm((m.n ? m.n + ' さん' : 'このメンバー') + 'のウォレットへ ' + solText(plan.amount) + ' を送る？（' + NETWORKS[net].label + '）\n'
+      + '送り先: ' + m.a + '\n'
+      + 'メッセージ約 ' + GIFT_MESSAGES + ' 通ぶんの手数料' + (plan.withRent ? '＋相手のウォレットを開くための最低の額' : '') + '。\n'
+      + '送ったものは取り消せない（相手のウォレットのお金になる）。')) { line.textContent = 'やめた'; return; }
+    line.textContent = '送っている…';
+    await sweep(net, keys.wallet, m.a, plan.amount);
+    line.textContent = solText(plan.amount) + ' を ' + who + ' に送った。';
   }
 
   function sharedRec(id) {

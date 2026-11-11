@@ -150,6 +150,18 @@ export async function readChat(network, board, { sea, gen, allowed, limit = 200,
   return chatMessages(posts, { sea, gen, allowed });
 }
 
+/* ---- 新しいメンバーへ手数料を送る（2026-11-11 Issue #37 の返事「新規参加者用に 100 通程度の固定の SOL を送るボタン」） ----
+   額 = メッセージ 100 通ぶん（1 通は多くて取引 2 件 × 5,000 lamports）= 0.001 SOL。
+   相手のウォレットがまだ空なら、チェーンが求める最低の額（rent）を足す（空の口座へは rent より少なく送れない）。
+   送る側も、送ったあとに手数料ぶんと最低の額を残す（自分のウォレットが閉じないように） */
+export const GIFT_MESSAGES = 100;
+export const GIFT_LAMPORTS = GIFT_MESSAGES * 2 * 5000;
+export function giftPlan({ myBalance, destBalance, rent, fee = 5000 }) {
+  const amount = GIFT_LAMPORTS + (destBalance < rent ? rent : 0);
+  const need = amount + fee + rent;
+  return { amount, need, ok: myBalance >= need, withRent: destBalance < rent };
+}
+
 /* 海の鍵を自分の記録のカギで包む（端末に置く形）。AAD に海の ID・代・自分のアドレスを入れる */
 const wrapAad = (id, gen, me) => enc(SALT + '|seakey|' + id + '|' + gen + '|' + me);
 export async function wrapSeaKey(seaKey, recordKey, id, gen, me) {

@@ -14,7 +14,7 @@ import {
   makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, parseEnvelope,
   openEnvelope, findInvites, writeEnvelope, postMemos, writePost, readBoard, collectPosts, signedPost, verifyPost,
   acceptedSnaps, rosterOf, cleanMembers, loadShared, saveShared, sharedFor, STORE_KEY, ENV_TAG,
-  chatBoardOf, chatMessages, readChat, MSG_MAX, SELF_SEA,
+  chatBoardOf, chatMessages, readChat, MSG_MAX, SELF_SEA, GIFT_LAMPORTS, giftPlan,
 } from '../js/board.js';
 
 let n = 0;
@@ -273,6 +273,17 @@ await test('チャット: 写しと別の掲示板・メンバーのメッセー
   assert.notEqual(other.address, mine.address);
   assert.equal(chatMessages([{ kind: 'msg', sea: 'x', g: 1, by: 'A', at: 1, text: 'y'.repeat(MSG_MAX + 9) }],
     { sea: 'x', gen: 1, allowed: ['A'] })[0].text.length, MSG_MAX);
+});
+
+await test('手数料を送る: 100 通ぶん・空の相手には最低の額を足す・自分にも残す', () => {
+  assert.equal(GIFT_LAMPORTS, 1000000);
+  const empty = giftPlan({ myBalance: 5000000, destBalance: 0, rent: 890880 });
+  assert.equal(empty.amount, 1000000 + 890880);
+  assert.ok(empty.withRent && empty.ok);
+  assert.equal(empty.need, empty.amount + 5000 + 890880);
+  const funded = giftPlan({ myBalance: 1000000, destBalance: 2000000, rent: 890880 });
+  assert.equal(funded.amount, 1000000);
+  assert.ok(!funded.ok, '自分の手数料と最低の額が残らないなら送らない');
 });
 
 console.log(n + ' tests passed');
