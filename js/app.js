@@ -942,7 +942,7 @@ if (window.AppFeedback) {
     /* 題名の欄の横の「AI で題名」（Issue #10）。押したときだけ、コメントの文を Anthropic へ送る。
        キーが無ければ送らずに理由を返す。キーは ai.js の中だけで扱い、feedback.js には渡さない */
     makeTitleLabel: 'AI で題名',
-    makeTitleNote: '「AI で題名」を押すと、コメントの文だけを Anthropic へ送る（写真・件数・泡の中身は送らない）',
+    makeTitleNote: '「AI で題名」を押すと、コメントの文だけを設定で選んだ AI の会社へ送る（写真・件数・泡の中身は送らない）',
     makeTitle: async (comment) => {
       if (!hasKey()) throw new Error('API キーがまだ入っていない。設定の「AI を使う設定をする」に入れると使える');
       const p = buildIssueTitlePrompt(comment);

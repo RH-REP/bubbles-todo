@@ -28,6 +28,9 @@
   const PREFIX = 'bubble_todo';
   /* 写さないもの: API キー（端末にだけ置く秘密。写しを増やさない）と、写しそのもの */
   const SKIP = [SNAP_KEY, 'bubble_todo_ai_key'];
+  /* 2026-11-12 Issue #46: 会社ごとのキー（bubble_todo_ai_key_openai など）も写さない */
+  const SKIP_PREFIX = 'bubble_todo_ai_key';
+  function skipped(k) { return SKIP.indexOf(k) >= 0 || String(k).indexOf(SKIP_PREFIX) === 0; }
   const META_CACHE = 'bubbles-meta';
   const PIN_PATH = '__rollback_pin';
   const VER_RE = /^[0-9A-Za-z-]{1,40}$/;
@@ -59,7 +62,7 @@
     const data = {};
     for (let i = 0; i < ls.length; i++) {
       const k = ls.key(i);
-      if (k && k.indexOf(PREFIX) === 0 && SKIP.indexOf(k) < 0) data[k] = ls.getItem(k);
+      if (k && k.indexOf(PREFIX) === 0 && !skipped(k)) data[k] = ls.getItem(k);
     }
     return data;
   }
@@ -69,7 +72,7 @@
   function restoreMissing(ls, data) {
     let n = 0;
     Object.keys(data || {}).forEach((k) => {
-      if (SKIP.indexOf(k) >= 0) return;
+      if (skipped(k)) return;
       const raw = ls.getItem(k);
       if (raw === null || raw === data[k]) return;
       let cur, snap;

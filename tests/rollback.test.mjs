@@ -52,7 +52,8 @@ test('fillMissing: 今にある値（null・false・空）は上書きしない'
 });
 
 test('snapshotStorage: bubble_todo… だけ。API キーと写しそのものは写さない', () => {
-  const ls = fakeLS({ bubble_todo_v1: '{}', bubble_todo_ai_key: 'sk-secret', [RB.SNAP_KEY]: 'old', other: '1' });
+  const ls = fakeLS({ bubble_todo_v1: '{}', bubble_todo_ai_key: 'sk-secret', bubble_todo_ai_key_openai: 'sk-o',
+    bubble_todo_ai_key_gemini: 'AIza-g', [RB.SNAP_KEY]: 'old', other: '1' });
   assert.deepEqual(plain(RB.snapshotStorage(ls)), { bubble_todo_v1: '{}' });
 });
 

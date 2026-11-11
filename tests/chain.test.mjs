@@ -14,6 +14,7 @@ import {
   isAddress, transferMessage, planSweep, SYSTEM_PROGRAM, passkeyLabel,
   MOVE_KEY, loadMove, saveMove, clearMove, moveStep, moveSteps, inNativeApp,
 } from '../js/chain.js';
+import { PROVIDERS } from '../js/ai.js';
 
 let n = 0;
 async function test(name, fn) { await fn(); n++; console.log('ok -', name); }
@@ -271,8 +272,11 @@ await test('solo.html は index.html と CSP・印・manifest・title だけが�
   assert.equal(strip(solo), strip(idx));
   const csp = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(solo)[1];
   const connect = /connect-src ([^;]+)/.exec(csp)[1].trim().split(/\s+/);
-  assert.deepEqual(connect.sort(), ["'self'", 'https://api.anthropic.com', 'https://api.devnet.solana.com',
+  assert.deepEqual(connect.sort(), ["'self'", 'https://api.anthropic.com', 'https://api.openai.com',
+    'https://generativelanguage.googleapis.com', 'https://api.devnet.solana.com',
     'https://api.mainnet-beta.solana.com', 'https://api.open-meteo.com'].sort());
+  /* AI の会社の窓口（js/ai.js の PROVIDERS。Issue #46）が全部 CSP にある */
+  Object.values(PROVIDERS).forEach(p => assert.ok(connect.includes(p.origin), p.origin + ' が solo.html の CSP に無い'));
   assert.match(csp, /script-src 'self';/);
   /* index.html にも <meta> の CSP。送り先は開けたまま（同期の住所）、スクリプトは自分のものだけ（Issue #14 の見直し） */
   const idxCsp = (/http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(idx) || [])[1] || '';
@@ -290,9 +294,11 @@ await test('サーバーが配るページ（server.py の CSP）でも Solana �
   assert.ok(m, 'server.py に CSP が無い');
   const csp = m[1].split('\n').map(l => (/"([^"]*)"/.exec(l) || [])[1] || '').join('');
   const connect = /connect-src ([^;]+)/.exec(csp)[1].trim().split(/\s+/);
-  assert.deepEqual(connect.sort(), ["'self'", 'https://api.anthropic.com', 'https://api.devnet.solana.com',
+  assert.deepEqual(connect.sort(), ["'self'", 'https://api.anthropic.com', 'https://api.openai.com',
+    'https://generativelanguage.googleapis.com', 'https://api.devnet.solana.com',
     'https://api.mainnet-beta.solana.com', 'https://api.open-meteo.com'].sort());
   Object.values(NETWORKS).forEach(x => assert.ok(connect.includes(x.rpc), x.rpc + ' が server.py の CSP に無い'));
+  Object.values(PROVIDERS).forEach(p => assert.ok(connect.includes(p.origin), p.origin + ' が server.py の CSP に無い'));
 });
 
 await test('Android の app（Capacitor）ではパスキーを使わない・入口を1つにする script を両方の head で読む（Issue #38）', () => {

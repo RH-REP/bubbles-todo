@@ -2059,7 +2059,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     box.appendChild(undo);
 
     const note = el('p', 'bm-ai-note',
-      '「送る」は、この泡の名前と書いた文だけを Anthropic へ送る（本文は送らない）。下のボタンは名前と本文を送る。料金はキーの持ち主に掛かる。');
+      '「送る」は、この泡の名前と書いた文だけを設定で選んだ AI の会社へ送る（本文は送らない）。下のボタンは名前と本文を送る。料金はキーの持ち主に掛かる。');
     box.appendChild(note);
     detailPane.appendChild(box);
 
@@ -2105,7 +2105,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       undo.hidden = true;
       hidePre();
       if (!hasKey()) {
-        said.textContent = 'API キーがまだ入っていない。設定の「AI を使う設定をする」に Anthropic の API キーを入れると使える。';
+        said.textContent = 'API キーがまだ入っていない。設定の「AI を使う設定をする」で AI の会社を選び、その API キーを入れると使える。';
         relayout();
         return;
       }

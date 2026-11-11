@@ -112,7 +112,7 @@ await test('今日の画面: 自動では置かず、[AI で選び直す] を押
   assert.doesNotMatch(open, /askFull|setDay/);
   const ask = src.slice(src.indexOf('async function askSuggest'));
   assert.match(ask.slice(0, ask.indexOf('askFull')), /if \(!hasKey\(\)\)/);
-  assert.match(src, /押すと、候補の泡の名前と印（30 件まで）を Anthropic へ送る/);
+  assert.match(src, /押すと、候補の泡の名前と印（30 件まで）を設定で選んだ AI の会社へ送る/);
 });
 
 console.log('\n' + pass + ' passed, ' + failed.length + ' failed');

@@ -28,7 +28,10 @@ import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, l
 import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { openSeaSheet } from '../space.js';
-import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
+import {
+  getKey, setKey, hasKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
+  PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
+} from '../ai.js';
 import { ITEMS, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
   changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
 import { openHelp } from '../help.js';
@@ -3144,13 +3147,53 @@ function maskKey(k) { const s = String(k || ''); return s ? '…' + s.slice(-4) 
 function helpAiBox() {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, 'AI の API キーとモデル'));
-  wrap.appendChild(el('p', 'note',
-    'AI（Anthropic・Claude）は、ここに入れた API キーで動く。ヘルプで訊く・先の予定を探す・この端末の表示をチャットで変えるときに使う。'
+  const selCss = 'font:inherit;font-size:16px;min-height:40px;padding:0 8px;border-radius:10px;'
+    + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
+
+  /* --- AI の会社（2026-11-12 Issue #46 の A 案）。選べるのは js/ai.js の PROVIDERS の 3 社だけ。
+     キーとモデルは会社ごとに別に覚える。切り替えても、ほかの会社のキーは消さない --- */
+  const provRow = el('label', 'row');
+  provRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center;font-size:13.5px';
+  provRow.appendChild(el('span', null, 'AI の会社'));
+  const provSel = document.createElement('select');
+  provSel.setAttribute('aria-label', 'AI の会社');
+  provSel.style.cssText = selCss;
+  PROVIDER_IDS.forEach(id => {
+    const op = document.createElement('option');
+    op.value = id;
+    op.textContent = providerLabel(id) + (hasKey(id) ? '（キーあり）' : '');
+    provSel.appendChild(op);
+  });
+  provSel.value = getProvider();
+  provRow.appendChild(provSel);
+  wrap.appendChild(provRow);
+
+  const body = el('div', 'aibody');
+  wrap.appendChild(body);
+  provSel.addEventListener('change', () => {
+    if (!setProvider(provSel.value)) { toast('保存できなかった'); return; }
+    toast(providerLabel() + ' を使う（次に訊くときから）');
+    renderAll();
+  });
+
+  function renderAll() {
+  body.textContent = '';
+  const P = providerInfo();
+  /* 選択肢の「（キーあり）」を今の状態に合わせる */
+  [...provSel.options].forEach(op => { op.textContent = providerLabel(op.value) + (hasKey(op.value) ? '（キーあり）' : ''); });
+  body.appendChild(textEl('p', 'note',
+    'AI（' + P.label + '）は、ここに入れた API キーで動く。ヘルプで訊く・本文の AI・おすすめの選び直し・この端末の表示をチャットで変えるときに使う。'
     + 'ヘルプで送るのは質問の文とこの app の説明・版・画面だけ（バブルの本文は送らない）。'));
+  /* Web で調べるものが使えないことは、ⓘ の裏に隠さない（p.note にしない） */
+  if (!canSearch()) {
+    const ns = textEl('p', 'aikey-lb', '先の予定と「AI で調べる」「AI に訊く」（Web で調べるもの）は、今は Anthropic を選んだときだけ使える。');
+    ns.style.cssText = 'margin:6px 0 0;font-size:13px';
+    body.appendChild(ns);
+  }
 
   /* --- API キー --- */
   const keyBox = el('div', 'aikey');
-  wrap.appendChild(keyBox);
+  body.appendChild(keyBox);
   function renderKey(editing) {
     keyBox.textContent = '';
     if (!hasKey() || editing) {
@@ -3158,14 +3201,14 @@ function helpAiBox() {
       const lb = el('p', 'aikey-lb');
       lb.style.cssText = 'margin:8px 0 0;font-size:13.5px';
       lb.appendChild(textEl('span', null, editing
-        ? '新しい Anthropic の API キーを貼り付けて「キーを保存」を押す。'
-        : 'AI を使うには、Anthropic の API キー（sk-ant- で始まる字）を下の欄に貼り付けて「キーを保存」を押す。キーが無くてもヘルプの記事は読める。'));
+        ? '新しい ' + P.label + ' の API キーを貼り付けて「キーを保存」を押す。'
+        : 'AI を使うには、' + P.label + ' の API キー（' + P.keyHint + '）を下の欄に貼り付けて「キーを保存」を押す。キーが無くてもヘルプの記事は読める。'));
       keyBox.appendChild(lb);
       const how = el('p', 'aikey-lb');
       how.style.cssText = 'margin:4px 0 0;font-size:13px';
       const a = el('a', null);
-      a.textContent = 'キーを取る（Anthropic Console の API Keys）';
-      a.href = 'https://console.anthropic.com/settings/keys';
+      a.textContent = 'キーを取る（' + P.keyPlace + '）';
+      a.href = P.keyUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       how.appendChild(a);
@@ -3182,7 +3225,7 @@ function helpAiBox() {
       ch.addEventListener('click', () => renderKey(true));
       const rm = el('button', 'btn', '消す');
       rm.type = 'button';
-      rm.addEventListener('click', () => { setKey(''); toast('キーを消した'); renderKey(false); });
+      rm.addEventListener('click', () => { setKey(''); toast('キーを消した'); renderAll(); });
       row.appendChild(st); row.appendChild(ch); row.appendChild(rm);
       keyBox.appendChild(row);
       return;
@@ -3190,16 +3233,17 @@ function helpAiBox() {
     const keyIn = document.createElement('input');
     keyIn.type = 'password';
     keyIn.autocomplete = 'off';
-    keyIn.placeholder = 'sk-ant-…（Anthropic Console で発行）';
-    keyIn.setAttribute('aria-label', 'Anthropic の API キー');
+    keyIn.placeholder = P.keyPrefix + '…（' + P.keyPlace + ' で発行）';
+    keyIn.setAttribute('aria-label', P.label + ' の API キー');
     keyIn.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:16px;min-height:44px;'
       + 'padding:0 12px;border-radius:10px;border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
     const save = () => {
       const v = keyIn.value.trim();
       if (!v) { toast('キーを貼り付けてから保存する'); return; }
       if (!setKey(v)) { toast('保存できなかった'); return; }
-      toast(/^sk-ant-/.test(v) ? 'キーを保存した' : 'キーを保存した（sk-ant- で始まっていない。違うキーかもしれない）');
-      renderKey(false);
+      toast(v.indexOf(P.keyPrefix) === 0 ? 'キーを保存した'
+        : 'キーを保存した（' + P.keyPrefix + ' で始まっていない。違う会社のキーかもしれない）');
+      renderAll();
     };
     keyIn.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); save(); } });
     const sv = el('button', 'btn', 'キーを保存');
@@ -3214,27 +3258,69 @@ function helpAiBox() {
     }
     keyBox.appendChild(row);
     keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ置く（海域・CSV・同期には入らない）。'
-      + 'Anthropic Console で、この app 専用のワークスペースと使える上限額を決めておくと安心。'));
+      + P.keyPlace + ' の側で、この app 専用のキーと使える上限額を決めておくと安心。'));
     if (editing) setTimeout(() => keyIn.focus(), 0);
   }
   renderKey(false);
 
-  /* --- モデル（2026-11-05 Issue #13「使っているモデルはなに？どうやって変える？」） --- */
+  /* --- モデル（2026-11-05 Issue #13「使っているモデルはなに？どうやって変える？」）。
+     会社ごとの一覧＋「手で入れる」（一覧に無い新しいモデル名。Issue #46） --- */
+  const CUSTOM_OPT = '__custom__';
   const modelRow = el('label', 'row');
   modelRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center;font-size:13.5px';
   modelRow.appendChild(el('span', null, 'AI のモデル'));
   const modelSel = document.createElement('select');
   modelSel.setAttribute('aria-label', 'AI のモデル');
-  modelSel.style.cssText = 'font:inherit;font-size:16px;min-height:40px;padding:0 8px;border-radius:10px;'
-    + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
-  MODELS.forEach(m => { const op = document.createElement('option'); op.value = m.id; op.textContent = m.label; modelSel.appendChild(op); });
-  modelSel.value = getModel();
+  modelSel.style.cssText = selCss;
+  modelsFor().forEach(m => { const op = document.createElement('option'); op.value = m.id; op.textContent = m.label; modelSel.appendChild(op); });
+  const cOp = document.createElement('option');
+  cOp.value = CUSTOM_OPT;
+  cOp.textContent = '一覧に無いモデル名を手で入れる…';
+  modelSel.appendChild(cOp);
+  const choice = getModelChoice();
+  modelSel.value = choice.custom ? CUSTOM_OPT : choice.id;
+  modelRow.appendChild(modelSel);
+  body.appendChild(modelRow);
+
+  const customRow = el('div', 'row');
+  customRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
+  const customIn = document.createElement('input');
+  customIn.type = 'text';
+  customIn.autocomplete = 'off';
+  customIn.spellcheck = false;
+  customIn.placeholder = 'モデル名（例 ' + P.defaultModel + '）';
+  customIn.setAttribute('aria-label', '手で入れるモデル名');
+  customIn.value = choice.custom ? choice.id : '';
+  customIn.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:16px;min-height:44px;'
+    + 'padding:0 12px;border-radius:10px;border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
+  const customSave = el('button', 'btn', 'このモデルにする');
+  customSave.type = 'button';
+  const saveCustom = () => {
+    const v = customIn.value.trim();
+    if (!validModelName(v)) { toast('モデル名は英数字と . _ : - だけで書く'); return; }
+    toast(setCustomModel(v) ? 'モデルを ' + v + ' にした（次に訊くときから）' : '保存できなかった');
+  };
+  customSave.addEventListener('click', saveCustom);
+  customIn.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); saveCustom(); } });
+  customRow.appendChild(customIn); customRow.appendChild(customSave);
+  /* style の display:flex が hidden 属性に勝つので、出し入れは display で行う */
+  const showCustom = on => { customRow.style.display = on ? 'flex' : 'none'; };
+  showCustom(choice.custom);
+  body.appendChild(customRow);
+
   modelSel.addEventListener('change', () => {
+    if (modelSel.value === CUSTOM_OPT) {
+      showCustom(true);
+      setTimeout(() => customIn.focus(), 0);
+      return;
+    }
+    showCustom(false);
     toast(setModel(modelSel.value) ? 'モデルを変えた（次に訊くときから）' : '保存できなかった');
   });
-  modelRow.appendChild(modelSel);
-  wrap.appendChild(modelRow);
-  wrap.appendChild(el('p', 'note', 'ヘルプ・先の予定・本文の AI のどれもこのモデルで動く。上ほど賢いが、1 回ごとの料金も上がる。この端末にだけ置く。'));
+  body.appendChild(el('p', 'note', 'ヘルプ・先の予定・本文の AI のどれもこのモデルで動く。上ほど賢いが、1 回ごとの料金も上がる。'
+    + '料金はキーを出した会社からキーの持ち主に掛かる。この端末にだけ置く。'));
+  }
+  renderAll();
 
   const repoRow = el('p', 'note');
   const repoLink = el('a', null, 'GitHub: ' + REPO);

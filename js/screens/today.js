@@ -1328,7 +1328,7 @@ function renderSuggest() {
   s.aiBtn.disabled = s.busy;
   s.aiBtn.textContent = s.busy ? 'AI が選んでいる…' : 'AI で選び直す';
   s.note.textContent = s.msg || (hasKey()
-    ? '押すと、候補の泡の名前と印（30 件まで）を Anthropic へ送る。本文・作業メモは送らない'
+    ? '押すと、候補の泡の名前と印（30 件まで）を設定で選んだ AI の会社へ送る。本文・作業メモは送らない'
     : '設定の「AI を使う設定をする」に API キーを入れると、名前の意味や季節も考えに入れて選べる');
 }
 

@@ -179,7 +179,7 @@ export function openHelp(opts) {
   /* キーが無いときは、入力欄の前に「どこで入れるか」をはっきり出す（打ってから断られないように） */
   if (!hasKey()) {
     chatBox.appendChild(el('p', 'help-nokey',
-      'API キーがまだ入っていない。設定の「AI を使う設定をする」の欄に Anthropic の API キーを入れると訊ける。'));
+      'API キーがまだ入っていない。設定の「AI を使う設定をする」で AI の会社を選び、その API キーを入れると訊ける。'));
   }
 
   /* 例の質問（会話がまだ無いときだけ出す） */

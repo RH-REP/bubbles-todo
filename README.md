@@ -132,11 +132,24 @@
   - 使わないときは設定の「消す」でこの端末から消す
 - **送り先**: ブラウザから Anthropic の API（`api.anthropic.com`）へ直接。server.py を介さない
   （`anthropic-dangerous-direct-browser-access` ヘッダを付けて呼ぶ。鍵は使う人が自分の端末に置く前提の、Anthropic 自身の仕組み）
+- **AI の会社を選ぶ（2026-11-12 Issue #46 の A 案）**: 設定の「AI を使う設定をする」の「AI の会社」で、
+  Anthropic（Claude）・OpenAI（GPT。`api.openai.com` の chat/completions、`Authorization: Bearer`）・
+  Google Gemini（`generativelanguage.googleapis.com` の generateContent、`x-goog-api-key`）から 1 社を選ぶ。
+  選べるのは `js/ai.js` の `PROVIDERS` の 3 社だけで、その窓口を CSP の connect-src に決め打ちで書いた
+  （`tests/chain.test.mjs` が `PROVIDERS` と CSP を突き合わせる）。住所を自分で入れる形（OpenAI 互換の任意の住所）は、CSP を広げることになるので作らない。
+  - キーは会社ごとに別の箱（`bubble_todo_ai_key`＝Anthropic、`bubble_todo_ai_key_openai`、`bubble_todo_ai_key_gemini`）。
+    切り替えてもほかの会社のキーは消えない。どれも `bubble_todo_ai_key` で始まり、版を戻すときの写し（`js/rollback.js`）にも入らない
+  - モデルも会社ごとに覚える（`bubble_todo_ai_model`・`_openai`・`_gemini`）。一覧に無い新しいモデルは「手で入れる」で名前を入れる
+    （英数字と `. _ : -` だけ。`custom:<名前>` で保存）
+  - どの会社でも、各機能が送る中身は同じ（下の「作り」の例外のとおり）
+  - **Web で調べるもの（先の予定・本文の「AI で調べる」「AI に訊く」）は Anthropic のときだけ**（Anthropic の Web 検索ツールを使うため）。
+    ほかの会社では理由を出して断る（`canSearch()`）
+  - OpenAI の GPT-5 系・Gemini 2.5 系は考える分も出力の上限に数えるので、この 2 社には上限を 8000 以上で渡す（使った分だけ課金）
 - **ページの守り（CSP）の今の形**（Issue #14 の見直し、2026-11-11）:
 
   | 開き方 | CSP | よそのスクリプトを動かさない（script-src 'self'） | 送り先の決め打ち（connect-src） |
   |---|---|---|---|
-  | server.py が配るページ | ヘッダー（server.py の `CSP`） | ある | `'self'`・Anthropic・天気・Solana の公式 RPC |
+  | server.py が配るページ | ヘッダー（server.py の `CSP`） | ある | `'self'`・Anthropic・OpenAI・Gemini・天気・Solana の公式 RPC |
   | solo.html（GitHub Pages・Android でサーバーに繋いでいないとき。js/boot-edition.js が移す） | `<meta>` | ある | 同上 |
   | index.html を GitHub Pages・Android で開き、サーバーに繋いでいるとき | `<meta>`（2026-11-11 に足した） | ある | **無い**（`*`。利用者が入れる同期の住所に繋ぐため） |
 
@@ -779,7 +792,7 @@ CSV は開いている海だけで、サーバーに入る鍵も入らないの�
 - **Android の app（Capacitor）**（Issue #38 の A 案）: パスキーは使わず、合言葉と復元コードだけ（`chain.js` の `inNativeApp` で `prfSupported` が偽になり、パスキーのまとまりを出さない）。
   ページが `https://localhost` なのでパスキーを作れてもブラウザの版とは別物になり、WebView は既定でパスキーを扱わない。
   使うなら、ネイティブの部品（Android の Credential Manager を呼ぶ Capacitor のプラグイン）と、ドメインの `/.well-known/assetlinks.json`（app の署名の鍵の指紋）が要る（今は作らない）
-- **CSP（`<meta>`）**: connect-src は `'self'`・`api.anthropic.com`・`api.open-meteo.com`・Solana の公式 RPC（`api.devnet.solana.com`・`api.mainnet-beta.solana.com`）だけ。
+- **CSP（`<meta>`）**: connect-src は `'self'`・AI の 3 社（`api.anthropic.com`・`api.openai.com`・`generativelanguage.googleapis.com`。Issue #46）・`api.open-meteo.com`・Solana の公式 RPC（`api.devnet.solana.com`・`api.mainnet-beta.solana.com`）だけ。
   ページに悪いプログラムが入っても、AI のキーや記録をよその住所へ送れない（ブラウザが止める）。`<meta>` では frame-ancestors は効かない。
   サーバーには繋がらないので、設定にサーバーの欄を出さない（同じ住所の index.html で入れたサーバーの設定は残るが、繋がらない）
 - **控えの中身**: 引っ越しのファイルと同じ（すべての海の記録と海の一覧）。**サーバーの住所と鍵・AI のキーは入れない**

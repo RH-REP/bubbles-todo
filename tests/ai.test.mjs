@@ -96,6 +96,91 @@ await test('ask() は x-api-key と anthropic-dangerous-direct-browser-access �
   assert.equal(JSON.stringify(seen.body.messages).includes('質問だよ'), true);
 });
 
+/* ---- AI の会社を選ぶ（Issue #46 の A 案） ---- */
+await test('会社: 既定は Anthropic。キーは会社ごとに別の箱で、切り替えてもほかの会社のキーは残る', async () => {
+  mem.clear();
+  const ai = await import(AI_URL + '?case=p1');
+  assert.equal(ai.getProvider(), 'anthropic');
+  ai.setKey('sk-ant-A');
+  assert.equal(ai.setProvider('openai'), true);
+  assert.equal(ai.hasKey(), false, 'OpenAI のキーはまだ無い');
+  ai.setKey('sk-OPENAI');
+  assert.equal(localStorage.getItem('bubble_todo_ai_key_openai'), 'sk-OPENAI');
+  assert.equal(localStorage.getItem('bubble_todo_ai_key'), 'sk-ant-A', 'Anthropic のキーはそのまま');
+  assert.equal(ai.hasKey('anthropic'), true);
+  assert.equal(ai.setProvider('nope'), false);
+  assert.equal(ai.getProvider(), 'anthropic', '知らない会社は既定に戻す');
+  Object.values(ai.PROVIDERS).forEach(p => assert.ok(p.keyStore.indexOf('bubble_todo_ai_key') === 0, p.id + ' のキーの箱の名前'));
+});
+
+await test('会社: OpenAI は Bearer で chat/completions、system を先頭のメッセージにし、切れたら max_tokens', async () => {
+  mem.clear();
+  const ai = await import(AI_URL + '?case=p2');
+  ai.setProvider('openai');
+  ai.setKey('sk-OKEY');
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = { url, headers: init.headers, body: JSON.parse(init.body) };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'やあ' }, finish_reason: 'length' }] }) };
+  };
+  const r = await ai.askFull('説明', '質問', { maxTokens: 2000 });
+  assert.equal(seen.url, 'https://api.openai.com/v1/chat/completions');
+  assert.equal(seen.headers.authorization, 'Bearer sk-OKEY');
+  assert.equal(seen.headers['x-api-key'], undefined, 'Anthropic のヘッダは付けない');
+  assert.equal(seen.body.model, 'gpt-5');
+  assert.deepEqual(seen.body.messages, [{ role: 'system', content: '説明' }, { role: 'user', content: '質問' }]);
+  assert.ok(seen.body.max_completion_tokens >= 2000);
+  assert.deepEqual(r, { text: 'やあ', stop: 'max_tokens' });
+});
+
+await test('会社: Gemini は x-goog-api-key で generateContent、assistant は model、考えの部分は返事に入れない', async () => {
+  mem.clear();
+  const ai = await import(AI_URL + '?case=p3');
+  ai.setProvider('gemini');
+  ai.setKey('AIzaKEY');
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = { url, headers: init.headers, body: JSON.parse(init.body) };
+    return { ok: true, json: async () => ({ candidates: [{ finishReason: 'STOP',
+      content: { parts: [{ text: '考え中', thought: true }, { text: 'こたえ' }] } }] }) };
+  };
+  const t = await ai.ask('説明', [{ role: 'user', content: 'q1' }, { role: 'assistant', content: 'a1' }, { role: 'user', content: 'q2' }]);
+  assert.equal(t, 'こたえ');
+  assert.equal(seen.url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent');
+  assert.equal(seen.headers['x-goog-api-key'], 'AIzaKEY');
+  assert.ok(!String(seen.url).includes('AIzaKEY'), 'キーを住所に入れない');
+  assert.deepEqual(seen.body.systemInstruction, { parts: [{ text: '説明' }] });
+  assert.deepEqual(seen.body.contents.map(c => c.role), ['user', 'model', 'user']);
+});
+
+await test('会社: Web 検索は Anthropic のときだけ。ほかでは fetch せずに断る', async () => {
+  mem.clear();
+  const ai = await import(AI_URL + '?case=p4');
+  ai.setProvider('openai');
+  ai.setKey('sk-OKEY');
+  assert.equal(ai.canSearch(), false);
+  let called = false;
+  globalThis.fetch = async () => { called = true; return { ok: true, json: async () => ({}) }; };
+  await assert.rejects(() => ai.askWithSearchFull('s', 'u'), /Anthropic を選んだとき/);
+  assert.equal(called, false);
+  assert.equal(ai.canSearch('anthropic'), true);
+});
+
+await test('モデル: 会社ごとに覚える。手で入れた名前は英数字と . _ : - だけ', async () => {
+  mem.clear();
+  const ai = await import(AI_URL + '?case=p5');
+  ai.setProvider('gemini');
+  assert.equal(ai.getModel(), 'gemini-2.5-pro');
+  assert.equal(ai.setCustomModel('gemini-3-pro-preview'), true);
+  assert.deepEqual(ai.getModelChoice(), { id: 'gemini-3-pro-preview', custom: true });
+  assert.equal(ai.setCustomModel('../evil'), false);
+  assert.equal(ai.setCustomModel('a b'), false);
+  assert.equal(ai.getModel(), 'gemini-3-pro-preview', '断った名前で上書きしない');
+  assert.equal(ai.getModel('anthropic'), ai.DEFAULT_MODEL, 'Anthropic のモデルは別');
+  ai.setModel('gemini-2.5-flash');
+  assert.deepEqual(ai.getModelChoice(), { id: 'gemini-2.5-flash', custom: false });
+});
+
 await test('ヘルプの返事: Markdown の飾り（**・#・`・行頭の -）を落として素の文にする', async () => {
   /* help.js が DOM を触るのは openHelp の中だけ。ただし読み込む ui.js が読み込み時に window を見るので、
      その分だけ小さな代わりを置く */
