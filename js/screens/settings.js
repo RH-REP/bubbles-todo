@@ -1509,28 +1509,34 @@ function chainBox() {
      招く・外すのは海の持ち主（共有を始めた人）だけ。保存・読み込みはボタンで（押したときだけ手数料が掛かる）。
      海の鍵は自分の記録のカギで包んで端末に置くので、どの操作でもパスキーか合言葉で開く */
   function paintShare(net) {
-    group('share', '共有の海（特定の人と・試し）',
-      '名前を付けた海を、決めた人とだけ共有する。相手に渡すのは「共有用のアドレス」（人に見られてよい）だけで、鍵は渡さない。'
-      + '招かれる人は自分の共有用のアドレスを招く人に送り、招く人が「招く」を押すと、チェーンに招待が書かれる。招かれた人は「招待を探す」で受け取る。'
-      + '中身は暗号化してあり、メンバーしか読めない。ただし、誰と誰が同じ海にいるか（ウォレットのアドレスどうし）と、書いた時刻・大きさは、チェーンの上で誰でも見られる。'
-      + '書いたものは消せない。外したメンバーも、外す前に書かれた記録は読める。'
-      + '共有する海は「＋ 新しい海をつくって共有する…」でここから作れる（左上の ≡ の「＋ 海をつくる」で作った海は「作ってある海を共有する…」）。'
-      + '招かれる人は海を作らなくてよい（受け取ると海が足される）。');
-    btn('共有用のアドレスをコピー', async () => {
+    /* 招く側と招かれる側でまとまりを分け、番号の順に押せばよいようにした（2026-11-11 Issue #37 の返事:
+       「このアドレスを相手に渡せばいい？」「相手はどのボタンで取り込むの？」。アドレスが向かう向き＝招かれる人 → 招く人、が分かりにくかった） */
+    group('share-in', '共有の海に招かれる（受け取る側）',
+      '① 「共有用のアドレスをコピー」を押し、出てきたアドレス（BTA1-…）を、招いてくれる人（海の持ち主）にメッセージなどで送る。人に見られてよい。'
+      + '② 持ち主が「招く…」に貼って招いたら、「招待を探す」を押す。海がこの端末に足され、メンバーの記録が読み込まれる（海は自分で作らなくてよい）。'
+      + '自分が招く側なら、このまとまりは使わない（下の「共有の海を招く（持ち主の側）」）。');
+    btn('① 共有用のアドレスをコピー', async () => {
       const keys = await unlock();
       await checkSame(keys);
       const addr = await makeShareAddress(keys, net);
       cfg = Object.assign(loadConfig(), { share: addr });
       saveConfig(cfg);
-      try { await navigator.clipboard.writeText(addr); line.textContent = '共有用のアドレスをコピーした（招いてほしい人に送る）: ' + addr; } catch (e) {
-        line.textContent = '共有用のアドレス（招いてほしい人に送る）: ' + addr;
+      const tail = '　← これを、招いてくれる人（海の持ち主）に送る。招かれたら「② 招待を探す」を押す。';
+      try { await navigator.clipboard.writeText(addr); line.textContent = '共有用のアドレスをコピーした: ' + addr + tail; } catch (e) {
+        line.textContent = '共有用のアドレス: ' + addr + tail;
       }
     });
-    btn('招待を探す', acceptInvites);
+    btn('② 招待を探す', acceptInvites);
+
+    group('share', '共有の海を招く（持ち主の側）',
+      '① 共有する海を作る（または作ってある海を選ぶ）。② 招く相手から、その人の共有用のアドレス（BTA1-…）を送ってもらう。'
+      + '③ 下に出る海の行の「招く…」に貼る。相手が「招待を探す」を押すと、相手の端末にこの海が足される。'
+      + '中身は暗号化してあり、メンバーしか読めない。ただし、誰と誰が同じ海にいるか（ウォレットのアドレスどうし）と、書いた時刻・大きさは、チェーンの上で誰でも見られる。'
+      + '書いたものは消せない。外したメンバーも、外す前に書かれた記録は読める。');
     /* 設定の画面で海の作り方を探していた（2026-11-11 Issue #37 の返事）。引き出しと同じ「海をつくる」板をここからも開き、
        作ったらそのまま共有へ進む（その海へは切り替えない） */
-    btn('＋ 新しい海をつくって共有する…', async () => { makeSeaThenShare(); });
-    btn('作ってある海を共有する…', startSharing);
+    btn('① ＋ 新しい海をつくって共有する…', async () => { makeSeaThenShare(); });
+    btn('① 作ってある海を共有する…', startSharing);
 
     const mine = sharedFor(loadShared(), cfg.address, net);
     mine.forEach(rec => {
@@ -1547,7 +1553,7 @@ function chainBox() {
       btn('保存（自分の記録を書く）', () => saveShared1(rec.id));
       btn('読み込む（みんなの記録を重ねる）', () => readShared1(rec.id));
       if (owner) {
-        btn('招く…', () => inviteTo(rec.id));
+        btn('③ 招く…（相手の共有用のアドレスを貼る）', () => inviteTo(rec.id));
         btn('メンバーを外す…', () => removeFrom(rec.id));
       }
       btn('この端末で共有をやめる', async () => {
@@ -1835,11 +1841,11 @@ function chainBox() {
       all[f.sea.id] = rec;
       if (!local) mergeSeas([f.sea]);
       took++;
-      curKey = 'share';
+      curKey = 'share-in';
       await readWith(rec, f.key);
     }
     paint();
-    curKey = 'share';
+    curKey = 'share-in';
     line.textContent = took ? '招待を ' + took + ' 件受け取った。' : (line.textContent || 'どれも受け取らなかった。');
   }
 
