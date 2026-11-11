@@ -2417,6 +2417,10 @@ function openNarrowPop() {
 function syncNarrowBtn() {
   syncQuadButton(quadBtn, gathering && gridMode === 'quad');
   syncDeadlineButton(dlBtn, gathering && gridMode === 'days');
+  /* リストの形の切り替え（Issue #40）。いまの形のボタンに印 */
+  if (stage) stage.querySelectorAll('.sea-mode-b').forEach(b => {
+    b.setAttribute('aria-pressed', gathering && gridMode === b.dataset.mode ? 'true' : 'false');
+  });
   if (!narrowBtn) return;
   if (pruneNarrow()) syncFaces();          /* 消えたタグを選んだままにしない */
   /* 中央（ぜんぶ）の海にだけ置く。タグの海には出さない（絞る意味が無い）。
@@ -2906,7 +2910,7 @@ function setGridMode(mode) {
   clearGrid();
   if (mode !== 'quad') clearQuad();
   if (mode !== 'days' && dl) dl.clear();
-  grid.hidden = true;
+  grid.hidden = mode !== 'list';     /* 一覧へもどすとき（Issue #40 の切り替え）は一覧を出す */
   quad.el.hidden = mode !== 'quad';
   if (dl) dl.el.hidden = mode !== 'days';
   stage.classList.toggle('is-quad', mode === 'quad');
@@ -3423,13 +3427,29 @@ export default {
        フィルターは隠れることがある（タグの海・タグが無いとき）ので、並びは flex に任せる */
     const tools = el('div', 'sea-tools');
     tools.appendChild(narrowBtn);
-    quadBtn = quadButton(() => setQuadView(!(gathering && gridMode === 'quad')));
-    tools.appendChild(quadBtn);
-    dlBtn = deadlineButton(() => setDaysView(!(gathering && gridMode === 'days')));
-    tools.appendChild(dlBtn);
-    /* 四つに分けるは、あまり使わない機能（Issue #40）。設定の「この端末の表示」で出す。
-       日付で見る（▤。終了日の近い順と天気）は既定で出す（Issue #40 の返事: 見つけられなかった） */
-    quadBtn.classList.add('is-extra');
+    /* リストの形の切り替え（Issue #40 の返事「リスト表示の中で切り替えられるようにできる？」）。
+       一覧（古い順）・日付（終了日の近い順と天気）・四つ（優先度）を、リスト表示の中の3つのボタンで切り替える。
+       海の上には出さない（.sea-stage.is-gathering のときだけ出る。css/screens/sea.css .sea-mode）。
+       前は海の上に ⊞・▤ を置いていた（quadBtn・dlBtn。もう作らないので null のまま） */
+    const modeSeg = el('div', 'sea-mode');
+    modeSeg.setAttribute('role', 'group');
+    modeSeg.setAttribute('aria-label', 'リストの形');
+    [['list', '≡', '一覧'], ['days', '▤', '日付'], ['quad', '⊞', '四つ']].forEach(([mode, ic, name]) => {
+      const b = el('button', 'sea-mode-b');
+      b.type = 'button';
+      b.dataset.mode = mode;
+      const i = el('span', 'ic', ic);
+      i.setAttribute('aria-hidden', 'true');
+      b.appendChild(i);
+      b.appendChild(el('span', 'lb', name));
+      b.addEventListener('click', ev => {
+        ev.preventDefault();
+        if (gathering && gridMode === mode) return;
+        setGridMode(mode);
+      });
+      modeSeg.appendChild(b);
+    });
+    tools.appendChild(modeSeg);
     stage.appendChild(tools);
 
     /* --- ランダムスタート（いま開いている面から1つ、無作為に） --- */
