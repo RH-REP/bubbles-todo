@@ -168,6 +168,29 @@ test('チャット: 2つの端末（サーバーを通した写し）を合わ�
   assert.equal(N.normalizeNotes(m.doc.notes).length, 2);
 });
 
+test('チャット: チェーン・直の通信の履歴をサーバーへ写す形にする。何度写しても増えない', () => {
+  const msgs = [
+    { id: 'ab12cd34', by: 'ADDR1', at: 20, text: '届いた？' },
+    { id: 'cADDR1x10', by: 'ADDR1', at: 10, text: '前の版の 1 通' },
+    { id: 'ab12cd34', by: 'ADDR1', at: 20, text: '届いた？' },     /* 同じもの */
+    { id: 'e1', by: 'ADDR2', at: 0, text: '時刻なし' },
+    { id: 'e2', by: 'ADDR2', at: 30, text: '   ' },
+    null,
+  ];
+  const nameOf = a => (a === 'ADDR1' ? 'はなこ' : '');
+  const c = N.chatCopies(msgs, nameOf);
+  assert.deepEqual(c.doc.notes.map(n => [n.id, n.by, n.text]), [['xcaddr1x10', 'はなこ', '前の版の 1 通'], ['xab12cd34', 'はなこ', '届いた？']]);
+  assert.ok(c.doc.notes.every(n => n.todo === N.CHAT_TODO && n.dev === ''));
+  assert.deepEqual(c.stamps['note:xab12cd34'], [20, 1]);
+  /* 端末の記録に 2 回重ねても、件数は同じ。泡や他の記録は残る */
+  const local = { doc: { todos: [{ id: 'b1', text: 'x' }], notes: [] }, stamps: { 'todo:b1': [5, 1] } };
+  const once = mergeState(local, c);
+  const twice = mergeState(once, N.chatCopies(msgs, nameOf));
+  assert.equal(N.chatFor(twice.doc.notes).length, 2);
+  assert.equal(twice.doc.todos.length, 1);
+  assert.equal(N.normalizeNotes(twice.doc.notes).length, 2);
+});
+
 test('CSV の書き出し・読み込みにも入る', () => {
   const state = { doc: { notes: [{ id: 'n1', todo: 'b1', at: 10, by: 'A', dev: 'da', text: '進んだ' }] },
     stamps: { 'note:n1': [10, 1] } };

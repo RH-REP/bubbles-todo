@@ -97,6 +97,27 @@ export function notesFor(list, todoId) {
 export const CHAT_TODO = '~chat';
 export function chatFor(list) { return notesFor(list, CHAT_TODO); }
 
+/* チェーン・直の通信のチャット（js/p2p.js の履歴の 1 件 { id, by, at, text }）を、海のチャットの記録に写す形にする
+   （2026-11-11 Issue #42 の返事「おすすめで」= 写す）。サーバーに繋いでいれば、海の記録と一緒にサーバーへ写る。
+   id はメッセージの id から作るので、何度写しても増えない。by はアドレスでなく呼び名（nameOf で決める）。
+   dev は空（この端末で書いたひとことではないので、ここからは消せない）。読めないもの・空の文は飛ばす。
+   戻り値は mergeState に渡せる { doc: { notes }, stamps } */
+export function chatCopies(msgs, nameOf) {
+  const notes = [];
+  const stamps = {};
+  (Array.isArray(msgs) ? msgs : []).forEach(m => {
+    if (!m || typeof m.id !== 'string' || !m.id) return;
+    const at = Number(m.at);
+    const text = cleanNote(m.text);
+    if (!Number.isFinite(at) || at <= 0 || !text) return;
+    const id = 'x' + m.id.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+    if (id === 'x' || stamps['note:' + id]) return;
+    notes.push({ id, todo: CHAT_TODO, at, by: cleanBy(typeof nameOf === 'function' ? nameOf(m.by) : ''), dev: '', text });
+    stamps['note:' + id] = [at, 1];
+  });
+  return { doc: { notes: notes.sort(byTime) }, stamps };
+}
+
 /* 新しい1件。text が空なら null */
 export function makeNote(todoId, text, by, dev, now, rnd) {
   const t = cleanNote(text);

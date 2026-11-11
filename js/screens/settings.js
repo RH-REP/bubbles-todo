@@ -25,7 +25,7 @@ import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unw
 import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, loadHistory, saveHistory, mergeHistory, markState,
   signMsg, messagesFromPosts, signSnap } from '../p2p.js';
 /* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
-import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX } from '../notes.js';
+import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
@@ -212,9 +212,9 @@ export default {
     const gLook = group('音と表示', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
     const gAi = group('AI を使う', 'ヘルプ（AI に訊く）・API キー・モデル・先の予定');
     const gShare = group('他の人と一緒に使う',
-      isSolo() ? 'サーバー・共有の海・ブロックチェーンのバックアップ' : '海域（サーバー）・共有の海・複数の端末で同じ記録');
+      isSolo() ? 'サーバー・共有の海・ブロックチェーンのバックアップ' : '海域（サーバー）・チャット・共有の海・ブロックチェーンのバックアップ');
     const gMove = group('記録の引っ越しと版',
-      'CSV の書き出し・読み込み・引っ越しのファイル・' + (isSolo() ? '' : 'ブロックチェーンのバックアップ・') + '最新の版・前の版に戻す');
+      'CSV の書き出し・読み込み・引っ越しのファイル・最新の版・前の版に戻す');
     const gEtc = group('その他', '画面の大きさの記録・プロトタイプ操作・すべて初期化');
 
     /* --- 音 --- */
@@ -268,8 +268,10 @@ export default {
 
     /* --- サーバー（複数の端末で同じ記録を使う）---
        サーバーなし版（solo.html）では出さない。通信してよい先を決め打ちにしているので、サーバーには繋がらない */
+    let serverEl = null;
     if (!isSolo()) {
-      gShare.appendChild(serverBox(this));
+      serverEl = serverBox(this);
+      gShare.appendChild(serverEl);
       /* --- この海のチャット（サーバーあり版。2026-11-11 Issue #42）--- */
       gShare.appendChild(serverChatBox(this));
     } else gShare.appendChild(soloServerBox());
@@ -278,10 +280,15 @@ export default {
     gMove.appendChild(csvBox());
     /* --- 引っ越し（暗号化したファイル。2026-11-07 Issue #19）--- */
     gMove.appendChild(moveBox());
-    /* --- ブロックチェーンに控え（2026-11-08 Issue #31。サーバーなし版だけ）---
-       サーバーなし版では共有の海（Issue #37）もこの中にあるので「他の人と一緒に使う」へ。
-       サーバー版では「サーバーなし版を開く」の案内だけなので、引っ越しの箱へ */
-    (isSolo() ? gShare : gMove).appendChild(chainBox());
+    /* --- ブロックチェーンに控え（2026-11-08 Issue #31）---
+       共有の海（Issue #37）もこの中にあるので「他の人と一緒に使う」へ。
+       サーバーが配るページでも使える（2026-11-11 Issue #42 の A 案。server.py の CSP に Solana の RPC を足した） */
+    const chainEl = chainBox();
+    gShare.appendChild(chainEl);
+
+    /* --- 記録の置き場（2026-11-11 Issue #42 の A 案）---
+       版（サーバーあり・なし）の違いを見せず、ここで置き場を選ぶ。選ぶと合うほうのページへ移るか、その欄を開く */
+    box.appendChild(placeBox({ gShare, serverEl, chainEl }));
 
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
@@ -1310,10 +1317,10 @@ function soloServerBox() {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, 'サーバー（複数の端末で同じ記録を使う）'));
   wrap.appendChild(el('p', 'note',
-    'いまはサーバーなし版（通信してよい先を決め打ちにして守っている版）で開いている。'
-    + 'サーバーに繋ぐときは、下のボタンでサーバーありの版を開き、住所を入れる。繋いだあとは、開くとサーバーありの版になる'
-    + '（サーバーに繋いでいる間は、ブロックチェーンへのバックアップは使えない）。'));
-  const b = el('button', 'btn', 'サーバーありの版を開く');
+    'いまはサーバーに繋がないページ（通信してよい先を決め打ちにして守っている）で開いている。'
+    + 'サーバーに繋ぐときは、下のボタン（または上の「記録の置き場」の「自分のサーバー」）でサーバーに繋ぐページを開き、住所を入れる。繋いだあとは、開くとそのページになる'
+    + '（サーバーが配るページでは、サーバーと一緒にブロックチェーンのバックアップ・共有の海・チャットも使える）。'));
+  const b = el('button', 'btn', 'サーバーに繋ぐページを開く');
   b.type = 'button';
   b.addEventListener('click', () => {
     try { sessionStorage.setItem(EDITION_STAY_KEY, 'server'); } catch (e) { /* 置けなければ、開いた先でまた戻る */ }
@@ -1323,6 +1330,100 @@ function soloServerBox() {
   row.appendChild(b);
   wrap.appendChild(row);
   return wrap;
+}
+
+/* 記録の置き場（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
+   > サーバーあり版とサーバーなし版の区別を無くして、設定で記録場所にサーバー使うかブロックチェーンを使うかを選択する
+   ページは裏で 2 つのまま（通信してよい先の決め打ち＝CSP は読み込みの時点で決まり、1 つのページの中で切り替えられないため）。
+   使う人には版を見せず、ここで置き場を選ぶ。選ぶと、合うほうのページへ移るか、その欄を開く。
+     ・この端末だけ   … サーバーを外す（記録は端末とサーバーの両方に残る）。サーバーでない所で開いていれば solo.html へ
+     ・自分のサーバー … solo.html なら index.html へ移って住所を入れる。index.html なら海域の欄を開く
+     ・ブロックチェーン … ブロックチェーンの欄を開く（どちらのページでも使える。サーバーと一緒にも使える）
+   1 行に畳む（Issue #40。ふだん開いて見えるのは ふりかえり・使い方・タグ だけ） */
+function placeBox({ gShare, serverEl, chainEl }) {
+  const d = document.createElement('details');
+  d.className = 'set-more';
+  d.open = !!loadPrefs().allTools;
+  const s = document.createElement('summary');
+  const tx = el('span', 'tx');
+  tx.appendChild(el('span', 'nm', '記録の置き場'));
+  const sub = el('span', 'sub');
+  tx.appendChild(sub);
+  s.appendChild(tx);
+  d.appendChild(s);
+
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, 'どこに記録を置くか'));
+  wrap.appendChild(el('p', 'note',
+    '記録はいつもこの端末に置く。加えて、自分のサーバー（海域。ほかの端末・招いた人と自動で合わせる）と、'
+    + 'ブロックチェーン（暗号化したバックアップ・共有の海・チャット。押したときだけ書き、手数料が掛かる）を選べる。'
+    + 'サーバーとブロックチェーンは両方使える。サーバーに繋いでいると、チャットの履歴もサーバーに写る。'));
+  const row = el('div', 'row');
+  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
+  const line = el('p', 'note');
+  line.setAttribute('aria-live', 'polite');
+  let said = '';
+
+  const onServer = () => !!sync.config().url;
+  const onChain = () => { const c = loadConfig(); return !!(c.mode || c.address); };
+  const ownServerPage = () => /^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname) && !window.Capacitor;
+
+  function show(target) {
+    gShare.open = true;
+    if (!target) return;
+    try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
+  }
+  function choice(label, on) {
+    const b = el('button', 'btn', label);
+    b.type = 'button';
+    b.addEventListener('click', on);
+    row.appendChild(b);
+    return b;
+  }
+  const bLocal = choice('この端末だけ', () => {
+    if (!onServer()) { said = 'いまもサーバーには繋いでいない。'; paint(); return; }
+    if (!window.confirm('サーバー（海域）を外す？\nこの端末の記録はそのまま残る。サーバーに置いた記録も消えない（また繋ぐと合わさる）。')) return;
+    sync.configure('', '', '');
+    if (!isSolo() && !ownServerPage()) {
+      said = 'サーバーを外した。サーバーなしのページに切り替える…';
+      paint();
+      try { sessionStorage.removeItem(EDITION_STAY_KEY); } catch (e) { /* 消せなくても移る */ }
+      setTimeout(() => { location.href = 'solo.html'; }, 400);
+      return;
+    }
+    said = 'サーバーを外した。';
+    paint();
+  });
+  const bServer = choice('自分のサーバー（海域）', () => {
+    if (isSolo()) {
+      /* solo.html はサーバーに繋がらない（CSP）。サーバーに繋ぐページへ移り、住所を入れる */
+      try { sessionStorage.setItem(EDITION_STAY_KEY, 'server'); } catch (e) { /* 置けなければ、開いた先でまた戻る */ }
+      said = 'サーバーに繋ぐページに切り替える（「他の人と一緒に使う」の「海域（サーバー）」に住所を入れる）…';
+      paint();
+      setTimeout(() => { location.href = 'index.html'; }, 300);
+      return;
+    }
+    show(serverEl);
+  });
+  const bChain = choice('ブロックチェーン', () => show(chainEl));
+
+  function paint() {
+    const parts = ['この端末'];
+    if (onServer()) parts.push('自分のサーバー');
+    if (onChain()) parts.push('ブロックチェーン');
+    sub.textContent = parts.join('＋');
+    line.textContent = (said ? said + ' ' : '') + 'いま: ' + parts.join('＋') + '。';
+    bLocal.setAttribute('aria-pressed', String(!onServer()));
+    bServer.setAttribute('aria-pressed', String(onServer()));
+    bChain.setAttribute('aria-pressed', String(onChain()));
+  }
+  wrap.appendChild(row);
+  wrap.appendChild(line);
+  d.appendChild(wrap);
+  sync.on(() => paint());
+  d.addEventListener('toggle', () => { if (d.open) { said = ''; paint(); } });
+  paint();
+  return d;
 }
 
 /* すべて初期化（設定も含めて。2026-11-08 Issue #32）。
@@ -1419,34 +1520,16 @@ function resetAllBox() {
   return wrap;
 }
 
-/* ブロックチェーン（Solana）への控え（2026-11-08 Issue #31）。サーバーなし版だけに出す。
+/* ブロックチェーン（Solana）への控え（2026-11-08 Issue #31）。2026-11-11 Issue #42 から、サーバーが配るページにも出す。
    仕組みと形は js/chain.js。鍵の元はパスキー（PRF）か、app が作って見せる合言葉。元はどこにも置かない。 */
 function chainBox() {
   const wrap = el('div', 'tags');
   /* 用語（2026-11-09 Issue #31 の返事で見直し）: ほかのウォレット・取引所と行き来するので、そちらと同じ言葉にそろえる。
      ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
   wrap.appendChild(el('h3', null, 'ブロックチェーンにバックアップ（Solana・試し）'));
-  if (!isSolo()) {
-    /* 入口を1つにした（Issue #38）。サーバーに繋いでいなければ、開いたときにサーバーなし版へ移る（js/boot-edition.js） */
-    const connected = !!(sync.config().url);
-    wrap.appendChild(el('p', 'note',
-      'ブロックチェーンへのバックアップは、サーバーなし版（通信してよい先を決め打ちにして守っている版）で使える。'
-      + (connected
-        ? 'サーバーに繋いでいる間は使えない。使うときは、サーバーの設定を外してから開き直す。'
-        : '下のボタンでサーバーなし版を開く（記録は同じものが見える）。')));
-    if (!connected) {
-      const b = el('button', 'btn', 'サーバーなし版を開く');
-      b.type = 'button';
-      b.addEventListener('click', () => {
-        try { sessionStorage.removeItem(EDITION_STAY_KEY); } catch (e) { /* 消せなくても開く */ }
-        location.href = 'solo.html';
-      });
-      const r = el('div', 'row');
-      r.appendChild(b);
-      wrap.appendChild(r);
-    }
-    return wrap;
-  }
+  /* サーバーが配るページでも使う（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
+     server.py の CSP に Solana の公式 RPC を足したので、サーバーに繋いだままバックアップ・共有の海・チャットを使える。
+     サーバーでない所（GitHub Pages・Android の app）で繋いでいない index.html は、開いたときに solo.html へ移る（js/boot-edition.js） */
   wrap.appendChild(el('p', 'note',
     '自分の記録を暗号化して、Solana の取引のメモに分けて書く。チェーンに書いたものは消せない（鍵が漏れれば、あとからでも読める）。'
     + '分けた取引が1つでも欠けると戻せない。サーバーの住所と鍵、AI のキーは書かない。'
@@ -2023,7 +2106,19 @@ function chainBox() {
 
     const room = rec ? 'sea:' + rec.id + ':' + rec.gen : 'self:' + keys.wallet.address;
     let hist = loadHistory(room);
-    const putHist = (list) => { hist = saveHistory(room, list); };
+    /* サーバーへの写し（2026-11-11 Issue #42 の返事「おすすめで」= A 案・写す）。
+       サーバーに繋いでいるページなら、履歴の新しい分を海の記録のチャット（js/notes.js の CHAT_TODO）にも重ねる。
+       共有の海はその海の記録へ、自分あてのメモは個人（me）の記録へ。開いている海ならすぐ、ほかの海はその海を開いたときにサーバーへ写る。
+       未送（まだ誰にも届いていない）は写さない。写すのはこの端末で見えた分だけ */
+    const copied = new Set();
+    function copyToServer() {
+      if (isSolo() || !sync.config().url) return;
+      const fresh = hist.filter(m => m.state !== 'unsent' && !copied.has(m.id));
+      if (!fresh.length) return;
+      fresh.forEach(m => copied.add(m.id));
+      try { mergeIntoDevice({ seas: [], boxes: { [rec ? rec.id : 'me']: chatCopies(fresh, nameOf) } }); } catch (e) { /* 写せなくてもチャットは続ける */ }
+    }
+    const putHist = (list) => { hist = saveHistory(room, list); copyToServer(); };
     const unsentList = () => hist.filter(m => m.state === 'unsent' && m.env);
 
     function render() {

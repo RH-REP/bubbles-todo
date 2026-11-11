@@ -279,6 +279,17 @@ await test('solo.html は index.html と CSP・印・manifest・title だけが�
   ["'./js/chain.js'", "'./solo.html'", "'./manifest-solo.json'"].forEach(a => assert.ok(sw.includes(a), 'sw.js の ASSETS に ' + a + ' が無い'));
 });
 
+await test('サーバーが配るページ（server.py の CSP）でも Solana の公式 RPC だけを足して使える（Issue #42 の A 案）', () => {
+  const py = readFileSync(new URL('../server.py', import.meta.url), 'utf8');
+  const m = /^CSP = \(([\s\S]*?)\)\n/m.exec(py);
+  assert.ok(m, 'server.py に CSP が無い');
+  const csp = m[1].split('\n').map(l => (/"([^"]*)"/.exec(l) || [])[1] || '').join('');
+  const connect = /connect-src ([^;]+)/.exec(csp)[1].trim().split(/\s+/);
+  assert.deepEqual(connect.sort(), ["'self'", 'https://api.anthropic.com', 'https://api.devnet.solana.com',
+    'https://api.mainnet-beta.solana.com', 'https://api.open-meteo.com'].sort());
+  Object.values(NETWORKS).forEach(x => assert.ok(connect.includes(x.rpc), x.rpc + ' が server.py の CSP に無い'));
+});
+
 await test('Android の app（Capacitor）ではパスキーを使わない・入口を1つにする script を両方の head で読む（Issue #38）', () => {
   assert.equal(inNativeApp(null), false);
   assert.equal(inNativeApp({}), false);

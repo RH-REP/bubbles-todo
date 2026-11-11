@@ -488,8 +488,12 @@ LOOPBACK = {'127.0.0.1', '::1'}
 # 入れたときだけ、ヘルプ画面からブラウザが直接呼ぶ（js/ai.js）。
 # api.open-meteo.com を足した（2026-11-08 Issue #30）。日付で見るの [天気を取得] を押したときだけ、
 # 全国の約140地点の予報をまとめて取る（js/weather.js。選んだ地域・todo は送らない）。ほかの外部サービスへは広げない。
+# Solana の公式 RPC（devnet・mainnet）を足した（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
+# サーバーに繋いだままブロックチェーンのバックアップ・共有の海・チャットを使うため。solo.html の <meta> の CSP と同じ窓口だけ
+# （js/chain.js の NETWORKS）。押したときだけ呼び、書くのは暗号化した記録だけ。
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
-       "connect-src 'self' https://api.anthropic.com https://api.open-meteo.com; font-src 'self'; object-src 'none'; base-uri 'self'; "
+       "connect-src 'self' https://api.anthropic.com https://api.open-meteo.com "
+       "https://api.devnet.solana.com https://api.mainnet-beta.solana.com; font-src 'self'; object-src 'none'; base-uri 'self'; "
        "form-action 'self'; frame-ancestors 'none'")
 
 
