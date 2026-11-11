@@ -99,14 +99,15 @@ export async function makeShareAddress(keys, network) {
 export async function readShareAddress(str) {
   const raw = String(str || '').replace(/\s/g, '').replace(/^BTA1-?/i, '').replace(/-/g, '');
   let b;
-  try { b = b58decode(raw); } catch (e) { throw new Error('共有用のアドレスの字が違う'); }
-  if (b.length !== 2 + 32 + 32 + 4) throw new Error('共有用のアドレスの長さが違う（写し間違い？）');
+  /* 画面では「受け取りID」と呼ぶ（2026-11-11 Issue #37 の返事: 名前が難しい） */
+  try { b = b58decode(raw); } catch (e) { throw new Error('受け取りIDの字が違う（BTA1- で始まる文字を、そのまま貼る）'); }
+  if (b.length !== 2 + 32 + 32 + 4) throw new Error('受け取りIDの長さが違う（写し間違い？）');
   const body = b.subarray(0, 66), sum = b.subarray(66);
   const want = (await sha256(body)).subarray(0, 4);
-  if (want.some((x, i) => x !== sum[i])) throw new Error('共有用のアドレスが違う（写し間違い？）');
-  if (body[0] !== VER) throw new Error('この app より新しい版の共有用のアドレス');
+  if (want.some((x, i) => x !== sum[i])) throw new Error('受け取りIDが違う（写し間違い？）');
+  if (body[0] !== VER) throw new Error('この app より新しい版の受け取りID');
   const network = Object.keys(NETWORKS).find(k => NETWORKS[k].code === body[1]);
-  if (!network) throw new Error('共有用のアドレスのネットが分からない');
+  if (!network) throw new Error('受け取りIDのネットが分からない');
   const x = body.slice(2, 34);
   const wallet = b58encode(body.slice(34, 66));
   return { network, x, wallet, text: 'BTA1-' + b58encode(b).match(/.{1,6}/g).join('-') };

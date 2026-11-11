@@ -1520,60 +1520,103 @@ function chainBox() {
   }
 
   /* ---- 共有の海（2026-11-11 Issue #37。#31 の2段目。仕組みと形は js/board.js） ----
-     名前を付けた海を1つずつ、特定の人と共有する。渡すのは共有用のアドレス（BTA1-…。人に見られてよい）だけ。
+     名前を付けた海を1つずつ、特定の人と共有する。渡すのは受け取りID（BTA1-…。js/board.js の「共有用のアドレス」。人に見られてよい）だけ。
      招く・外すのは海の持ち主（共有を始めた人）だけ。保存・読み込みはボタンで（押したときだけ手数料が掛かる）。
      海の鍵は自分の記録のカギで包んで端末に置くので、どの操作でもパスキーか合言葉で開く */
   function paintShare(net) {
     /* 招く側と招かれる側でまとまりを分け、番号の順に押せばよいようにした（2026-11-11 Issue #37 の返事:
        「このアドレスを相手に渡せばいい？」「相手はどのボタンで取り込むの？」。アドレスが向かう向き＝招かれる人 → 招く人、が分かりにくかった） */
-    group('share-in', '共有の海に招かれる（受け取る側）',
-      '① 「共有用のアドレスをコピー」を押し、出てきたアドレス（BTA1-…）を、招いてくれる人（海の持ち主）にメッセージなどで送る。人に見られてよい。'
-      + '② 持ち主が「招く…」に貼って招いたら、「招待を探す」を押す。海がこの端末に足され、メンバーの記録が読み込まれる（海は自分で作らなくてよい）。'
-      + '自分が招く側なら、このまとまりは使わない（下の「共有の海を招く（持ち主の側）」）。');
-    btn('① 共有用のアドレスをコピー', async () => {
+    /* 名前と操作を易しくした（2026-11-11 Issue #37 の返事:「名前と操作が難しい」「海の選択を文字でなくタップで」）。
+       - 「共有用のアドレス」→「受け取りID」（ウォレットのアドレスと取り違えないよう、別の言葉にした）
+       - 海は番号を打たず、海の名前のボタンをタップして選ぶ。招く相手の受け取りIDは、海の行の入力欄に貼る
+       - 「保存／読み込む」→「自分の変更を送る／みんなの変更を取り込む」。外す・やめるは畳んでおく */
+    group('share-in', '招待を受ける',
+      '① 「受け取りIDをコピー」を押して、招いてくれる人に送る（メッセージなど。人に見られてよい）。'
+      + '② 招かれたら「届いた招待を受け取る」を押す。海はこの端末に自動で足される（自分で作らなくてよい）。');
+    btn('① 受け取りIDをコピー', async () => {
       const keys = await unlock();
       await checkSame(keys);
       const addr = await makeShareAddress(keys, net);
       cfg = Object.assign(loadConfig(), { share: addr });
       saveConfig(cfg);
-      const tail = '　← これを、招いてくれる人（海の持ち主）に送る。招かれたら「② 招待を探す」を押す。';
-      try { await navigator.clipboard.writeText(addr); line.textContent = '共有用のアドレスをコピーした: ' + addr + tail; } catch (e) {
-        line.textContent = '共有用のアドレス: ' + addr + tail;
+      const tail = '　← これを招いてくれる人に送る。招かれたら「② 届いた招待を受け取る」を押す。';
+      try { await navigator.clipboard.writeText(addr); line.textContent = '受け取りIDをコピーした: ' + addr + tail; } catch (e) {
+        line.textContent = '受け取りID: ' + addr + tail;
       }
     });
-    btn('② 招待を探す', acceptInvites);
+    btn('② 届いた招待を受け取る', acceptInvites);
 
-    group('share', '共有の海を招く（持ち主の側）',
-      '① 共有する海を作る（または作ってある海を選ぶ）。② 招く相手から、その人の共有用のアドレス（BTA1-…）を送ってもらう。'
-      + '③ 下に出る海の行の「招く…」に貼る。相手が「招待を探す」を押すと、相手の端末にこの海が足される。'
-      + '中身は暗号化してあり、メンバーしか読めない。ただし、誰と誰が同じ海にいるか（ウォレットのアドレスどうし）と、書いた時刻・大きさは、チェーンの上で誰でも見られる。'
-      + '書いたものは消せない。外したメンバーも、外す前に書かれた記録は読める。');
+    const shared = loadShared();
+    /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
+    const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
+    group('share', '自分の海に人を招く',
+      '① 共有する海をタップする（無ければ「＋ 新しい海」）。② 招く人から受け取りID（BTA1-…）を送ってもらい、下に出る海の欄に貼って「招く」。'
+      + '中身はメンバーだけが読める。ただし、誰と誰が同じ海にいるかと、書いた時刻・大きさは、チェーンの上で誰でも見られる。書いたものは消せない。');
+    /* group・btn の字は HTML として入る。海の名前は必ず escapeHtml を通す */
+    cands.forEach(sea => btn('「' + escapeHtml(sea.name) + '」を共有', () => shareSea(sea)));
     /* 設定の画面で海の作り方を探していた（2026-11-11 Issue #37 の返事）。引き出しと同じ「海をつくる」板をここからも開き、
        作ったらそのまま共有へ進む（その海へは切り替えない） */
-    btn('① ＋ 新しい海をつくって共有する…', async () => { makeSeaThenShare(); });
-    btn('① 作ってある海を共有する…', startSharing);
+    btn('＋ 新しい海', async () => { makeSeaThenShare(); });
 
-    const mine = sharedFor(loadShared(), cfg.address, net);
+    const mine = sharedFor(shared, cfg.address, net);
     mine.forEach(rec => {
       const ent = allEntries().find(e => e.id === rec.id);
       const name = ent ? ent.name : rec.id;
       const owner = rec.owner === cfg.address;
       const who = (rec.members || []).map(m => (m.a === cfg.address ? '自分' : (m.n || shortAddr(m.a)))).join('・');
       /* group の見出しと説明は HTML として入る。海の名前と呼び名はほかのメンバーが書くので、必ず escapeHtml を通す */
-      group('sea:' + rec.id, '「' + escapeHtml(name) + '」' + (owner ? '（自分が持ち主）' : '（招かれた）'),
+      group('sea:' + rec.id, '共有中の海「' + escapeHtml(name) + '」' + (owner ? '' : '（招かれた）'),
         'メンバー ' + ((rec.members || []).length || '?') + ' 人' + (who ? '（' + escapeHtml(who) + '）' : '')
-        + '・鍵の代 ' + rec.gen
-        + (rec.savedAt ? '・最後に保存 ' + new Date(rec.savedAt).toLocaleString() : '')
-        + (rec.readAt ? '・最後に読み込み ' + new Date(rec.readAt).toLocaleString() : ''));
-      btn('保存（自分の記録を書く）', () => saveShared1(rec.id));
-      btn('読み込む（みんなの記録を重ねる）', () => readShared1(rec.id));
+        + (rec.savedAt ? '・最後に送った ' + new Date(rec.savedAt).toLocaleString() : '')
+        + (rec.readAt ? '・最後に取り込んだ ' + new Date(rec.readAt).toLocaleString() : ''));
+      btn('自分の変更を送る', () => saveShared1(rec.id));
+      btn('みんなの変更を取り込む', () => readShared1(rec.id));
       if (owner) {
-        btn('③ 招く…（相手の共有用のアドレスを貼る）', () => inviteTo(rec.id));
-        btn('メンバーを外す…', () => removeFrom(rec.id));
+        /* 招く相手の受け取りIDは、この海の欄に貼る（前は押してから文字の窓に貼っていた） */
+        const idIn = document.createElement('input');
+        idIn.type = 'text';
+        idIn.autocomplete = 'off';
+        idIn.spellcheck = false;
+        idIn.placeholder = '招く人の受け取りID（BTA1-…）を貼る';
+        idIn.setAttribute('aria-label', '招く人の受け取りID');
+        idIn.style.cssText = 'flex:1 1 16em;min-width:12em';
+        const nickIn = document.createElement('input');
+        nickIn.type = 'text';
+        nickIn.autocomplete = 'off';
+        nickIn.maxLength = 24;
+        nickIn.placeholder = '呼び名（空でもよい）';
+        nickIn.setAttribute('aria-label', '招く人の呼び名');
+        nickIn.style.cssText = 'flex:0 1 9em;min-width:6em';
+        const form = el('div', 'row');
+        form.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center;width:100%';
+        form.appendChild(idIn);
+        form.appendChild(nickIn);
+        into.appendChild(form);
+        const keep = into;
+        into = form;
+        btn('招く', async () => {
+          await inviteTo(rec.id, idIn.value, nickIn.value);
+        });
+        into = keep;
+      }
+      /* ふだんは使わないものは畳む */
+      const more = document.createElement('details');
+      more.style.cssText = 'margin-top:6px;width:100%';
+      more.appendChild(el('summary', null, owner ? '人を外す・共有をやめる' : '共有をやめる'));
+      const moreRow = el('div', 'row');
+      moreRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center';
+      more.appendChild(moreRow);
+      into.appendChild(more);
+      const keep = into;
+      into = moreRow;
+      if (owner) {
+        (rec.members || []).filter(m => m.a !== rec.owner).forEach(m => {
+          btn('外す: ' + escapeHtml(m.n || shortAddr(m.a)), () => removeFrom(rec.id, m.a));
+        });
       }
       btn('この端末で共有をやめる', async () => {
         if (!window.confirm('この端末で「' + name + '」の共有をやめる？\n海と記録はこの端末に残る（ほかのメンバーには知らせない。チェーンの上の記録も消えない）。'
-          + '\nまた使うときは「招待を探す」で受け取り直す。')) return;
+          + '\nまた使うときは「届いた招待を受け取る」で受け取り直す。')) return;
         const all = loadShared();
         delete all[rec.id];
         saveShared(all);
@@ -1581,6 +1624,7 @@ function chainBox() {
         curKey = 'share';
         line.textContent = '「' + name + '」の共有をやめた（この端末だけ）。';
       });
+      into = keep;
     });
   }
 
@@ -1617,41 +1661,24 @@ function chainBox() {
     return { kind: 'roster', sea: rec.id, g: rec.gen, at: Date.now(), members: rec.members };
   }
 
-  /* 共有を始める（持ち主になる）。自分宛ての招待も書く（自分のほかの端末が「招待を探す」で受け取れるように） */
-  async function startSharing() {
-    const net = netSel.value;
-    const shared = loadShared();
-    /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
-    const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
-    if (!cands.length) {
-      /* 共有できる海が無ければ、作る板をそのまま開く（前の版からある「共有」の海は、ほかの人の同じ ID の海とまざるので選べない） */
-      makeSeaThenShare();
-      line.textContent = '共有できる海がまだ無いので、新しく作る（前の版からある「共有」の海は共有できない）。';
-      return;
-    }
-    const pick = window.prompt('共有する海の番号\n' + cands.map((e, i) => (i + 1) + '. ' + e.name).join('\n'));
-    if (!pick) return;
-    const sea = cands[Number(pick) - 1];
-    if (!sea) throw new Error('番号が違う');
-    await shareSea(sea);
-  }
-
   /* 「海をつくる」板を開き、作ったらその海で共有を始める。板の「つくる」を押した手の続きで鍵を開く（パスキーはそこで出る） */
   function makeSeaThenShare() {
     openSeaSheet(null, {
       note: '作ったら、続けてこの海の共有を始める（パスキーか合言葉を求め、チェーンに書く前に確かめる）。'
-        + 'やめても海はこの端末に残り、あとで「作ってある海を共有する…」から共有できる。',
+        + 'やめても海はこの端末に残り、あとで「自分の海に人を招く」の海の名前をタップすれば共有できる。',
       onMade: async (sea) => {
         curKey = 'share';
         line.textContent = '海「' + sea.name + '」を作った。共有を始める…';
         try { await shareSea(sea); } catch (e) {
+          paint();
           curKey = 'share';
-          line.textContent = ((e && e.message) || String(e)) + '（海はこの端末に残っている。「作ってある海を共有する…」でやり直せる）';
+          line.textContent = ((e && e.message) || String(e)) + '（海はこの端末に残っている。上の海の名前をタップするとやり直せる）';
         }
       },
     });
   }
 
+  /* 共有を始める（持ち主になる）。自分宛ての招待も書く（自分のほかの端末が「届いた招待を受け取る」で受け取れるように） */
   async function shareSea(sea) {
     const net = netSel.value;
     const keys = await unlock();
@@ -1669,7 +1696,7 @@ function chainBox() {
     const need = await needFunds(net, 1 + roster.length);
     if (!window.confirm('「' + sea.name + '」を共有する？（' + NETWORKS[net].label + '）\n'
       + 'この海の鍵を作り、自分宛ての招待と名簿をチェーンに書く（取引 ' + (1 + roster.length) + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
-      + '続けて「招く…」で相手の共有用のアドレスを貼る。記録は「保存」で書く。')) { line.textContent = 'やめた'; return; }
+      + '続けて、招く人の受け取りIDを、この海の欄に貼って「招く」。')) { line.textContent = 'やめた'; return; }
     line.textContent = '書いている…';
     await writeEnvelope(net, keys.wallet, env, to.wallet);
     await writePost(net, keys.wallet, roster, board);
@@ -1678,20 +1705,20 @@ function chainBox() {
     saveConfig(cfg);
     paint();
     curKey = 'sea:' + rec.id;
-    line.textContent = '共有を始めた。「招く…」で相手を招き、「保存」で記録を書く。';
+    line.textContent = '共有を始めた。招く人の受け取りIDを、この海の欄に貼って「招く」。自分の記録は「自分の変更を送る」で書く。';
   }
 
-  /* 招く（持ち主だけ）。相手の共有用のアドレスを貼ってもらい、封筒と新しい名簿を書く */
-  async function inviteTo(id) {
+  /* 招く（持ち主だけ）。海の欄に貼った受け取りIDの人へ、封筒と新しい名簿を書く */
+  async function inviteTo(id, text, nickRaw) {
     const net = netSel.value;
     const rec = sharedRec(id);
-    const text = window.prompt('招く人の共有用のアドレス（BTA1-…。相手の設定の「共有用のアドレスをコピー」で写したもの）');
-    if (!text) return;
-    const nick = (window.prompt('この人の呼び名（メンバーの一覧に出す。メンバーだけが読める。空でもよい）') || '').trim().slice(0, 24);
-    const to = await readShareAddress(text);
-    if (to.network !== net) throw new Error('相手の共有用のアドレスは ' + NETWORKS[to.network].label + ' のもの。ネットをそろえる');
-    if ((rec.members || []).some(m => m.a === to.wallet)) throw new Error('この人はもうメンバー');
+    if (!String(text || '').trim()) throw new Error('招く人の受け取りID（BTA1-…）を欄に貼ってから「招く」を押す');
+    const nick = String(nickRaw || '').trim().slice(0, 24);
+    /* パスキーは押した手の続きで呼ぶ（iPhone）。受け取りIDの確かめ（sha256 を待つ）は鍵を開けたあと */
     const { keys, seaKey } = await openShared(rec);
+    const to = await readShareAddress(text);
+    if (to.network !== net) throw new Error('相手の受け取りIDは ' + NETWORKS[to.network].label + ' のもの。ネットをそろえる');
+    if ((rec.members || []).some(m => m.a === to.wallet)) throw new Error('この人はもうメンバー');
     if (rec.owner !== keys.wallet.address) throw new Error('招けるのは海の持ち主だけ');
     const board = await boardOf(seaKey);
     const next = Object.assign({}, rec, { members: cleanMembers((rec.members || []).concat([{ a: to.wallet, x: to.text, n: nick }])) });
@@ -1701,7 +1728,7 @@ function chainBox() {
     const need = await needFunds(net, 1 + roster.length);
     if (!window.confirm('「' + sea.name + '」に招く？\n相手のウォレット: ' + to.wallet + (nick ? '（' + nick + '）' : '')
       + '\n招待と新しい名簿をチェーンに書く（取引 ' + (1 + roster.length) + ' 件・手数料の目安 ' + solText(need.fee) + '）。'
-      + '\n招いたことは取り消せない（外すときは「メンバーを外す…」で鍵を作り替える）。'
+      + '\n招いたことは取り消せない（外すときは「人を外す」で鍵を作り替える）。'
       + '\n相手のアドレスとこのウォレットのアドレスが、同じ海にいることはチェーンの上で見える。')) { line.textContent = 'やめた'; return; }
     line.textContent = '書いている…';
     await writeEnvelope(net, keys.wallet, env, to.wallet);
@@ -1709,24 +1736,20 @@ function chainBox() {
     putShared(next);
     paint();
     curKey = 'sea:' + id;
-    line.textContent = '招いた。相手に「招待を探す」を押してもらう。記録がまだ無ければ「保存」で書く。';
+    line.textContent = '招いた。相手に「届いた招待を受け取る」を押してもらう。自分の記録がまだなら「自分の変更を送る」。';
   }
 
-  /* メンバーを外す（持ち主だけ）。海の鍵を作り替え、残る人にだけ新しい招待を書く */
-  async function removeFrom(id) {
+  /* メンバーを外す（持ち主だけ）。海の欄の「外す: 名前」をタップした人を外し、海の鍵を作り替え、残る人にだけ新しい招待を書く */
+  async function removeFrom(id, addr) {
     const net = netSel.value;
     const rec = sharedRec(id);
-    const others = (rec.members || []).filter(m => m.a !== rec.owner);
-    if (!others.length) throw new Error('外せるメンバーがいない');
-    const pick = window.prompt('外す人の番号\n' + others.map((m, i) => (i + 1) + '. ' + (m.n || '') + ' ' + m.a).join('\n'));
-    if (!pick) return;
-    const gone = others[Number(pick) - 1];
-    if (!gone) throw new Error('番号が違う');
+    const gone = (rec.members || []).find(m => m.a === addr && m.a !== rec.owner);
+    if (!gone) throw new Error('この人はメンバーにいない');
     const { keys } = await openShared(rec);
     if (rec.owner !== keys.wallet.address) throw new Error('外せるのは海の持ち主だけ');
     const stay = (rec.members || []).filter(m => m.a !== gone.a);
     const lost = stay.filter(m => !m.x);
-    if (lost.length) throw new Error('共有用のアドレスが分からないメンバーがいる（' + lost.map(m => m.n || shortAddr(m.a)).join('・') + '）。先に「読み込む」で名簿を読む');
+    if (lost.length) throw new Error('受け取りIDが分からないメンバーがいる（' + lost.map(m => m.n || shortAddr(m.a)).join('・') + '）。先に「みんなの変更を取り込む」で名簿を読む');
     const tos = await Promise.all(stay.map(m => readShareAddress(m.x)));
     const seaKey = newSeaKey();
     const gen = rec.gen + 1;
@@ -1746,7 +1769,7 @@ function chainBox() {
       + '海の鍵を作り替え（代 ' + rec.gen + ' → ' + gen + '）、残る ' + stay.length + ' 人（自分を含む）に新しい招待を書き、新しい掲示板に名簿と自分の記録を書く'
       + '（取引 ' + count + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
       + '外した人は、これからの記録を読めない。ただし、これまでに書かれた記録は読める（チェーンの上のものは消せない）。\n'
-      + 'ほかのメンバーには「招待を探す」を押してもらう（押すまでは前の鍵のままで、新しい記録が見えない）。')) { line.textContent = 'やめた'; return; }
+      + 'ほかのメンバーには「届いた招待を受け取る」を押してもらう（押すまでは前の鍵のままで、新しい記録が見えない）。')) { line.textContent = 'やめた'; return; }
     let done = 0;
     for (const e of envs) {
       await writeEnvelope(net, keys.wallet, e.text, e.to.wallet);
@@ -1759,7 +1782,7 @@ function chainBox() {
     putShared(next);
     paint();
     curKey = 'sea:' + id;
-    line.textContent = '外した（鍵の代 ' + gen + '）。残るメンバーに「招待を探す」を押してもらう。';
+    line.textContent = '外した（鍵の代 ' + gen + '）。残るメンバーに「届いた招待を受け取る」を押してもらう。';
   }
 
   /* 自分の記録を掲示板に書く */
@@ -1782,7 +1805,7 @@ function chainBox() {
     putShared(Object.assign(sharedRec(id), { savedAt: Date.now() }));
     paint();
     curKey = 'sea:' + id;
-    line.textContent = '保存した（取引 ' + memos.length + ' 件）。ほかのメンバーは「読み込む」で重ねる。';
+    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「みんなの変更を取り込む」で重ねる。';
   }
 
   /* 掲示板を読み、メンバーごとにいちばん新しい記録を重ねる */
@@ -1802,7 +1825,7 @@ function chainBox() {
       putShared(next);
       paint();
       curKey = 'sea:' + id;
-      line.textContent = 'まだ誰も記録を書いていない（鍵の代 ' + rec.gen + '）。読めないときは、持ち主が鍵を作り替えたかもしれないので「招待を探す」を押す。';
+      line.textContent = 'まだ誰も記録を書いていない（鍵の代 ' + rec.gen + '）。読めないときは、持ち主が鍵を作り替えたかもしれないので「届いた招待を受け取る」を押す。';
       return;
     }
     const nameOf = a => (a === cfg.address ? '自分' : ((next.members || []).find(m => m.a === a) || {}).n || shortAddr(a));
