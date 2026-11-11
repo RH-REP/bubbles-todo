@@ -33,6 +33,12 @@ export const ITEMS = [
     choices: TAB_IDS.map(id => [id, TAB_LABEL[id]]),
   },
   {
+    /* Issue #40 の返事。海の「リスト表示」を押したときに、はじめに出す形（js/screens/sea.js の gatherBtn） */
+    id: 'listStart', type: 'choice', def: 'list',
+    label: 'リスト表示を開いたときの形',
+    choices: [['list', '一覧（古い順）'], ['days', '日付（終了日の近い順と天気）'], ['quad', '四つ（急ぐ・大事）']],
+  },
+  {
     id: 'wind', type: 'bool', def: false,
     label: '日付で見るの日の見出しに、風の強さ（最大 m/s）も出す',
     note: '狭い画面（幅 360px 以下）では出さない。日を押すと出る1行には、これまでどおり出る',

@@ -34,6 +34,7 @@ import { playComplete, playSfx } from '../sound.js';
 import { dropDay } from './today.js';
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { createDeadlineView, deadlineButton, syncDeadlineButton } from '../deadlineview.js';
+import { loadPrefs } from '../prefs.js';     /* リスト表示を開いたときの形（Issue #40） */
 
 /* --- 海に出すバブルの上限（利用者の指示）---
 
@@ -3401,6 +3402,13 @@ export default {
     gatherBtn.title = '押すと全部が並ぶ';
     gatherBtn.addEventListener('click', ev => {
       ev.preventDefault();
+      /* 開くときは、この端末の表示の「リスト表示を開いたときの形」から始める（Issue #40 の返事） */
+      if (!gathering) {
+        let m = 'list';
+        try { m = loadPrefs().listStart || 'list'; } catch (e) { /* 読めなければ一覧 */ }
+        if (m === 'days' && !dl) m = 'list';
+        if (m !== 'list') { setGridMode(m); return; }
+      }
       setGathering(!gathering);
     });
     stage.appendChild(gatherBtn);
