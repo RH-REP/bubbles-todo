@@ -3427,9 +3427,9 @@ export default {
     tools.appendChild(quadBtn);
     dlBtn = deadlineButton(() => setDaysView(!(gathering && gridMode === 'days')));
     tools.appendChild(dlBtn);
-    /* 四つに分ける・日付で見るは、あまり使わない機能（Issue #40）。設定の「この端末の表示」で出す */
+    /* 四つに分けるは、あまり使わない機能（Issue #40）。設定の「この端末の表示」で出す。
+       日付で見る（▤。終了日の近い順と天気）は既定で出す（Issue #40 の返事: 見つけられなかった） */
     quadBtn.classList.add('is-extra');
-    dlBtn.classList.add('is-extra');
     stage.appendChild(tools);
 
     /* --- ランダムスタート（いま開いている面から1つ、無作為に） --- */
