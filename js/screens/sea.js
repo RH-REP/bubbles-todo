@@ -3378,6 +3378,7 @@ export default {
     calBtn.setAttribute('aria-label', 'はじめた日のカレンダー');
     calBtn.title = 'はじめた日';
     calBtn.appendChild(calIcon());
+    calBtn.classList.add('is-extra');      /* あまり使わない機能（Issue #40）。設定の「この端末の表示」で出す */
     calBtn.addEventListener('click', ev => {
       ev.preventDefault();
       openCalendar({ was: calBtn });
@@ -3426,6 +3427,9 @@ export default {
     tools.appendChild(quadBtn);
     dlBtn = deadlineButton(() => setDaysView(!(gathering && gridMode === 'days')));
     tools.appendChild(dlBtn);
+    /* 四つに分ける・日付で見るは、あまり使わない機能（Issue #40）。設定の「この端末の表示」で出す */
+    quadBtn.classList.add('is-extra');
+    dlBtn.classList.add('is-extra');
     stage.appendChild(tools);
 
     /* --- ランダムスタート（いま開いている面から1つ、無作為に） --- */

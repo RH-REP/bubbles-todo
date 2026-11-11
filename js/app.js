@@ -806,6 +806,8 @@ function applyPrefs() {
   prefs = loadPrefs();
   document.body.classList.toggle('pref-wind', !!prefs.wind);
   document.body.classList.toggle('pref-hide-tags', !!prefs.hideTags);
+  /* あまり使わない機能（.is-extra）も出す（Issue #40。中身は css/base.css） */
+  document.body.classList.toggle('pref-all-tools', !!prefs.allTools);
   const btns = [...tabbar.children];
   prefs.tabOrder.forEach(id => {
     const b = btns.find(x => x.dataset.screen === id);

@@ -32,6 +32,18 @@
 .stub .setrow input { width: 24px; height: 24px; accent-color: var(--bub-edge); }
 .stub .note { font-size: 12px; color: var(--text-2); margin: 6px 0 0; line-height: 1.7; }
 
+/* その他の設定（Issue #40）。あまり使わない節を畳んで、いちばん下にまとめる。押す的は 44px */
+.stub .set-more { margin-top: 22px; padding-top: 6px; border-top: 1px solid var(--line); }
+.stub .set-more > summary {
+  display: flex; align-items: center; min-height: 44px;
+  font-size: 14px; color: var(--text-2); cursor: pointer;
+}
+.stub .set-more > summary:hover { color: var(--text); }
+.stub .set-more > summary:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; border-radius: 6px; }
+.stub .set-more > summary::-webkit-details-marker { display: none; }
+.stub .set-more > summary::before { content: '▸'; margin-right: 8px; }
+.stub .set-more[open] > summary::before { content: '▾'; }
+
 /* ---------- タグの管理 ---------- */
 /* 1行 = 色 / 名前 / 置く向き / 消す。タップ目標は 44px を下回らない */
 .stub .tags { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }

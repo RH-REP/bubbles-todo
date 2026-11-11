@@ -638,6 +638,10 @@ function nameOfNode(node) {
   return ((node && node.getAttribute('aria-label')) || '').split('（')[0];
 }
 
+/* 盤の「その他」を開いているか（Issue #40）。盤は書くたびに組み直されるので、盤の外で覚える。
+   読み込み直すと畳んだ姿に戻る */
+let boardExtraOpen = false;
+
 let askSeq = 0;
 let askState = null;      /* 同時にひとつだけ */
 
@@ -912,6 +916,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     };
     syncFav();
     favBtn.addEventListener('click', ev => { ev.preventDefault(); favWant = !favWant; syncFav(); });
+    /* 印の無い泡では「その他」に畳む（Issue #40）。付いていれば、いつも出す */
+    if (!fav0) favBtn.classList.add('is-extra');
     fields.appendChild(favBtn);
     saveFav = () => {
       if (favWant !== fav0) ask(a, 'setFav', id, favWant);
@@ -976,6 +982,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       }
     }
     sync();
+    /* まだ分けていない泡では「その他」に畳む（Issue #40）。印があれば、いつも出す */
+    if (p0.urgent == null && p0.important == null) box.classList.add('is-extra');
     fields.appendChild(box);
     savePrio = () => {
       if (want.urgent !== p0.urgent || want.important !== p0.important) ask(a, 'setPriority', id, want);
@@ -1246,6 +1254,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       box.appendChild(body);
       fields.appendChild(box);
       syncSpanRow();
+      /* 期間を決めていない泡では「その他」に畳む（Issue #40）。決めてあれば、いつも出す */
+      if (!curSpan()) box.classList.add('is-extra');
     }
 
     /* ---- 長期保留の「戻ってくる日」（利用者の指示）----
@@ -1487,6 +1497,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     box.appendChild(urlIn);
     wrap.appendChild(lb);
     wrap.appendChild(box);
+    /* リンクが空の泡では「その他」に畳む（Issue #40）。入っていれば、いつも出す */
+    if (!urlIn.value.trim()) wrap.classList.add('is-extra');
     fields.appendChild(wrap);
   }
 
@@ -1514,6 +1526,28 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
          積んでも盤を開き直すまで出てこなかった）。
        押しても何も無いボタンは作らない、という決めは守る＝中身が無い間は隠す。 */
     syncHistBtn();
+  }
+
+  /* ---- 「その他」（Issue #40）----
+     あまり使わない欄（印の無いお気に入り・優先度、決めていない期間、空のリンク）は畳んでおき、
+     ここを押したときだけ出す。開いた・閉じたは盤を開き直しても覚えておく（盤は書くたびに組み直されるため）。
+     設定の「この端末の表示」で「あまり使わない機能も出す」にしていれば、畳まずに出す（CSS の body.pref-all-tools） */
+  if (fields && fields.querySelector('.is-extra')) {
+    const more = el('button', 'bc-more');
+    more.type = 'button';
+    const syncMore = () => {
+      fields.classList.toggle('show-extra', boardExtraOpen);
+      more.setAttribute('aria-expanded', boardExtraOpen ? 'true' : 'false');
+      more.textContent = boardExtraOpen ? 'その他を畳む ▴' : 'その他（お気に入り・優先度・期間・リンク） ▾';
+    };
+    more.addEventListener('click', ev => {
+      ev.preventDefault();
+      boardExtraOpen = !boardExtraOpen;
+      syncMore();
+      relayout();
+    });
+    syncMore();
+    fields.appendChild(more);
   }
 
   if (fields) {

@@ -507,3 +507,11 @@ body.is-dragging .tabbar button.is-over {
 @media (prefers-reduced-motion: reduce) {
   .holdring { animation: none; }
 }
+
+/* ---------- あまり使わない機能（Issue #40） ----------
+   既定では .is-extra を出さない。出すのは次のどちらか:
+     ・設定の「この端末の表示」の「あまり使わない機能も出す」（body.pref-all-tools。js/app.js の applyPrefs）
+     ・その場の「その他」を押して、囲いに .show-extra が付いたとき（盤の .bc-fields）
+   !important なのは、ボタンごとの display（inline-flex など）より強くするため。
+   出すときはこの規則が外れるだけなので、元の display に戻る */
+body:not(.pref-all-tools) .is-extra:not(.show-extra .is-extra) { display: none !important; }

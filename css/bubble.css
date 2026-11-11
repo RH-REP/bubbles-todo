@@ -916,6 +916,19 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bc-hist-open:hover { color: var(--text); }
 .bub-center .bc-hist-open:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; border-radius: 6px; }
 
+/* 盤の「その他」（Issue #40）。履歴の入口と同じ、読むだけの弱い見た目。
+   あまり使わない機能をまとめて出し入れする。設定で「あまり使わない機能も出す」なら要らないので出さない */
+.bub-center .bc-more {
+  align-self: flex-start;
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font: inherit; font-size: 12.5px; text-align: left;
+  min-height: 44px; padding: 0 2px;
+  border: 0; background: transparent; color: var(--text-2);
+}
+.bub-center .bc-more:hover { color: var(--text); }
+.bub-center .bc-more:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; border-radius: 6px; }
+body.pref-all-tools .bub-center .bc-more { display: none; }
+
 .bub-center .bc-act.bc-hist-open-old {
   width: 100%;
   background: transparent;
