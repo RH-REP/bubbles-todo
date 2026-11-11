@@ -2,15 +2,17 @@
    ③つながらない間は未送の列・作る順は 1 = チャットから）。
    DOM は触らない（RTCPeerConnection は外から渡せる）。設定の画面 settings.js の openChat が使う。テストは tests/p2p.test.mjs。
 
-   ■ 使い分け（利用者の返事）
-     1. p2p だけ … 両方の端末で app を開いている間、メッセージを直接送る。履歴は端末にだけ置く（両方で消えたら見られない）
-     2. ブロックチェーン … つながらない間のメッセージは「未送」として貯め、チャットを閉じるとき（確かめてから）か、
-        「ブロックチェーンにも残す」を押したときに書く
-     3. サーバー … 後回し（サーバーあり版にはチャットが無い）
+   ■ 使い分け（2026-11-11 の返事「おすすめで」で見直した）
+     直につながっている相手がいれば、直に送る（手数料なし・チェーンに残らない。履歴は端末にだけ）。
+     いなければ、チェーンに書く（手数料あり。相手が後で開いても届く）。このとき端末の印を入れ、「ここにいる」の知らせを兼ねる。
+     直に送ったものを残したいときは「ブロックチェーンにも残す」。残高が足りずに書けないときだけ「未送」として端末に貯める。
+     サーバーに写すのは後回し（サーバーあり版にはチャットが無い）
 
    ■ 顔合わせ（シグナリング）。チャットの掲示板（board.js の chatBoardOf）に、署名して暗号化して書く
-     hello  … チャットを開いた端末が 1 度書く { dev }。10 分のあいだ有効
-     offer  … hello を見た側のうち、端末の印（dev）が大きいほうが書く { to, sid, sdp }。3 分のあいだ有効
+     msgs   … チェーンに書いたメッセージ { dev, msgs }。10 分のあいだ「ここにいる」の知らせになる
+     hello  … 送らずにつなぎたいときに「相手を呼ぶ」で書く { dev }。10 分のあいだ有効
+     offer  … 知らせ（msgs・hello）を見た側が書く { to, sid, sdp }。3 分のあいだ有効。
+              両方から offer が出たら、端末の印（dev）の大きいほうの offer だけに答える
      answer … offer を受けた側が書く { to, sid, sdp }
    sdp は ICE の候補を集め終えてから書く（候補を小分けに送らない。書き込みの数を減らすため）。
    書き込みにはウォレットの署名が入り、名簿の人の書き込みだけを使う。sdp には暗号の鍵の指紋が入るので、なりすましはつながらない。
@@ -167,7 +169,7 @@ export class Mesh {
     const now = Date.now();
     const ok = new Set(this.allowed());
     for (const p of posts.slice().reverse()) {
-      if (!['hello', 'offer', 'answer'].includes(p.kind)) continue;
+      if (!['hello', 'msgs', 'offer', 'answer'].includes(p.kind)) continue;
       if (!ok.has(p.by) || p.sea !== this.sea || Number(p.g) !== this.g) continue;
       if (typeof p.dev !== 'string' || p.dev === this.dev) continue;
       const key = [p.kind, p.dev, p.sid || '', p.at].join('|');
@@ -175,9 +177,11 @@ export class Mesh {
       this.seen.add(key);
       const age = now - (Number(p.at) || 0);
       try {
-        if (p.kind === 'hello' && age < HELLO_MS) {
-          /* 両方が相手の hello を見るので、印の大きいほうだけが offer を書く（両方から書くと食い違う） */
-          if (!this.peers.has(p.dev) && this.dev > p.dev) await this.offer(p.dev, p.by);
+        /* チェーンに書いたメッセージ（msgs）にも端末の印を入れ、「ここにいる」の知らせを兼ねる（2026-11-11 返事: 「開いた」の代わりに 1 通目を書く） */
+        if ((p.kind === 'hello' || p.kind === 'msgs') && age < HELLO_MS) {
+          /* 知らせを見た側が offer を書く（知らせは片方だけのこともある: 1 通送っただけの相手）。
+             両方が互いの知らせを見て両方から offer が来たときは、answer の側で印の大きいほうの offer を残す */
+          if (!this.peers.has(p.dev)) await this.offer(p.dev, p.by);
         } else if (p.kind === 'offer' && p.to === this.dev && age < SIG_MS && typeof p.sdp === 'string') {
           await this.answer(p);
         } else if (p.kind === 'answer' && p.to === this.dev && age < SIG_MS && typeof p.sdp === 'string') {
@@ -224,6 +228,8 @@ export class Mesh {
   async answer(p) {
     const cur = this.peers.get(p.dev);
     if (cur && cur.ch && cur.ch.readyState === 'open') return;
+    /* 互いに offer を出し合った: 印の大きいほうの offer を生かす（こちらが大きければ、相手がこちらの offer に答える） */
+    if (cur && cur.pc.signalingState === 'have-local-offer' && this.dev > p.dev) return;
     if (cur) this.drop(p.dev);
     const peer = this.newPeer(p.dev, p.by);
     peer.sid = p.sid;

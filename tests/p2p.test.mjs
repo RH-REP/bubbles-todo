@@ -122,7 +122,36 @@ await test('チェーンの書き込み → メッセージ: 前の版の 1 通�
   assert.ok(got.every(m => m.state === 'chain'));
 });
 
-await test('顔合わせ: hello を見た印の大きいほうが offer、相手が answer、つながって履歴を送り合う', async () => {
+await test('顔合わせ: チェーンに書いた 1 通（msgs）を見た側が offer、書いた側が answer してつながる', async () => {
+  const a = await keysOf(49), b = await keysOf(50);
+  const board = [];
+  const allowed = () => [a.wallet.address, b.wallet.address];
+  const make = (k, dev) => {
+    const got = [];
+    const mesh = new Mesh({ sea: 's1x', g: 1, dev, allowed, ice: [], RTC: FakeRTC, history: () => [],
+      post: async (inner) => { const env = await signedPost(k.wallet, inner); board.push(JSON.parse(env.p)); },
+      onMessages: (list) => got.push(...list) });
+    return { mesh, got };
+  };
+  /* 印の大きい b が 1 通書いただけ（a は何も書いていない）。a が見て offer を書く */
+  const A = make(a, 'a'.repeat(16)), B = make(b, 'b'.repeat(16));
+  const mb = await signMsg(b.wallet, { sea: 's1x', g: 1, text: 'hi' });
+  board.push(JSON.parse((await signedPost(b.wallet, { kind: 'msgs', sea: 's1x', g: 1, at: Date.now(), dev: 'b'.repeat(16), msgs: [mb.env] })).p));
+  const view = () => board.slice().reverse();
+  await A.mesh.onPosts(view());
+  assert.equal(board.filter(p => p.kind === 'offer').length, 1, '印が小さくても、知らせを見た側が offer');
+  await B.mesh.onPosts(view());
+  await A.mesh.onPosts(view());
+  assert.equal(A.mesh.openCount(), 1);
+  assert.equal(B.mesh.openCount(), 1);
+  /* 印の無い前の版の msgs では、つなごうとしない */
+  const C = make(a, 'c'.repeat(16));
+  await C.mesh.onPosts([{ kind: 'msgs', sea: 's1x', g: 1, by: b.wallet.address, at: Date.now(), msgs: [] }]);
+  assert.equal(C.mesh.peers.size, 0);
+  A.mesh.close(); B.mesh.close();
+});
+
+await test('顔合わせ: 両方が知らせを出して offer が行き違っても、印の大きいほうの offer でつながる', async () => {
   const a = await keysOf(45), b = await keysOf(46);
   const board = [];   /* 掲示板（新しい順に返す） */
   const allowed = () => [a.wallet.address, b.wallet.address];
@@ -141,11 +170,11 @@ await test('顔合わせ: hello を見た印の大きいほうが offer、相手
   await A.mesh.hello();
   await B.mesh.hello();
   const view = () => board.slice().reverse();
-  await A.mesh.onPosts(view());   /* a の印は小さいので offer を書かない */
-  assert.equal(board.filter(p => p.kind === 'offer').length, 0);
-  await B.mesh.onPosts(view());   /* b が offer */
-  assert.equal(board.filter(p => p.kind === 'offer').length, 1);
-  await A.mesh.onPosts(view());   /* a が answer */
+  await A.mesh.onPosts(view());   /* a が b の hello を見て offer */
+  await B.mesh.onPosts(view());   /* b も a の hello を見て offer。a からの offer は、b の印が大きいので答えない */
+  assert.equal(board.filter(p => p.kind === 'offer').length, 2);
+  assert.equal(board.filter(p => p.kind === 'answer').length, 0);
+  await A.mesh.onPosts(view());   /* a は自分の offer を捨てて、b の offer に answer */
   assert.equal(board.filter(p => p.kind === 'answer').length, 1);
   await B.mesh.onPosts(view());   /* b が受け取って、つながる */
   assert.equal(A.mesh.openCount(), 1);
@@ -158,7 +187,8 @@ await test('顔合わせ: hello を見た印の大きいほうが offer、相手
   await until(() => A.got.some(m => m.text === 'hi'));
   /* 同じ書き込みを何度読んでも、もう一度 offer しない */
   await B.mesh.onPosts(view());
-  assert.equal(board.filter(p => p.kind === 'offer').length, 1);
+  await A.mesh.onPosts(view());
+  assert.equal(board.filter(p => p.kind === 'offer').length, 2);
   A.mesh.close(); B.mesh.close();
   assert.equal(A.mesh.openCount(), 0);
 });

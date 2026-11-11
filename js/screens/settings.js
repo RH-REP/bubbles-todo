@@ -1807,11 +1807,17 @@ function chainBox() {
     const keepBtn = el('button', 'btn', 'ブロックチェーンにも残す');
     keepBtn.type = 'button';
     keepRow.appendChild(keepBtn);
+    /* 送らずに直につなぎたいとき（読むだけで開いているとき）に「ここにいる」を書く。押したときだけ手数料 */
+    const callBtn = el('button', 'btn', '相手を呼ぶ（直につなぐ）');
+    callBtn.type = 'button';
+    keepRow.appendChild(callBtn);
     panel.appendChild(keepRow);
     const status = el('p', 'note');
     status.setAttribute('aria-live', 'polite');
-    status.textContent = '相手とつながっている間は、直に送る（手数料なし）。つながっていない間は「未送」として貯め、閉じるときにブロックチェーンに書くかを訊く。'
-      + '履歴はこの端末にだけ置く（ブロックチェーンに残したもの以外は、両方の端末で消えたら見られない）。';
+    /* 使い分け（2026-11-11 返事「おすすめで」）: 直につながっていれば直に（手数料なし）、いなければチェーンに書く（手数料あり。相手が後で開いても届く）。
+       チェーンに書いたメッセージが「ここにいる」の知らせを兼ねるので、開いただけでは何も書かない */
+    status.textContent = '直につながっている相手がいれば直に送る（手数料なし・チェーンに残らない）。いなければブロックチェーンに書く（手数料あり・相手が後で開いても届く）。'
+      + '直に送ったものの履歴はこの端末にだけ置く（残したいときは「ブロックチェーンにも残す」）。';
     panel.appendChild(status);
     anchor.parentNode.insertBefore(panel, anchor.nextSibling);
 
@@ -1839,8 +1845,8 @@ function chainBox() {
       if (atBottom) list.scrollTop = list.scrollHeight;
       const n = mesh ? mesh.openCount() : 0;
       const un = unsentList().length;
-      conn.textContent = (mesh ? (n ? '直につながっている: ' + n + ' 台' : '直のつながり: 相手を待っている（相手もチャットを開くと、数十秒でつながる）')
-        : '直のつながり: 使っていない')
+      conn.textContent = (mesh ? (n ? '直につながっている: ' + n + ' 台' : '直のつながり: まだ無い（どちらかが送るか「相手を呼ぶ」と、相手も開いていれば数十秒でつながる）')
+        : '直のつながり: 使っていない（いつもブロックチェーンに書く）')
         + (un ? '・未送 ' + un + ' 件' : '');
     }
 
@@ -1852,9 +1858,11 @@ function chainBox() {
       await writePost(net, keys.wallet, memos, board);
       return memos.length;
     }
+    const myDev = deviceId();
     async function writeToChain(items, why) {
       if (!items.length) return 0;
-      const count = await postChain({ kind: 'msgs', sea, g: gen, at: Date.now(), msgs: items.slice(-100).map(m => m.env) });
+      /* 端末の印（dev）を入れ、「ここにいる」の知らせを兼ねる（js/p2p.js の Mesh.onPosts） */
+      const count = await postChain({ kind: 'msgs', sea, g: gen, at: Date.now(), dev: myDev, msgs: items.slice(-100).map(m => m.env) });
       putHist(markState(hist, items.slice(-100).map(m => m.id), 'chain'));
       render();
       status.textContent = why + '（' + Math.min(items.length, 100) + ' 件・取引 ' + count + ' 件）。';
@@ -1864,7 +1872,7 @@ function chainBox() {
     let mesh = null;
     if (prefs.on && p2pSupported()) {
       mesh = new Mesh({
-        sea, g: gen, dev: deviceId(), allowed, ice: iceServers(prefs), history: () => hist,
+        sea, g: gen, dev: myDev, allowed, ice: iceServers(prefs), history: () => hist,
         post: (inner) => postChain(inner),
         onMessages: (msgs) => { putHist(mergeHistory(hist, msgs, 'p2p').list); render(); },
         onPeerOpen: () => {
@@ -1876,8 +1884,9 @@ function chainBox() {
         onError: (e) => { status.textContent = '直のつながりで困った: ' + ((e && e.message) || String(e)); },
       });
     } else if (prefs.on) {
-      status.textContent = 'このブラウザは端末どうしの直の通信（WebRTC）を使えない。メッセージは未送として貯め、ブロックチェーンに書く。';
+      status.textContent = 'このブラウザは端末どうしの直の通信（WebRTC）を使えない。メッセージはいつもブロックチェーンに書く。';
     }
+    callBtn.hidden = !mesh;
 
     const until = Date.now() + 10 * 60 * 1000;
     let busy = false;
@@ -1913,14 +1922,37 @@ function chainBox() {
       try {
         const m = await signMsg(keys.wallet, { sea, g: gen, text });
         const n = mesh ? mesh.broadcast([m.env]) : 0;
-        putHist(mergeHistory(hist, [m], n ? 'p2p' : 'unsent').list);
         input.value = '';
+        if (n) {
+          putHist(mergeHistory(hist, [m], 'p2p').list);
+          render();
+          status.textContent = n + ' 台に直に送った（手数料なし）。';
+          return;
+        }
+        /* 直につながっている相手がいない: チェーンに書く。前に書けなかった未送も一緒に書く。
+           残高が足りないなどで書けなければ、未送として貯める（相手とつながったら届く。あとで「ブロックチェーンにも残す」で書ける） */
+        putHist(mergeHistory(hist, [m], 'unsent').list);
         render();
-        status.textContent = n ? n + ' 台に直に送った（手数料なし）。'
-          : 'まだ誰とも直につながっていないので、未送として貯めた（つながったら届ける。閉じるときにブロックチェーンに書ける）。';
+        status.textContent = 'ブロックチェーンに書いている…';
+        try {
+          await writeToChain(unsentList(), '直につながっている相手がいないので、ブロックチェーンに書いた');
+        } catch (e) {
+          status.textContent = 'ブロックチェーンに書けなかった: ' + ((e && e.message) || String(e)) + '（未送として端末に貯めた。相手とつながったら届く）';
+        }
       } catch (e) {
         status.textContent = '送れなかった: ' + ((e && e.message) || String(e));
       } finally { send.disabled = false; }
+    });
+    callBtn.addEventListener('click', async () => {
+      if (!mesh) return;
+      callBtn.disabled = true;
+      try {
+        status.textContent = '「ここにいる」を書いている…';
+        await mesh.hello();
+        status.textContent = '「ここにいる」を書いた（手数料が掛かった）。相手がチャットを開いていれば、数十秒でつながる。';
+      } catch (e) {
+        status.textContent = '書けなかった: ' + ((e && e.message) || String(e));
+      } finally { callBtn.disabled = false; }
     });
     keepBtn.addEventListener('click', async () => {
       keepBtn.disabled = true;
@@ -1952,14 +1984,9 @@ function chainBox() {
     line.textContent = '';
     render();
     const left = unsentList().length;
-    if (left) status.textContent = '前に送れなかった未送が ' + left + ' 件ある。相手とつながれば届く。急ぐなら「ブロックチェーンにも残す」。';
+    if (left) status.textContent = '前に書けなかった未送が ' + left + ' 件ある。相手とつながれば届く。次に送るとき一緒にブロックチェーンに書く（「ブロックチェーンにも残す」でもよい）。';
+    /* 開いただけでは何も書かない（手数料を掛けない）。相手の「ここにいる」（10 分以内のメッセージか呼び出し）があれば、ここで offer を書く */
     await refresh();
-    if (mesh) {
-      /* 開いたことを掲示板に知らせる（相手が開いていれば、相手の端末から offer が来る）。手数料が掛かる */
-      try { await mesh.hello(); } catch (e) {
-        status.textContent = '直につなぐための書き込みができなかった: ' + ((e && e.message) || String(e)) + '（未送として貯め、あとでブロックチェーンに書ける）';
-      }
-    }
     input.focus();
   }
 
