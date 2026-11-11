@@ -143,6 +143,12 @@ export function chatMessages(posts, { sea, gen, allowed }) {
     .map(p => ({ by: p.by, at: Number(p.at) || 0, text: p.text.slice(0, MSG_MAX) }))
     .sort((a, b) => a.at - b.at);
 }
+/* チャットの掲示板の書き込みを全部（メッセージ・顔合わせ。js/p2p.js）→ 署名を確かめた中身（新しい順） */
+export async function readChatPosts(network, board, { limit = 200, opt } = {}) {
+  const list = await readMemos(network, board.address, { limit, opt });
+  return collectPosts(list.map(x => x.text), board.recordKey, { maxGroups: limit });
+}
+
 /* チャットの掲示板を読む → メッセージ（古い順・新しい limit 件まで） */
 export async function readChat(network, board, { sea, gen, allowed, limit = 200, opt } = {}) {
   const list = await readMemos(network, board.address, { limit, opt });

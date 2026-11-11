@@ -21,7 +21,9 @@ import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphras
   loadMove, saveMove, clearMove, moveStep, moveSteps } from '../chain.js';
 import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, writeEnvelope,
   findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr,
-  chatBoardOf, readChat, MSG_MAX, SELF_SEA, GIFT_MESSAGES, giftPlan } from '../board.js';
+  chatBoardOf, readChatPosts, MSG_MAX, SELF_SEA, GIFT_MESSAGES, giftPlan } from '../board.js';
+import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, loadHistory, saveHistory, mergeHistory, markState,
+  signMsg, messagesFromPosts } from '../p2p.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { getKey, setKey, hasKey, MODELS, getModel, setModel, askFull } from '../ai.js';
@@ -1725,10 +1727,14 @@ function chainBox() {
      開いている間は 15 秒ごとに読みに行く（公式の窓口の回数の上限に当たらない間隔）。閉じている間は読まない（知らせは出ない）。
      開くときに 1 度だけパスキーか合言葉で鍵を開け、開いている間は鍵をメモリに置く（毎回の送信でパスキーを求めないため）。
      閉じる・画面を描き直す・設定を離れる・10 分たつ、のどれかで捨てる。端末には置かない */
+  /* 端末どうしの直の通信（p2p。2026-11-11 Issue #37 の返事「おすすめで」。仕組みは js/p2p.js）。
+     開いている間、メッセージはまず p2p で送る。誰ともつながっていなければ「未送」として端末に貯め、
+     相手とつながったら届ける。閉じるとき（確かめてから）か「ブロックチェーンにも残す」でチェーンに書く */
   let chat = null;
   function closeChat() {
     if (!chat) return;
     clearInterval(chat.timer);
+    try { if (chat.mesh) chat.mesh.close(); } catch (e) { /* 閉じられなくても進む */ }
     if (chat.panel && chat.panel.parentNode) chat.panel.parentNode.removeChild(chat.panel);
     chat = null;
   }
@@ -1771,39 +1777,130 @@ function chainBox() {
     form.appendChild(send);
     form.appendChild(shut);
     panel.appendChild(form);
+    /* つながりの様子と、直の通信の切り替え（この端末だけの設定） */
+    const conn = el('p', 'note');
+    conn.setAttribute('aria-live', 'polite');
+    panel.appendChild(conn);
+    const prefs = loadP2pPrefs();
+    const toggles = el('div', null);
+    toggles.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;margin-top:4px';
+    function toggle(label, key, note) {
+      const lab = el('label', 'note');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!prefs[key];
+      cb.addEventListener('change', () => {
+        prefs[key] = cb.checked;
+        saveP2pPrefs(prefs);
+        status.textContent = note + '（次に開いたときから効く）';
+      });
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(' ' + label));
+      toggles.appendChild(lab);
+    }
+    toggle('端末どうしで直につなぐ（p2p）', 'on', '切ると、メッセージは未送として貯め、ブロックチェーンにだけ書く');
+    toggle('違う Wi‑Fi でもつなぐ（Cloudflare の STUN）', 'stun',
+      '入れると、つなぐときに Cloudflare の窓口へ IP アドレスが届く（中身は届かない）。切ると同じ Wi‑Fi どうしだけ');
+    panel.appendChild(toggles);
+    const keepRow = el('div', null);
+    keepRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px';
+    const keepBtn = el('button', 'btn', 'ブロックチェーンにも残す');
+    keepBtn.type = 'button';
+    keepRow.appendChild(keepBtn);
+    panel.appendChild(keepRow);
     const status = el('p', 'note');
     status.setAttribute('aria-live', 'polite');
-    status.textContent = '1 件送るごとに手数料（取引 1〜2 件ぶん）が掛かる。開いている間は 15 秒ごとに新しいメッセージを読む。';
+    status.textContent = '相手とつながっている間は、直に送る（手数料なし）。つながっていない間は「未送」として貯め、閉じるときにブロックチェーンに書くかを訊く。'
+      + '履歴はこの端末にだけ置く（ブロックチェーンに残したもの以外は、両方の端末で消えたら見られない）。';
     panel.appendChild(status);
     anchor.parentNode.insertBefore(panel, anchor.nextSibling);
+
+    const room = rec ? 'sea:' + rec.id + ':' + rec.gen : 'self:' + keys.wallet.address;
+    let hist = loadHistory(room);
+    const putHist = (list) => { hist = saveHistory(room, list); };
+    const unsentList = () => hist.filter(m => m.state === 'unsent' && m.env);
+
+    function render() {
+      const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
+      list.textContent = '';
+      if (!hist.length) list.appendChild(el('p', 'note', 'まだメッセージは無い。'));
+      const mark = { unsent: '（未送）', p2p: '', chain: '' };
+      hist.slice(-100).forEach(m => {
+        const item = el('div', null);
+        const head = el('span', 'note');
+        /* 呼び名・本文はほかの人が書くので文字として入れる */
+        head.textContent = nameOf(m.by) + '・' + new Date(m.at).toLocaleString() + (mark[m.state] || '') + '　';
+        const body = el('span', null);
+        body.textContent = m.text;
+        item.appendChild(head);
+        item.appendChild(body);
+        list.appendChild(item);
+      });
+      if (atBottom) list.scrollTop = list.scrollHeight;
+      const n = mesh ? mesh.openCount() : 0;
+      const un = unsentList().length;
+      conn.textContent = (mesh ? (n ? '直につながっている: ' + n + ' 台' : '直のつながり: 相手を待っている（相手もチャットを開くと、数十秒でつながる）')
+        : '直のつながり: 使っていない')
+        + (un ? '・未送 ' + un + ' 件' : '');
+    }
+
+    /* チェーンに書く（顔合わせ・まとめたメッセージ）。手数料が要る */
+    async function postChain(inner) {
+      const memos = await postMemos(keys.wallet, inner, board);
+      if (memos.length > MAX_TX) throw new Error('大きすぎる（取引 ' + memos.length + ' 件）');
+      await needFunds(net, memos.length);
+      await writePost(net, keys.wallet, memos, board);
+      return memos.length;
+    }
+    async function writeToChain(items, why) {
+      if (!items.length) return 0;
+      const count = await postChain({ kind: 'msgs', sea, g: gen, at: Date.now(), msgs: items.slice(-100).map(m => m.env) });
+      putHist(markState(hist, items.slice(-100).map(m => m.id), 'chain'));
+      render();
+      status.textContent = why + '（' + Math.min(items.length, 100) + ' 件・取引 ' + count + ' 件）。';
+      return count;
+    }
+
+    let mesh = null;
+    if (prefs.on && p2pSupported()) {
+      mesh = new Mesh({
+        sea, g: gen, dev: deviceId(), allowed, ice: iceServers(prefs), history: () => hist,
+        post: (inner) => postChain(inner),
+        onMessages: (msgs) => { putHist(mergeHistory(hist, msgs, 'p2p').list); render(); },
+        onPeerOpen: () => {
+          /* つながった相手には、手元の新しい 100 通（未送を含む）が送られた。未送は直に届いた扱いにする */
+          putHist(markState(hist, unsentList().map(m => m.id), 'p2p'));
+          render();
+        },
+        onState: () => render(),
+        onError: (e) => { status.textContent = '直のつながりで困った: ' + ((e && e.message) || String(e)); },
+      });
+    } else if (prefs.on) {
+      status.textContent = 'このブラウザは端末どうしの直の通信（WebRTC）を使えない。メッセージは未送として貯め、ブロックチェーンに書く。';
+    }
 
     const until = Date.now() + 10 * 60 * 1000;
     let busy = false;
     async function refresh() {
       if (!chat || chat.panel !== panel) return;
       if (!panel.isConnected || Date.now() > until) {
+        const left = unsentList().length;
         closeChat();
-        if (Date.now() > until) { curKey = gkey; line.textContent = '10 分たったので閉じた（鍵をメモリから捨てた）。続けるときは、もう一度開く。'; }
+        if (Date.now() > until) {
+          curKey = gkey;
+          line.textContent = '10 分たったので閉じた（鍵をメモリから捨てた）。' + (left ? '未送 ' + left + ' 件は端末に残してある。次に開いたときに書ける。' : '')
+            + '続けるときは、もう一度開く。';
+        }
         return;
       }
       if (busy) return;
       busy = true;
       try {
-        const msgs = await readChat(net, board, { sea, gen, allowed: allowed() });
-        const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
-        list.textContent = '';
-        if (!msgs.length) list.appendChild(el('p', 'note', 'まだメッセージは無い。'));
-        msgs.slice(-100).forEach(m => {
-          const item = el('div', null);
-          const head = el('span', 'note');
-          head.textContent = nameOf(m.by) + '・' + new Date(m.at).toLocaleString() + '　';   /* 呼び名・本文はほかの人が書くので文字として入れる */
-          const body = el('span', null);
-          body.textContent = m.text;
-          item.appendChild(head);
-          item.appendChild(body);
-          list.appendChild(item);
-        });
-        if (atBottom) list.scrollTop = list.scrollHeight;
+        const posts = await readChatPosts(net, board);
+        const fromChain = await messagesFromPosts(posts, { sea, g: gen, allowed: allowed() });
+        putHist(mergeHistory(hist, fromChain, 'chain').list);
+        render();
+        if (mesh) await mesh.onPosts(posts);
       } catch (e) {
         status.textContent = '読めなかった: ' + ((e && e.message) || String(e));
       } finally { busy = false; }
@@ -1814,23 +1911,55 @@ function chainBox() {
       if (!text || send.disabled) return;
       send.disabled = true;
       try {
-        const memos = await postMemos(keys.wallet, { kind: 'msg', sea, g: gen, at: Date.now(), text: text.slice(0, MSG_MAX) }, board);
-        if (memos.length > 4) throw new Error('長すぎる（短く分けて送る）');
-        await needFunds(net, memos.length);
-        status.textContent = '送っている…';
-        await writePost(net, keys.wallet, memos, board);
+        const m = await signMsg(keys.wallet, { sea, g: gen, text });
+        const n = mesh ? mesh.broadcast([m.env]) : 0;
+        putHist(mergeHistory(hist, [m], n ? 'p2p' : 'unsent').list);
         input.value = '';
-        status.textContent = '送った（取引 ' + memos.length + ' 件）。';
-        await refresh();
+        render();
+        status.textContent = n ? n + ' 台に直に送った（手数料なし）。'
+          : 'まだ誰とも直につながっていないので、未送として貯めた（つながったら届ける。閉じるときにブロックチェーンに書ける）。';
       } catch (e) {
         status.textContent = '送れなかった: ' + ((e && e.message) || String(e));
       } finally { send.disabled = false; }
     });
-    shut.addEventListener('click', () => { closeChat(); });
-    chat = { panel, timer: setInterval(refresh, 15000) };
+    keepBtn.addEventListener('click', async () => {
+      keepBtn.disabled = true;
+      try {
+        const items = hist.filter(m => m.state !== 'chain' && m.env);
+        if (!items.length) { status.textContent = 'ブロックチェーンに残していないメッセージは無い。'; return; }
+        if (!window.confirm('まだブロックチェーンに無いメッセージ ' + Math.min(items.length, 100) + ' 件をまとめて書く？\n'
+          + '手数料が掛かる。書いたものは消せない（' + (rec ? 'メンバー' : '自分') + 'だけが読める）。')) return;
+        await writeToChain(items, 'ブロックチェーンに残した');
+      } catch (e) {
+        status.textContent = '残せなかった: ' + ((e && e.message) || String(e));
+      } finally { keepBtn.disabled = false; }
+    });
+    shut.addEventListener('click', async () => {
+      const un = unsentList();
+      if (un.length && window.confirm('未送のメッセージが ' + un.length + ' 件ある（まだ誰にも届いていない）。ブロックチェーンに書いて届ける？\n'
+        + '手数料が掛かる。「キャンセル」なら端末に残し、次に開いたときに届けるか書くかを選べる。')) {
+        shut.disabled = true;
+        try { await writeToChain(un, 'ブロックチェーンに書いた'); } catch (e) {
+          status.textContent = '書けなかった: ' + ((e && e.message) || String(e)) + '（未送は端末に残してある）';
+          shut.disabled = false;
+          return;
+        }
+      }
+      closeChat();
+    });
+    chat = { panel, mesh, timer: setInterval(refresh, 15000) };
     curKey = gkey;
     line.textContent = '';
+    render();
+    const left = unsentList().length;
+    if (left) status.textContent = '前に送れなかった未送が ' + left + ' 件ある。相手とつながれば届く。急ぐなら「ブロックチェーンにも残す」。';
     await refresh();
+    if (mesh) {
+      /* 開いたことを掲示板に知らせる（相手が開いていれば、相手の端末から offer が来る）。手数料が掛かる */
+      try { await mesh.hello(); } catch (e) {
+        status.textContent = '直につなぐための書き込みができなかった: ' + ((e && e.message) || String(e)) + '（未送として貯め、あとでブロックチェーンに書ける）';
+      }
+    }
     input.focus();
   }
 
