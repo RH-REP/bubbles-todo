@@ -391,6 +391,7 @@ node --test tests/related.test.mjs
 node --test tests/deadline.test.mjs
 node --test tests/notes.test.mjs
 python3 -m unittest tests/test_server.py
+python3 -m unittest tests/test_server_machine.py
 bash tests/server-setup.test.sh
 ```
 
@@ -486,6 +487,26 @@ bash tests/server-setup.test.sh
     **登録の上限はあとからも変えられる**（2026-11-07 Issue #26）: `python3 server.py limit-set <数>`（1〜100。`limit` で今の値）。
     `<データの場所>/limits.json` に書き、動いているサーバーにも止めずに次の要求から効く（`--max-passkeys` より先）。
     下げても登録済みのパスキーは外さず、上限より少なくなるまで新しい登録を断る（どこが多いかは `limit-set` のときに出す）
+- **機械の鍵**（2026-11-11。共有の記録 v1.2 §8）: gantt_todo・diary・秘書（todo_secretary）など、パスキーを持てない機械が
+  公開の形のサーバーの記録を読み書きするための鍵。合言葉の形（`--auth token`）では使わない（今までどおり `token.txt`）。
+  - 作る・見る・消すのはサーバーの持ち主だけ（サーバーの機械で。動いているサーバーは止めなくてよい。次の要求から効く）:
+    ```bash
+    python3 server.py --data-dir <データの場所> machine-add gantt --space me              # 持ち主の個人。読み書き
+    python3 server.py --data-dir <データの場所> machine-add diary --space me --read-only  # 読むだけ
+    python3 server.py --data-dir <データの場所> machine-add 秘書 --space me:2              # 2 番の人の個人
+    python3 server.py --data-dir <データの場所> machine-list
+    python3 server.py --data-dir <データの場所> machine-remove diary
+    ```
+  - 鍵（`bm_…`）は `machine-add` のときに**1度だけ**出る。サーバーには sha256 だけを残す（`<データの場所>/machine_keys.json`、600）。失くしたら消して作り直す
+  - 効くのは `GET`・`PUT /api/data` だけ。`Authorization: Bearer <鍵>`、`X-Bubbles-Schema: 1`。置き場は鍵に決めた個人1つで、
+    `X-Bubbles-Space` は省くか `me`（ほかを言えば 403）。読むだけの鍵の `PUT` は 403。海の一覧・パスキー・招待などほかの API には効かない（401）
+  - 応答は端末と同じ形（`{space, version, data, minSchema}`）に、`person`（誰の個人か）と `owner: false` が付く。`PUT` の 409・426 も端末と同じ
+  - 端末の数（`--max-devices`）には数えない。入場の失敗・要求数の守りは端末と同じに効く（違う鍵が続けば 429）。
+    記録（journal）には `machine-forbidden name=<名前> …` の形で名前だけを出し、鍵は出さない。fail2ban は正しい鍵の 403 を数えない
+  - Origin を付けないサーバー同士の要求で通る（CORS は要らない）
+  - **gantt・diary・秘書に渡す手順**: 鍵をその機械のファイルに入れて、所有者だけが読めるようにする（`chmod 600`）。
+    gantt・diary は `--bubble-token-file <そのファイル>` と、サーバーの住所（`https://<名前>`）で起動する。秘書は設定の `key_file` にそのファイルを書く。
+    鍵の中身は画面・ログ・会話に出さない。diary には `--read-only` の鍵、gantt と秘書には読み書きの鍵を渡す
 - **守り**（`guard.py`・`server.py`。合言葉の形でも効く）:
   - 接続元ごとの同時接続 8・全体 64（超えたら読まずに 429）、要求 120 回/分、入場の失敗 10 回/10分（超えたら 429）
   - 1つの接続の待ちは 15 秒、受け取る大きさは 4MB まで
@@ -495,7 +516,7 @@ bash tests/server-setup.test.sh
 - **前段（Caddy）**: HTTPS の証明書・待ち時間・大きさの上限（`tools/public/Caddyfile.template`）。server.py は 127.0.0.1 のまま、`--trust-proxy` で接続元を数える
 - **立ち上げ**: `BUBBLES_DOMAIN=<名前> bash tools/server-setup.sh`（名前は `<データの場所>/.setup` に覚え、`update` は環境変数なしでよい）。前の Tailscale 版で立ち上げた置き場では、名前を付けるよう言って止まる。
   Caddy と fail2ban は入っていれば設定を置く。ファイアウォール（クラウドとサーバーの中）で 80・443 を開ける手順は画面に出す（自動では開けない）
-- **テスト**: `python3 -m unittest tests/test_passkey_crypto.py tests/test_server_public.py`（署名は Node の暗号の部品で作り突き合わせる）、
+- **テスト**: `python3 -m unittest tests/test_passkey_crypto.py tests/test_server_public.py tests/test_server_machine.py`（署名は Node の暗号の部品で作り突き合わせる）、
   `node tests/passkey-sync.test.mjs`、`node tests/person-sync.test.mjs`（個人を人ごとに分けたときの入れ替え）、`node tests/e2e-passkey.mjs`（headless の Chrome と、Chrome の仮のパスキーで、登録・合わせる・入り直す）、
   `bash tests/server-setup.test.sh`（公開の形を含む）
 - **まだ確かめていない**: 本物の公開サーバー・ドメイン・Caddy・fail2ban・本物の端末（Face ID・指紋）。Android の APK では使えない（ページの住所が `https://localhost`）

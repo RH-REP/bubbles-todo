@@ -87,11 +87,19 @@ API:
     POST /api/passkey/request/status {key} → {state: "waiting"} | {state: "approved", name, spaces}
                                             断った・期限切れは 401。認めたあとは key を招待コードにして登録する
     /api/data は Authorization: Bearer <通行証> と X-Bubbles-Space: me|<海の ID> で使う
+    機械の鍵（2026-11-11。共有の記録 v1.2 §8。gantt・diary・秘書がパスキーなしで入る）:
+        python3 server.py machine-add <名前> --space me[:<番号>] [--read-only]   鍵（bm_…）を1度だけ表示
+        python3 server.py machine-list / machine-remove <名前>
+        鍵は <データの場所>/machine_keys.json に sha256 だけ（0600）。効くのは GET・PUT /api/data だけで、
+        Authorization: Bearer <鍵>。置き場は鍵に決めた個人1つ（X-Bubbles-Space は省くか me。違えば 403）。
+        --read-only の鍵の PUT は 403。端末の数には数えない。入場の失敗・要求数の守りは端末と同じ。
+        記録（journal）には鍵の名前だけを出す（machine-forbidden name=…）
 守り（どちらの形でも）: 接続元ごとの接続数・要求数・入場の失敗の数に上限（guard.py）、1接続の待ちは 15 秒、
     受け取る大きさは 4MB まで、配るページに CSP などのヘッダ、よそのオリジンは決めた相手だけ。
     守りの出来事は標準エラーに「bubbles: auth-fail ip=…」の形で出す（fail2ban が読む。値は出さない）
 """
 import argparse
+import hashlib
 import hmac
 import http.server
 import json
@@ -399,6 +407,75 @@ class Spaces:
             return m
 
 
+class MachineKeys:
+    """機械の鍵（共有の記録 v1.2 §8。2026-11-11）。公開の形（パスキー）のサーバーに、gantt・diary・秘書などの
+    機械がパスキーなしで入るための鍵。<データの場所>/machine_keys.json（0600）=
+    [{"name","hash","space":"me","person":番号,"read_only":bool,"created"}]
+
+    ・鍵（頭 bm_）は machine-add で作ったときに1度だけ表示する。ファイルには sha256 だけを残す
+      （鍵は 256 ビットの乱数なので、遅いハッシュは要らない）
+    ・比べるのは全部の行と、時間の一定な比較で（どれに合ったかで時間が変わらないように）
+    ・効くのは GET・PUT /api/data だけ。置き場は鍵に決めた個人1つ。端末の数（--max-devices）には数えない
+    ・要求のたびに読み直すので、machine-add・machine-remove は動いているサーバーに次の要求から効く"""
+
+    PREFIX = 'bm_'
+
+    def __init__(self, data_dir: Path):
+        self.path = data_dir / 'machine_keys.json'
+
+    @staticmethod
+    def digest(key: str) -> str:
+        return hashlib.sha256(key.encode('utf-8')).hexdigest()
+
+    def read(self):
+        try:
+            rows = json.loads(self.path.read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            return []
+        except (ValueError, OSError, UnicodeDecodeError):
+            return []      # 読めなければ、どの鍵でも入れない
+        if not isinstance(rows, list):
+            return []
+        return [r for r in rows if isinstance(r, dict) and isinstance(r.get('name'), str) and r['name']
+                and isinstance(r.get('hash'), str) and r.get('space') == 'me'
+                and isinstance(r.get('person'), int) and not isinstance(r.get('person'), bool) and r['person'] >= 1]
+
+    def write(self, rows):
+        _write_private(self.path, json.dumps(rows, ensure_ascii=False, indent=1) + '\n')
+
+    def add(self, name: str, person: int, read_only: bool) -> str:
+        name = name.strip()
+        if not name or len(name) > 60 or any(c in name for c in '\t\r\n') or not name.isprintable():
+            raise SystemExit('名前を入れてください（60字まで、改行・タブなし。例: machine-add gantt --space me）')
+        rows = self.read()
+        if any(r['name'] == name for r in rows):
+            raise SystemExit(f'「{name}」はもうあります（作り直すなら machine-remove {name} のあとで）')
+        key = self.PREFIX + secrets.token_urlsafe(32)
+        rows.append({'name': name, 'hash': self.digest(key), 'space': 'me', 'person': int(person),
+                     'read_only': bool(read_only), 'created': time.strftime('%Y-%m-%d')})
+        self.write(rows)
+        return key
+
+    def remove(self, name: str) -> bool:
+        rows = self.read()
+        keep = [r for r in rows if r['name'] != name.strip()]
+        if len(keep) == len(rows):
+            return False
+        self.write(keep)
+        return True
+
+    def find(self, key: str):
+        """鍵 → 行。合わなければ None"""
+        if not key.startswith(self.PREFIX) or len(key) > 200:
+            return None
+        h = self.digest(key).encode('ascii')
+        hit = None
+        for r in self.read():
+            if hmac.compare_digest(h, r['hash'].encode('utf-8', 'replace')):
+                hit = r
+        return hit
+
+
 def open_spaces(data_dir: Path):
     """{合言葉: (置き場の名前, Store)}（今の合言葉で。テストと前の版の呼び方のため）"""
     return Spaces(data_dir).current()
@@ -427,7 +504,7 @@ class Config:
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
                  guard=None, passkeys=None, stores=None, require_uv=True, devices=None, sea_list=None,
-                 min_schema=1):
+                 min_schema=1, machines=None):
         self.auth, self.origin, self.rp_id = auth, origin, rp_id
         self.trust_proxy = trust_proxy
         self.allow_origins = set(allow_origins)
@@ -438,6 +515,7 @@ class Config:
         self.devices = devices or Devices()   # パスキーの形で、同時に使える端末の数
         self.sea_list = sea_list              # 海の一覧（SeaList）。無ければ /api/spaces は 404
         self.min_schema = int(min_schema)     # 受け付ける最も古い記録の形の版（X-Bubbles-Schema）
+        self.machines = machines              # 機械の鍵（MachineKeys）。パスキーの形だけで効く
 
 
 def make_handler(spaces, cfg: Config = None):
@@ -603,10 +681,39 @@ def make_handler(spaces, cfg: Config = None):
             info = cfg.passkeys.session_info(tok) or {}
             return {'spaces': info.get('spaces', []), 'person': info.get('person'), 'owner': bool(info.get('owner'))}
 
-        def authed_space(self):
+        def machine(self):
+            """機械の鍵の行（パスキーの形で、頭が bm_ の鍵が合ったとき）。それ以外は None"""
+            if cfg.auth != 'passkey' or cfg.machines is None:
+                return None
+            got = self.headers.get('Authorization', '')
+            key = got[7:] if got.startswith('Bearer ') else ''
+            return cfg.machines.find(key) if key.startswith(MachineKeys.PREFIX) else None
+
+        def machine_space(self, m, write):
+            """機械の鍵の置き場。(置き場の名前, Store, 行) か、断ったら None。端末の数には数えない"""
+            want = self.headers.get('X-Bubbles-Space', '')
+            if want and want != m['space']:
+                log_event('machine-forbidden', self.ip(), f'name={m["name"]} space')
+                self.send_json(403, {'error': 'forbidden'})
+                return None
+            if write and m.get('read_only'):
+                log_event('machine-forbidden', self.ip(), f'name={m["name"]} read-only')
+                self.send_json(403, {'error': 'read only'})
+                return None
+            key = 'me' if m['person'] == OWNER else f"me/{m['person']}"
+            if key not in cfg.stores:
+                log_event('machine-forbidden', self.ip(), f'name={m["name"]} no-store')
+                self.send_json(403, {'error': 'forbidden'})
+                return None
+            return m['space'], cfg.stores[key], m
+
+        def authed_space(self, write=False):
             if cfg.guard.auth_blocked(self.ip()):
                 log_event('auth-blocked', self.ip())
                 return self.too_many()
+            m = self.machine()
+            if m is not None:
+                return self.machine_space(m, write)
             sp = self.space()
             if sp == 'devices':
                 # 入場の失敗ではない（正しい端末が、混んでいるので待たされる）。失敗の数に入れない
@@ -646,7 +753,11 @@ def make_handler(spaces, cfg: Config = None):
                     return
                 cur = sp[1].read()
                 out = {'space': sp[0], 'version': cur['version'], 'data': cur['data'], 'minSchema': cfg.min_schema}
-                if cfg.auth == 'passkey':
+                if len(sp) > 2:
+                    # 機械の鍵。持ち主の力（どの海にも入れる）は無い。誰の個人かだけを返す
+                    out['owner'] = False
+                    out['person'] = sp[2]['person']
+                elif cfg.auth == 'passkey':
                     # 端末が「誰の個人か」「持ち主か」を知るため（パスキーを移したとき、手元の箱を入れ替える）
                     info = self.session() or {}
                     out['owner'] = bool(info.get('owner'))
@@ -664,7 +775,7 @@ def make_handler(spaces, cfg: Config = None):
                 return
             if self.path.split('?', 1)[0] != '/api/data':
                 return self.send_json(404, {'error': 'not found'})
-            sp = self.authed_space()
+            sp = self.authed_space(write=True)
             if not sp:
                 return
             body = self.read_json()
@@ -994,6 +1105,36 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
     return 0
 
 
+def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: bool) -> int:
+    """機械の鍵の操作（公開の形。共有の記録 v1.2 §8）。動いているサーバーは止めなくてよい"""
+    keys = MachineKeys(data_dir)
+    if cmd == 'machine-add':
+        m = re.fullmatch(r'me(?::([1-9][0-9]{0,5}))?', (space or '').strip())
+        if not m:
+            raise SystemExit('置き場は me（持ち主の個人）か me:<番号>（その人の個人）。例: machine-add gantt --space me')
+        person = int(m.group(1) or OWNER)
+        if person != OWNER and person not in PasskeyStore(data_dir).persons():
+            raise SystemExit(f'{person_label(person)}はいません（passkey-list で番号を確かめる）')
+        key = keys.add(name, person, read_only)
+        how = '読むだけ' if read_only else '読み書き'
+        # 鍵はここで1度だけ出す。サーバーにはハッシュだけが残る（失くしたら作り直す）
+        print(f'「{name.strip()}」の機械の鍵（{person_label(person)}・{how}）: {key}', flush=True)
+        print('この鍵はもう出せません。使う機械のファイルに入れ（例: chmod 600 の bubble_key.txt）、'
+              '画面・ログ・会話には出さないでください', flush=True)
+    elif cmd == 'machine-list':
+        rows = keys.read()
+        if not rows:
+            print('機械の鍵はありません（machine-add <名前> --space me で作る）')
+        for r in rows:
+            print(f"{r['name']}\t{person_label(r['person'])}\t{'読むだけ' if r.get('read_only') else '読み書き'}"
+                  f"\t作った {r.get('created', '')}")
+    elif cmd == 'machine-remove':
+        if not keys.remove(name):
+            raise SystemExit(f'「{name}」は見つかりません（machine-list で名前を確かめる）')
+        print(f'「{name}」の機械の鍵を消しました。その鍵は次の要求から入れません', flush=True)
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Bubbles の記録を置くサーバー')
     ap.add_argument('--host', default='127.0.0.1',
@@ -1017,12 +1158,15 @@ def main(argv=None):
     ap.add_argument('--max-devices', type=int, default=int(os.environ.get('BUBBLE_TODO_MAX_DEVICES', '3')),
                     help='同時に使える端末の数（既定 3。--device-window 秒以内に使った端末を数える）')
     ap.add_argument('--device-window', type=int, default=int(os.environ.get('BUBBLE_TODO_DEVICE_WINDOW', '1800')))
+    ap.add_argument('--read-only', action='store_true',
+                    help='machine-add で、読むだけ（PUT できない）の鍵にする')
     ap.add_argument('--min-schema', type=int, default=int(os.environ.get('BUBBLE_TODO_MIN_SCHEMA', '1')),
                     help='受け付ける最も古い記録の形の版（既定 1）。これより古い端末の書き込みは 426 で断る')
     ap.add_argument('command', nargs='?', default='serve',
                     choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
                              'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person',
-                             'move-remove', 'request-list', 'request-ok', 'request-no', 'limit', 'limit-set'],
+                             'move-remove', 'request-list', 'request-ok', 'request-no', 'limit', 'limit-set',
+                             'machine-add', 'machine-list', 'machine-remove'],
                     help='serve（既定）か、合言葉・パスキーの操作')
     ap.add_argument('name', nargs='?', default='',
                     help='share-add / share-remove / invite-add / passkey-remove の名前、request-ok / request-no の字、limit-set の数')
@@ -1031,6 +1175,12 @@ def main(argv=None):
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
+    if args.command in ('machine-add', 'machine-list', 'machine-remove'):
+        if args.command != 'machine-list' and not args.name.strip():
+            raise SystemExit(f'名前を入れてください（例: {args.command} gantt）')
+        if args.command == 'machine-add' and args.space == 'share':
+            raise SystemExit('置き場を --space me か --space me:<番号> で入れてください（例: machine-add gantt --space me）')
+        return machine_command(data_dir, args.command, args.name, args.space, args.read_only)
     if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person', 'move-remove',
                         'request-list', 'request-ok', 'request-no', 'limit', 'limit-set'):
         if args.command in ('request-ok', 'request-no') and not args.name.strip():
@@ -1056,7 +1206,7 @@ def main(argv=None):
         cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy,
                      allow_origins=args.allow_origin or (), passkeys=PasskeyStore(data_dir, max_per_space=args.max_passkeys),
                      stores=SeaStores(data_dir), devices=Devices(max_active=args.max_devices, window=args.device_window),
-                     sea_list=SeaList(data_dir), min_schema=args.min_schema)
+                     sea_list=SeaList(data_dir), min_schema=args.min_schema, machines=MachineKeys(data_dir))
         spaces = {}
     else:
         cfg = Config(auth='token', trust_proxy=args.trust_proxy,
