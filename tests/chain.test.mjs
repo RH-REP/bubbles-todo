@@ -274,6 +274,11 @@ await test('solo.html は index.html と CSP・印・manifest・title だけが�
   assert.deepEqual(connect.sort(), ["'self'", 'https://api.anthropic.com', 'https://api.devnet.solana.com',
     'https://api.mainnet-beta.solana.com', 'https://api.open-meteo.com'].sort());
   assert.match(csp, /script-src 'self';/);
+  /* index.html にも <meta> の CSP。送り先は開けたまま（同期の住所）、スクリプトは自分のものだけ（Issue #14 の見直し） */
+  const idxCsp = (/http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(idx) || [])[1] || '';
+  assert.match(idxCsp, /script-src 'self';/, 'index.html に script-src \'self\' の CSP が無い');
+  assert.match(idxCsp, /object-src 'none';/);
+  assert.match(idxCsp, /base-uri 'self';/);
   Object.values(NETWORKS).forEach(x => assert.ok(connect.includes(x.rpc), x.rpc + ' が CSP に無い'));
   const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
   ["'./js/chain.js'", "'./solo.html'", "'./manifest-solo.json'"].forEach(a => assert.ok(sw.includes(a), 'sw.js の ASSETS に ' + a + ' が無い'));

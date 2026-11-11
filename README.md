@@ -132,11 +132,21 @@
   - 使わないときは設定の「消す」でこの端末から消す
 - **送り先**: ブラウザから Anthropic の API（`api.anthropic.com`）へ直接。server.py を介さない
   （`anthropic-dangerous-direct-browser-access` ヘッダを付けて呼ぶ。鍵は使う人が自分の端末に置く前提の、Anthropic 自身の仕組み）
-- **送り先の制限（CSP の connect-src）が効く所・効かない所**（Issue #14 の見直し）: 制限は server.py が付けるヘッダーなので、
-  **server.py が配るページだけ**に効く（`'self'` と `api.anthropic.com`・`api.open-meteo.com`（天気。Issue #30）のほかへは繋がない）。
-  GitHub Pages のお試し版と Android 版（`www/`）にはヘッダーが付かず、制限が無い。そこでは、アプリの中で悪いコードが動いたときに
-  キーをよそへ送り出せる。同期の住所を利用者が自由に入れるので、ページの中に固定の制限（`<meta>`）を書くと同期が繋がらなくなる。
-  どうするかは Issue #14 で決める
+- **ページの守り（CSP）の今の形**（Issue #14 の見直し、2026-11-11）:
+
+  | 開き方 | CSP | よそのスクリプトを動かさない（script-src 'self'） | 送り先の決め打ち（connect-src） |
+  |---|---|---|---|
+  | server.py が配るページ | ヘッダー（server.py の `CSP`） | ある | `'self'`・Anthropic・天気・Solana の公式 RPC |
+  | solo.html（GitHub Pages・Android でサーバーに繋いでいないとき。js/boot-edition.js が移す） | `<meta>` | ある | 同上 |
+  | index.html を GitHub Pages・Android で開き、サーバーに繋いでいるとき | `<meta>`（2026-11-11 に足した） | ある | **無い**（`*`。利用者が入れる同期の住所に繋ぐため） |
+
+  - **送り先の決め打ちは、キーを外へ出さない柵としてはもう完全ではない。**Solana の公式 RPC は誰でも書ける公開の掲示板なので、
+    ページの中で悪いコードが動けば、自分で持ち込んだウォレットでキーをチェーンに書き出せる。WebRTC（js/p2p.js）は CSP の connect-src の
+    対象外で、どのページでも塞げない。だから守りの主は「悪いコードを動かさない」こと:
+    外のスクリプトを読まない（外部依存ゼロ）・`script-src 'self'`（差し込まれた `<script>` や `onclick=` を動かさない）・
+    人や AI の文字を HTML にしない（上の「HTML として描かない」）。index.html の `<meta>` はこのために足した（connect-src は開けたまま）
+  - index.html の `<meta>` は solo.html の `<meta>` と同じ位置に置く（tests/chain.test.mjs が両方の CSP の行を外して見比べる）。
+    server.py が配るときはヘッダーと `<meta>` の両方が効き、厳しいほう（ヘッダーの connect-src）になる
 - **送る中身**: 書いた質問の文・この app の使い方の要約（README の目次ぶん）・版と今の画面 ID・件数（海・今日・長期保留・完了・タグ）だけ。
   **バブルの本文・作業メモは送らない**
 - **画面**（2026-11-04 UI 見直し）: 見出し／流れる中身／下に留まる入力欄の3段。入力欄は会話が伸びても画面の外へ出ない。
