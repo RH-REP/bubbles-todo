@@ -121,9 +121,25 @@ export function stateToBox(state) {
   return Object.assign({}, state.doc, { stamps: state.stamps });
 }
 
-/* 中身を組む。boxes = { 海の ID: { doc, stamps } }、seas = 海の一覧、server = { url, move, token, shareToken } */
-export function buildPayload({ boxes, seas, server, at = Date.now(), device = '' }) {
+/* 中身を組む。boxes = { 海の ID: { doc, stamps } }、seas = 海の一覧、server = { url, move, token, shareToken }。
+   海域（2026-11-12 段2。js/regions.js）: regions = 入れた海域の一覧、servers = { 海域の ID: { url, move | token, shareToken } }。
+   regions のあるファイルは、戻すときに海域ごとに付け替える（settings.js の mergeIntoDevice）。
+   server は前の版の app のために残す（前の版は servers を読まず、server の1つだけで入り直す） */
+export function buildPayload({ boxes, seas, server, at = Date.now(), device = '', regions, servers }) {
   const out = { format: FORMAT, version: VERSION, at, device, seas: Array.isArray(seas) ? seas : [], boxes: {} };
+  if (Array.isArray(regions)) out.regions = regions;
+  if (servers && typeof servers === 'object') {
+    out.servers = {};
+    Object.keys(servers).forEach(rid => {
+      const v = servers[rid] || {};
+      if (!v.url) return;
+      const o = { url: String(v.url) };
+      if (v.move) o.move = String(v.move);
+      if (v.token) o.token = String(v.token);
+      if (v.shareToken) o.shareToken = String(v.shareToken);
+      out.servers[rid] = o;
+    });
+  }
   Object.keys(boxes || {}).forEach(id => {
     const st = boxes[id];
     if (st && st.doc && st.stamps) out.boxes[id] = { doc: st.doc, stamps: st.stamps };
@@ -153,7 +169,8 @@ export function moveSummary(p) {
     const list = ((p.boxes[id] || {}).doc || {}).todos;
     if (Array.isArray(list)) todos += list.filter(t => t && !t.trashed).length;
   });
-  return { at: Number(p && p.at) || 0, device: (p && p.device) || '', seas: ids.length, todos,
+  const regions = Array.isArray(p && p.regions) ? p.regions.map(r => String((r && r.name) || '')).filter(Boolean) : [];
+  return { at: Number(p && p.at) || 0, device: (p && p.device) || '', seas: ids.length, todos, regions,
     server: !!(p && p.server && p.server.url), move: !!(p && p.server && p.server.move) };
 }
 

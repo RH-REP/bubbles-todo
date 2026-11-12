@@ -92,7 +92,7 @@ const tick = () => new Promise(r => setTimeout(r, 5));
 
 /* ============================================================ */
 
-await test('フォルダを選ぶと、その日のファイルにすべての海の記録を書く（サーバーの住所・合言葉は入れない）', async () => {
+await test('フォルダを選ぶと、その日のファイルにすべての海の記録を書く（合言葉は入れない。海域の名前と住所は入れる）', async () => {
   const { fb, b } = await setup();
   const dir = fakeDir();
   const st = await b.useFolder(dir);
@@ -107,7 +107,10 @@ await test('フォルダを選ぶと、その日のファイルにすべての�
   assert.ok(p.seas.some(e => e.id === 'sabc1234'), '海の一覧が入っていない');
   assert.equal(p.device, 'Mac');
   assert.ok(!('server' in p));
-  assert.ok(!text.includes('FAKE-TOKEN') && !text.includes('127.0.0.1'), '合言葉・住所が入っている');
+  assert.ok(!text.includes('FAKE-TOKEN'), '合言葉が入っている');
+  /* 海域の一覧（段2）。住所は入れ、鍵は入れない */
+  assert.ok(Array.isArray(p.regions) && p.regions.some(r => r.url === 'http://127.0.0.1:1'), '海域の一覧が無い');
+  assert.ok(p.regions.every(r => !('token' in r) && !('session' in r)));
   const c = fb.loadConf();
   assert.deepEqual([c.on, c.folder, c.lastName], [true, '控えのフォルダ', 'bubbles-backup-2026-11-12.json']);
 });

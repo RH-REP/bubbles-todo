@@ -13,7 +13,8 @@
 
    ■ 中身
    引っ越しのファイル（js/movefile.js の buildPayload）と同じ形で、暗号化はしない。format は 'bubbles-backup'。
-   海の記録（doc と印）と海の一覧だけ。**サーバーの住所・合言葉・鍵は入れない**（平文で置くため）。
+   海の記録（doc と印）と海の一覧、海域の一覧（名前と住所。2026-11-12 段2）。**合言葉・鍵は入れない**（平文で置くため）。
+   住所は、新しい端末で戻したときに海域ごとに付け替えるために入れる（鍵ではない）。
    戻すときは設定の「控えのファイルから戻す」で、引っ越しと同じく記録ごとに新しいほうを残して重ねる。
 
    ■ 使えるところ
@@ -26,7 +27,7 @@
 
 import { store } from './store.js';
 import { seaList, allEntries, boxKey } from './spacelist.js';
-import { allSpaceIds } from './regions.js';
+import { allSpaceIds, regionList, regionsPayload } from './regions.js';
 import { buildPayload, boxToState, moveSummary } from './movefile.js';
 import { deviceLabel } from './csvio.js';
 
@@ -64,9 +65,9 @@ export function collectBoxes(st = store, ls = globalThis.localStorage) {
   return boxes;
 }
 
-/* 控えの中身。サーバーの住所・鍵は入れない */
-export function buildBackup({ boxes, seas, at = Date.now(), device = '' }) {
-  return Object.assign(buildPayload({ boxes, seas, server: null, at, device }), { format: FORMAT });
+/* 控えの中身。サーバーの鍵は入れない。海域の一覧（名前と住所）は入れる（新しい端末で戻したとき、海域ごとに付け替えるため。段2） */
+export function buildBackup({ boxes, seas, at = Date.now(), device = '', regions }) {
+  return Object.assign(buildPayload({ boxes, seas, server: null, at, device, regions }), { format: FORMAT });
 }
 
 /* 控えのファイルを読む。形が違えば投げる。戻り値は buildBackup の形（mergeIntoDevice にそのまま渡せる） */
@@ -174,7 +175,8 @@ export function createFolderBackup(deps = {}) {
       if (perm !== 'granted') { set('need-permission'); return state; }
       try { if (typeof st.flush === 'function') st.flush(); } catch (e) { /* 書くのは止めない */ }
       const at = now();
-      const p = buildBackup({ boxes: collectBoxes(st, ls), seas: seas(), at, device });
+      const p = buildBackup({ boxes: collectBoxes(st, ls), seas: seas(), at, device,
+        regions: regionsPayload(regionList().map(r => r.id)) });
       const key = sameKey(p), name = backupFileName(at);
       if (!force && key === lastKey && name === lastName) { set('ok'); return state; }
       try {

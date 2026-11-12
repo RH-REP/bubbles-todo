@@ -214,3 +214,90 @@ export function removeRegion(id, now = Date.now(), st = ls()) {
   r.at = Math.max(now, r.at + 1);
   return saveRegions(rows, st);
 }
+
+/* ---- 引っ越しのファイル・控えに入れる・戻す（2026-11-12 段2。利用者の指示「海域ごとに引越しとすべてを選べる様に」）----
+   ファイル（js/movefile.js の形）に足す欄:
+     regions … [{ id, name, kind, url, legacyMe }]（入れた海域だけ。id は作った端末の ID）
+     servers … { 海域の ID: { url, move? | token?, shareToken? } }（引っ越しのファイルだけ。控えには入れない）
+   海の一覧の海には、作った端末の海域の ID を region として入れる（region の無い海も、その端末の legacyMe の海域を書く）。
+   戻す端末では、同じ住所のサーバーの海域があればそれに、無ければ海域を足して、ファイルの海域の ID をこの端末の ID に付け替える。 */
+
+/* 入れる海域の一覧（鍵は入れない） */
+export function regionsPayload(rids, st = ls()) {
+  return regionList(st).filter(r => rids.indexOf(r.id) >= 0).map(r => {
+    const c = regionConf(r.id, st);
+    return { id: r.id, name: r.name, kind: r.kind, url: r.kind === 'server' ? String((c && c.url) || '') : '', legacyMe: !!r.legacyMe };
+  });
+}
+
+/* 選んだ海域の記録と海の一覧だけにする。boxes = { 海の ID: 記録 }、entries = 海の一覧（消した印も）。
+   海の region は、無ければこの端末の legacyMe の海域を書いておく（戻す端末で付け替えるため） */
+export function pickForPayload(rids, boxes, entries, st = ls()) {
+  const def = defaultRegionId(st);
+  const keep = new Set();
+  rids.forEach(rid => { if (findRegion(rid, st)) keep.add(personalId(rid, st)); });
+  const seas = [];
+  (entries || []).forEach(e => {
+    const rid = regionOfSpace(e.id, st);
+    if (!rid || rids.indexOf(rid) < 0) return;
+    seas.push(Object.assign({}, e, { region: e.region || def }));
+    keep.add(e.id);
+  });
+  const out = {};
+  Object.keys(boxes || {}).forEach(id => { if (keep.has(id)) out[id] = boxes[id]; });
+  return { boxes: out, seas };
+}
+
+/* ファイルの海域を、この端末の海域に付け替える → { map: { ファイルの ID: この端末の ID }, added: [足した海域] }。
+   「この端末だけ」は「この端末だけ」へ。サーバーは同じ住所の海域へ、無ければ足す（鍵はここでは入れない） */
+export function importRegions(fileRegions, now = Date.now(), st = ls()) {
+  const map = {};
+  const added = [];
+  (Array.isArray(fileRegions) ? fileRegions : []).forEach(fr => {
+    if (!fr || !REGION_RE.test(String(fr.id || ''))) return;
+    if (fr.id === 'local' || fr.kind === 'local') { map[fr.id] = 'local'; return; }
+    const url = String(fr.url || '');
+    const same = url && regionList(st).find(r => r.kind === 'server' && (regionConf(r.id, st) || {}).url === url);
+    if (same) { map[fr.id] = same.id; return; }
+    if (!url) return;   /* 住所の無いサーバーの海域は、どこへも付け替えられない */
+    const r = addServerRegion(fr.name, { url }, now + added.length, st);
+    if (r) { map[fr.id] = r.id; added.push(r); }
+  });
+  return { map, added };
+}
+
+/* ファイルの中身（boxes・seas）を、この端末の海の ID と海域へ付け替える。
+   ファイルの個人 'me' はファイルの legacyMe の海域の個人、'me.<ID>' はその海域の個人。付け替えられないものは落とす */
+export function remapPayload(p, map, st = ls()) {
+  const fileRegions = Array.isArray(p && p.regions) ? p.regions : [];
+  const fileDef = (fileRegions.find(r => r && r.legacyMe) || {}).id || null;
+  const toLocal = (fid) => (fid && map[fid]) || null;
+  const boxes = {};
+  Object.keys((p && p.boxes) || {}).forEach(id => {
+    let target = id;
+    if (id === 'me') {
+      const rid = toLocal(fileDef);
+      if (!rid) return;
+      target = personalId(rid, st);
+    } else {
+      const m = PERSONAL_RE.exec(id);
+      if (m) {
+        const rid = toLocal(m[1]);
+        if (!rid) return;
+        target = personalId(rid, st);
+      }
+    }
+    boxes[target] = p.boxes[id];
+  });
+  const seas = [];
+  ((p && p.seas) || []).forEach(e => {
+    if (!e || typeof e !== 'object') return;
+    const rid = toLocal(e.region || fileDef);
+    if (!rid) return;
+    seas.push(Object.assign({}, e, { region: rid }));
+  });
+  /* 付け替えたあと、その海の箱を持つか（海の一覧に無い海の箱は落とす。personal は残す） */
+  const known = new Set(seas.map(e => e.id));
+  Object.keys(boxes).forEach(id => { if (!isPersonal(id) && !known.has(id)) delete boxes[id]; });
+  return { boxes, seas };
+}

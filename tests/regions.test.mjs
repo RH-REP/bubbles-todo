@@ -142,6 +142,87 @@ await test('サーバーの一覧と合わせる: 新しく来た海はその海
 });
 
 /* ============================================================ */
+/* 1b. 引っ越しのファイル・控え（段2。海域ごとに選ぶ・すべて） */
+
+const MV = await import(new URL('../js/movefile.js', import.meta.url).href);
+/* 1台目: この端末だけ・A（前の版からの個人）・B。海は A に1つ（region 無し）、B に1つ */
+function deviceOne() {
+  fresh({
+    bubble_todo_sync: { url: 'https://srv-a.test', token: 'tk-a' },
+    bubble_todo_sync_rb1: { url: 'https://srv-b.test', token: 'tk-b' },
+    bubble_todo_regions: [{ id: 'local', name: 'ローカル' }, { id: 'r0', name: 'A', legacyMe: true, legacyConf: true }, { id: 'rb1', name: 'B' }],
+    bubble_todo_spaces: [SEA, { id: 'sinb0001', name: 'B の海', color: 'moss', at: 1, alive: 1, region: 'rb1' }],
+  });
+  return {
+    me: { doc: { todos: [{ id: 'a', text: 'A の個人' }] }, stamps: { 'todo:a': [1, 1] } },
+    'me.local': { doc: { todos: [{ id: 'l', text: 'ローカルの個人' }] }, stamps: { 'todo:l': [1, 1] } },
+    'me.rb1': { doc: { todos: [{ id: 'b', text: 'B の個人' }] }, stamps: { 'todo:b': [1, 1] } },
+    sabc1234: { doc: { todos: [{ id: 's', text: 'A の海' }] }, stamps: { 'todo:s': [1, 1] } },
+    sinb0001: { doc: { todos: [{ id: 't', text: 'B の海' }] }, stamps: { 'todo:t': [1, 1] } },
+  };
+}
+
+await test('選んだ海域だけを入れる（B だけ）。海域の一覧に鍵は入れない', async () => {
+  const boxes = deviceOne();
+  const picked = R.pickForPayload(['rb1'], boxes, SL.allEntries());
+  assert.deepEqual(Object.keys(picked.boxes).sort(), ['me.rb1', 'sinb0001']);
+  assert.deepEqual(picked.seas.map(e => [e.id, e.region]), [['sinb0001', 'rb1']]);
+  const regs = R.regionsPayload(['rb1']);
+  assert.deepEqual(regs, [{ id: 'rb1', name: 'B', kind: 'server', url: 'https://srv-b.test', legacyMe: false }]);
+  /* すべて: region の無い海には、この端末の legacyMe の海域（r0）を書く */
+  const all = R.pickForPayload(R.regionList().map(r => r.id), boxes, SL.allEntries());
+  assert.deepEqual(Object.keys(all.boxes).sort(), ['me', 'me.local', 'me.rb1', 'sabc1234', 'sinb0001']);
+  assert.equal(all.seas.find(e => e.id === 'sabc1234').region, 'r0');
+  /* 鍵の欄と、前の版のための server */
+  const p = MV.buildPayload({ boxes: all.boxes, seas: all.seas, server: { url: 'https://srv-a.test', token: 'tk-a' },
+    regions: R.regionsPayload(['local', 'r0', 'rb1']), servers: { r0: { url: 'https://srv-a.test', token: 'tk-a' }, rb1: { url: 'https://srv-b.test', move: 'MV-B', junk: 1 } } });
+  assert.deepEqual(p.servers, { r0: { url: 'https://srv-a.test', token: 'tk-a' }, rb1: { url: 'https://srv-b.test', move: 'MV-B' } });
+  assert.equal(p.server.url, 'https://srv-a.test');
+  assert.deepEqual(MV.moveSummary(p).regions, ['ローカル', 'A', 'B']);
+});
+
+await test('戻す端末（繋いでいない新しい端末）: サーバーの海域を足し、個人と海をその海域へ付け替える', async () => {
+  const boxes = deviceOne();
+  const all = R.pickForPayload(['local', 'r0', 'rb1'], boxes, SL.allEntries());
+  const p = MV.buildPayload({ boxes: all.boxes, seas: all.seas, server: null, regions: R.regionsPayload(['local', 'r0', 'rb1']) });
+  const file = JSON.parse(JSON.stringify(p));
+  fresh({});                                   /* 2台目。この端末だけの1つ（前の版からの個人もここ） */
+  const { map, added } = R.importRegions(file.regions, 5000);
+  assert.equal(map.local, 'local');
+  assert.deepEqual(added.map(r => r.name), ['A', 'B']);
+  const ra = map.r0, rb = map.rb1;
+  assert.equal(R.regionConf(ra).url, 'https://srv-a.test');
+  assert.equal(R.regionConf(rb).url, 'https://srv-b.test');
+  assert.ok(!('token' in R.regionConf(rb)) || R.regionConf(rb).token === '', '鍵は付け替えでは入れない');
+  const r = R.remapPayload(file, map);
+  /* ファイルの 'me'（A の個人）は A の海域の個人、'me.local' はこの端末の個人（ここでは 'me'） */
+  assert.deepEqual(r.boxes[R.personalId(ra)].doc.todos[0].text, 'A の個人');
+  assert.deepEqual(r.boxes[R.personalId('local')].doc.todos[0].text, 'ローカルの個人');
+  assert.equal(R.personalId('local'), 'me');
+  assert.deepEqual(r.boxes[R.personalId(rb)].doc.todos[0].text, 'B の個人');
+  assert.equal(r.seas.find(e => e.id === 'sabc1234').region, ra);
+  assert.equal(r.seas.find(e => e.id === 'sinb0001').region, rb);
+  /* 戻したあとの海は、それぞれの海域に出る */
+  SL.mergeSeas(r.seas);
+  assert.equal(R.regionOfSpace('sabc1234'), ra);
+  assert.equal(R.regionOfSpace('sinb0001'), rb);
+});
+
+await test('戻す端末に同じ住所の海域があれば、そこへ付け替える（足さない）。住所の無いサーバーの海域と、選ばなかった海域の中身は落とす', async () => {
+  const boxes = deviceOne();
+  const picked = R.pickForPayload(['rb1'], boxes, SL.allEntries());
+  const file = JSON.parse(JSON.stringify(MV.buildPayload({ boxes: Object.assign({}, picked.boxes, { sstray01: boxes.sabc1234 }),
+    seas: picked.seas, server: null, regions: R.regionsPayload(['rb1']).concat([{ id: 'rx9', name: '住所なし', kind: 'server', url: '' }]) })));
+  fresh({ bubble_todo_sync: { url: 'https://srv-b.test', token: 'mine' } });   /* 2台目は B に繋いでいた（r0 = B） */
+  const { map, added } = R.importRegions(file.regions, 6000);
+  assert.deepEqual(map, { rb1: 'r0' });
+  assert.equal(added.length, 0);
+  const r = R.remapPayload(file, map);
+  assert.deepEqual(Object.keys(r.boxes).sort(), ['me', 'sinb0001'], 'B の個人は 2台目の B の個人（me）へ。迷子の箱は落とす');
+  assert.equal(R.regionConf('r0').token, 'mine', '手元の鍵を替えた');
+});
+
+/* ============================================================ */
 /* 2. 開いている海の海域で、繋ぐ先が決まる */
 
 const LS_TWO = (extra) => Object.assign({

@@ -14,7 +14,8 @@ import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMod
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
 import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE } from '../spacelist.js';
 import { isPersonal, PERSONAL_RE, allSpaceIds, regionList, findRegion, personalId, seasOf, regionOfSpace, defaultRegionId,
-  addServerRegion, renameRegion, removeRegion, localHasLegacy, REGION_NAME_MAX } from '../regions.js';
+  addServerRegion, renameRegion, removeRegion, localHasLegacy, REGION_NAME_MAX,
+  regionsPayload, pickForPayload, importRegions, remapPayload } from '../regions.js';
 import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, moveSummary, moveFileName,
   boxToState, stateToBox, mergeBox } from '../movefile.js';
 import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
@@ -1238,6 +1239,8 @@ function moveBox() {
   ));
   const row = el('div', 'row');
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  const movePick = regionPicker('引っ越しのファイル');
+  wrap.appendChild(movePick.el);
   const make = el('button', 'btn', '引っ越しのファイルを作る');
   make.type = 'button';
   const save = el('button', 'btn', 'ファイルを保存する');
@@ -1292,33 +1295,52 @@ function moveBox() {
     ready = null;
     try {
       try { store.flush(); } catch (e) { /* 作るのは止めない */ }
-      const sec = sync.moveSecrets();
-      let server = null, warn = '';
-      if (sec && sec.session) {
-        try {
-          const got = await makeMoveKey(sec.url, sec.session);
-          server = { url: sec.url, move: got.move };
-        } catch (e) {
-          server = { url: sec.url };
-          warn = '（海域に入る鍵は入っていない: ' + e.message + '）';
+      /* 選んだ海域ごとに、住所と入る鍵を入れる（段2）。パスキーの海域は、その海域のサーバーに引っ越しの鍵を頼む */
+      const chosen = movePick.chosen();
+      if (!chosen.length) { toast('入れる海域を選ぶ'); return; }
+      const servers = {};
+      const warns = [];
+      let anyMove = false;
+      for (const rid of chosen) {
+        const r = findRegion(rid);
+        if (!r || r.kind !== 'server') continue;
+        const sec = sync.moveSecretsOf(rid);
+        if (!sec) continue;
+        if ('session' in sec) {
+          if (!sec.session) { servers[rid] = { url: sec.url }; warns.push(r.name + ': パスキーの通行証が切れている'); continue; }
+          try {
+            const got = await makeMoveKey(sec.url, sec.session);
+            servers[rid] = { url: sec.url, move: got.move };
+            anyMove = true;
+          } catch (e) {
+            servers[rid] = { url: sec.url };
+            warns.push(r.name + ': ' + e.message);
+          }
+        } else if (sec.token || sec.shareToken) {
+          servers[rid] = { url: sec.url, token: sec.token, shareToken: sec.shareToken };
+        } else {
+          servers[rid] = { url: sec.url };
+          warns.push(r.name + ': 入る鍵が無い');
         }
-      } else if (sec && ('token' in sec)) {
-        server = { url: sec.url, token: sec.token, shareToken: sec.shareToken };
-      } else if (sec) {
-        server = { url: sec.url };
-        warn = '（パスキーで入っていないので、海域に入る鍵は入っていない）';
       }
+      const warn = warns.length ? '（海域に入る鍵が入っていないもの: ' + warns.join('、') + '）' : '';
+      /* 前の版の app のために、開いている海域（無ければ選んだ最初のサーバー）の1つを server にも入れる */
+      const legacyRid = servers[sync.region().id] ? sync.region().id : Object.keys(servers)[0];
+      const server = legacyRid ? servers[legacyRid] : null;
       const now = Date.now();
       const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
       const pass = makePassphrase();
-      const payload = buildPayload({ boxes: collectBoxes(), seas: allEntries(), server, at: now, device: dev });
+      const picked = pickForPayload(chosen, collectBoxes(), allEntries());
+      const payload = buildPayload({ boxes: picked.boxes, seas: picked.seas, server, at: now, device: dev,
+        regions: regionsPayload(chosen), servers });
       const text = await encryptMove(payload, pass);
       const name = moveFileName(now);
       ready = { blob: new Blob([text], { type: 'application/json' }), name };
       const info = moveSummary(payload);
       passLine.textContent = '合言葉: ' + pass + '　← 書き留めてから「ファイルを保存する」。'
+        + (info.regions.length ? '海域 ' + info.regions.join('・') + '・' : '')
         + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + warn
-        + (server && server.move ? '。前に作った引っ越しのファイルでは、もう海域に入れない（記録は戻せる）' : '');
+        + (anyMove ? '。前に作った引っ越しのファイルでは、もう海域に入れない（記録は戻せる）' : '');
       save.hidden = false;
       save.focus();
     } catch (e) {
@@ -1380,14 +1402,67 @@ function moveBox() {
     fileText = '';
   });
 
+  /* 戻したあと、海域ごとに入り直すボタン（パスキーを作るのは押した手の続きでないと断る端末があるため。段2） */
+  const joinRow = el('div', 'row');
+  joinRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  wrap.appendChild(joinRow);
+
   function restore(p) {
-    const n = mergeIntoDevice(p);
+    const got = importIntoDevice(p);
+    const n = got.n;
     line.textContent = '海 ' + n + ' つの記録を戻した。';
+    if (Array.isArray(p.regions) && p.regions.length) {
+      if (got.added.length) line.textContent += '海域 ' + got.added.map(r => r.name).join('・') + ' を足した。';
+      joinRegions(p, got.map);
+      return;
+    }
     pendingServer = p.server && p.server.url ? p.server : null;
     if (pendingServer && pendingServer.move && !(sync.config().passkey && sync.config().passkey.valid)) {
       line.textContent += '続けて下のボタンで、海域に入る。';
       retry.hidden = false;
     } else if (pendingServer) joinServer();
+  }
+
+  /* 海域ごとに入り直す（段2。regions と servers のあるファイル）。
+     合言葉 … その海域にまだ鍵が無ければ、その合言葉で繋ぐ（ある海域は替えない）
+     引っ越しの鍵 … その海域でまだパスキーで入っていなければ、［「名前」に入る］を出す */
+  function joinRegions(p, map) {
+    joinRow.textContent = '';
+    const said = [];
+    Object.keys(p.servers || {}).forEach(fid => {
+      const rid = map[fid];
+      const s = p.servers[fid];
+      const r = rid && findRegion(rid);
+      if (!r || !s || !s.url) return;
+      const now = sync.regionSummary(rid);
+      if (s.token || s.shareToken) {
+        if (now.token || now.passkey) { said.push(r.name + 'はもう鍵がある（替えない）'); return; }
+        if (sync.configureRegion(rid, s.url, s.token || '', s.shareToken || '')) said.push(r.name + 'に合言葉で繋いだ');
+        return;
+      }
+      if (s.move) {
+        if (now.passkeyValid) { said.push(r.name + 'にはもうパスキーで入っている'); return; }
+        const b = el('button', 'btn', '「' + escapeHtml(r.name) + '」に入る（パスキーを作る）');
+        b.type = 'button';
+        b.addEventListener('click', async () => {
+          b.disabled = true;
+          try {
+            const out = await registerPasskey(s.url, s.move);
+            sync.usePasskeySessionRegion(rid, s.url, out);
+            b.remove();
+            line.textContent += '「' + r.name + '」に「' + out.name + '」として入った。';
+          } catch (e) {
+            b.disabled = false;
+            line.textContent += '「' + r.name + '」に入れなかった: ' + ((e && e.message) || e) + '。';
+          }
+        });
+        joinRow.appendChild(b);
+        return;
+      }
+      said.push(r.name + 'は住所だけ（入る鍵が無い。歯車から合言葉を入れるか、持ち主に招待を頼む）');
+    });
+    if (said.length) line.textContent += said.join('。') + '。';
+    if (joinRow.children.length) line.textContent += '続けて下のボタンで、海域ごとに入る。';
   }
 
   /* サーバーに入る。パスキーの形は引っ越しの鍵で、この端末のパスキーを登録する */
@@ -1443,7 +1518,7 @@ function folderBox() {
     + 'そのフォルダの「bubbles-backup-日付.json」へ、この端末のすべての海の記録を書く。1日1つのファイルで、その日のうちは上書きする。'
     + '古い日のファイルは消さない（要らなくなったら自分で消す）。サーバーに繋がらない間の保険になる。'));
   wrap.appendChild(el('p', 'note',
-    '暗号化はしない（中の todo はそのまま読める）。サーバーの住所・合言葉・鍵は入れない。'
+    '暗号化はしない（中の todo はそのまま読める）。合言葉・鍵は入れない（海域の名前と住所は入れる。新しい端末で戻したとき、海域ごとに戻すため）。'
     + 'iCloud Drive などのフォルダを選ぶと、そこにも記録が置かれる。'));
   const ok = folderBackupSupported() && !!folderBackup;
   if (!ok) {
@@ -1540,6 +1615,39 @@ function folderBox() {
   return wrap;
 }
 
+/* どの海域を入れるかを選ぶ（段2。利用者の指示「海域ごとに引越しとすべてを選べる様に」）。
+   「すべての海域」（既定）と、海域ごとのチェック。海域が1つなら何も出さず、その1つを入れる。
+   戻り値 { el, chosen() → 海域の ID の配列 } */
+function regionPicker(what) {
+  const wrap = el('div', 'region-pick');
+  const regions = regionList();
+  if (regions.length < 2) return { el: wrap, chosen: () => regions.map(r => r.id) };
+  wrap.appendChild(el('p', 'note', escapeHtml(what) + 'に入れる海域'));
+  const allRow = el('label', 'setrow');
+  const allCb = document.createElement('input');
+  allCb.type = 'checkbox';
+  allCb.checked = true;
+  allRow.appendChild(allCb);
+  allRow.appendChild(el('span', null, 'すべての海域'));
+  wrap.appendChild(allRow);
+  const cbs = regions.map(r => {
+    const row = el('label', 'setrow region-pick-one');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.disabled = true;
+    cb.dataset.region = r.id;
+    row.appendChild(cb);
+    row.appendChild(el('span', null, escapeHtml(r.name) + (r.kind === 'local' ? '（この端末だけ）' : '')));
+    wrap.appendChild(row);
+    return cb;
+  });
+  allCb.addEventListener('change', () => {
+    cbs.forEach(cb => { cb.disabled = allCb.checked; if (allCb.checked) cb.checked = true; });
+  });
+  return { el: wrap, chosen: () => (allCb.checked ? regions.map(r => r.id) : cbs.filter(cb => cb.checked).map(cb => cb.dataset.region)) };
+}
+
 /* この端末の海の記録。開いている海は store から、ほかは箱から（引っ越しのファイルとチェーンの控えで共用） */
 function collectBoxes() {
   const boxes = {};
@@ -1557,7 +1665,21 @@ function collectBoxes() {
 
 /* 引っ越しの中身（movefile.js の形）をこの端末に重ねる。戻り値 戻した海の数。
    記録は消さずに重ねる（記録ごとに新しいほうが残る）。サーバーの扱いは呼ぶ側 */
-function mergeIntoDevice(p) {
+function mergeIntoDevice(p) { return importIntoDevice(p).n; }
+
+/* 海域の一覧（regions）のあるファイルは、この端末の海域へ付け替えてから重ねる（段2。js/regions.js）。
+   戻り値 { n: 戻した海の数, map: { ファイルの海域の ID: この端末の海域の ID }, added: 足した海域 } */
+function importIntoDevice(p) {
+  if (p && Array.isArray(p.regions) && p.regions.length) {
+    const { map, added } = importRegions(p.regions);
+    const r = remapPayload(p, map);
+    const n = mergeBoxes({ seas: r.seas, boxes: r.boxes });
+    return { n, map, added };
+  }
+  return { n: mergeBoxes(p), map: {}, added: [] };
+}
+
+function mergeBoxes(p) {
   mergeSeas(p.seas || []);
   let n = 0;
   Object.keys(p.boxes || {}).forEach(id => {
@@ -2028,6 +2150,8 @@ function resetAllBox() {
 /* ブロックチェーン（Solana）への控え（2026-11-08 Issue #31）。2026-11-11 Issue #42 から、サーバーが配るページにも出す。
    仕組みと形は js/chain.js。鍵の元はパスキー（PRF）か、app が作って見せる合言葉。元はどこにも置かない。 */
 function chainBox() {
+  /* 控えに入れる海域を選ぶ（段2。利用者の指示「海域ごとに…すべてを選べる様に」） */
+  const chainPick = regionPicker('ブロックチェーンの控え');
   const wrap = el('div', 'tags');
   /* 用語（2026-11-09 Issue #31 の返事で見直し）: ほかのウォレット・取引所と行き来するので、そちらと同じ言葉にそろえる。
      ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
@@ -2367,6 +2491,7 @@ function chainBox() {
   function paintBackup(net) {
     group('backup', 'バックアップする','保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
       + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに控えていなければ表示して書き留める。');
+    if (into && into.parentElement) into.parentElement.insertBefore(chainPick.el, into);
     btn('バックアップを保存', writeBackup);
     btn('バックアップから復元', async () => {
       const keys = await unlock();
@@ -3126,7 +3251,12 @@ function chainBox() {
     try { store.flush(); } catch (e) { /* 書くのは止めない */ }
     line.textContent = 'バックアップを作っている…';
     const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
-    const payload = buildPayload({ boxes: collectBoxes(), seas: allEntries(), server: null, at: Date.now(), device: dev });
+    /* 選んだ海域の記録と、海域の一覧（名前と住所。鍵は入れない）だけ（段2） */
+    const chosen = chainPick.chosen();
+    if (!chosen.length) { line.textContent = '入れる海域を選ぶ'; return null; }
+    const picked = pickForPayload(chosen, collectBoxes(), allEntries());
+    const payload = buildPayload({ boxes: picked.boxes, seas: picked.seas, server: null, at: Date.now(), device: dev,
+      regions: regionsPayload(chosen) });
     const sum = moveSummary(payload);
     const memos = await sealToMemos(payload, keys.recordKey);
     if (memos.length > MAX_TX) {
@@ -3336,7 +3466,9 @@ function chainBox() {
     const s = moveSummary(p);
     const at = s.at ? new Date(s.at).toLocaleString() : '不明';
     if (!window.confirm('このバックアップをこの端末に復元する？\n保存した時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
-      + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) {
+      + (s.regions.length ? '\n海域 ' + s.regions.join('・') : '')
+      + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。'
+      + (s.regions.length ? '\n海域の鍵は入っていない（足した海域は、歯車か「他の人と一緒に使う」で入り直す）。' : ''))) {
       line.textContent = 'やめた';
       return true;
     }

@@ -423,6 +423,28 @@ export const sync = {
     } catch (e) { return false; }
     return true;
   },
+  /* ほかの海域の引っ越しの鍵（段2。引っ越しのファイルに海域ごとの鍵を入れる）。moveSecrets と同じ形。
+     開いている海の海域なら moveSecrets と同じ。住所が無ければ null */
+  moveSecretsOf(rid) {
+    if (rid === REGION) return sync.moveSecrets();
+    const c = regionConf(rid);
+    if (!c || !c.url) return null;
+    if (c.session) return { url: String(c.url), session: Number(c.sessionExpires) * 1000 > Date.now() ? String(c.session) : '' };
+    return { url: String(c.url), token: String(c.token || ''), shareToken: String(c.shareToken || '') };
+  },
+  /* ほかの海域でパスキーを登録したあと（引っ越しのファイルから戻したとき）。その海域の箱に通行証を書く */
+  usePasskeySessionRegion(rid, url, out) {
+    if (rid === REGION) return sync.usePasskeySession(url, out);
+    const key = confKeyOf(rid);
+    const u = normalizeUrl(url);
+    if (!key || !u || !out || !out.session) return false;
+    try {
+      localStorage.setItem(key, JSON.stringify(Object.assign(blankConf(), { url: u, session: String(out.session),
+        sessionSpaces: out.spaces || [], sessionExpires: Number(out.expires) || 0, sessionName: String(out.name || ''),
+        sessionOwner: typeof out.owner === 'boolean' ? out.owner : null })));
+    } catch (e) { return false; }
+    return true;
+  },
   /* 海域の繋ぎ先の要約（歯車に出す）。鍵の値は出さない */
   regionSummary(rid) {
     const c = rid === REGION ? conf : (regionConf(rid) || {});

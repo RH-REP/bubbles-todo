@@ -41,7 +41,7 @@ await test('包んで開くと同じ中身。小文字・区切りなしの合�
   assert.equal(readMoveHead(text).device, 'iPhone');
   const got = await decryptMove(text, pass.toLowerCase().replace(/-/g, ''));
   assert.deepEqual(got, payload);
-  assert.deepEqual(moveSummary(got), { at: 123, device: 'iPhone', seas: 2, todos: 2, server: true, move: true });
+  assert.deepEqual(moveSummary(got), { at: 123, device: 'iPhone', seas: 2, todos: 2, regions: [], server: true, move: true });
 });
 
 await test('ファイルの中に、記録・鍵・住所の平文は無い', async () => {
