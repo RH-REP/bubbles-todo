@@ -580,10 +580,13 @@ def make_handler(spaces, cfg: Config = None):
         def too_many(self):
             return self.send_json(429, {'error': 'too many'}) or False
 
-        def gate(self):
-            """要求の数を数える。多すぎたら 429 を返して False"""
-            if not cfg.guard.request(self.ip()):
-                log_event('rate-limit', self.ip())
+        def gate(self, static=False):
+            """要求の数を数える。多すぎたら 429 を返して False。
+            static（/api/ 以外の GET・HEAD＝画面のファイル）は別の大きめの枠で数える（2026-11-12。guard.py の頭を見よ）。
+            どちらも記録には rate-limit と出す（fail2ban が読む。画面のファイルの枠に当たるのは 1 分に数百回なので、締め出してよい）"""
+            ok = cfg.guard.request_static(self.ip()) if static else cfg.guard.request(self.ip())
+            if not ok:
+                log_event('rate-limit', self.ip(), 'static' if static else '')
                 return self.too_many()
             return True
 
@@ -748,9 +751,9 @@ def make_handler(spaces, cfg: Config = None):
             })
 
         def do_GET(self):
-            if not self.gate():
-                return
             path = self.path.split('?', 1)[0]
+            if not self.gate(static=not path.startswith('/api/')):
+                return
             if path == '/api/health':
                 return self.send_json(200, {'ok': True})
             if path == '/api/auth':

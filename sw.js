@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-12d';
+const VERSION = '2026-11-12e';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -51,8 +51,6 @@ const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './solo.html',          /* サーバーなし版の入口（2026-11-08 Issue #31） */
-  './manifest-solo.json',
   /* 見た目 */
   './css/base.css',
   './css/bubble.css',
@@ -129,12 +127,30 @@ const ASSETS = [
   './icons/favicon-32.png',
 ];
 
+/* 取れなくてもよいもの（2026-11-12）。サーバーなし版（solo.html）の入口は、server.py が配らない
+   （PUBLIC_FILES に無い。サーバーのページはサーバーなし版へ移さないため）。
+   前はこれも ASSETS に入れていて、server.py から開いたページでは addAll ごと失敗し、
+   service worker が入らなかった（2026-11-08 の 3f060cd から。「最新の版を確認する」が「確認できない」になった）。
+   ここに置いたものは1つずつ取り、取れたものだけ箱に入れる。ASSETS は全部が server.py から取れること
+   （tests/test_server.py の test_sw_assets_are_all_served が見る） */
+const OPTIONAL = [
+  './solo.html',          /* サーバーなし版の入口（2026-11-08 Issue #31） */
+  './manifest-solo.json',
+];
+
 self.addEventListener('install', (ev) => {
   ev.waitUntil((async () => {
     const box = await caches.open(CACHE);
     /* cache: 'reload' で HTTP キャッシュを飛ばす。
        ここで古いものを掴むと、箱ごと古いまま固まる */
     await box.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })));
+    await Promise.all(OPTIONAL.map(async (u) => {
+      try {
+        const req = new Request(u, { cache: 'reload' });
+        const res = await fetch(req);
+        if (res.ok) await box.put(req, res);
+      } catch (e) { /* 取れなければ箱に入れないだけ（網から開く） */ }
+    }));
   })());
 });
 

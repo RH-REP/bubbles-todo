@@ -429,6 +429,7 @@ node --test tests/deadline.test.mjs
 node --test tests/notes.test.mjs
 python3 -m unittest tests/test_server.py
 python3 -m unittest tests/test_server_machine.py
+node tests/e2e-sw.mjs        # headless の Chrome（server.py から開いて service worker が入るか）
 bash tests/server-setup.test.sh
 ```
 
@@ -545,7 +546,7 @@ bash tests/server-setup.test.sh
     gantt・diary は `--bubble-token-file <そのファイル>` と、サーバーの住所（`https://<名前>`）で起動する。秘書は設定の `key_file` にそのファイルを書く。
     鍵の中身は画面・ログ・会話に出さない。diary には `--read-only` の鍵、gantt と秘書には読み書きの鍵を渡す
 - **守り**（`guard.py`・`server.py`。合言葉の形でも効く）:
-  - 接続元ごとの同時接続 8・全体 64（超えたら読まずに 429）、要求 120 回/分、入場の失敗 10 回/10分（超えたら 429）
+  - 接続元ごとの同時接続 8・全体 64（超えたら読まずに 429）、要求 120 回/分（/api/ と POST・PUT・OPTIONS）、画面のファイル 600 回/分（/api/ 以外の GET・HEAD。2026-11-12 に分けた）、入場の失敗 10 回/10分（超えたら 429）
   - 1つの接続の待ちは 15 秒、受け取る大きさは 4MB まで
   - 配るページに CSP（`script-src 'self'` など）・`nosniff`・`X-Frame-Options: DENY`・`no-referrer`。直書きのスクリプトをやめた（`js/boot-dvh.js`・`js/sw-register.js`）
   - よそのオリジンから呼んでよい相手は決めたものだけ（合言葉の形は Android 版だけ、公開の形は無し）。サーバーの版を名乗らない
@@ -579,8 +580,13 @@ bash tests/server-setup.test.sh
 - **service worker の登録が無い端末では、強制更新する**（2026-11-12 利用者の指示）。前は「この端末では確認できない」で止めていた。
   いまは画面のキャッシュ（Cache Storage）を消してから読み直す（`js/update.js` の `forceReload`。記録は消さない）。
   登録が無いページは箱から画面を出していないので、読み直せば網から最新を取る（server.py は `no-store` で返す）。
-  **server.py から開いたページでは、いまは登録が無い**：`sw.js` が入れる一覧の `solo.html`・`manifest-solo.json` を server.py が配らない（`PUBLIC_FILES`）ため、
-  入れる途中で失敗する（2026-11-08 の 3f060cd から。未修正）。手元の 8931 や公開のサーバーで開く Chrome の app は、この強制更新で最新になる
+  **server.py から開いたページで登録が無かった件は直した**（2026-11-12。3f060cd から続いていた。原因は2つ）:
+  1. `sw.js` が入れる一覧に、server.py が配らない `solo.html`・`manifest-solo.json` があり、`cache.addAll` ごと失敗した。
+     この2つは `OPTIONAL` に分け、1つずつ取って取れたものだけ入れる。`ASSETS` は全部が server.py から取れること（`tests/test_server.py` の `test_sw_assets_are_all_served`）
+  2. server.py の守り（`guard.py`）が画面のファイルも要求の数（120 回/分）に数え、初めて開いたとき（ページ約 70＋取り込み約 80）に 429 になった。
+     画面のファイル（/api/ 以外の GET・HEAD）は別の枠（600 回/分）で数える（`Guard.request_static`）
+  確かめは `node tests/e2e-sw.mjs`（headless の Chrome で server.py から開き、activated・箱の中身・`checkForUpdate()` が false）。
+  サーバーを新しくするまで（とくに公開のサーバー）は、前の server.py の守りで 429 になりうる。そのときは上の強制更新で最新になる
 - それでも更新されないときは、**iPhone本体を再起動する**か、**Safari で改めて「ホーム画面に追加」をやり直す**
   （古い登録とは別の、新しい service worker の登録になるため、最新の版を取り直す）
 
@@ -1071,7 +1077,6 @@ CSV は開いている海だけで、サーバーに入る鍵も入らないの�
 
 - `start.command` は既定のポート（8931）が塞がっていると、警告を出さずに次のポートへ逃げる。ポートが変わると別のオリジンになる。塞がっているときだけ次のポートで開き、警告を出すのがよい。
 - `127.0.0.1` と `localhost` も別のオリジン。開発補助の `serve.py` は `localhost` と表示し、`start.command` は `127.0.0.1` を開く。
-- server.py から開いたページでは service worker が入らない（`sw.js` の一覧の `solo.html`・`manifest-solo.json` を server.py が 404 で返し、`cache.addAll` ごと失敗する。2026-11-08 の 3f060cd から）。画面は毎回網から読むので使えるが、網が無いと開けない。「最新の版を確認する」は強制更新で代わりにしている（2026-11-12）。
 
 ## ライセンス
 

@@ -47,6 +47,24 @@ class ServerTest(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, e.read()
 
+    def test_sw_assets_are_all_served(self):
+        """sw.js の ASSETS は、全部が server.py から 200 で取れること。1つでも 404 だと addAll ごと失敗し、
+        server.py から開いたページに service worker が入らない（2026-11-08 の 3f060cd で solo.html を足して踏んだ）。
+        取れなくてよいもの（OPTIONAL）は、server.py が配らないことも確かめる"""
+        import re
+        src = (Path(server.__file__).parent / 'sw.js').read_text(encoding='utf-8')
+        def listed(name):
+            m = re.search(r'const ' + name + r' = \[(.*?)\];', src, re.S)
+            self.assertIsNotNone(m, name)
+            return re.findall(r"'(\./[^']*)'", m.group(1))
+        assets, optional = listed('ASSETS'), listed('OPTIONAL')
+        self.assertGreater(len(assets), 50)
+        self.assertIn('./solo.html', optional)
+        bad = [u for u in assets if self.req('GET', '/' + u[2:], token=None)[0] != 200]
+        self.assertEqual(bad, [], 'server.py が配らないものが ASSETS に入っている（OPTIONAL へ移す）')
+        for u in optional:
+            self.assertNotIn(u, assets)
+
     def test_health_needs_no_token(self):
         code, body = self.req('GET', '/api/health', token=None)
         self.assertEqual(code, 200)

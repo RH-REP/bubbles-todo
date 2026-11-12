@@ -413,6 +413,46 @@ class GuardTest(unittest.TestCase):
         t[0] = 61
         self.assertTrue(g.request('a'), '窓が過ぎれば戻る')
 
+    def test_static_files_have_their_own_window(self):
+        """画面のファイル（/api/ 以外の GET）は要求の数とは別の枠（2026-11-12）。
+        初めて開くとページと service worker の取り込みで 150 ほど取るので、120 の枠では 429 になり、service worker が入らなかった"""
+        t = [0.0]
+        g = Guard(max_requests=3, max_static=5, window=60, clock=lambda: t[0])
+        self.assertEqual([g.request_static('a') for _ in range(6)], [True] * 5 + [False])
+        self.assertTrue(g.request('a'), '画面のファイルの数は、要求の数に入らない')
+        self.assertEqual([g.request('a') for _ in range(3)], [True, True, False])
+        self.assertTrue(g.request_static('b'), '接続元ごとに数える')
+        t[0] = 61
+        self.assertTrue(g.request_static('a'), '窓が過ぎれば戻る')
+        self.assertEqual(Guard().max_static, 600)
+        self.assertEqual(Guard().max_requests, 120, '/api/ の枠は変えない')
+
+    def test_static_files_pass_the_api_limit_over_http(self):
+        """本物の server.py で：/api/ は max_requests で 429、画面のファイルはそれを超えても通る"""
+        tmp = tempfile.TemporaryDirectory()
+        g = Guard(max_requests=5, max_static=40)
+        httpd = server.Server(('127.0.0.1', 0), server.make_handler({}, server.Config(guard=g)))
+        httpd.guard = g
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f'http://127.0.0.1:{httpd.server_address[1]}'
+
+        def code(path, method='GET'):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(base + path, method=method)) as r:
+                    return r.status
+            except urllib.error.HTTPError as e:
+                return e.code
+        try:
+            statics = [code(p) for p in ['/', '/index.html', '/sw.js', '/js/store.js', '/css/base.css'] * 6]
+            self.assertEqual(statics, [200] * 30, 'max_requests（5）を超えても画面のファイルは通る')
+            self.assertEqual(code('/js/store.js', 'HEAD'), 200)
+            self.assertEqual([code('/api/health') for _ in range(6)], [200] * 5 + [429], '/api/ はいまの枠のまま')
+            self.assertEqual([code('/js/store.js') for _ in range(10)], [200] * 9 + [429], '画面のファイルにも上限はある')
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            tmp.cleanup()
+
     def test_connection_limits(self):
         g = Guard(max_conn=3, max_conn_per_ip=2)
         self.assertEqual([g.open('a'), g.open('a'), g.open('a')], [True, True, False])

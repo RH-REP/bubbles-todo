@@ -1,7 +1,10 @@
 """接続元ごとに使わせる量を決める（2026-10-24。公開して使うときの守り。server.py が使う）。
 
     同時の接続      接続元ごと max_conn_per_ip、全体で max_conn（超えたら読まずに 429 で閉じる）
-    要求の数        接続元ごと、window 秒に max_requests まで（超えたら 429）
+    要求の数        接続元ごと、window 秒に max_requests まで（超えたら 429）。/api/ と POST・PUT・OPTIONS
+    画面のファイル  接続元ごと、window 秒に max_static まで（超えたら 429）。/api/ 以外の GET・HEAD（2026-11-12）。
+                    初めて開くとページ（約 70）と service worker の取り込み（約 80）で 150 ほど一度に取るので、
+                    要求の数（120）と同じ枠で数えると 429 になり、service worker が入らなかった。別の枠で数える
     入場の失敗      接続元ごと、fail_window 秒に max_fails まで（合言葉・パスキー・招待コードの失敗。超えたら 429）
 
 数えるのは記憶の中だけ（再起動で消える）。覚える接続元は max_ips まで（溢れたら古い順に忘れる）。
@@ -13,9 +16,10 @@ from collections import OrderedDict, deque
 
 class Guard:
     def __init__(self, *, max_conn=64, max_conn_per_ip=8, max_requests=120, window=60,
-                 max_fails=10, fail_window=600, max_ips=20000, clock=time.monotonic):
+                 max_fails=10, fail_window=600, max_ips=20000, max_static=600, clock=time.monotonic):
         self.max_conn, self.max_conn_per_ip = max_conn, max_conn_per_ip
         self.max_requests, self.window = max_requests, window
+        self.max_static = max_static
         self.max_fails, self.fail_window = max_fails, fail_window
         self.max_ips = max_ips
         self.clock = clock
@@ -23,6 +27,7 @@ class Guard:
         self.active = 0
         self.conns = {}                 # ip → 今の接続数
         self.reqs = OrderedDict()       # ip → deque(時刻)
+        self.static_reqs = OrderedDict()  # ip → deque(時刻)。画面のファイル（/api/ 以外の GET）
         self.fails = OrderedDict()      # ip → deque(時刻)
 
     # --- 接続 ---
@@ -70,6 +75,11 @@ class Guard:
         """要求を受けてよいか（数に入れる）"""
         with self.lock:
             return self._hit(self.reqs, ip, self.max_requests, self.window, True)
+
+    def request_static(self, ip) -> bool:
+        """画面のファイルの要求を受けてよいか（数に入れる。要求の数とは別の枠）"""
+        with self.lock:
+            return self._hit(self.static_reqs, ip, self.max_static, self.window, True)
 
     def auth_blocked(self, ip) -> bool:
         """入場の失敗が続いて、今は断る接続元か（数には入れない）"""
