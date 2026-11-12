@@ -230,4 +230,7 @@
 .stub .region-remove { align-self: flex-start; color: var(--text-2); }
 .stub .region-add { flex-wrap: wrap; }
 .stub .region-add input { flex-basis: 100%; }
+/* Issue #47: ふだんはボタン1つ。押すと欄が出る。欄の見出しは1行を占める */
+.stub .region-add h4 { flex-basis: 100%; margin: 4px 0 0; font-size: 13.5px; }
+.stub .region-add-btn { align-self: flex-start; }
 .stub .region-head .btn, .stub .region-sea .btn { flex: none; white-space: nowrap; }

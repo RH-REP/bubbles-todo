@@ -162,11 +162,38 @@ export default {
     ask.addEventListener('click', () => openHelpScreen(ask));
     box.appendChild(ask);
 
-    /* --- タグ --- */
+    /* --- 1行にまとめた箱（Issue #40。利用者の返事）---
+       基本は個人の TODO なので、ふだん開いて見えるのは ふりかえり・使い方・ヘルプ・海域 だけにし、
+       ほかは「タグを編集する」「音と表示」「AI を使う設定をする」「他の人と一緒に使う」「記録の引っ越しと版」「その他」の
+       1行ずつにまとめる。押すと中身が開く。
+       「この端末の表示」で「あまり使わない機能も出す」にしていれば、開いた姿で始める */
+    const allOpen = () => !!loadPrefs().allTools;
+    const groups = [];
+    const group = (title, sub) => {
+      const d = document.createElement('details');
+      d.className = 'set-more';
+      d.open = allOpen();
+      const s = document.createElement('summary');
+      const tx = el('span', 'tx');
+      tx.appendChild(el('span', 'nm', title));
+      const subEl = el('span', 'sub', sub);
+      subEl.setAttribute('data-gsub', '');   /* 説明なので ⓘ を押すまで隠す（markInfo。Issue #43 の返事） */
+      tx.appendChild(subEl);
+      s.appendChild(tx);
+      d.appendChild(s);
+      groups.push(d);
+      return d;
+    };
+    window.addEventListener(PREFS_EVENT, () => { if (allOpen()) groups.forEach(d => { d.open = true; }); });
+
+    /* --- タグ ---
+       2026-11-12 Issue #47「タグを編集するが表にでないように」: 前は設定を開くとすぐ一覧が見えていた。
+       ほかの箱と同じ1行に畳み、押したときだけ中身を出す（並びは箱のいちばん上） */
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */
     if (hasTags()) {
+      const gTag = group('タグを編集する', 'タグの名前・海にする・足す・消す');
       const tagBox = el('div', 'tags');
-      tagBox.appendChild(el('h3', null, 'タグを編集する'));
+      tagBox.appendChild(el('h3', null, 'タグ'));
       tagBox.appendChild(el(
         'p', 'note',
         'タグは海にできる（横一列に並ぶ。10個まで）。並べ替えは海を長押しして引きから。'
@@ -204,34 +231,10 @@ export default {
       });
       tagBox.appendChild(addRow);
 
-      box.appendChild(tagBox);
+      gTag.appendChild(tagBox);
       this._taglist = list;
       renderTags(list);
     }
-
-    /* --- 1行にまとめた箱（Issue #40。利用者の返事）---
-       基本は個人の TODO なので、ふだん開いて見えるのは ふりかえり・使い方・タグ だけにし、
-       ほかは「音と表示」「AI を使う設定をする」「他の人と一緒に使う」「記録の引っ越しと版」「その他」の
-       1行ずつにまとめる。押すと中身が開く。
-       「この端末の表示」で「あまり使わない機能も出す」にしていれば、開いた姿で始める */
-    const allOpen = () => !!loadPrefs().allTools;
-    const groups = [];
-    const group = (title, sub) => {
-      const d = document.createElement('details');
-      d.className = 'set-more';
-      d.open = allOpen();
-      const s = document.createElement('summary');
-      const tx = el('span', 'tx');
-      tx.appendChild(el('span', 'nm', title));
-      const subEl = el('span', 'sub', sub);
-      subEl.setAttribute('data-gsub', '');   /* 説明なので ⓘ を押すまで隠す（markInfo。Issue #43 の返事） */
-      tx.appendChild(subEl);
-      s.appendChild(tx);
-      d.appendChild(s);
-      groups.push(d);
-      return d;
-    };
-    window.addEventListener(PREFS_EVENT, () => { if (allOpen()) groups.forEach(d => { d.open = true; }); });
 
     /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
     const gLook = group('音と表示を変える', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
@@ -1745,7 +1748,8 @@ function soloServerBox() {
 function regionsBox() {
   const d = document.createElement('details');
   d.className = 'set-more';
-  d.open = !!loadPrefs().allTools;
+  /* Issue #47: タグの代わりに、設定を開いてすぐ見える所に海域の一覧を出す（閉じることはできる） */
+  d.open = true;
   const s = document.createElement('summary');
   const tx = el('span', 'tx');
   tx.appendChild(el('span', 'nm', '海域を設定する'));
@@ -1763,6 +1767,8 @@ function regionsBox() {
   d.appendChild(wrap);
   const cur = sync.region().id;
   let openId = null;   /* ⚙ を開いている海域 */
+  /* 海域を足す欄を開いているか（Issue #47: ふだんは［＋ 海域を追加］の1つだけ。押すとサーバーの情報を入れる欄が出る） */
+  let adding = false;
 
   function go(rid, spaceId) {
     try { store.flush(); } catch (e) { /* 移るのは止めない */ }
@@ -1902,8 +1908,22 @@ function regionsBox() {
       if (openId === r.id) row.appendChild(gear(r));
       list.appendChild(row);
     });
-    /* 海域を足す（サーバー） */
+    sub.textContent = regions.map(r => r.name).join('・');
+    /* 海域を足す（サーバー）。ふだんはボタン1つ。押すと住所・合言葉を入れる欄を出す */
+    if (!adding) {
+      const open = btn('＋ 海域を追加', () => {
+        adding = true;
+        openId = null;
+        render();
+        const f = list.querySelector('.region-add input[type="url"]');
+        if (f) { try { f.focus(); } catch (e) { /* 出ていればよい */ } }
+      }, 'btn region-add-btn');
+      open.setAttribute('aria-expanded', 'false');
+      list.appendChild(open);
+      return;
+    }
     const add = el('form', 'tagadd region-add');
+    add.appendChild(el('h4', null, '海域を追加する（サーバーの情報を入れる）'));
     const nmIn = document.createElement('input');
     nmIn.type = 'text';
     nmIn.maxLength = REGION_NAME_MAX;
@@ -1936,6 +1956,8 @@ function regionsBox() {
       add.appendChild(lab);
     }
     add.appendChild(go3);
+    const cancel = btn('やめる', () => { adding = false; render(); });
+    add.appendChild(cancel);
     add.addEventListener('submit', ev => {
       ev.preventDefault();
       const u = checkUrl(urlIn.value);
@@ -1952,12 +1974,16 @@ function regionsBox() {
       }
       toast('「' + r.name + '」を足した。［開く］でこの海域の海に移る');
       openId = r.id;
+      adding = false;
       render();
     });
     list.appendChild(add);
-    sub.textContent = regions.map(r => r.name).join('・');
   }
-  sync.on(() => { if (d.open) render(); });
+  /* 同期の知らせで描き直すと、入れかけの欄が空になる。海域を足す欄や ⚙ の中で打っている間は描き直さない
+     （Issue #47 でこの箱を開いた姿で始めるようにしたので、同期の知らせに当たりやすくなった） */
+  const typing = () => adding || !!(document.activeElement && list.contains(document.activeElement)
+    && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName));
+  sync.on(() => { if (d.open && !typing()) render(); });
   d.addEventListener('toggle', () => { if (d.open) render(); });
   render();
   return d;
