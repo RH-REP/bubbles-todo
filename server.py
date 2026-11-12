@@ -140,7 +140,7 @@ class Store:
         self.path = data_dir / 'state.json'
         self.backup = data_dir / 'backup'
         self.lock = threading.Lock()
-        self.dir.mkdir(parents=True, exist_ok=True)
+        self.dir.mkdir(mode=0o700, parents=True, exist_ok=True)   # 新しく作るときは持ち主だけ（Issue #48）
 
     def read(self):
         if not self.path.exists():
@@ -167,10 +167,18 @@ class Store:
             return True, nxt['version']
 
     def _backup(self):
-        self.backup.mkdir(exist_ok=True)
+        # 写しも本体と同じく持ち主だけが読める形にする（2026-11-13 Issue #48 の A 案）。
+        # 前はサーバーの既定（多くは 644）で書いていた。前からあるフォルダも 700 に直す
+        self.backup.mkdir(mode=0o700, exist_ok=True)
+        try:
+            os.chmod(self.backup, 0o700)
+        except OSError:
+            pass
         stamp = time.strftime('%Y%m%d-%H%M%S')
         dst = self.backup / f'state-{stamp}-{secrets.token_hex(2)}.json'
-        dst.write_bytes(self.path.read_bytes())
+        fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'wb') as f:
+            f.write(self.path.read_bytes())
         olds = sorted(self.backup.glob('state-*.json'))
         for p in olds[:-BACKUP_KEEP]:
             p.unlink(missing_ok=True)
@@ -1186,7 +1194,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir).expanduser().resolve()
-    data_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)   # 新しく作るときは持ち主だけ（Issue #48）
     if args.command in ('machine-add', 'machine-list', 'machine-remove'):
         if args.command != 'machine-list' and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} gantt）')

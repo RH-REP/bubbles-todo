@@ -3,6 +3,7 @@
     python3 -m unittest tests/test_server.py
 """
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -94,6 +95,10 @@ class ServerTest(unittest.TestCase):
         olds = list((self.data / 'backup').glob('state-*.json'))
         self.assertEqual(len(olds), 1)
         self.assertEqual(json.loads(olds[0].read_text())['data'], {'doc': {'n': 1}})
+        # 写しとフォルダは持ち主だけが読める（Issue #48 の A 案）
+        if os.name == 'posix':
+            self.assertEqual(olds[0].stat().st_mode & 0o777, 0o600)
+            self.assertEqual((self.data / 'backup').stat().st_mode & 0o777, 0o700)
 
     def test_bad_body(self):
         self.assertEqual(self.req('PUT', '/api/data', {'base': 0})[0], 400)

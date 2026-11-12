@@ -33,7 +33,7 @@ import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, l
 import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
 import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
-import { folderBackup, folderBackupSupported, readBackup, backupSummary, backupFileName } from '../folderbackup.js';
+import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupSummary, backupFileName } from '../folderbackup.js';
 import {
   getKey, setKey, hasKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
   PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
@@ -1543,8 +1543,11 @@ function folderBox() {
     + 'そのフォルダの「bubbles-backup-日付.json」へ、この端末のすべての海の記録を書く。1日1つのファイルで、その日のうちは上書きする。'
     + '古い日のファイルは消さない（要らなくなったら自分で消す）。サーバーに繋がらない間の保険になる。'));
   wrap.appendChild(el('p', 'note',
-    '暗号化はしない（中の todo はそのまま読める）。合言葉・鍵は入れない（同期の先のサーバーの名前と住所は入れる。新しい端末で戻したとき、海ごとに同期の先を戻すため）。'
-    + 'iCloud Drive などのフォルダを選ぶと、そこにも記録が置かれる。'));
+    '既定では暗号化しない（中の todo はそのまま読める）。合言葉・鍵は入れない（同期の先のサーバーの名前と住所は入れる。新しい端末で戻したとき、海ごとに同期の先を戻すため）。'
+    + 'iCloud Drive などのフォルダを選ぶと、そこにも記録が置かれるので、「暗号化して書く」を勧める。'));
+  wrap.appendChild(el('p', 'note',
+    '「暗号化して書く」: app が合言葉（24 字）を作って1度だけ見せ、その合言葉から作った鍵をこの端末のブラウザに置く（取り出せない形）。'
+    + '書くたびの確認は無い。この端末ではそのまま戻せ、ほかの端末では合言葉で開く。合言葉を失くすと、ほかの端末では開けない。'));
   const ok = folderBackupSupported() && !!folderBackup;
   if (!ok) {
     wrap.appendChild(el('p', 'note',
@@ -1561,14 +1564,19 @@ function folderBox() {
   permBtn.type = 'button';
   const offBtn = el('button', 'btn', '止める');
   offBtn.type = 'button';
+  const encBtn = el('button', 'btn', '暗号化して書く');
+  encBtn.type = 'button';
   const restoreBtn = el('button', 'btn', '控えのファイルから戻す');
   restoreBtn.type = 'button';
-  [pickBtn, nowBtn, permBtn, offBtn].forEach(b => { if (ok) row.appendChild(b); });
+  [pickBtn, nowBtn, permBtn, encBtn, offBtn].forEach(b => { if (ok) row.appendChild(b); });
   row.appendChild(restoreBtn);
   wrap.appendChild(row);
   const line = el('p', 'note');
   line.setAttribute('aria-live', 'polite');
   wrap.appendChild(line);
+  const encPassLine = el('p', 'note');
+  encPassLine.hidden = true;
+  wrap.appendChild(encPassLine);
   const pick = document.createElement('input');
   pick.type = 'file';
   pick.accept = '.json,application/json';
@@ -1589,12 +1597,16 @@ function folderBox() {
     pickBtn.textContent = c.on ? 'フォルダを選び直す' : 'フォルダを選ぶ';
     nowBtn.hidden = !c.on;
     offBtn.hidden = !c.on;
+    encBtn.hidden = !c.on;
+    encBtn.textContent = c.enc ? '暗号化をやめる' : '暗号化して書く';
     permBtn.hidden = s.state !== 'need-permission';
+    const how = c.enc ? '（暗号化して）' : '（暗号化せずに）';
     if (s.state === 'off') line.textContent = '止めてある（フォルダを選ぶと始まる）。';
+    else if (s.state === 'need-key') line.textContent = 'この端末に暗号化の鍵が無いので控えていない。「暗号化をやめる」を押してから、もう一度「暗号化して書く」を押す。' + last;
     else if (s.state === 'no-folder') line.textContent = 'フォルダを覚えていない。もう一度選ぶ。';
     else if (s.state === 'need-permission') line.textContent = where + 'に書く許しが切れている。「書く許しを出し直す」を押すまで控えない。' + last;
     else if (s.state === 'error') line.textContent = where + 'に書けなかった: ' + s.message + '。' + last;
-    else line.textContent = where + 'に控えている。' + last;
+    else line.textContent = where + 'に' + how + '控えている。' + last;
   }
   if (ok) folderBackup.on(paint);
   paint();
@@ -1624,12 +1636,45 @@ function folderBox() {
     await folderBackup.turnOff();
     paint();
   });
+  encBtn.addEventListener('click', async () => {
+    const c = folderBackup.status().conf;
+    encBtn.disabled = true;
+    try {
+      if (c.enc) {
+        if (!window.confirm('暗号化をやめて、次から平文で書く？（前に書いた暗号化した控えは、合言葉で開ける）')) return;
+        await folderBackup.stopEncrypt();
+        encPassLine.hidden = true;
+      } else {
+        if (!window.confirm('次から暗号化して書く？\n合言葉を1度だけ出す。ほかの端末で戻すときに要るので、書き留める（パスワードの管理に入れる）。')) return;
+        const pass = await folderBackup.startEncrypt();
+        encPassLine.textContent = '合言葉: ' + pass + '　← 書き留める。この画面を閉じると、もう出せない（失くしたら「暗号化をやめる」→「暗号化して書く」で作り直す）。';
+        encPassLine.hidden = false;
+      }
+    } catch (e) {
+      toast('切り替えられなかった: ' + ((e && e.message) || e));
+    } finally { encBtn.disabled = false; paint(); }
+  });
   restoreBtn.addEventListener('click', () => { pick.value = ''; pick.click(); });
   pick.addEventListener('change', async () => {
     const f = pick.files && pick.files[0];
     if (!f) return;
     let p;
-    try { p = readBackup(await f.text()); } catch (e) { toast((e && e.message) || '読めない'); return; }
+    try {
+      const text = await f.text();
+      if (encryptedHead(text)) {
+        /* 暗号化した控え: まずこの端末の鍵で、だめなら合言葉で開く */
+        const k = folderBackup ? await folderBackup.deviceKey() : null;
+        p = null;
+        if (k) { try { p = await openBackup(text, { key: k }); } catch (e) { p = null; } }
+        if (!p) {
+          const pass = window.prompt('暗号化した控え。合言葉（暗号化を始めたときに書き留めた 24 字）');
+          if (!pass) return;
+          p = await openBackup(text, { pass });
+        }
+      } else {
+        p = await openBackup(text);
+      }
+    } catch (e) { toast((e && e.message) || '読めない'); return; }
     const info = backupSummary(p);
     const at = info.at ? new Date(info.at).toLocaleString() : '不明';
     if (!window.confirm('この控えから戻す？\n' + f.name + '\n控えた時刻: ' + at + (info.device ? '（' + info.device + '）' : '')

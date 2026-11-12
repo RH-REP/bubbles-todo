@@ -57,8 +57,9 @@ function fakeDir(name = '控えのフォルダ', perm = 'granted') {
 }
 /* IndexedDB の代わり */
 function fakeHandles() {
-  let h = null;
-  return { load: async () => h, save: async (x) => { h = x; }, clear: async () => { h = null; }, peek: () => h };
+  let h = null, k = null;
+  return { load: async () => h, save: async (x) => { h = x; }, clear: async () => { h = null; }, peek: () => h,
+    loadKey: async () => k, saveKey: async (x) => { k = x; }, clearKey: async () => { k = null; }, peekKey: () => k };
 }
 /* 時計の代わり（呼ぶまで動かない） */
 function fakeTimers() {
@@ -211,6 +212,47 @@ await test('控えのファイルを読み、記録を重ねて戻せる。引�
   assert.throws(() => fb.readBackup(JSON.stringify({ format: 'bubbles-backup', boxes: [] })), /壊れている/);
   const withServer = fb.readBackup(JSON.stringify({ format: 'bubbles-backup', boxes: {}, server: { url: 'x', token: 'y' } }));
   assert.ok(!('server' in withServer), '控えのサーバーの欄は使わない');
+});
+
+await test('暗号化して書く（Issue #48 の B 案）: 平文が残らず、この端末の鍵でも合言葉でも開け、やめると平文に戻る', async () => {
+  const { fb, b, handles } = await setup();
+  const dir = fakeDir();
+  await b.useFolder(dir);
+  const pass = await b.startEncrypt();
+  assert.match(pass, /^[A-Z2-9]{4}(-[A-Z2-9]{4}){5}$/);
+  assert.ok(handles.peekKey(), '鍵を置いていない');
+  assert.equal(handles.peekKey().extractable, false, '鍵を取り出せる形で置いている');
+  assert.ok(b.status().conf.enc && b.status().conf.enc.salt);
+  assert.ok(!JSON.stringify(b.status().conf).includes(pass.replace(/-/g, '')), '合言葉を設定に置いている');
+  const text = dir.files.get('bubbles-backup-2026-11-12.json');
+  assert.equal(JSON.parse(text).format, fb.FORMAT_ENC);
+  assert.ok(!text.includes('架空の個人の泡'), '平文が残っている');
+  assert.ok(fb.encryptedHead(text));
+  /* 同じ端末: 置いた鍵で開く */
+  const p1 = await fb.openBackup(text, { key: await b.deviceKey() });
+  assert.equal(p1.boxes.me.doc.todos[0].text, '架空の個人の泡');
+  /* ほかの端末: 合言葉で開く（小文字・- なしでもよい） */
+  const p2 = await fb.openBackup(text, { pass: pass.toLowerCase().replace(/-/g, '') });
+  assert.equal(p2.boxes.sabc1234.doc.todos[0].text, '架空の海の泡');
+  await assert.rejects(fb.openBackup(text, { pass: 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA' }), /合言葉が違う/);
+  assert.throws(() => fb.readBackup(text), /暗号化した控え/);
+  /* 鍵が無くなったら平文に戻さず、書かずに止まる */
+  await handles.clearKey();
+  assert.equal((await b.runNow(true)).state, 'need-key');
+  assert.equal(dir.files.get('bubbles-backup-2026-11-12.json'), text);
+  /* やめると平文で書き、鍵の覚えも消える */
+  await b.startEncrypt();
+  await b.stopEncrypt();
+  assert.equal(handles.peekKey(), null);
+  assert.equal(b.status().conf.enc, null);
+  assert.equal(JSON.parse(dir.files.get('bubbles-backup-2026-11-12.json')).format, fb.FORMAT);
+  /* 止めると鍵も捨てる */
+  await b.startEncrypt();
+  await b.turnOff();
+  assert.equal(handles.peekKey(), null);
+  /* 平文の控えも openBackup で読める */
+  const plain = await fb.openBackup(JSON.stringify({ format: 'bubbles-backup', boxes: {} }));
+  assert.deepEqual(plain.boxes, {});
 });
 
 /* ============================================================ */
