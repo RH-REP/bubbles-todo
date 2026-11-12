@@ -128,6 +128,23 @@ await test('繋がり直したら、また書ける', async () => {
   assert.equal(store.readOnly(), false);
 });
 
+await test('最後に合わせてから1日たっても届かなければ、招かれた海でも書ける（Issue #25）', async () => {
+  const seenKey = 'bubble_todo_sync_seen_share';
+  const keep = mem.get(seenKey);
+  mem.set(seenKey, String(Date.now() - 25 * 60 * 60 * 1000));
+  down = true;
+  await sync.syncNow();
+  assert.equal(sync.status().state, 'error');
+  assert.equal(store.readOnly(), false, '長く届かないので書ける');
+  mem.set(seenKey, String(Date.now() - 60 * 1000));
+  await sync.syncNow();
+  assert.equal(store.readOnly(), true, '少し前に合わせたばかりなら、届かない間は読むだけ');
+  down = false;
+  await sync.syncNow();
+  assert.equal(store.readOnly(), false);
+  if (keep !== undefined) mem.set(seenKey, keep);
+});
+
 await test('前の版のサーバー（海を言っても個人を返す）に自分の合言葉で入ったら、送らずに知らせる', async () => {
   const before = JSON.stringify(spaces['me-tk']);
   /* 共有の海を言われても個人を返すサーバーにする */

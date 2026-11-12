@@ -190,10 +190,23 @@ export function normalizeUrl(raw) {
   return u === 'http' ? null : u;
 }
 
+/* 招かれた海で、サーバーに長く届かないときは書けるようにする（2026-11-12 Issue #25 の返事「おすすめで」）。
+   サーバーが止まったままだと、招かれた人は何も書けなくなるため。
+   最後に合わせた時刻（SEEN）から GUEST_OFFLINE_MS 過ぎたら書ける。1度も合わせていない端末は読むだけのまま
+   （手元に海の記録が無いので、書いても重ねる元が無い）。書いたものは、サーバーが戻ったとき・
+   直の通信・控えのファイルで、ほかの記録と同じく「記録ごとに新しいほう」で合わさる */
+export const GUEST_OFFLINE_MS = 24 * 60 * 60 * 1000;
+function guestLocked(state) {
+  if (!guest() || state === 'ok') return false;
+  const seen = readSeen();
+  return !(seen && Date.now() - seen >= GUEST_OFFLINE_MS);
+}
+
 function setStatus(state, message) {
   status = { state, at: Date.now(), message: message || '' };
-  /* 招かれて入った海は、合わせられた直後だけ書ける。合わせている最中は前のまま */
-  if (state !== 'syncing') store.setReadOnly(guest() && state !== 'ok');
+  /* 招かれて入った海は、合わせられた直後だけ書ける。合わせている最中は前のまま。
+     長く届かないときは書ける（guestLocked） */
+  if (state !== 'syncing') store.setReadOnly(guestLocked(state));
   listeners.forEach(fn => { try { fn(status); } catch (e) { /* 通知で落とさない */ } });
 }
 
@@ -494,7 +507,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('online', () => syncNow());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
 }
-/* 招かれて入った海は、合わせるまでは読むだけ */
-if (guest()) store.setReadOnly(true);
+/* 招かれて入った海は、合わせるまでは読むだけ（最後に合わせてから長く経っていれば書ける） */
+if (guest()) store.setReadOnly(guestLocked('idle'));
 if (ready()) syncNow();
 else syncSeas();   /* この海の鍵が無くても、入れる海の一覧は取りに行く（招かれた人が海を知るため） */
