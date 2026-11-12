@@ -411,6 +411,7 @@ node tests/store.test.mjs
 node tests/sync.test.mjs
 node tests/shared-fields.test.mjs
 node tests/span-sea.test.mjs
+node tests/folderbackup.test.mjs
 node tests/schema.test.mjs
 node tests/space.test.mjs
 node tests/spacelist.test.mjs
@@ -786,6 +787,18 @@ CSV は開いている海だけで、サーバーに入る鍵も入らないの�
 - まだ確かめていないこと: 本物の端末（iPhone・Android）での共有シート・パスキーの登録・PBKDF2 60 万回の待ち時間
 - 作り: `js/movefile.js`（暗号・中身・重ね方）、`js/screens/settings.js`（moveBox）、`js/passkey.js`（makeMoveKey）、`js/sync.js`（moveSecrets）。
   テスト `node tests/movefile.test.mjs`、`python3 -m unittest tests/test_server_public.py`（引っ越しの鍵）
+
+## 決めたフォルダに自動で控える（2026-11-12 利用者の指示）
+
+公開のサーバーに繋がらないときの保険。設定の「記録を保存する・読み込む」→「決めたフォルダ（自動）」で、フォルダを1度選ぶ（`js/folderbackup.js`）。
+- **書く時機**: この app を開いている間、書き換えて 30 秒たったとき（続けて書いている間は待つ）・10 分ごと・画面を裏に回したとき。中身が前と同じなら書かない。サーバーに繋いでいるかどうかに関係なく書く
+- **ファイル**: 選んだフォルダの `bubbles-backup-YYYY-MM-DD.json`（端末の日付で1日1つ。その日のうちは上書き）。古い日のファイルは消さない（要らなくなったら自分で消す）
+- **中身**: この端末のすべての海の記録（doc と印）と海の一覧。形は引っ越しのファイル（`js/movefile.js` の `buildPayload`）と同じで、`format: "bubbles-backup"`。**暗号化しない・サーバーの住所・合言葉・鍵は入れない**
+- **戻す**: 同じ欄の「控えのファイルから戻す」。引っ越しと同じく、記録ごとに新しいほうを残して重ねる（消さない）。どのブラウザでも使える
+- **使えるところ**: File System Access API（`showDirectoryPicker`）のある Chrome・Edge（Mac の Chrome でインストールした app も）。ほかのブラウザでは欄にそう出し、戻すだけ使える
+- **書く許し**: 選んだフォルダの handle は IndexedDB（`bubble_todo_fs`）に置く。開き直すと許しが切れていることがあり、そのときは書かずに、起動時のトーストと設定に「書く許しを出し直す」を出す（許しは押した手の続きでしか求められない）
+- **止める**: 「止める」でフォルダの覚えを捨てる（書いたファイルは消さない）。「すべて初期化」でも止まる
+- **まだ確かめていない**: 本物のフォルダへの書き込み（試験は作り物のフォルダ）・Chrome を開き直したときの許しの続き方
 
 ## サーバーなし版とブロックチェーンへの控え（2026-11-08 Issue #31。試し）
 

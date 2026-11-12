@@ -28,6 +28,7 @@ import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, l
 import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
 import { checkForUpdate, applyUpdate } from '../update.js';
 import { openSeaSheet } from '../space.js';
+import { folderBackup, folderBackupSupported, readBackup, backupSummary, backupFileName } from '../folderbackup.js';
 import {
   getKey, setKey, hasKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
   PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
@@ -237,7 +238,7 @@ export default {
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
-    const gSave = group('記録を保存する・読み込む', 'ファイル（CSV・暗号化）・サーバー・ブロックチェーン');
+    const gSave = group('記録を保存する・読み込む', 'ファイル（CSV・暗号化）・決めたフォルダ・サーバー・ブロックチェーン');
     const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
@@ -313,6 +314,8 @@ export default {
     saveChoice.add('csv', 'CSV ファイル', [csvBox()]);
     /* --- 引っ越し（暗号化したファイル。2026-11-07 Issue #19）--- */
     saveChoice.add('file', '暗号化したファイル', [moveBox()]);
+    /* --- 決めたフォルダに自動で控える（2026-11-12 利用者の指示。js/folderbackup.js）--- */
+    saveChoice.add('folder', '決めたフォルダ（自動）', [folderBox()]);
     const openShare = (k, then) => {
       gShare.open = true;
       shareChoice.pick(k);
@@ -1409,6 +1412,113 @@ function moveBox() {
   return wrap;
 }
 
+/* 決めたフォルダに自動で控える（2026-11-12 利用者の指示：公開サーバーに繋がらないときの保険）。
+   仕組みは js/folderbackup.js。ここはフォルダを選ぶ・止める・許しを出し直す・控えから戻すボタンと、状態の1行 */
+function folderBox() {
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, '決めたフォルダに自動で控える'));
+  wrap.appendChild(el('p', 'note',
+    'フォルダを1度選ぶと、この app を開いている間、書き換えて 30 秒たったときと 10 分ごと（と画面を裏に回したとき）に、'
+    + 'そのフォルダの「bubbles-backup-日付.json」へ、この端末のすべての海の記録を書く。1日1つのファイルで、その日のうちは上書きする。'
+    + '古い日のファイルは消さない（要らなくなったら自分で消す）。サーバーに繋がらない間の保険になる。'));
+  wrap.appendChild(el('p', 'note',
+    '暗号化はしない（中の todo はそのまま読める）。サーバーの住所・合言葉・鍵は入れない。'
+    + 'iCloud Drive などのフォルダを選ぶと、そこにも記録が置かれる。'));
+  const ok = folderBackupSupported() && !!folderBackup;
+  if (!ok) {
+    wrap.appendChild(el('p', 'note',
+      'このブラウザでは使えない（フォルダに書く仕組みが無い）。Chrome か Edge で開く（Mac の Chrome でインストールした app でもよい）。'
+      + '下の「控えのファイルから戻す」は、どのブラウザでも使える。'));
+  }
+  const row = el('div', 'row');
+  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+  const pickBtn = el('button', 'btn', 'フォルダを選ぶ');
+  pickBtn.type = 'button';
+  const nowBtn = el('button', 'btn', '今すぐ控える');
+  nowBtn.type = 'button';
+  const permBtn = el('button', 'btn', '書く許しを出し直す');
+  permBtn.type = 'button';
+  const offBtn = el('button', 'btn', '止める');
+  offBtn.type = 'button';
+  const restoreBtn = el('button', 'btn', '控えのファイルから戻す');
+  restoreBtn.type = 'button';
+  [pickBtn, nowBtn, permBtn, offBtn].forEach(b => { if (ok) row.appendChild(b); });
+  row.appendChild(restoreBtn);
+  wrap.appendChild(row);
+  const line = el('p', 'note');
+  line.setAttribute('aria-live', 'polite');
+  wrap.appendChild(line);
+  const pick = document.createElement('input');
+  pick.type = 'file';
+  pick.accept = '.json,application/json';
+  pick.hidden = true;
+  wrap.appendChild(pick);
+
+  function when(ms) {
+    if (!ms) return '';
+    const d = new Date(ms), z = x => String(x).padStart(2, '0');
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+  }
+  function paint() {
+    if (!ok) { line.textContent = ''; return; }
+    const s = folderBackup.status();
+    const c = s.conf;
+    const where = c.folder ? '「' + c.folder + '」' : '選んだフォルダ';
+    const last = c.lastAt ? '最後に書いたのは ' + when(c.lastAt) + '（' + c.lastName + '）。' : 'まだ書いていない。';
+    pickBtn.textContent = c.on ? 'フォルダを選び直す' : 'フォルダを選ぶ';
+    nowBtn.hidden = !c.on;
+    offBtn.hidden = !c.on;
+    permBtn.hidden = s.state !== 'need-permission';
+    if (s.state === 'off') line.textContent = '止めてある（フォルダを選ぶと始まる）。';
+    else if (s.state === 'no-folder') line.textContent = 'フォルダを覚えていない。もう一度選ぶ。';
+    else if (s.state === 'need-permission') line.textContent = where + 'に書く許しが切れている。「書く許しを出し直す」を押すまで控えない。' + last;
+    else if (s.state === 'error') line.textContent = where + 'に書けなかった: ' + s.message + '。' + last;
+    else line.textContent = where + 'に控えている。' + last;
+  }
+  if (ok) folderBackup.on(paint);
+  paint();
+
+  pickBtn.addEventListener('click', async () => {
+    let dir;
+    try { dir = await window.showDirectoryPicker({ id: 'bubbles-backup', mode: 'readwrite' }); }
+    catch (e) { if (e && e.name !== 'AbortError') toast((e && e.message) || '選べなかった'); return; }
+    pickBtn.disabled = true;
+    try { await folderBackup.useFolder(dir); } catch (e) { toast((e && e.message) || '覚えられなかった'); }
+    pickBtn.disabled = false;
+    paint();
+    if (folderBackup.status().state === 'ok') toast('「' + dir.name + '」に控えた（' + backupFileName() + '）');
+  });
+  nowBtn.addEventListener('click', async () => {
+    nowBtn.disabled = true;
+    await folderBackup.runNow(true);
+    nowBtn.disabled = false;
+    paint();
+  });
+  permBtn.addEventListener('click', async () => {
+    try { await folderBackup.regrant(); } catch (e) { toast((e && e.message) || '許しを得られなかった'); }
+    paint();
+  });
+  offBtn.addEventListener('click', async () => {
+    if (!window.confirm('フォルダへの控えを止める？（書いたファイルは消さない）')) return;
+    await folderBackup.turnOff();
+    paint();
+  });
+  restoreBtn.addEventListener('click', () => { pick.value = ''; pick.click(); });
+  pick.addEventListener('change', async () => {
+    const f = pick.files && pick.files[0];
+    if (!f) return;
+    let p;
+    try { p = readBackup(await f.text()); } catch (e) { toast((e && e.message) || '読めない'); return; }
+    const info = backupSummary(p);
+    const at = info.at ? new Date(info.at).toLocaleString() : '不明';
+    if (!window.confirm('この控えから戻す？\n' + f.name + '\n控えた時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
+      + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
+    const n = mergeIntoDevice(p);
+    line.textContent = '海 ' + n + ' つの記録を、' + f.name + ' から戻した。';
+  });
+  return wrap;
+}
+
 /* この端末の海の記録。開いている海は store から、ほかは箱から（引っ越しのファイルとチェーンの控えで共用） */
 function collectBoxes() {
   const boxes = {};
@@ -1655,6 +1765,8 @@ function resetAllBox() {
     /* 1) メモリの記録を書き戻させない 2) サーバーへ送るのを止める 3) 端末から消す 4) 読み直す */
     try { store.halt(); } catch (e) { /* 無い版でも消すのは進める */ }
     try { sync.configure('', '', ''); } catch (e) { /* 止められなくても、読み直せば設定は無い */ }
+    /* フォルダへの控えを止め、フォルダの覚え（IndexedDB）も捨てる。書いたファイルは消さない */
+    if (folderBackup) { try { folderBackup.stop(); folderBackup.turnOff().catch(() => {}); } catch (e) { /* 続ける */ } }
     const n = clearAppStorage(localStorage);
     toast('すべて初期化した（' + n + ' 項目）。読み直す');
     /* 待つ間に何かが書いても残らないよう、読み直す直前にもう一度消す */

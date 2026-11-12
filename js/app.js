@@ -13,6 +13,20 @@ import { store } from './store.js';
 import './sync.js';
 /* 古い版だと断られたときの帯（js/schemaguard.js。共有の記録 v1.1） */
 import './schemaguard.js';
+/* 決めたフォルダに自動で控える（2026-11-12。js/folderbackup.js）。書く許しが切れていたら、1度だけ知らせる
+   （許しは押した手の続きでしか求められないので、トーストのボタンで求める） */
+import { folderBackup } from './folderbackup.js';
+if (folderBackup) {
+  let told = false;
+  folderBackup.on(st => {
+    if (told || st.state !== 'need-permission') return;
+    told = true;
+    toast('フォルダへの控えが止まっている（書く許しが切れた）', {
+      label: '許す', undo: false,
+      on: () => { folderBackup.regrant().catch(() => {}); },
+    }, 12000);
+  });
+}
 /* 海の切り替え（space.js。2026-11-02 Issue #4 で名前を付けて複数作れる海に）。薄い帯の表示と、引き出しの頭の切り替え。持ち主は store が開くときに決まっている */
 import { spaceSwitcher } from './space.js';
 import { toast, holdRing, fromFeedback, undoLast } from './ui.js';
