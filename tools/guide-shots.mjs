@@ -210,7 +210,7 @@ try {
   /* 海をつくる板と、この海の板（2026-11-02 Issue #4） */
   await click('.menubtn');
   await sleep(900);
-  await clickText('＋ 海をつくる');
+  await clickText('＋ 海を追加');
   await sleep(500);
   await js(`const i = document.querySelector('.space-sheet input'); i.value = '仕事';
     [...document.querySelectorAll('.space-colors button')].find(b => b.textContent === '苔').click();`);

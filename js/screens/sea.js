@@ -958,7 +958,7 @@ function addFromComposer() {
      （書いた瞬間に完了になるのは筋が通らない）。 */
   const tag = faceTag(curFace);
   if (id && tag && tag.id !== 'done' && has('setTag')) store.setTag(id, tag.id, true);
-  else if (tag && tag.id === 'done') toast('『' + nameOf(tag) + '』には書けないので、ぜんぶの海に入れた');
+  else if (tag && tag.id === 'done') toast('『' + nameOf(tag) + '』には書けないので、中央の入り江に入れた');
   input.value = '';
   syncSend();
   /* 焦点は入力欄に残す。この直後に集中の画面が開くときは、そちらへ移る。
@@ -2062,7 +2062,7 @@ function renderSigns() {
       const name = to === 'center' ? CENTER_NAME : nameOf(tag);
       s.nm.textContent = name;                       /* タグ名はユーザーの文字 */
       s.btn.dataset.to = to;
-      s.btn.setAttribute('aria-label', name + 'の海へ');
+      s.btn.setAttribute('aria-label', name + 'へ');
       /* 看板にもその海の色を1点だけ載せる。名前だけを手がかりにしない（1.4.1） */
       if (tag) s.btn.style.setProperty('--sign-c', colorOf(tag, to));
       else s.btn.style.removeProperty('--sign-c');
@@ -2095,7 +2095,7 @@ function renderEdges() {
       if (to) {
         const t2 = faceTag(to);
         const nm2 = to === 'center' ? CENTER_NAME : nameOf(t2);
-        show = true; label = nm2; aria = nm2 + 'の海へ';
+        show = true; label = nm2; aria = nm2 + 'へ';
         color = t2 ? colorOf(t2, to) : '';
         target = to;
       }
@@ -2541,7 +2541,7 @@ function buildShuffle(n, winner) {
   const wrap = el('div', 'sea-shuffle');
   /* 目では玉を見るが、読み上げには何が起きているかを言葉で渡す */
   wrap.setAttribute('role', 'status');
-  wrap.appendChild(el('span', 'sr', 'この海から1つ選んでいます'));
+  wrap.appendChild(el('span', 'sr', 'ここから1つ選んでいます'));
 
   const ring = el('div', 'rnd-ring');
   ring.setAttribute('aria-hidden', 'true');
@@ -2630,9 +2630,9 @@ function syncRandomBtn() {
   const n = pickFace().length;
   randomBtn.disabled = n === 0 || !!shuffle;
   randomBtn.title = doneFace
-    ? '完了の海では選ばない'
-    : (n ? 'この海から1つ選んで、5分だけ集中' : 'この海には何も無い');
-  randomBtn.setAttribute('aria-label', 'この海から1つ選んで、5分だけ集中');
+    ? '完了では選ばない'
+    : (n ? 'ここから1つ選んで、5分だけ集中' : 'ここには何も無い');
+  randomBtn.setAttribute('aria-label', 'ここから1つ選んで、5分だけ集中');
 }
 
 function clearGrid() {
@@ -3013,13 +3013,13 @@ function renderChrome() {
   faceName.classList.toggle('is-narrow', narrow);
   faceDot.hidden = !tag;
   if (tag) faceDot.style.setProperty('--edge-c', colorOf(tag, curFace));
-  faceName.setAttribute('aria-label', name + 'の海');
+  faceName.setAttribute('aria-label', name + 'の入り江');
 
   liveFaces().forEach(f => {
     const fe = faces[f].el;
     const t = faceTag(f);
     const n = f === 'center' ? CENTER_NAME : nameOf(t);
-    fe.setAttribute('aria-label', n + 'の海');
+    fe.setAttribute('aria-label', n + 'の入り江');
     /* 面ごとにうっすら色を敷く。名札だけだと、滑っている最中に
        別の海へ移ったことが分からない（どの面も同じ絵に見える） */
     if (t) fe.style.setProperty('--face-c', colorOf(t, f));
@@ -3335,7 +3335,7 @@ export default {
     hint = el('p', 'sea-hint',
       '思いついたことを、下に書く。<br>書いたものはここを漂う。<br><br>' +
       'タップすると真ん中に来て、そこから5分。<br>' +
-      '矢印の看板か、背景をなぞって、となりの海。');
+      '矢印の看板か、背景をなぞって、となりの入り江。');
     faces.center.el.appendChild(hint);
 
     /* 絞った結果が0件のときの言葉。未達を名指ししない（追補4 §2）。

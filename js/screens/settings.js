@@ -166,7 +166,7 @@ export default {
 
     /* --- 1行にまとめた箱（Issue #40。利用者の返事）---
        基本は個人の TODO なので、ふだん開いて見えるのは ふりかえり・使い方・ヘルプ・海域 だけにし、
-       ほかは「タグを編集する」「音と表示」「AI を使う設定をする」「他の人と一緒に使う」「サーバー・ブロックチェーンを準備する」「記録を保存する・読み込む」「版」「その他」の
+       ほかは「タグを編集する」「音と表示」「AI を使う設定をする」「他の人と一緒に使う」「ブロックチェーンを準備する」「記録を保存する・読み込む」「版」「その他」の
        1行ずつにまとめる。押すと中身が開く。
        「この端末の表示」で「あまり使わない機能も出す」にしていれば、開いた姿で始める */
     const allOpen = () => !!loadPrefs().allTools;
@@ -246,7 +246,8 @@ export default {
        「サーバーで／ブロックチェーンで」を選ぶ。サーバーに繋ぐ設定と、ブロックチェーンの始め方・ウォレット・鍵は
        「サーバー・ブロックチェーンを準備する」へ。ブロックチェーンのバックアップは「記録を保存する・読み込む」へ移した */
     const gShare = group('他の人と一緒に使う', '海を共有する・チャットする（サーバーで／ブロックチェーンで）');
-    const gPrep = group('サーバー・ブロックチェーンを準備する', 'サーバーに繋ぐ・ブロックチェーンを始める（ウォレット・鍵）');
+    /* 2026-11-13 Issue #47 の返事「全部」（C）: サーバーに繋ぐ・入るのは「海を設定する」の ⚙ 1か所にした。ここはブロックチェーンだけ */
+    const gPrep = group('ブロックチェーンを準備する', 'ブロックチェーンを始める（ウォレット・鍵）');
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
@@ -306,25 +307,22 @@ export default {
     /* --- サーバー・ブロックチェーンを準備する（Issue #45）---
        サーバーなし版（solo.html）のサーバーの欄は、繋ぐページへの案内だけ（通信してよい先を決め打ちにしているので繋がらない）。
        開くとまず「サーバー」「ブロックチェーン」の選択肢だけを出し、選んだほうの欄だけを下に出す（Issue #43 の返事: 選択肢で誘導する） */
-    const prepChoice = choiceRow(gPrep, 'どれを準備するか');
+    /* サーバーに入る欄（合言葉・パスキー・登録の頼み）。「海を設定する」の、開いている海の ⚙ の中に出す（Issue #47 の C）。
+       サーバーなし版（solo.html）では、繋ぐページへの案内（通信してよい先を決め打ちにしているので繋がらない） */
     const serverEl = !isSolo() ? serverBox(this) : soloServerBox();
-    prepChoice.add('server', 'サーバー', [serverEl]);
-    /* 準備の箱の、ブロックチェーンのその操作を開く（ほかの箱の「ブロックチェーンを準備する」「ウォレットを開く」から） */
+    let seasEl = null;
+    /* ブロックチェーンの始め方・ウォレット・鍵を開く（ほかの箱の「ブロックチェーンを準備する」「ウォレットを開く」から） */
     const goSetup = (k) => {
       gPrep.open = true;
-      prepChoice.pick('chain');
       if (k && chainEl.openTask) chainEl.openTask(k);
       try { chainEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
     };
-    const goServer = () => {
-      gPrep.open = true;
-      prepChoice.pick('server');
-      try { serverEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
-    };
+    /* サーバーの設定 = 「海を設定する」の、開いている海の ⚙ */
+    const goServer = () => { if (seasEl) seasEl.openServer(); };
     /* --- ブロックチェーン（2026-11-08 Issue #31）。始め方・ネット・ウォレット・鍵・鍵を失ったとき ---
        サーバーが配るページでも使える（2026-11-11 Issue #42 の A 案。server.py の CSP に Solana の RPC を足した） */
     const chainEl = chainBox({ setup: true, tasks: ['wallet', 'key', 'lost'], title: 'ブロックチェーンを始める・ウォレットと鍵（Solana・試し）' });
-    prepChoice.add('chain', 'ブロックチェーン', [chainEl]);
+    gPrep.appendChild(chainEl);
 
     /* --- 他の人と一緒に使う（Issue #45）: 海を共有する・チャットする。それぞれ「サーバーで／ブロックチェーンで」 --- */
     const shareChoice = choiceRow(gShare, '何をするか');
@@ -346,8 +344,7 @@ export default {
       const sub = choiceRow(pane, 'どれで共有するか');
       sub.add('server', 'サーバーで', [pointer('サーバーで海を共有する',
         'サーバーの持ち主が、招く人の端末を認めると、その人の端末とも同じ海になる（自動で合わせる。手数料は掛からない）。'
-        + '招かれた人は、受け取った合言葉か招待コードを「サーバー・ブロックチェーンを準備する」→「サーバー」に入れる。'
-        + '海は左上の ≡ の引き出しで作り、切り替える。',
+        + '招かれた人は、「海を設定する」の［＋ 海を追加］で、同じ ID・同じサーバーの海を足し、その海の ⚙ で受け取った合言葉か招待コードを入れる。',
         'サーバーの設定を開く', goServer)]);
       const shareChain = chainBox({ tasks: ['share'], title: 'ブロックチェーンで海を共有する', goSetup });
       sub.add('chain', 'ブロックチェーンで', [shareChain]);
@@ -405,28 +402,23 @@ export default {
       const backupEl = chainBox({ tasks: ['backup'], title: 'ブロックチェーンにバックアップする（Solana・試し）', goSetup });
       backupEl.insertBefore(el('p', 'note',
         '記録を暗号化して、Solana のチェーンにバックアップとして書く。押したときだけ書き（手数料が掛かる）、読み込みは今の記録に重ねる。'
-        + 'パスキーか合言葉で開く。どの端末からでも戻せる。始め方・ウォレット・鍵は「サーバー・ブロックチェーンを準備する」にある。'),
+        + 'パスキーか合言葉で開く。どの端末からでも戻せる。始め方・ウォレット・鍵は「ブロックチェーンを準備する」にある。'),
         backupEl.children[1] || null);
       saveChoice.add('chain', 'ブロックチェーン', [backupEl]);
-    }
-    /* いま使っているほうを選んだ姿で始める（サーバーに繋いでいればサーバー、ブロックチェーンを始めていればそちら） */
-    {
-      const c = loadConfig();
-      if (sync.config().url) prepChoice.pick('server');
-      else if (c.mode || c.address) prepChoice.pick('chain');
     }
     /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
     [gShare, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
       if (!d.open) return;
       d.querySelectorAll('.choice-pane').forEach(p => { if (!p.hidden && typeof p.refresh === 'function') p.refresh(); });
+      if (d === gPrep && typeof chainEl.refresh === 'function') chainEl.refresh();
     }));
 
-    /* --- 記録の置き場（2026-11-11 Issue #42 の A 案）---
-       版（サーバーあり・なし）の違いを見せず、ここで置き場を選ぶ。選ぶと合うほうのページへ移るか、その欄を開く。
-       サーバーとブロックチェーンの欄は「サーバー・ブロックチェーンを準備する」へ移した（Issue #45） */
-    box.appendChild(placeBox({ gShare: gPrep, serverEl, chainEl, pick: prepChoice.pick }));
+    /* 「記録の置き場を選ぶ」（Issue #42）は外した（2026-11-13 Issue #47 の C）。
+       その［この端末だけ］は、開いている海のサーバーの住所を消し、同じサーバーのほかの海まで止めていた。
+       サーバーは海ごとに「海を設定する」の ⚙ で決める */
     /* --- 海を設定する（2026-11-12 Issue #47 の返事。前は「海域を設定する」。js/regions.js）--- */
-    box.appendChild(seasBox());
+    seasEl = seasBox({ serverEl });
+    box.appendChild(seasEl);
 
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
@@ -1747,7 +1739,7 @@ function soloServerBox() {
   wrap.appendChild(el('h3', null, 'サーバーに繋ぐ（複数の端末で同じ記録を使う）'));
   wrap.appendChild(el('p', 'note',
     'いまはサーバーに繋がないページ（通信してよい先を決め打ちにして守っている）で開いている。'
-    + 'サーバーに繋ぐときは、下のボタン（または上の「記録の置き場を選ぶ」の「自分のサーバー」）でサーバーに繋ぐページを開き、住所を入れる。繋いだあとは、開くとそのページになる'
+    + 'サーバーに繋ぐときは、下のボタンでサーバーに繋ぐページを開き、この ⚙ で住所を入れる。繋いだあとは、開くとそのページになる'
     + '（サーバーが配るページでは、サーバーと一緒にブロックチェーンのバックアップ・共有の海・チャットも使える）。'));
   const b = el('button', 'btn', 'サーバーに繋ぐページを開く');
   b.type = 'button';
@@ -1761,14 +1753,6 @@ function soloServerBox() {
   return wrap;
 }
 
-/* 記録の置き場（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
-   > サーバーあり版とサーバーなし版の区別を無くして、設定で記録場所にサーバー使うかブロックチェーンを使うかを選択する
-   ページは裏で 2 つのまま（通信してよい先の決め打ち＝CSP は読み込みの時点で決まり、1 つのページの中で切り替えられないため）。
-   使う人には版を見せず、ここで置き場を選ぶ。選ぶと、合うほうのページへ移るか、その欄を開く。
-     ・この端末だけ   … サーバーを外す（記録は端末とサーバーの両方に残る）。サーバーでない所で開いていれば solo.html へ
-     ・自分のサーバー … solo.html なら index.html へ移って住所を入れる。index.html なら海域の欄を開く
-     ・ブロックチェーン … ブロックチェーンの欄を開く（どちらのページでも使える。サーバーと一緒にも使える）
-   1 行に畳む（Issue #40。ふだん開いて見えるのは ふりかえり・使い方・タグ だけ） */
 /* 海を設定する（2026-11-12 Issue #47 の返事。前は「海域を設定する」）。
    > 海域の言葉は廃止。１画面（うみ）を１同期単位を海にしましょう。今もし中にある場合はバラバラの海にして、それぞれにサーバー同期設定をつける
    一覧は海を1つずつ（個人・作った海）。各行: 名前・同期（この端末だけ／サーバーの名前と様子）・［開く］・［⚙］。
@@ -1779,11 +1763,13 @@ function soloServerBox() {
      サーバーと合わせる海 … そのサーバーの名前・住所・合言葉（同じサーバーの海すべてに効く）。個人の行には「このサーバーを外す」
    いちばん下に［＋ 海を追加］: 名前・ID（空ならランダム。ほかの端末と同じ ID にすると同じ海＝共有。返事の 3）・同期。
    中の仕組みは js/regions.js（繋ぎ先）・js/spacelist.js（海の印 region）。サーバーへ送るものは前と同じ */
-function seasBox() {
+function seasBox({ serverEl } = {}) {
   const d = document.createElement('details');
   d.className = 'set-more';
-  /* Issue #47: タグの代わりに、設定を開いてすぐ見える所に海の一覧を出す（閉じることはできる） */
-  d.open = true;
+  /* Issue #47: タグの代わりに、設定を開いてすぐ見える所に海の一覧を出す（閉じることはできる）。
+     2026-11-13 の返事「全部」（F）: サーバーを1つも足していない（どの海も この端末だけ）ときは畳んだ姿で始める
+     （基本は個人の TODO。Issue #40）。「あまり使わない機能も出す」なら開く */
+  d.open = serverRegions().length > 0 || !!loadPrefs().allTools;
   const s = document.createElement('summary');
   const tx = el('span', 'tx');
   tx.appendChild(el('span', 'nm', '海を設定する'));
@@ -1809,10 +1795,28 @@ function seasBox() {
   function go(spaceId) {
     try { store.flush(); } catch (e) { /* 移るのは止めない */ }
     try { localStorage.setItem(SPACE_KEY, spaceId); } catch (e) { toast('切り替えを覚えられなかった'); return; }
-    location.reload();
+    const t = allSeas().find(x => x.id === spaceId);
+    if (t && serverOf(t.rid)) reloadForServer(); else location.reload();
   }
   function backupOn() {
     try { return !!(folderBackup && folderBackup.status().conf.on); } catch (e) { return false; }
+  }
+  /* サーバーなし版（solo.html）はサーバーに繋がらない（CSP）。サーバーを使い始めたら、サーバーに繋ぐページ（index.html）で開き直す。
+     前は「記録の置き場を選ぶ」の［自分のサーバー］がしていたこと（Issue #47 の C でその箱を外した） */
+  function reloadForServer() {
+    if (isSolo()) {
+      try { sessionStorage.setItem(EDITION_STAY_KEY, 'server'); } catch (e) { /* 置けなければ、開いた先でまた戻る */ }
+      location.href = 'index.html';
+      return;
+    }
+    location.reload();
+  }
+  function needServerPage(rid) {
+    if (!isSolo() || !serverOf(rid)) return false;
+    toast('サーバーに繋ぐページで開き直す…');
+    try { store.flush(); } catch (e) { /* 移るのは止めない */ }
+    setTimeout(reloadForServer, 500);
+    return true;
   }
   function serverOf(rid) { return serverRegions().find(r => r.id === rid) || null; }
   /* 同期の字。この端末だけ／サーバー「名前」（住所・鍵・様子） */
@@ -1851,6 +1855,11 @@ function seasBox() {
     const w = el('div', 'tagadd region-new');
     const nmIn = input('text', 'サーバーの名前（例 サーバーA。省いてもよい）', '新しいサーバーの名前', REGION_NAME_MAX);
     const urlIn = input('url', 'https://…（サーバーの住所）', '新しいサーバーの住所');
+    /* このページをサーバーが配っているなら、その住所を初めから入れておく（招かれた人が住所を打たずに済む）。
+       Pages・file・Android 版（https://localhost）では入れない（前の「このページのサーバー」ボタンと同じ見分け） */
+    if (/^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname) && !window.Capacitor && !serverByUrl(location.origin)) {
+      urlIn.value = location.origin;
+    }
     const tokIn = input('password', '合言葉（パスキーなら空のまま）', '新しいサーバーの合言葉');
     w.appendChild(nmIn);
     w.appendChild(urlIn);
@@ -1918,7 +1927,10 @@ function seasBox() {
         if (!setSeaRegion(s.id, rid)) { toast('替えられなかった'); return; }
         window.dispatchEvent(new CustomEvent('bubbles:seas'));
         /* 開いている海なら、新しい同期の先で合わせ直すため読み直す */
-        if (s.id === cur) { toast('同期の設定を替えた。読み直す…'); go(s.id); return; }
+        if (s.id === cur) {
+          if (needServerPage(rid)) return;
+          toast('同期の設定を替えた。読み直す…'); go(s.id); return;
+        }
         toast('同期の設定を替えた（この海を開いたときに、その先と合わせる）');
         render();
       });
@@ -1942,7 +1954,7 @@ function seasBox() {
           if (!r) { toast('足せなかった'); return; }
           toast('「' + r.name + '」と合わせ始めた。読み直す…');
           try { store.flush(); } catch (e) { /* 読み直すのは止めない */ }
-          setTimeout(() => location.reload(), 600);
+          setTimeout(reloadForServer, 600);
         });
         box.appendChild(f);
       }
@@ -1967,8 +1979,13 @@ function seasBox() {
       });
       box.appendChild(nameRow);
 
-      const c = sync.regionSummary(r.id);
-      const f = el('form', 'tagadd');
+      /* 開いている海のサーバーなら、ここで入る（合言葉・パスキー・登録の頼み。Issue #47 の C で「準備する」の箱から移した）。
+         パスキーの入場は、開いている海のサーバーにだけ効く */
+      if (r.id === curRid && serverEl) {
+        box.appendChild(serverEl);
+      } else {
+        const c = sync.regionSummary(r.id);
+        const f = el('form', 'tagadd');
       const urlIn = input('url', 'https://…（サーバーの住所）', 'サーバーの住所');
       urlIn.value = c.url;
       const tokIn = input('password', c.token ? '合言葉（替えるときだけ）' : '合言葉（パスキーなら空のまま）', 'サーバーの合言葉');
@@ -1986,9 +2003,10 @@ function seasBox() {
         toast('住所・合言葉を直した');
         render();
       });
-      box.appendChild(f);
-      box.appendChild(el('p', 'note',
-        'パスキーで入るサーバーは、この海を［開く］で開いてから、「サーバー・ブロックチェーンを準備する」→「サーバー」で入る。'));
+        box.appendChild(f);
+        box.appendChild(el('p', 'note',
+          'パスキーで入るサーバーは、この海を［開く］で開いてから、もう一度この ⚙ で入る（パスキーの入場は、開いている海のサーバーにだけ効く）。'));
+      }
 
       /* 外す（個人の行だけ。そのサーバーと合わせている海がすべて一覧から外れるので） */
       if (s.personal && !r.legacyMe) {
@@ -2082,95 +2100,15 @@ function seasBox() {
   sync.on(() => { if (d.open && !typing()) render(); });
   sync.onSeas(() => { if (d.open && !typing()) render(); });
   d.addEventListener('toggle', () => { if (d.open) render(); });
+  /* ほかの箱の「サーバーの設定を開く」から: 開いている海の ⚙ を開く（サーバーの設定はそこ1か所。Issue #47 の C） */
+  d.openServer = () => {
+    d.open = true;
+    adding = false;
+    openId = cur;
+    render();
+    try { (list.querySelector('.region-row.is-on') || d).scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 開いてある */ }
+  };
   render();
-  return d;
-}
-
-function placeBox({ gShare, serverEl, chainEl, pick }) {
-  const d = document.createElement('details');
-  d.className = 'set-more';
-  d.open = !!loadPrefs().allTools;
-  const s = document.createElement('summary');
-  const tx = el('span', 'tx');
-  tx.appendChild(el('span', 'nm', '記録の置き場を選ぶ'));
-  const sub = el('span', 'sub');
-  tx.appendChild(sub);
-  s.appendChild(tx);
-  d.appendChild(s);
-
-  const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '記録をどこに置くかを選ぶ'));
-  wrap.appendChild(el('p', 'note',
-    '記録はいつもこの端末に置く。加えて、自分のサーバー（ほかの端末・招いた人と自動で合わせる。どの海をどのサーバーと合わせるかは「海を設定する」で決める）と、'
-    + 'ブロックチェーン（暗号化したバックアップ・共有の海・チャット。押したときだけ書き、手数料が掛かる）を選べる。'
-    + 'サーバーとブロックチェーンは両方使える。サーバーに繋いでいると、チャットの履歴もサーバーに写る。'));
-  const row = el('div', 'row');
-  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
-  const line = el('p', 'note');
-  line.setAttribute('aria-live', 'polite');
-  let said = '';
-
-  const onServer = () => !!sync.config().url;
-  const onChain = () => { const c = loadConfig(); return !!(c.mode || c.address); };
-  const ownServerPage = () => /^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname) && !window.Capacitor;
-
-  function show(target) {
-    gShare.open = true;
-    if (!target) return;
-    /* 「サーバー・ブロックチェーンを準備する」の中は選んだ欄だけを出す（Issue #43・#45）。開く欄を選んだ姿にする */
-    if (pick) pick(target === chainEl ? 'chain' : 'server');
-    try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
-  }
-  function choice(label, on) {
-    const b = el('button', 'btn', label);
-    b.type = 'button';
-    b.addEventListener('click', on);
-    row.appendChild(b);
-    return b;
-  }
-  const bLocal = choice('この端末だけ', () => {
-    if (!onServer()) { said = 'いまもサーバーには繋いでいない。'; paint(); return; }
-    if (!window.confirm('サーバーを外す？\nこの端末の記録はそのまま残る。サーバーに置いた記録も消えない（また繋ぐと合わさる）。')) return;
-    sync.configure('', '', '');
-    if (!isSolo() && !ownServerPage()) {
-      said = 'サーバーを外した。サーバーなしのページに切り替える…';
-      paint();
-      try { sessionStorage.removeItem(EDITION_STAY_KEY); } catch (e) { /* 消せなくても移る */ }
-      setTimeout(() => { location.href = 'solo.html'; }, 400);
-      return;
-    }
-    said = 'サーバーを外した。';
-    paint();
-  });
-  const bServer = choice('自分のサーバー', () => {
-    if (isSolo()) {
-      /* solo.html はサーバーに繋がらない（CSP）。サーバーに繋ぐページへ移り、住所を入れる */
-      try { sessionStorage.setItem(EDITION_STAY_KEY, 'server'); } catch (e) { /* 置けなければ、開いた先でまた戻る */ }
-      said = 'サーバーに繋ぐページに切り替える（「サーバー・ブロックチェーンを準備する」→「サーバー」の「この海のサーバーに入る」に住所を入れる）…';
-      paint();
-      setTimeout(() => { location.href = 'index.html'; }, 300);
-      return;
-    }
-    show(serverEl);
-  });
-  const bChain = choice('ブロックチェーン', () => show(chainEl));
-
-  function paint() {
-    const parts = ['この端末'];
-    if (onServer()) parts.push('自分のサーバー');
-    if (onChain()) parts.push('ブロックチェーン');
-    sub.textContent = parts.join('＋');
-    line.textContent = (said ? said + ' ' : '') + 'いま: ' + parts.join('＋') + '。';
-    bLocal.setAttribute('aria-pressed', String(!onServer()));
-    bServer.setAttribute('aria-pressed', String(onServer()));
-    bChain.setAttribute('aria-pressed', String(onChain()));
-  }
-  wrap.appendChild(row);
-  wrap.appendChild(line);
-  d.appendChild(wrap);
-  sync.on(() => paint());
-  d.addEventListener('toggle', () => { if (d.open) { said = ''; paint(); } });
-  paint();
   return d;
 }
 
@@ -2492,7 +2430,7 @@ function chainBox(opts = {}) {
     const pk = prfSupported();
     if (!cfg.mode && !setup) {
       /* 始め方は準備の箱にだけ置く（Issue #45）。ここでは、そこへ移るボタンだけ */
-      info.textContent = 'ブロックチェーンをまだ始めていない。先に「サーバー・ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
+      info.textContent = 'ブロックチェーンをまだ始めていない。先に「ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
       if (opts.goSetup) {
         group('go-setup', '始める', null);
         btn('ブロックチェーンを準備する', async () => opts.goSetup(null));
@@ -3624,7 +3562,7 @@ function chainBox(opts = {}) {
     if (!window.confirm('このバックアップをこの端末に復元する？\n保存した時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
       + (s.regions.length ? '\n同期の先 ' + s.regions.join('・') : '')
       + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。'
-      + (s.regions.length ? '\nサーバーの鍵は入っていない（足したサーバーは、「海を設定する」の ⚙ か「サーバー・ブロックチェーンを準備する」で入り直す）。' : ''))) {
+      + (s.regions.length ? '\nサーバーの鍵は入っていない（足したサーバーは、「海を設定する」の ⚙ で入り直す）。' : ''))) {
       line.textContent = 'やめた';
       return true;
     }

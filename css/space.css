@@ -99,7 +99,7 @@ html.is-sea .drawer-space button.is-on { border-color: var(--sea-edge); }
   display: flex; flex-direction: column; gap: 12px;
 }
 .space-sheet h4 { margin: 0; font-size: 17px; }
-.space-sheet input[type="text"] {
+.space-sheet input[type="text"], .space-sheet select {
   font: inherit; font-size: 16px; min-height: 44px; padding: 0 12px; border-radius: 12px;
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--text);
 }
@@ -221,16 +221,4 @@ input.is-space-locked {
 }
 input.is-space-locked::placeholder { color: var(--sea-text); }
 
-/* 海域（2026-11-12。js/regions.js）。海域が2つ以上あるときだけ出す。
-   帯の頭の海域の名前は押せない字（替えるのは引き出しから）。引き出しでは海域ごとの見出し */
-.space-seg .space-region {
-  flex: 0 0 auto; align-self: center; max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 10.5px; color: var(--text-3); padding: 0 6px 0 2px;
-}
-.drawer-region {
-  margin: 10px 0 6px; font-size: 12px; letter-spacing: .02em; color: var(--text-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.drawer-region:first-child { margin-top: 2px; }
-.drawer-region.is-on { color: var(--text-2); font-weight: 600; }
-.drawer-region + .drawer-space { max-height: none; }
+/* 2026-11-12 の「海域」の見出し（帯の頭・引き出し）は、Issue #47 の返事で海を1列に並べたので外した */

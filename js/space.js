@@ -28,8 +28,8 @@
 import { store, SPACE_KEY } from './store.js';
 import { sync } from './sync.js';
 import { toast } from './ui.js';
-import { findSea, addSea, updateSea, removeSea, boxKey, COLORS, colorMark, NAME_MAX } from './spacelist.js';
-import { isPersonal, personalId, regionOfSpace, defaultRegionId, allSeas } from './regions.js';
+import { findSea, addSea, updateSea, removeSea, boxKey, COLORS, colorMark, NAME_MAX, cleanId } from './spacelist.js';
+import { isPersonal, personalId, regionOfSpace, defaultRegionId, allSeas, serverRegions } from './regions.js';
 
 const SPACE = store.space();
 const REGION = regionOfSpace(SPACE) || defaultRegionId();
@@ -115,7 +115,7 @@ export function spaceSwitcher() {
   tools.className = 'drawer-space-tools';
   const add = document.createElement('button');
   add.type = 'button';
-  add.textContent = '＋ 海をつくる';
+  add.textContent = '＋ 海を追加';   /* 設定の「海を設定する」と同じ名前・同じ欄（Issue #47 の D） */
   add.addEventListener('click', () => openSheet(null));
   tools.appendChild(add);
   const cur = findSea(SPACE);
@@ -184,13 +184,38 @@ function openSheet(sea, opts = {}) {
   paintChips();
   box.appendChild(colorBox);
 
+  /* 作るときだけ: ID と同期（2026-11-13 Issue #47 の D。設定の［＋ 海を追加］と同じ欄）。
+     ID は空ならランダム。ほかの端末で同じ ID・同じサーバーの海を足すと、同じ海になる。
+     同期は この端末だけ／足してあるサーバー。新しいサーバーの住所は設定の「海を設定する」で入れる */
+  let idIn = null;
+  let syncSel = null;
+  if (!sea) {
+    idIn = document.createElement('input');
+    idIn.type = 'text';
+    idIn.autocomplete = 'off';
+    idIn.spellcheck = false;
+    idIn.autocapitalize = 'none';
+    idIn.maxLength = 24;
+    idIn.placeholder = 'ID（空ならランダム。ほかの端末と同じ ID にすると同じ海）';
+    idIn.setAttribute('aria-label', '海の ID');
+    box.appendChild(idIn);
+    syncSel = document.createElement('select');
+    syncSel.setAttribute('aria-label', '同期');
+    const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; syncSel.appendChild(o); };
+    opt('local', '同期: この端末だけ');
+    serverRegions().forEach(r => opt(r.id, '同期: サーバー「' + r.name + '」'));
+    const want = opts.region || REGION;
+    syncSel.value = serverRegions().some(r => r.id === want) ? want : 'local';
+    box.appendChild(syncSel);
+  }
+
   const note = document.createElement('p');
   note.className = 'note';
   note.textContent = sea
     ? '人を招くときは、サーバーで「invite-add <名前> --space ' + sea.id + '」として招待コードを作り、'
       + '住所とコードを渡す（公開したサーバーのとき）。招いた人はその海にだけ入れる。'
       + (sea.id === 'share' ? '前の版の「共有の合言葉」でも、この海に入れる。' : '')
-    : 'いま開いている海と同じ同期の設定で作る（この端末だけか、同じサーバー）。替えるのは設定の「海を設定する」の ⚙ から。'
+    : '同期の先は、作ったあとでも設定の「海を設定する」の ⚙ で替えられる。新しいサーバーを足すのもそこから。'
       + '人を招くのは、作ったあとに「この海の名前・色」から。';
   if (opts.note) note.textContent = opts.note;
   box.appendChild(note);
@@ -252,8 +277,11 @@ function openSheet(sea, opts = {}) {
       if (typeof opts.onChanged === 'function') opts.onChanged();
       return;
     }
-    const rid = opts.region || REGION;
-    const e = addSea(nameIn.value, color, Date.now(), rid);
+    const id = cleanId(idIn ? idIn.value : '');
+    if (id === null) { toast('ID は英小文字と数字の 3〜23 字'); idIn.focus(); return; }
+    if (id && allSeas().some(x => x.id === id)) { toast('この ID の海は、この端末にもうある'); idIn.focus(); return; }
+    const rid = syncSel ? syncSel.value : (opts.region || REGION);
+    const e = addSea(nameIn.value, color, Date.now(), rid, id || undefined);
     if (!e) { toast('海をつくれなかった'); return; }
     done();
     if (typeof opts.onMade === 'function') {

@@ -74,11 +74,12 @@ export function openSeaMap(opts) {
   const box = el('div', 'seamap');
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-modal', 'true');
-  box.setAttribute('aria-label', '海の引き');
+  /* 2026-11-13 Issue #47 の返事「全部」（B）: 画面の中のタグの区切りは「入り江」と呼ぶ（「海」は1つの同期の単位の名前） */
+  box.setAttribute('aria-label', '入り江の引き');
   box.dataset.screen = 'sea.map'; box.dataset.screenLayer = '7';
 
   const head = el('div', 'seamap-head');
-  head.appendChild(el('span', 'tt', '海'));
+  head.appendChild(el('span', 'tt', '入り江'));
   const count = el('span', 'ct');
   head.appendChild(count);
   const closeBtn = el('button', 'cl', '閉じる');
@@ -94,7 +95,7 @@ export function openSeaMap(opts) {
   box.appendChild(fixedRow);
 
   const note = el('p', 'seamap-note',
-    '押すとその海へ。掴むと並べ替えられる。<br>上（長期保留）と下（完了）は動かせない。');
+    '押すとその入り江へ。掴むと並べ替えられる。<br>上（長期保留）と下（完了）は動かせない。');
   box.appendChild(note);
 
   back.appendChild(box);
@@ -143,7 +144,7 @@ function render() {
 
   /* ＋。上限まで来たら、押せない的は置かず「いっぱい」とだけ言う */
   if (seas.length < maxSeas()) root.grid.appendChild(makeAdd());
-  else root.grid.appendChild(el('p', 'seamap-full', '海は ' + maxSeas() + ' 個まで。'));
+  else root.grid.appendChild(el('p', 'seamap-full', '入り江は ' + maxSeas() + ' 個まで。'));
 
   /* 固有枠。並びとは別の軸なので、線を引いて分けて置く */
   root.fixedRow.replaceChildren();
@@ -174,7 +175,7 @@ function makeTile(spec) {
   b.appendChild(nm);
 
   if (spec.sub) b.appendChild(el('span', 'sub', spec.sub));
-  b.setAttribute('aria-label', spec.name + 'の海へ'
+  b.setAttribute('aria-label', spec.name + 'へ'
     + (root && root.current === spec.face ? '（いまここ）' : ''));
 
   b.addEventListener('click', ev => {
@@ -213,8 +214,8 @@ function makeAdd() {
   const b = el('button', 'seamap-add');
   b.type = 'button';
   b.appendChild(el('span', 'pl', '＋'));
-  b.appendChild(el('span', 'nm', '海をふやす'));
-  b.setAttribute('aria-label', '海をふやす');
+  b.appendChild(el('span', 'nm', '入り江をふやす'));
+  b.setAttribute('aria-label', '入り江をふやす（タグを作って並べる）');
   b.addEventListener('click', ev => { ev.preventDefault(); openAdd(b); });
   return b;
 }
@@ -223,9 +224,9 @@ function makeAdd() {
 
 function openAdd(anchor) {
   openSheet({
-    title: '新しい海',
+    title: '新しい入り江（タグ）',
     value: '',
-    placeholder: '海の名前',
+    placeholder: 'タグの名前',
     okLabel: '作る',
     anchor,
     onOk: (name) => {
@@ -236,7 +237,7 @@ function openAdd(anchor) {
       if (!t) { toast('その名前では作れない'); return false; }
       if (!store.addSea(t.id)) {
         /* 上限に当たった。作ったタグは残す——消すと「書いたのに何も無い」になる */
-        toast('「' + v + '」を作った（海は ' + maxSeas() + ' 個までなので、列には並べていない）');
+        toast('「' + v + '」を作った（入り江は ' + maxSeas() + ' 個までなので、列には並べていない）');
       }
       render();
       return true;
@@ -248,9 +249,9 @@ function openAdd(anchor) {
 
 function openEdit(tag, anchor) {
   openSheet({
-    title: '海の名前と色',
+    title: '入り江（タグ）の名前と色',
     value: tag.name,
-    placeholder: '海の名前',
+    placeholder: 'タグの名前',
     okLabel: '直す',
     anchor,
     tag,
@@ -268,7 +269,7 @@ function openEdit(tag, anchor) {
          「戻した」のに並びが変わっていて、戻ったことにならない */
       const at = has('seaIndex') ? store.seaIndex(tag.id) : -1;
       store.removeSea(tag.id);
-      toast('「' + tag.name + '」を海から降ろした（タグは残る）', {
+      toast('「' + tag.name + '」を入り江から外した（タグは残る）', {
         label: '元に戻す',
         on: () => {
           if (!store.addSea(tag.id)) return;
@@ -336,9 +337,9 @@ function openSheet(cfg) {
 
   const row = el('div', 'row');
   if (typeof cfg.onDrop === 'function') {
-    const d = el('button', 'drop', '海をやめる');
+    const d = el('button', 'drop', '入り江をやめる');
     d.type = 'button';
-    d.setAttribute('aria-label', '海から降ろす（タグは残る）');
+    d.setAttribute('aria-label', '入り江から外す（タグは残る）');
     d.addEventListener('click', ev => { ev.preventDefault(); close(); cfg.onDrop(); });
     row.appendChild(d);
   }

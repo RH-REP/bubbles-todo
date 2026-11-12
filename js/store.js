@@ -2602,7 +2602,7 @@ export const store = {
      画面はこれを見て「向き」の選び欄を出すかどうかを決める */
   tagDirFixed(id) { return FIXED_DIRS[id] || null; },
 
-  /* ---- 横一列に並ぶ海（利用者の指示：タグ付き海を10個まで） ----
+  /* ---- 横一列に並ぶ海（利用者の指示：タグ付き海を10個まで）。**今は「入り江」と呼ぶ**（Issue #47。ファイルの末尾の別名） ----
 
      前は左右の2枠の取り合いだった。10個になると「向き」では足りないので、
      **並び**を持つ。中央（タグ無し）は列の左端で、この配列には入らない。
@@ -3218,3 +3218,17 @@ WRITE_METHODS.forEach(name => {
     return orig.apply(this, args);
   };
 });
+
+/* 入り江（2026-11-13 Issue #47 の返事「全部」の B）。
+   画面の中のタグの区切り（横一列に並ぶタグ）は「入り江」と呼ぶ。「海」（spacelist.js の sea）は1つの同期の単位。
+   上の addSea・removeSea・moveSea・isSea・canBeSea・seaIndex・seas・MAX_SEAS は**入り江**のことで、古い名前のまま残している
+   （呼んでいる所・テストが多いので一度に替えない）。新しく書くコードは、取り違えないよう下の名前を使う。
+   読むだけの断り（上の WRITE_METHODS）は、古い名前を通して効く */
+store.MAX_COVES = MAX_SEAS;
+store.coves = (...a) => store.seas(...a);
+store.coveIndex = (...a) => store.seaIndex(...a);
+store.isCove = (...a) => store.isSea(...a);
+store.canBeCove = (...a) => store.canBeSea(...a);
+store.addCove = (...a) => store.addSea(...a);
+store.removeCove = (...a) => store.removeSea(...a);
+store.moveCove = (...a) => store.moveSea(...a);
