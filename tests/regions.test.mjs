@@ -292,6 +292,63 @@ await test('外した海域の海を開こうとしたら、前の版からの�
 });
 
 /* ============================================================ */
+/* 3. 海ごとの同期（2026-11-12 Issue #47 の返事:「海域」をやめ、1つの海 = 1つの同期の単位） */
+
+await test('allSeas: すべての繋ぎ先の海を1列に。前の版からの個人がいちばん前、ほかの個人は「個人（サーバーの名前）」', async () => {
+  fresh({ bubble_todo_sync: { url: 'https://srv-a.test', token: 'tk-a' }, bubble_todo_spaces: [SEA] });
+  const rb = R.addServerRegion('サーバーB', { url: 'https://srv-b.test', token: 'tk-b' }, 100);
+  const list = R.allSeas();
+  assert.equal(list[0].id, 'me');
+  assert.equal(list[0].name, '個人');
+  assert.deepEqual(list.map(e => [e.id, e.rid, e.personal]), [
+    ['me', 'r0', true], ['me.local', 'local', true], ['share', 'r0', false], [SEA.id, 'r0', false], ['me.' + rb.id, rb.id, true],
+  ]);
+  assert.equal(list.find(e => e.id === 'me.local').name, '個人（この端末だけ）');
+  assert.equal(list.find(e => e.id === 'me.' + rb.id).name, '個人（サーバーB）');
+  assert.equal(R.serverByUrl('https://srv-b.test').id, rb.id);
+  assert.equal(R.serverByUrl('https://srv-c.test'), null);
+});
+
+await test('cleanId: 空はランダム（""）、頭に s を足す、読めない字は null', async () => {
+  assert.equal(SL.cleanId(''), '');
+  assert.equal(SL.cleanId('  '), '');
+  assert.equal(SL.cleanId('family'), 'sfamily');
+  assert.equal(SL.cleanId('sfamily'), 'sfamily');
+  assert.equal(SL.cleanId('Family'), 'sfamily');
+  assert.equal(SL.cleanId('share'), 'share');
+  assert.equal(SL.cleanId('abc'), 'sabc');
+  assert.equal(SL.cleanId('ab'), null);
+  assert.equal(SL.cleanId('家族'), null);
+  assert.equal(SL.cleanId('a-b-c'), null);
+});
+
+await test('addSea に ID を渡すとその ID で作る。今ある ID は断る。消した印だけなら作り直す', async () => {
+  fresh({});
+  const e = SL.addSea('家族', 'moss', 10, 'local', 'sfamily');
+  assert.equal(e.id, 'sfamily');
+  assert.equal(e.region, 'local');
+  assert.equal(SL.addSea('ほか', 'moss', 11, 'local', 'sfamily'), null);
+  assert.ok(SL.removeSea('sfamily', 12));
+  const again = SL.addSea('家族2', 'sand', 13, 'local', 'sfamily');
+  assert.equal(again.id, 'sfamily');
+  assert.ok(again.at > 12);
+  assert.equal(SL.allEntries().filter(x => x.id === 'sfamily').length, 1);
+});
+
+await test('setSeaRegion: 海の同期の先を替える。記録の箱と at は動かさない', async () => {
+  fresh({ bubble_todo_sync: { url: 'https://srv-a.test', token: 'tk-a' }, bubble_todo_spaces: [SEA], ['bubble_todo_sea_' + SEA.id + '_v1']: ME_BOX });
+  R.regionList();
+  const before = mem.get('bubble_todo_sea_' + SEA.id + '_v1');
+  assert.equal(R.regionOfSpace(SEA.id), 'r0');
+  assert.ok(SL.setSeaRegion(SEA.id, 'local'));
+  assert.equal(R.regionOfSpace(SEA.id), 'local');
+  assert.equal(SL.allEntries().find(x => x.id === SEA.id).at, SEA.at);
+  assert.equal(mem.get('bubble_todo_sea_' + SEA.id + '_v1'), before);
+  assert.equal(SL.setSeaRegion(SEA.id, 'bad id'), false);
+  assert.equal(SL.setSeaRegion('snothere', 'local'), false);
+});
+
+/* ============================================================ */
 
 console.log('');
 console.log(`${pass} passed, ${failed.length} failed`);

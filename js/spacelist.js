@@ -112,14 +112,42 @@ export function newId(now = Date.now()) {
   return 's' + now.toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-/* 海を作る → 作った1件。名前が空なら null。region を渡せばその海域の海（省けば前の版からの個人と同じ海域） */
-export function addSea(name, color, now = Date.now(), region) {
+/* 人が入れた海の ID を整える（2026-11-12 Issue #47 の返事:「名前そのものが ID ではなく、裏側で管理の ID を作る。
+   登録時に指定した ID が一致すれば共有、ID が空欄ならランダムな ID で登録」）。
+   空なら ''（ランダムに作る）。英小文字・数字 3〜23 字。頭に s が無ければ足す（サーバーのフォルダ名の形 ID_RE。
+   「family」と「sfamily」は同じ海になる。どの端末でも同じ規則なので、同じ字を入れれば同じ ID になる）。読めなければ null */
+export function cleanId(raw) {
+  const s = String(raw == null ? '' : raw).trim().toLowerCase();
+  if (!s) return '';
+  if (ID_RE.test(s)) return s;
+  const t = 's' + s;
+  return ID_RE.test(t) ? t : null;
+}
+
+/* 海を作る → 作った1件。名前が空なら null。region を渡せばその繋ぎ先の海（省けば前の版からの個人と同じ繋ぎ先）。
+   id を渡すとその ID で作る（cleanId で整えたもの。この端末に同じ ID の海が今あれば null。消した印だけなら作り直す） */
+export function addSea(name, color, now = Date.now(), region, id) {
   const nm = cleanName(name);
   if (!nm) return null;
-  const e = cleanEntry({ id: newId(now), name: nm, color, at: now, alive: 1, region });
   const rows = allEntries();
-  rows.push(e);
+  const want = id ? String(id) : newId(now);
+  const i = rows.findIndex(x => x.id === want);
+  if (i >= 0 && rows[i].alive) return null;
+  const e = cleanEntry({ id: want, name: nm, color, at: i >= 0 ? Math.max(now, rows[i].at + 1) : now, alive: 1, region });
+  if (!e) return null;
+  if (i >= 0) rows[i] = e; else rows.push(e);
   return save(rows) ? e : null;
+}
+
+/* 海の同期の設定（どの繋ぎ先と合わせるか）を替える（Issue #47 の返事）。記録の箱は動かさない。
+   region はこの端末だけの印でサーバーへは送らないので、書き換えた時刻 at は進めない */
+export function setSeaRegion(id, region) {
+  if (!REGION_ID_RE.test(String(region || ''))) return false;
+  const rows = allEntries();
+  const e = rows.find(x => x.id === id && x.alive);
+  if (!e) return false;
+  e.region = String(region);
+  return save(rows);
 }
 
 /* 名前・色を変える。変えられなければ false */

@@ -12,9 +12,11 @@ import { sync, checkUrl } from '../sync.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode, makeMoveKey,
   requestRegistration, requestStatus } from '../passkey.js';
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
-import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE } from '../spacelist.js';
+import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE,
+  findSea, addSea, setSeaRegion, cleanId, NAME_MAX, colorMark } from '../spacelist.js';
 import { isPersonal, PERSONAL_RE, allSpaceIds, regionList, findRegion, personalId, seasOf, regionOfSpace, defaultRegionId,
   addServerRegion, renameRegion, removeRegion, localHasLegacy, REGION_NAME_MAX,
+  allSeas, serverRegions, serverByUrl,
   regionsPayload, pickForPayload, importRegions, remapPayload } from '../regions.js';
 import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, moveSummary, moveFileName,
   boxToState, stateToBox, mergeBox } from '../movefile.js';
@@ -136,7 +138,7 @@ export default {
     help.type = 'button';
     const hpT = el('span', 'tx');
     hpT.appendChild(el('span', 'nm', '使い方を読む'));
-    hpT.appendChild(el('span', 'sub', '画面の見方・海域と海の始め方'));
+    hpT.appendChild(el('span', 'sub', '画面の見方・海とサーバーの始め方'));
     help.appendChild(hpT);
     const hpA = el('span', 'ar', '›');
     hpA.setAttribute('aria-hidden', 'true');
@@ -306,7 +308,7 @@ export default {
        開くとまず「サーバー」「ブロックチェーン」の選択肢だけを出し、選んだほうの欄だけを下に出す（Issue #43 の返事: 選択肢で誘導する） */
     const prepChoice = choiceRow(gPrep, 'どれを準備するか');
     const serverEl = !isSolo() ? serverBox(this) : soloServerBox();
-    prepChoice.add('server', 'サーバー（海域）', [serverEl]);
+    prepChoice.add('server', 'サーバー', [serverEl]);
     /* 準備の箱の、ブロックチェーンのその操作を開く（ほかの箱の「ブロックチェーンを準備する」「ウォレットを開く」から） */
     const goSetup = (k) => {
       gPrep.open = true;
@@ -343,8 +345,8 @@ export default {
       const pane = el('div', null);
       const sub = choiceRow(pane, 'どれで共有するか');
       sub.add('server', 'サーバーで', [pointer('サーバーで海を共有する',
-        'サーバー（海域）の持ち主が、招く人の端末を認めると、その人の端末とも同じ海になる（自動で合わせる。手数料は掛からない）。'
-        + '招かれた人は、受け取った合言葉か招待コードを「サーバー・ブロックチェーンを準備する」→「サーバー（海域）」に入れる。'
+        'サーバーの持ち主が、招く人の端末を認めると、その人の端末とも同じ海になる（自動で合わせる。手数料は掛からない）。'
+        + '招かれた人は、受け取った合言葉か招待コードを「サーバー・ブロックチェーンを準備する」→「サーバー」に入れる。'
         + '海は左上の ≡ の引き出しで作り、切り替える。',
         'サーバーの設定を開く', goServer)]);
       const shareChain = chainBox({ tasks: ['share'], title: 'ブロックチェーンで海を共有する', goSetup });
@@ -382,7 +384,7 @@ export default {
       const w = el('div', 'tags');
       w.appendChild(el('h3', null, 'サーバーに置く'));
       w.appendChild(el('p', 'note',
-        'サーバー（海域）に繋いでいる間は、記録は自動でサーバーにも置かれ、ほかの端末と合う。押して保存・読み込みしなくてよい。'
+        'サーバーに繋いでいる間は、記録は自動でサーバーにも置かれ、ほかの端末と合う。押して保存・読み込みしなくてよい。'
         + 'ファイルやブロックチェーンのような「その時点の控え」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'));
       const st = el('p', 'note');
       st.setAttribute('aria-live', 'polite');
@@ -423,8 +425,8 @@ export default {
        版（サーバーあり・なし）の違いを見せず、ここで置き場を選ぶ。選ぶと合うほうのページへ移るか、その欄を開く。
        サーバーとブロックチェーンの欄は「サーバー・ブロックチェーンを準備する」へ移した（Issue #45） */
     box.appendChild(placeBox({ gShare: gPrep, serverEl, chainEl, pick: prepChoice.pick }));
-    /* --- 海域を設定する（2026-11-12 利用者の指示。js/regions.js）--- */
-    box.appendChild(regionsBox());
+    /* --- 海を設定する（2026-11-12 Issue #47 の返事。前は「海域を設定する」。js/regions.js）--- */
+    box.appendChild(seasBox());
 
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
@@ -694,17 +696,17 @@ function hhmm(ms) {
 }
 function serverBox(screen) {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '海域（サーバー）に繋ぐ'));
-  /* 開いている海が「この端末だけ」の海域なら、ここでは繋がない（2026-11-12 海域。js/regions.js）。
-     サーバーは「海域を設定する」で海域を足し、その海域の海を開いてから、ここで入る */
+  wrap.appendChild(el('h3', null, 'この海のサーバーに入る'));
+  /* 開いている海の同期が「この端末だけ」なら、ここでは繋がない（2026-11-12。Issue #47 の返事で「海域」の言葉をやめた）。
+     サーバーは「海を設定する」の ⚙ で海の同期の先にし、その海を開いてから、ここで入る */
   if (sync.region().kind === 'local') {
     wrap.appendChild(el('p', 'note',
-      'いま開いている海は「' + escapeHtml(sync.region().name) + '」の海域（この端末だけ。サーバーに送らない）。'
-      + 'サーバーに繋ぐときは、上の「海域を設定する」で海域を足し、その海域の［開く］で移ってから、ここで入る。'));
-    const open = el('button', 'btn', '海域を設定するを開く');
+      'いま開いている海の同期は「この端末だけ」（サーバーに送らない）。'
+      + 'サーバーと合わせるときは、上の「海を設定する」の ⚙ で同期の先にサーバーを選び（新しいサーバーなら住所を入れる）、その海を［開く］で開いてから、ここで入る。'));
+    const open = el('button', 'btn', '「海を設定する」を開く');
     open.type = 'button';
     open.addEventListener('click', () => {
-      const d = [...document.querySelectorAll('details.set-more')].find(x => /海域を設定する/.test((x.querySelector('summary') || {}).textContent || ''));
+      const d = [...document.querySelectorAll('details.set-more')].find(x => /海を設定する/.test((x.querySelector('summary') || {}).textContent || ''));
       if (!d) return;
       d.open = true;
       try { d.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 開いてある */ }
@@ -714,14 +716,14 @@ function serverBox(screen) {
   }
   wrap.appendChild(el(
     'p', 'note',
-    /* 海域（2026-11-10 利用者の決定）＝1つのサーバーが預かる海のまとまり（個人・共有・作った海）。
-       入る・記録を送る・持ち主、のときは「海域」。住所・コマンド・サーバーのプログラムのときは「サーバー」 */
-    '海域は、自分で立てたサーバーが預かる海のまとまり。海域に繋ぐと、ほかの端末と同じ記録を使える。'
+    /* 2026-11-12 Issue #47 の返事:「海域」の言葉はやめた。海ごとに同期の先（サーバー）を決め、ここではそのサーバーに入る */
+    'いま開いている海の同期の先のサーバー「' + escapeHtml(sync.region().name) + '」に入る。入ると、ほかの端末と同じ記録を使える。'
+    + '同じサーバーと合わせるほかの海も、同じ住所と鍵を使う。'
     + '食い違ったときは、項目ごとに新しく書き換えたほうが残る。'
     + '届かない間もこの端末には記録され、届いたら合わせる。'
-    + '海は左上の ≡ の引き出しで作り、切り替える。自分の合言葉（個人に入れるパスキー）で、海域のどの海も合わせる。'
+    + '自分の合言葉（個人に入れるパスキー）で、そのサーバーのどの海も合わせる。'
     + '人を招いた海は、招かれた人の端末とも同じ海になる。'
-    + '公開した海域にはパスキーで入り、手元の海域には合言葉で入る。'
+    + '公開したサーバーにはパスキーで入り、手元のサーバーには合言葉で入る。'
   ));
 
   const form = el('form', 'tagadd');
@@ -787,7 +789,7 @@ function serverBox(screen) {
   const pkBox = el('div', 'pkbox');
   pkBox.hidden = true;
   pkBox.style.cssText = 'margin-top:12px';
-  pkBox.appendChild(el('p', 'note', 'この海域にはパスキーで入る。初めての端末は、招待コードを入れて登録する。'
+  pkBox.appendChild(el('p', 'note', 'このサーバーにはパスキーで入る。初めての端末は、招待コードを入れて登録する。'
     + '登録した端末は、次から「パスキーで入る」だけでよい（合言葉は使わない）。'));
   const pkForm = el('form', 'tagadd');
   const invIn = document.createElement('input');
@@ -819,7 +821,7 @@ function serverBox(screen) {
      持ち主がサーバーで認める（request-ok <字>）。送るのは呼び名だけ。頼みの鍵は端末の別の箱に置き、
      登録したら・やめたら消す */
   pkBox.appendChild(el('p', 'note', '招待コードが無いときは、この端末から登録を頼める。'
-    + '画面に出る字を海域の持ち主に伝え、認めてもらってから「登録を仕上げる」を押す。'));
+    + '画面に出る字をサーバーの持ち主に伝え、認めてもらってから「登録を仕上げる」を押す。'));
   const askForm = el('form', 'tagadd');
   const askIn = document.createElement('input');
   askIn.type = 'text';
@@ -943,7 +945,7 @@ function serverBox(screen) {
       askLine.textContent = '「' + r.name + '」の登録が認められた。「登録を仕上げる」で、この端末のパスキーを作る。';
       askHow.textContent = '';
     } else {
-      askLine.textContent = '「' + r.name + '」として頼んだ。海域の持ち主に、次の字を伝える（認められるまで待つ。24 時間）。';
+      askLine.textContent = '「' + r.name + '」として頼んだ。サーバーの持ち主に、次の字を伝える（認められるまで待つ。24 時間）。';
       askHow.textContent = '持ち主はサーバーで request-list を見て、この字と同じものを request-ok ' + r.code
         + ' --space …（新しい人は me、持ち主の端末は me:1,share、招く海は海の ID）で認める。';
     }
@@ -1080,7 +1082,7 @@ function serverChatBox(screen) {
   h3.appendChild(head);
   wrap.appendChild(h3);
   wrap.appendChild(el('p', 'note',
-    '海域に繋いでいるとき、この海に入れる人どうしで短いメッセージを送り合う（個人の海では、自分の端末どうしのメモ）。'
+    'サーバーと合わせている海で、この海に入れる人どうしで短いメッセージを送り合う（個人の海では、自分の端末どうしのメモ）。'
     + 'メッセージはこの海の記録と一緒に自分のサーバーへ写り、ほかの端末には次に合わせたとき（開いている間はおよそ 20 秒ごと）に届く。'
     + '履歴はサーバーと端末に残る。消せるのはこの端末で書いたものだけで、消しても「（消した）」と残る。'
     + '名前は泡の「ひとこと」と同じ（この端末だけの設定）。'));
@@ -1122,7 +1124,7 @@ function serverChatBox(screen) {
   let said = '';   /* 押した結果の字（状態の字より先に出す） */
 
   function paint() {
-    head.textContent = mine() ? '自分あてのメモ（海域・自分の端末どうし）' : 'この海のチャット（海域）「' + seaName(store.space()) + '」';
+    head.textContent = mine() ? '自分あてのメモ（サーバー・自分の端末どうし）' : 'この海のチャット（サーバー）「' + seaName(store.space()) + '」';
     input.placeholder = mine() ? 'メモ（自分の端末どうし）' : 'メッセージ（この海に入れる人が読める）';
     input.setAttribute('aria-label', mine() ? 'メモ' : 'メッセージ');
     if (document.activeElement !== nameIn) nameIn.value = noteName();
@@ -1162,8 +1164,8 @@ function serverChatBox(screen) {
     let state = '';
     if (!has) state = 'この版ではチャットを使えない。';
     else if (!sync.ready()) state = sync.config().url
-      ? 'この海の鍵が無いので使えない（海域の欄でパスキーか合言葉を入れる）。'
-      : '海域に繋ぐと使える（上の「海域（サーバー）に繋ぐ」）。';
+      ? 'この海の鍵が無いので使えない（「この海のサーバーに入る」の欄でパスキーか合言葉を入れる）。'
+      : 'この海の同期の先をサーバーにすると使える（「海を設定する」の ⚙）。';
     else if (store.readOnly()) state = 'サーバーと合わせてから書ける（合わせている…）。';
     else if (st.state === 'error') state = 'サーバーに届かない: ' + st.message + '（送ったものはこの端末に残り、届いたら写る）。';
     else if (st.state === 'outdated') state = st.message;
@@ -1283,7 +1285,7 @@ function moveBox() {
   wrap.appendChild(el('h3', null, '暗号化したファイルに書き出す・読み込む'));
   wrap.appendChild(el(
     'p', 'note',
-    'すべての海の記録と、海域に入る鍵を1つのファイルにして、合言葉で暗号化する。'
+    'すべての海の記録と、サーバーに入る鍵を1つのファイルにして、合言葉で暗号化する。'
     + '新しい端末でこのファイルを開いて合言葉を入れると、記録が戻り、招かれた海にもそのまま入れる（持ち主に招待を頼まなくてよい）。'
     + 'ファイルは iCloud Drive・Google Drive など自分の置き場へ。合言葉はファイルと別に書き留める（忘れたら開けない）。'
   ));
@@ -1330,7 +1332,7 @@ function moveBox() {
   line.setAttribute('aria-live', 'polite');
   wrap.appendChild(line);
   /* パスキーを作るのは、押した手の続きでないと断る端末がある（iPhone）。だからボタンで始める */
-  const retry = el('button', 'btn', '海域に入る（この端末のパスキーを作る）');
+  const retry = el('button', 'btn', 'サーバーに入る（この端末のパスキーを作る）');
   retry.type = 'button';
   retry.hidden = true;
   wrap.appendChild(retry);
@@ -1347,7 +1349,7 @@ function moveBox() {
       try { store.flush(); } catch (e) { /* 作るのは止めない */ }
       /* 選んだ海域ごとに、住所と入る鍵を入れる（段2）。パスキーの海域は、その海域のサーバーに引っ越しの鍵を頼む */
       const chosen = movePick.chosen();
-      if (!chosen.length) { toast('入れる海域を選ぶ'); return; }
+      if (!chosen.length) { toast('入れる海を選ぶ'); return; }
       const servers = {};
       const warns = [];
       let anyMove = false;
@@ -1373,7 +1375,7 @@ function moveBox() {
           warns.push(r.name + ': 入る鍵が無い');
         }
       }
-      const warn = warns.length ? '（海域に入る鍵が入っていないもの: ' + warns.join('、') + '）' : '';
+      const warn = warns.length ? '（サーバーに入る鍵が入っていないもの: ' + warns.join('、') + '）' : '';
       /* 前の版の app のために、開いている海域（無ければ選んだ最初のサーバー）の1つを server にも入れる */
       const legacyRid = servers[sync.region().id] ? sync.region().id : Object.keys(servers)[0];
       const server = legacyRid ? servers[legacyRid] : null;
@@ -1388,9 +1390,9 @@ function moveBox() {
       ready = { blob: new Blob([text], { type: 'application/json' }), name };
       const info = moveSummary(payload);
       passLine.textContent = '合言葉: ' + pass + '　← 書き留めてから「ファイルを保存する」。'
-        + (info.regions.length ? '海域 ' + info.regions.join('・') + '・' : '')
+        + (info.regions.length ? '同期の先 ' + info.regions.join('・') + '・' : '')
         + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + warn
-        + (anyMove ? '。前に作った引っ越しのファイルでは、もう海域に入れない（記録は戻せる）' : '');
+        + (anyMove ? '。前に作った引っ越しのファイルでは、もうサーバーに入れない（記録は戻せる）' : '');
       save.hidden = false;
       save.focus();
     } catch (e) {
@@ -1462,13 +1464,13 @@ function moveBox() {
     const n = got.n;
     line.textContent = '海 ' + n + ' つの記録を戻した。';
     if (Array.isArray(p.regions) && p.regions.length) {
-      if (got.added.length) line.textContent += '海域 ' + got.added.map(r => r.name).join('・') + ' を足した。';
+      if (got.added.length) line.textContent += 'サーバー ' + got.added.map(r => r.name).join('・') + ' を足した。';
       joinRegions(p, got.map);
       return;
     }
     pendingServer = p.server && p.server.url ? p.server : null;
     if (pendingServer && pendingServer.move && !(sync.config().passkey && sync.config().passkey.valid)) {
-      line.textContent += '続けて下のボタンで、海域に入る。';
+      line.textContent += '続けて下のボタンで、サーバーに入る。';
       retry.hidden = false;
     } else if (pendingServer) joinServer();
   }
@@ -1512,7 +1514,7 @@ function moveBox() {
       said.push(r.name + 'は住所だけ（入る鍵が無い。歯車から合言葉を入れるか、持ち主に招待を頼む）');
     });
     if (said.length) line.textContent += said.join('。') + '。';
-    if (joinRow.children.length) line.textContent += '続けて下のボタンで、海域ごとに入る。';
+    if (joinRow.children.length) line.textContent += '続けて下のボタンで、サーバーごとに入る。';
   }
 
   /* サーバーに入る。パスキーの形は引っ越しの鍵で、この端末のパスキーを登録する */
@@ -1521,18 +1523,18 @@ function moveBox() {
     if (!s) return;
     const cur = sync.config();
     if (cur.url && cur.url !== s.url) {
-      line.textContent += 'この端末はほかの海域（' + cur.url + '）に繋いでいるので、繋ぐ先の設定は変えない。';
+      line.textContent += 'この端末はほかのサーバー（' + cur.url + '）に繋いでいるので、繋ぐ先の設定は変えない。';
       pendingServer = null;
       return;
     }
     if (s.token || s.shareToken) {
       sync.configure(s.url, s.token || '', s.shareToken || '');
-      line.textContent += '海域に合言葉で繋いだ。';
+      line.textContent += 'サーバーに合言葉で繋いだ。';
       pendingServer = null;
       return;
     }
     if (!s.move) {
-      line.textContent += '海域に入る鍵は入っていない（住所だけ入れた。持ち主に招待コードを頼む）。';
+      line.textContent += 'サーバーに入る鍵は入っていない（住所だけ入れた。持ち主に招待コードを頼む）。';
       if (!cur.url) sync.configure(s.url, '', '');
       pendingServer = null;
       return;
@@ -1546,11 +1548,11 @@ function moveBox() {
     try {
       const out = await registerPasskey(s.url, s.move);
       sync.usePasskeySession(s.url, out);
-      line.textContent += '「' + out.name + '」として海域に入った。この引っ越しの鍵は使い終わったので、'
+      line.textContent += '「' + out.name + '」としてサーバーに入った。この引っ越しの鍵は使い終わったので、'
         + '次の引っ越しのファイルはこの端末で作り直す。';
       pendingServer = null;
     } catch (e) {
-      line.textContent += '海域に入れなかった: ' + ((e && e.message) || e) + '。';
+      line.textContent += 'サーバーに入れなかった: ' + ((e && e.message) || e) + '。';
       retry.hidden = false;
     }
   }
@@ -1568,7 +1570,7 @@ function folderBox() {
     + 'そのフォルダの「bubbles-backup-日付.json」へ、この端末のすべての海の記録を書く。1日1つのファイルで、その日のうちは上書きする。'
     + '古い日のファイルは消さない（要らなくなったら自分で消す）。サーバーに繋がらない間の保険になる。'));
   wrap.appendChild(el('p', 'note',
-    '暗号化はしない（中の todo はそのまま読める）。合言葉・鍵は入れない（海域の名前と住所は入れる。新しい端末で戻したとき、海域ごとに戻すため）。'
+    '暗号化はしない（中の todo はそのまま読める）。合言葉・鍵は入れない（同期の先のサーバーの名前と住所は入れる。新しい端末で戻したとき、海ごとに同期の先を戻すため）。'
     + 'iCloud Drive などのフォルダを選ぶと、そこにも記録が置かれる。'));
   const ok = folderBackupSupported() && !!folderBackup;
   if (!ok) {
@@ -1672,13 +1674,13 @@ function regionPicker(what) {
   const wrap = el('div', 'region-pick');
   const regions = regionList();
   if (regions.length < 2) return { el: wrap, chosen: () => regions.map(r => r.id) };
-  wrap.appendChild(el('p', 'note', escapeHtml(what) + 'に入れる海域'));
+  wrap.appendChild(el('p', 'note', escapeHtml(what) + 'に入れる海（同期の先ごと）'));
   const allRow = el('label', 'setrow');
   const allCb = document.createElement('input');
   allCb.type = 'checkbox';
   allCb.checked = true;
   allRow.appendChild(allCb);
-  allRow.appendChild(el('span', null, 'すべての海域'));
+  allRow.appendChild(el('span', null, 'すべての海'));
   wrap.appendChild(allRow);
   const cbs = regions.map(r => {
     const row = el('label', 'setrow region-pick-one');
@@ -1786,57 +1788,66 @@ function soloServerBox() {
      ・自分のサーバー … solo.html なら index.html へ移って住所を入れる。index.html なら海域の欄を開く
      ・ブロックチェーン … ブロックチェーンの欄を開く（どちらのページでも使える。サーバーと一緒にも使える）
    1 行に畳む（Issue #40。ふだん開いて見えるのは ふりかえり・使い方・タグ だけ） */
-/* 海域を設定する（2026-11-12 利用者の指示：「海域の設定をしやすくして」「海域（歯車）を追加し、中で海の編集ができるように」
-   「複数の場所からつなげるように」）。
-   一覧は「この端末だけ」と、足したサーバーの海域。各行の［開く］でその海域の個人へ移り、［⚙］で中を開く:
-     名前・（サーバーなら）住所と合言葉・その海域の海（作る・名前と色を直す・消す）・この海域を外す。
-   パスキーで入るサーバーは、その海域の海を開いてから「サーバー・ブロックチェーンを準備する」の「海域（サーバー）」で入る（Issue #45 で移した）
-   （パスキーの入場は、開いている海の海域にだけ効くため）。仕組みは js/regions.js・js/sync.js */
-function regionsBox() {
+/* 海を設定する（2026-11-12 Issue #47 の返事。前は「海域を設定する」）。
+   > 海域の言葉は廃止。１画面（うみ）を１同期単位を海にしましょう。今もし中にある場合はバラバラの海にして、それぞれにサーバー同期設定をつける
+   一覧は海を1つずつ（個人・作った海）。各行: 名前・同期（この端末だけ／サーバーの名前と様子）・［開く］・［⚙］。
+   ⚙ の中:
+     作った海 … 名前・色・消す（海の板）、同期の設定（この端末だけ／足してあるサーバー／新しいサーバー）、ID
+     個人     … 同期の先は替えない（個人はそのサーバーの「自分の記録」）。前の版からの個人が この端末だけ なら、
+                新しいサーバーと合わせ始められる（前の「今の個人と海を移す」と同じ）
+     サーバーと合わせる海 … そのサーバーの名前・住所・合言葉（同じサーバーの海すべてに効く）。個人の行には「このサーバーを外す」
+   いちばん下に［＋ 海を追加］: 名前・ID（空ならランダム。ほかの端末と同じ ID にすると同じ海＝共有。返事の 3）・同期。
+   中の仕組みは js/regions.js（繋ぎ先）・js/spacelist.js（海の印 region）。サーバーへ送るものは前と同じ */
+function seasBox() {
   const d = document.createElement('details');
   d.className = 'set-more';
-  /* Issue #47: タグの代わりに、設定を開いてすぐ見える所に海域の一覧を出す（閉じることはできる） */
+  /* Issue #47: タグの代わりに、設定を開いてすぐ見える所に海の一覧を出す（閉じることはできる） */
   d.open = true;
   const s = document.createElement('summary');
   const tx = el('span', 'tx');
-  tx.appendChild(el('span', 'nm', '海域を設定する'));
+  tx.appendChild(el('span', 'nm', '海を設定する'));
   const sub = el('span', 'sub');
   tx.appendChild(sub);
   s.appendChild(tx);
   d.appendChild(s);
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '海域（海のまとまりと、その置き場）'));
+  wrap.appendChild(el('h3', null, '海と、その同期'));
   wrap.appendChild(el('p', 'note',
-    '海域ごとに、個人の海と作った海を持つ。「この端末だけ」の海域はサーバーに送らない。サーバーの海域は、それぞれ別のサーバーに繋がる'
-    + '（いくつ足してもよい。開いている海の海域のサーバーと合わせる）。海は ⚙ の中で作る・直す・消す。'));
+    '海ごとに、どこと合わせるか（同期）を決める。「この端末だけ」の海はサーバーに送らない。'
+    + '同じサーバーと合わせる海は、住所と合言葉（パスキー）を共有する（入るのはサーバーごとに1回）。'
+    + '海を足すときに、ほかの端末で足した海と同じ ID を入れると、同じ海になる（共有）。ID を空にすると、ほかと重ならない ID で作る。'));
   const list = el('div', 'region-list');
   wrap.appendChild(list);
   d.appendChild(wrap);
-  const cur = sync.region().id;
-  let openId = null;   /* ⚙ を開いている海域 */
-  /* 海域を足す欄を開いているか（Issue #47: ふだんは［＋ 海域を追加］の1つだけ。押すとサーバーの情報を入れる欄が出る） */
+  const cur = store.space();
+  const curRid = sync.region().id;
+  let openId = null;   /* ⚙ を開いている海 */
+  /* 海を足す欄を開いているか（Issue #47: ふだんは［＋ 海を追加］の1つだけ。押すと名前・ID・同期を入れる欄が出る） */
   let adding = false;
 
-  function go(rid, spaceId) {
+  function go(spaceId) {
     try { store.flush(); } catch (e) { /* 移るのは止めない */ }
-    try { localStorage.setItem(SPACE_KEY, spaceId || personalId(rid)); } catch (e) { toast('切り替えを覚えられなかった'); return; }
+    try { localStorage.setItem(SPACE_KEY, spaceId); } catch (e) { toast('切り替えを覚えられなかった'); return; }
     location.reload();
   }
   function backupOn() {
     try { return !!(folderBackup && folderBackup.status().conf.on); } catch (e) { return false; }
   }
-  function summaryOf(r) {
-    if (r.kind === 'local') return 'この端末だけ（サーバーに送らない）';
+  function serverOf(rid) { return serverRegions().find(r => r.id === rid) || null; }
+  /* 同期の字。この端末だけ／サーバー「名前」（住所・鍵・様子） */
+  function syncText(rid) {
+    const r = serverOf(rid);
+    if (!r) return 'この端末だけ（サーバーに送らない）';
     const c = sync.regionSummary(r.id);
-    let t = c.url ? c.url.replace(/^https?:\/\//, '') : '住所が無い';
+    let t = 'サーバー「' + r.name + '」（' + (c.url ? c.url.replace(/^https?:\/\//, '') : '住所が無い');
     if (c.passkey) t += c.passkeyValid ? '・パスキー（' + (c.passkeyName || '入っている') + '）' : '・パスキーの期限切れ';
     else if (c.token || c.shareToken) t += '・合言葉';
     else t += '・鍵が無い';
-    if (r.id === cur) {
+    if (r.id === curRid) {
       const st = sync.status();
       t += st.state === 'ok' ? '・合わせた' : st.state === 'error' ? '・繋がっていない' : st.state === 'outdated' ? '・古い版で止めた' : '';
     }
-    return t;
+    return t + '）';
   }
   function btn(label, on, cls) {
     const b = el('button', cls || 'btn', label);
@@ -1844,125 +1855,206 @@ function regionsBox() {
     b.addEventListener('click', on);
     return b;
   }
+  function input(type, ph, label, max) {
+    const i = document.createElement('input');
+    i.type = type;
+    i.autocomplete = 'off';
+    if (type === 'text') i.spellcheck = false;
+    if (max) i.maxLength = max;
+    i.placeholder = ph;
+    i.setAttribute('aria-label', label);
+    return i;
+  }
+  /* 新しいサーバーの欄（名前・住所・合言葉）。read() → { name, url } か、読めなければ null（知らせは出す） */
+  function serverFields(parent) {
+    const w = el('div', 'tagadd region-new');
+    const nmIn = input('text', 'サーバーの名前（例 サーバーA。省いてもよい）', '新しいサーバーの名前', REGION_NAME_MAX);
+    const urlIn = input('url', 'https://…（サーバーの住所）', '新しいサーバーの住所');
+    const tokIn = input('password', '合言葉（パスキーなら空のまま）', '新しいサーバーの合言葉');
+    w.appendChild(nmIn);
+    w.appendChild(urlIn);
+    w.appendChild(tokIn);
+    parent.appendChild(w);
+    return {
+      el: w,
+      read() {
+        const u = checkUrl(urlIn.value);
+        if (!u) { toast('サーバーの住所を入れる'); urlIn.focus(); return null; }
+        if (u === 'http') { toast('外への http は使えない（https にする）'); urlIn.focus(); return null; }
+        return { name: nmIn.value, url: u, token: tokIn.value.trim() };
+      },
+    };
+  }
+  /* 同期の選び欄。この端末だけ／足してあるサーバー／新しいサーバー（選ぶと欄が出る）。
+     target() → 繋ぎ先の ID（新しいサーバーなら足す。同じ住所のサーバーがあればそれを使う）か null */
+  function syncPicker(parent, selected) {
+    const sel = document.createElement('select');
+    sel.setAttribute('aria-label', '同期');
+    const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+    opt('local', 'この端末だけ');
+    serverRegions().forEach(r => opt(r.id, 'サーバー「' + r.name + '」'));
+    opt('__new', '新しいサーバー…');
+    sel.value = serverOf(selected) ? selected : 'local';
+    const row = el('div', 'row');
+    row.appendChild(el('span', 'region-lab', '同期'));
+    row.appendChild(sel);
+    parent.appendChild(row);
+    const fields = serverFields(parent);
+    const paint = () => { fields.el.hidden = sel.value !== '__new'; };
+    sel.addEventListener('change', paint);
+    paint();
+    return {
+      target(opts = {}) {
+        if (sel.value !== '__new') return sel.value;
+        const f = fields.read();
+        if (!f) return null;
+        const same = serverByUrl(f.url);
+        if (same) return same.id;
+        const r = addServerRegion(f.name, { url: f.url, token: f.token }, Date.now(), undefined, opts);
+        if (!r) { toast('サーバーを足せなかった'); return null; }
+        return r.id;
+      },
+    };
+  }
 
-  function gear(r) {
+  function gear(s) {
     const box = el('div', 'region-gear');
-    /* 名前 */
-    const nameRow = el('form', 'tagadd');
-    const nameIn = document.createElement('input');
-    nameIn.type = 'text';
-    nameIn.maxLength = REGION_NAME_MAX;
-    nameIn.value = r.name;
-    nameIn.setAttribute('aria-label', '海域の名前');
-    const nameGo = el('button', 'btn', '名前を直す');
-    nameGo.type = 'submit';
-    nameRow.appendChild(nameIn);
-    nameRow.appendChild(nameGo);
-    nameRow.addEventListener('submit', ev => {
-      ev.preventDefault();
-      if (!renameRegion(r.id, nameIn.value)) { toast('名前を入れる'); return; }
-      toast('海域の名前を直した');
-      render();
-    });
-    box.appendChild(nameRow);
+    if (!s.personal) {
+      const e = findSea(s.id);
+      box.appendChild(el('p', 'note', 'ID: ' + escapeHtml(s.id) + '（ほかの端末で同じ ID の海を足すと、同じ海になる）'));
+      if (e) box.appendChild(btn('名前・色・消す', () => openSeaSheet(e, { onChanged: render })));
+      /* 同期の設定を替える（作った海だけ） */
+      const f = el('form', 'region-sync');
+      const pick = syncPicker(f, s.rid);
+      const goSync = el('button', 'btn', '同期の設定を替える');
+      goSync.type = 'submit';
+      f.appendChild(goSync);
+      f.addEventListener('submit', ev => {
+        ev.preventDefault();
+        const rid = pick.target();
+        if (!rid) return;
+        if (rid === s.rid) { toast('同じ同期の設定'); return; }
+        if (!setSeaRegion(s.id, rid)) { toast('替えられなかった'); return; }
+        window.dispatchEvent(new CustomEvent('bubbles:seas'));
+        /* 開いている海なら、新しい同期の先で合わせ直すため読み直す */
+        if (s.id === cur) { toast('同期の設定を替えた。読み直す…'); go(s.id); return; }
+        toast('同期の設定を替えた（この海を開いたときに、その先と合わせる）');
+        render();
+      });
+      box.appendChild(f);
+    } else {
+      box.appendChild(el('p', 'note', '個人の海は、同期の先のサーバーの「自分の記録」。同期の先は替えない。'));
+      /* 前の版からの個人が この端末だけ なら、新しいサーバーと合わせ始められる（前の「今の個人と海を移す」） */
+      if (s.id === 'me' && !serverOf(s.rid) && localHasLegacy()) {
+        const f = el('form', 'region-sync');
+        f.appendChild(el('p', 'note', 'この個人を、新しいサーバーと合わせ始める（同期の先を決めていない作った海も、一緒にそのサーバーと合わせる）。'));
+        const fields = serverFields(f);
+        const goSync = el('button', 'btn', 'このサーバーと合わせる');
+        goSync.type = 'submit';
+        f.appendChild(goSync);
+        f.addEventListener('submit', ev => {
+          ev.preventDefault();
+          const v = fields.read();
+          if (!v) return;
+          if (serverByUrl(v.url)) { toast('このサーバーはもう足してある（その個人は「個人（名前）」の海）'); return; }
+          const r = addServerRegion(v.name, { url: v.url, token: v.token }, Date.now(), undefined, { takeLocal: true });
+          if (!r) { toast('足せなかった'); return; }
+          toast('「' + r.name + '」と合わせ始めた。読み直す…');
+          try { store.flush(); } catch (e) { /* 読み直すのは止めない */ }
+          setTimeout(() => location.reload(), 600);
+        });
+        box.appendChild(f);
+      }
+    }
 
-    /* 住所と合言葉（サーバーの海域だけ） */
-    if (r.kind === 'server') {
+    /* 同期の先のサーバー（同じサーバーの海すべてに効く） */
+    const r = serverOf(s.rid);
+    if (r) {
+      box.appendChild(el('h4', null, 'サーバー「' + escapeHtml(r.name) + '」（同じサーバーの海すべてに効く）'));
+      const nameRow = el('form', 'tagadd');
+      const nameIn = input('text', 'サーバーの名前', 'サーバーの名前', REGION_NAME_MAX);
+      nameIn.value = r.name;
+      const nameGo = el('button', 'btn', '名前を直す');
+      nameGo.type = 'submit';
+      nameRow.appendChild(nameIn);
+      nameRow.appendChild(nameGo);
+      nameRow.addEventListener('submit', ev => {
+        ev.preventDefault();
+        if (!renameRegion(r.id, nameIn.value)) { toast('名前を入れる'); return; }
+        toast('サーバーの名前を直した');
+        render();
+      });
+      box.appendChild(nameRow);
+
       const c = sync.regionSummary(r.id);
       const f = el('form', 'tagadd');
-      const urlIn = document.createElement('input');
-      urlIn.type = 'url';
-      urlIn.autocomplete = 'off';
-      urlIn.placeholder = 'https://…（サーバーの住所）';
+      const urlIn = input('url', 'https://…（サーバーの住所）', 'サーバーの住所');
       urlIn.value = c.url;
-      urlIn.setAttribute('aria-label', 'サーバーの住所');
-      const tokIn = document.createElement('input');
-      tokIn.type = 'password';
-      tokIn.autocomplete = 'off';
-      tokIn.placeholder = c.token ? '合言葉（替えるときだけ）' : '合言葉（パスキーなら空のまま）';
-      tokIn.setAttribute('aria-label', 'サーバーの合言葉');
-      const go2 = el('button', 'btn', '繋ぎ先を直す');
+      const tokIn = input('password', c.token ? '合言葉（替えるときだけ）' : '合言葉（パスキーなら空のまま）', 'サーバーの合言葉');
+      const go2 = el('button', 'btn', '住所・合言葉を直す');
       go2.type = 'submit';
       f.appendChild(urlIn);
       f.appendChild(tokIn);
       f.appendChild(go2);
       f.addEventListener('submit', ev => {
         ev.preventDefault();
-        if (c.passkey && !window.confirm('この海域はパスキーで入っている。住所・合言葉を入れ直すと、パスキーの通行証は外れる。続ける？')) return;
+        if (c.passkey && !window.confirm('このサーバーにはパスキーで入っている。住所・合言葉を入れ直すと、パスキーの通行証は外れる。続ける？')) return;
         /* 合言葉の欄が空なら、今の合言葉を残す */
         const ok = sync.configureRegion(r.id, urlIn.value, tokIn.value.trim() || undefined);
         if (!ok) { toast('住所が読めない（外への http は使えない）'); return; }
-        toast('繋ぎ先を直した');
+        toast('住所・合言葉を直した');
         render();
       });
       box.appendChild(f);
       box.appendChild(el('p', 'note',
-        'パスキーで入るサーバーは、上の［開く］でこの海域の海を開いてから、「サーバー・ブロックチェーンを準備する」→「サーバー（海域）」の「海域（サーバー）」で入る。'));
-    }
+        'パスキーで入るサーバーは、この海を［開く］で開いてから、「サーバー・ブロックチェーンを準備する」→「サーバー」で入る。'));
 
-    /* その海域の海 */
-    box.appendChild(el('p', 'note', 'この海域の海'));
-    const seas = el('div', 'region-seas');
-    const pid = personalId(r.id);
-    const meRow = el('div', 'region-sea');
-    meRow.appendChild(el('span', 'nm', '個人' + (store.space() === pid ? '（開いている）' : '')));
-    if (store.space() !== pid) meRow.appendChild(btn('開く', () => go(r.id, pid)));
-    seas.appendChild(meRow);
-    seasOf(r.id).forEach(e => {
-      const row = el('div', 'region-sea');
-      const nm = el('span', 'nm is-sea-btn', escapeHtml(e.name) + (store.space() === e.id ? '（開いている）' : ''));
-      row.appendChild(nm);
-      if (store.space() !== e.id) row.appendChild(btn('開く', () => go(r.id, e.id)));
-      row.appendChild(btn('名前・色・消す', () => openSeaSheet(e, { onChanged: render })));
-      seas.appendChild(row);
-    });
-    box.appendChild(seas);
-    box.appendChild(btn('＋ この海域に海をつくる', () => openSeaSheet(null, {
-      region: r.id,
-      note: '「' + r.name + '」の海をつくる。' + (r.kind === 'local' ? 'この端末だけの海（サーバーに送らない）。' : 'この海域のサーバーと合わせる（この海域の海を開いたとき）。'),
-      onMade: () => { toast('海をつくった'); render(); },
-    })));
-
-    /* 外す */
-    if (r.id !== 'local' && !r.legacyMe) {
-      box.appendChild(btn('この海域を外す', () => {
-        if (!window.confirm('「' + r.name + '」を外す？\nこの端末の記録の箱と、サーバーに置いた記録は消さない（同じ住所で足し直すと戻る）。')) return;
-        if (!removeRegion(r.id)) { toast('外せなかった'); return; }
-        if (r.id === cur) { go(defaultRegionId()); return; }
-        openId = null;
-        render();
-      }, 'btn region-remove'));
+      /* 外す（個人の行だけ。そのサーバーと合わせている海がすべて一覧から外れるので） */
+      if (s.personal && !r.legacyMe) {
+        box.appendChild(btn('このサーバーを外す', () => {
+          const names = allSeas().filter(x => x.rid === r.id).map(x => x.name).join('・');
+          if (!window.confirm('サーバー「' + r.name + '」を外す？\n一覧から外れる海: ' + names
+            + '\nこの端末の記録と、サーバーに置いた記録は消さない（同じ住所で足し直すと戻る）。')) return;
+          if (!removeRegion(r.id)) { toast('外せなかった'); return; }
+          if (r.id === curRid) { go(personalId(defaultRegionId())); return; }
+          openId = null;
+          render();
+        }, 'btn region-remove'));
+      }
     }
     return box;
   }
 
   function render() {
     list.textContent = '';
-    const regions = regionList();
-    regions.forEach((r, i) => {
-      const row = el('div', 'region-row' + (r.id === cur ? ' is-on' : ''));
+    const seas = allSeas();
+    seas.forEach(s => {
+      const row = el('div', 'region-row' + (s.id === cur ? ' is-on' : ''));
       const head = el('div', 'region-head');
       const t = el('div', 'region-tx');
-      t.appendChild(el('span', 'nm', '海域' + (i + 1) + '：' + escapeHtml(r.name) + (r.id === cur ? '（いま）' : '')));
-      t.appendChild(el('span', 'sub', escapeHtml(summaryOf(r)) + (r.kind === 'server' && backupOn() ? '・補助：決めたフォルダに控え中' : '')));
+      const nm = el('span', 'nm' + (s.color ? ' is-sea-btn' : ''));
+      nm.textContent = s.name + (s.id === cur ? '（開いている）' : '');
+      if (s.color) nm.style.setProperty('--dot', colorMark(s.color));
+      t.appendChild(nm);
+      t.appendChild(el('span', 'sub', '同期：' + escapeHtml(syncText(s.rid)) + (serverOf(s.rid) && backupOn() ? '・補助：決めたフォルダに控え中' : '')));
       head.appendChild(t);
-      if (r.id !== cur) head.appendChild(btn('開く', () => go(r.id)));
-      const g = btn('⚙', () => { openId = openId === r.id ? null : r.id; render(); }, 'btn region-gear-btn');
-      g.setAttribute('aria-label', '「' + r.name + '」の設定');
-      g.setAttribute('aria-expanded', String(openId === r.id));
+      if (s.id !== cur) head.appendChild(btn('開く', () => go(s.id)));
+      const g = btn('⚙', () => { openId = openId === s.id ? null : s.id; adding = false; render(); }, 'btn region-gear-btn');
+      g.setAttribute('aria-label', '「' + s.name + '」の設定');
+      g.setAttribute('aria-expanded', String(openId === s.id));
       head.appendChild(g);
       row.appendChild(head);
-      if (openId === r.id) row.appendChild(gear(r));
+      if (openId === s.id) row.appendChild(gear(s));
       list.appendChild(row);
     });
-    sub.textContent = regions.map(r => r.name).join('・');
-    /* 海域を足す（サーバー）。ふだんはボタン1つ。押すと住所・合言葉を入れる欄を出す */
+    sub.textContent = seas.map(x => x.name).join('・');
+    /* 海を足す。ふだんはボタン1つ。押すと名前・ID・同期を入れる欄を出す */
     if (!adding) {
-      const open = btn('＋ 海域を追加', () => {
+      const open = btn('＋ 海を追加', () => {
         adding = true;
         openId = null;
         render();
-        const f = list.querySelector('.region-add input[type="url"]');
+        const f = list.querySelector('.region-add input');
         if (f) { try { f.focus(); } catch (e) { /* 出ていればよい */ } }
       }, 'btn region-add-btn');
       open.setAttribute('aria-expanded', 'false');
@@ -1970,67 +2062,44 @@ function regionsBox() {
       return;
     }
     const add = el('form', 'tagadd region-add');
-    add.appendChild(el('h4', null, '海域を追加する（サーバーの情報を入れる）'));
-    const nmIn = document.createElement('input');
-    nmIn.type = 'text';
-    nmIn.maxLength = REGION_NAME_MAX;
-    nmIn.placeholder = '名前（例 サーバーB。省いてもよい）';
-    nmIn.setAttribute('aria-label', '足す海域の名前');
-    const urlIn = document.createElement('input');
-    urlIn.type = 'url';
-    urlIn.autocomplete = 'off';
-    urlIn.placeholder = 'https://…（サーバーの住所）';
-    urlIn.setAttribute('aria-label', '足す海域のサーバーの住所');
-    const tokIn = document.createElement('input');
-    tokIn.type = 'password';
-    tokIn.autocomplete = 'off';
-    tokIn.placeholder = '合言葉（パスキーなら空のまま）';
-    tokIn.setAttribute('aria-label', '足す海域の合言葉');
-    const go3 = el('button', 'btn', '＋ 海域を足す');
-    go3.type = 'submit';
+    add.appendChild(el('h4', null, '海を追加する'));
+    const nmIn = input('text', '海の名前（例 家族・仕事）', '足す海の名前', NAME_MAX);
+    const idIn = input('text', 'ID（空ならランダム。ほかの端末と同じ ID にすると同じ海）', '足す海の ID', 24);
+    idIn.autocapitalize = 'none';
     add.appendChild(nmIn);
-    add.appendChild(urlIn);
-    add.appendChild(tokIn);
-    /* サーバーに繋いでいなかった端末が初めてサーバーを足すとき、今の個人と海を移すか（既定は移す＝前の版で住所を入れたのと同じ） */
-    let takeCb = null;
-    if (localHasLegacy()) {
-      const lab = el('label', 'setrow');
-      takeCb = document.createElement('input');
-      takeCb.type = 'checkbox';
-      takeCb.checked = !regionList().some(x => x.kind === 'server');
-      lab.appendChild(takeCb);
-      lab.appendChild(el('span', null, '今の「この端末だけ」の個人と海を、このサーバーの海域に移す（移さなければ、空の個人から始まる）'));
-      add.appendChild(lab);
-    }
+    add.appendChild(idIn);
+    /* 同期の既定は、いま開いている海と同じ */
+    const pick = syncPicker(add, curRid);
+    const go3 = el('button', 'btn', '＋ 海を足す');
+    go3.type = 'submit';
     add.appendChild(go3);
-    const cancel = btn('やめる', () => { adding = false; render(); });
-    add.appendChild(cancel);
+    add.appendChild(btn('やめる', () => { adding = false; render(); }));
     add.addEventListener('submit', ev => {
       ev.preventDefault();
-      const u = checkUrl(urlIn.value);
-      if (!u) { toast('サーバーの住所を入れる'); urlIn.focus(); return; }
-      if (u === 'http') { toast('外への http は使えない（https にする）'); return; }
-      const r = addServerRegion(nmIn.value, { url: u, token: tokIn.value.trim() }, Date.now(), undefined, { takeLocal: !!(takeCb && takeCb.checked) });
-      if (!r) { toast('足せなかった'); return; }
-      /* 開いている海が移ったなら、読み直して新しい海域で合わせる */
-      if (regionOfSpace(store.space()) !== cur) {
-        toast('「' + r.name + '」を足し、今の海をこの海域に移した。読み直す…');
-        try { store.flush(); } catch (e) { /* 読み直すのは止めない */ }
-        setTimeout(() => location.reload(), 600);
-        return;
-      }
-      toast('「' + r.name + '」を足した。［開く］でこの海域の海に移る');
-      openId = r.id;
+      if (!nmIn.value.trim()) { toast('海の名前を入れる'); nmIn.focus(); return; }
+      const id = cleanId(idIn.value);
+      if (id === null) { toast('ID は英小文字と数字の 3〜23 字'); idIn.focus(); return; }
+      if (id && allSeas().some(x => x.id === id)) { toast('この ID の海は、この端末にもうある'); idIn.focus(); return; }
+      const rid = pick.target();
+      if (!rid) return;
+      const e = addSea(nmIn.value, undefined, Date.now(), rid, id || undefined);
+      if (!e) { toast('海を足せなかった'); return; }
+      /* 一覧をサーバーへ届けられるのは、開いている海の同期の先だけ（ほかは、その海を開いたときに届く） */
+      if (rid === curRid) sync.syncSeas();
+      window.dispatchEvent(new CustomEvent('bubbles:seas'));
+      toast('「' + e.name + '」を足した。［開く］でこの海に移る');
       adding = false;
+      openId = e.id;
       render();
     });
     list.appendChild(add);
   }
-  /* 同期の知らせで描き直すと、入れかけの欄が空になる。海域を足す欄や ⚙ の中で打っている間は描き直さない
+  /* 同期の知らせで描き直すと、入れかけの欄が空になる。海を足す欄や ⚙ の中で打っている・選んでいる間は描き直さない
      （Issue #47 でこの箱を開いた姿で始めるようにしたので、同期の知らせに当たりやすくなった） */
   const typing = () => adding || !!(document.activeElement && list.contains(document.activeElement)
-    && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName));
+    && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
   sync.on(() => { if (d.open && !typing()) render(); });
+  sync.onSeas(() => { if (d.open && !typing()) render(); });
   d.addEventListener('toggle', () => { if (d.open) render(); });
   render();
   return d;
@@ -2051,7 +2120,7 @@ function placeBox({ gShare, serverEl, chainEl, pick }) {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, '記録をどこに置くかを選ぶ'));
   wrap.appendChild(el('p', 'note',
-    '記録はいつもこの端末に置く。加えて、自分のサーバー（海域。ほかの端末・招いた人と自動で合わせる）と、'
+    '記録はいつもこの端末に置く。加えて、自分のサーバー（ほかの端末・招いた人と自動で合わせる。どの海をどのサーバーと合わせるかは「海を設定する」で決める）と、'
     + 'ブロックチェーン（暗号化したバックアップ・共有の海・チャット。押したときだけ書き、手数料が掛かる）を選べる。'
     + 'サーバーとブロックチェーンは両方使える。サーバーに繋いでいると、チャットの履歴もサーバーに写る。'));
   const row = el('div', 'row');
@@ -2080,7 +2149,7 @@ function placeBox({ gShare, serverEl, chainEl, pick }) {
   }
   const bLocal = choice('この端末だけ', () => {
     if (!onServer()) { said = 'いまもサーバーには繋いでいない。'; paint(); return; }
-    if (!window.confirm('サーバー（海域）を外す？\nこの端末の記録はそのまま残る。サーバーに置いた記録も消えない（また繋ぐと合わさる）。')) return;
+    if (!window.confirm('サーバーを外す？\nこの端末の記録はそのまま残る。サーバーに置いた記録も消えない（また繋ぐと合わさる）。')) return;
     sync.configure('', '', '');
     if (!isSolo() && !ownServerPage()) {
       said = 'サーバーを外した。サーバーなしのページに切り替える…';
@@ -2092,11 +2161,11 @@ function placeBox({ gShare, serverEl, chainEl, pick }) {
     said = 'サーバーを外した。';
     paint();
   });
-  const bServer = choice('自分のサーバー（海域）', () => {
+  const bServer = choice('自分のサーバー', () => {
     if (isSolo()) {
       /* solo.html はサーバーに繋がらない（CSP）。サーバーに繋ぐページへ移り、住所を入れる */
       try { sessionStorage.setItem(EDITION_STAY_KEY, 'server'); } catch (e) { /* 置けなければ、開いた先でまた戻る */ }
-      said = 'サーバーに繋ぐページに切り替える（「サーバー・ブロックチェーンを準備する」→「サーバー（海域）」の「海域（サーバー）に繋ぐ」に住所を入れる）…';
+      said = 'サーバーに繋ぐページに切り替える（「サーバー・ブロックチェーンを準備する」→「サーバー」の「この海のサーバーに入る」に住所を入れる）…';
       paint();
       setTimeout(() => { location.href = 'index.html'; }, 300);
       return;
@@ -2158,7 +2227,7 @@ function resetAllBox() {
   panel.appendChild(gone);
   panel.appendChild(el('p', 'note', '消えないもの:'));
   const kept = el('ul');
-  ['海域に置いた記録（同じ海域にまた繋ぐと戻ってくる）',
+  ['サーバーに置いた記録（同じサーバーにまた繋ぐと戻ってくる）',
     'ブロックチェーンに保存したバックアップ（消せない。同じパスキーか合言葉で戻せる）',
     '画面の「!」が覚えているエラーの記録と、app 本体'].forEach(s => { const li = el('li'); li.textContent = s; kept.appendChild(li); });
   panel.appendChild(kept);
@@ -3359,7 +3428,7 @@ function chainBox(opts = {}) {
     const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
     /* 選んだ海域の記録と、海域の一覧（名前と住所。鍵は入れない）だけ（段2） */
     const chosen = chainPick.chosen();
-    if (!chosen.length) { line.textContent = '入れる海域を選ぶ'; return null; }
+    if (!chosen.length) { line.textContent = '入れる海を選ぶ'; return null; }
     const picked = pickForPayload(chosen, collectBoxes(), allEntries());
     const payload = buildPayload({ boxes: picked.boxes, seas: picked.seas, server: null, at: Date.now(), device: dev,
       regions: regionsPayload(chosen) });
@@ -3572,9 +3641,9 @@ function chainBox(opts = {}) {
     const s = moveSummary(p);
     const at = s.at ? new Date(s.at).toLocaleString() : '不明';
     if (!window.confirm('このバックアップをこの端末に復元する？\n保存した時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
-      + (s.regions.length ? '\n海域 ' + s.regions.join('・') : '')
+      + (s.regions.length ? '\n同期の先 ' + s.regions.join('・') : '')
       + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。'
-      + (s.regions.length ? '\n海域の鍵は入っていない（足した海域は、歯車か「サーバー・ブロックチェーンを準備する」で入り直す）。' : ''))) {
+      + (s.regions.length ? '\nサーバーの鍵は入っていない（足したサーバーは、「海を設定する」の ⚙ か「サーバー・ブロックチェーンを準備する」で入り直す）。' : ''))) {
       line.textContent = 'やめた';
       return true;
     }
@@ -3721,7 +3790,7 @@ function rollbackBox() {
       status.textContent = '戻せる前の版はまだ無い（次に新しい版が入ると、今の版を1つだけ残す）。';
       return;
     }
-    status.textContent = '戻すと、戻している間は海域へ送らない（この端末の中だけで書く）。'
+    status.textContent = '戻すと、戻している間はサーバーへ送らない（この端末の中だけで書く）。'
       + '記録はそのまま使い、戻す前に写しを取る。最新に戻ったとき、前の版が落とした欄を写しから埋め戻す。'
       + '上の帯の「最新に戻る」か、次の新しい版が届くと最新に戻る。';
     const row = el('div', 'row');
@@ -3729,7 +3798,7 @@ function rollbackBox() {
     const btn = el('button', 'btn', '前の版（v' + prev + '）に戻す');
     btn.type = 'button';
     btn.addEventListener('click', () => {
-      if (!window.confirm('この端末を前の版 v' + prev + ' に戻す？\n戻している間は海域へ送らない。上の帯の「最新に戻る」で戻せる。')) return;
+      if (!window.confirm('この端末を前の版 v' + prev + ' に戻す？\n戻している間はサーバーへ送らない。上の帯の「最新に戻る」で戻せる。')) return;
       btn.disabled = true;
       RB.rollbackTo(prev).catch((e) => { toast((e && e.message) || '戻せなかった'); btn.disabled = false; });
     });
@@ -3868,7 +3937,7 @@ function helpAiBox() {
       row.appendChild(cancel);
     }
     keyBox.appendChild(row);
-    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ置く（海域・CSV・同期には入らない）。'
+    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ置く（サーバー・CSV・同期には入らない）。'
       + P.keyPlace + ' の側で、この app 専用のキーと使える上限額を決めておくと安心。'));
     if (editing) setTimeout(() => keyIn.focus(), 0);
   }

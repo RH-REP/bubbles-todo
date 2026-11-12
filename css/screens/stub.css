@@ -233,4 +233,12 @@
 /* Issue #47: ふだんはボタン1つ。押すと欄が出る。欄の見出しは1行を占める */
 .stub .region-add h4 { flex-basis: 100%; margin: 4px 0 0; font-size: 13.5px; }
 .stub .region-add-btn { align-self: flex-start; }
+/* Issue #47 の返事: 海ごとの同期の設定（js/screens/settings.js の seasBox） */
+.stub .region-sync { display: flex; flex-direction: column; gap: 8px; }
+.stub .region-add .row, .stub .region-sync .row { flex-basis: 100%; display: flex; align-items: center; gap: 8px; }
+.stub .region-lab { font-size: 13px; color: var(--text-2); flex: none; }
+.stub .region-add select, .stub .region-sync select { flex: 1 1 auto; min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: inherit; padding: 0 8px; font: inherit; }
+.stub .region-new { flex-basis: 100%; flex-wrap: wrap; }
+.stub .region-new input { flex-basis: 100%; }
+.stub .region-tx .nm.is-sea-btn::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); margin-right: 6px; vertical-align: middle; }
 .stub .region-head .btn, .stub .region-sea .btn { flex: none; white-space: nowrap; }

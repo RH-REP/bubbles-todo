@@ -160,6 +160,40 @@ export function anyServerUrl(st = ls()) {
 /* 「この端末だけ」の海域が前の版からの個人を持っているか（サーバーへ移す選択を出すか） */
 export function localHasLegacy(st) { return defaultRegionId(st) === 'local'; }
 
+/* ---- 海を1つずつ並べる（2026-11-12 Issue #47 の返事）----
+   > 海域の言葉は廃止。１画面（うみ）を１同期単位を海にしましょう。今もし中にある場合はバラバラの海にして、それぞれにサーバー同期設定をつける
+   画面では「海域」を見せず、海を1つずつ並べ、海ごとに「同期：この端末だけ／サーバー（名前）」を出す。
+   中の仕組み（このファイルの「海域」）は、そのまま**繋ぎ先**（サーバー1台の住所と鍵、または この端末だけ）として使う。
+   同じサーバーの海は、住所と鍵を1つの繋ぎ先で共有する（入り直し・パスキーの登録はサーバーごとに1回。返事の 1A）。
+   海の印 region が、その海の同期の設定になる（記録の箱は動かさない。返事の 2A）。 */
+
+/* 個人の海の名前。前の版からの個人は「個人」、ほかの繋ぎ先の個人は「個人（サーバーの名前）」 */
+export function personalLabel(rid, st) {
+  const r = findRegion(rid, st);
+  if (!r || r.legacyMe) return '個人';
+  return '個人（' + (r.kind === 'local' ? 'この端末だけ' : r.name) + '）';
+}
+/* すべての海を1列に。前の版からの個人がいちばん前、次に繋ぎ先の順（個人 → 作った海）。
+   1件 = { id, name, color, rid, personal }（作った海は spacelist の欄も持つ） */
+export function allSeas(st) {
+  const out = [];
+  regionList(st).forEach(r => {
+    out.push({ id: personalId(r.id, st), name: personalLabel(r.id, st), color: null, rid: r.id, personal: true });
+    seasOf(r.id, st).forEach(e => out.push(Object.assign({}, e, { rid: r.id, personal: false })));
+  });
+  const i = out.findIndex(e => e.id === 'me');
+  if (i > 0) out.unshift(out.splice(i, 1)[0]);
+  return out;
+}
+/* サーバーの繋ぎ先だけ */
+export function serverRegions(st) { return regionList(st).filter(r => r.kind === 'server'); }
+/* 同じ住所の繋ぎ先（海を足すとき、同じサーバーなら新しく作らずに使う） */
+export function serverByUrl(url, st = ls()) {
+  const u = String(url || '');
+  if (!u) return null;
+  return serverRegions(st).find(r => String((regionConf(r.id, st) || {}).url || '') === u) || null;
+}
+
 /* ---- 足す・直す・外す ---- */
 export function newRegionId(now = Date.now()) {
   return 'r' + now.toString(36) + Math.random().toString(36).slice(2, 5);

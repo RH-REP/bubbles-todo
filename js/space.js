@@ -29,7 +29,7 @@ import { store, SPACE_KEY } from './store.js';
 import { sync } from './sync.js';
 import { toast } from './ui.js';
 import { findSea, addSea, updateSea, removeSea, boxKey, COLORS, colorMark, NAME_MAX } from './spacelist.js';
-import { isPersonal, personalId, regionOfSpace, defaultRegionId, regionList, seasOf } from './regions.js';
+import { isPersonal, personalId, regionOfSpace, defaultRegionId, allSeas } from './regions.js';
 
 const SPACE = store.space();
 const REGION = regionOfSpace(SPACE) || defaultRegionId();
@@ -47,9 +47,10 @@ function hhmm(ms) {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-/* 並べる海。個人がいちばん前。rid を省けば今の海域 */
-function entries(rid = REGION) {
-  return [{ id: personalId(rid), name: '個人', color: null }].concat(seasOf(rid));
+/* 並べる海。すべての繋ぎ先の海を1列に（2026-11-12 Issue #47 の返事:「海域」の言葉をやめ、1つの海 = 1つの同期の単位。
+   どのサーバーと合わせるかは海ごとの設定で、帯・引き出しでは分けない）。前の版からの個人がいちばん前 */
+function entries() {
+  return allSeas();
 }
 
 /* 海を替える。今の書きかけ（位置など）を残してから読み直す */
@@ -82,15 +83,6 @@ seg.setAttribute('role', 'group');
 seg.setAttribute('aria-label', '海の切り替え');
 function renderSeg() {
   seg.textContent = '';
-  /* 海域が2つ以上なら、どの海域の海かを頭に出す（押せない。替えるのは引き出しから） */
-  const regions = regionList();
-  if (regions.length > 1) {
-    const r = regions.find(x => x.id === REGION);
-    const lab = document.createElement('span');
-    lab.className = 'space-region';
-    lab.textContent = r ? r.name : '';
-    seg.appendChild(lab);
-  }
   entries().forEach(e => seg.appendChild(seaButton(e)));
   const on = seg.querySelector('.is-on');
   if (on && typeof on.scrollIntoView === 'function') {
@@ -112,22 +104,13 @@ if (window.BUBBLES_VERSION) {
 export function spaceSwitcher() {
   const wrap = document.createElement('div');
   wrap.className = 'drawer-space-wrap';
-  /* 海域ごとに見出しを付けて並べる（海域が1つなら見出しは出さない） */
-  const regions = regionList();
-  regions.forEach(r => {
-    if (regions.length > 1) {
-      const h = document.createElement('p');
-      h.className = 'drawer-region' + (r.id === REGION ? ' is-on' : '');
-      h.textContent = r.name + (r.kind === 'local' ? '（この端末だけ）' : '');
-      wrap.appendChild(h);
-    }
-    const box = document.createElement('div');
-    box.className = 'drawer-space';
-    box.setAttribute('role', 'group');
-    box.setAttribute('aria-label', '海の切り替え：' + r.name);
-    entries(r.id).forEach(e => box.appendChild(seaButton(e)));
-    wrap.appendChild(box);
-  });
+  /* 海を1列に並べる（Issue #47 の返事。見出しで分けない） */
+  const box = document.createElement('div');
+  box.className = 'drawer-space';
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', '海の切り替え');
+  entries().forEach(e => box.appendChild(seaButton(e)));
+  wrap.appendChild(box);
   const tools = document.createElement('div');
   tools.className = 'drawer-space-tools';
   const add = document.createElement('button');
@@ -207,7 +190,7 @@ function openSheet(sea, opts = {}) {
     ? '人を招くときは、サーバーで「invite-add <名前> --space ' + sea.id + '」として招待コードを作り、'
       + '住所とコードを渡す（公開したサーバーのとき）。招いた人はその海にだけ入れる。'
       + (sea.id === 'share' ? '前の版の「共有の合言葉」でも、この海に入れる。' : '')
-    : '初めはこの端末だけの海。海域に繋いでいれば、ほかの端末とも同じ海になる。'
+    : 'いま開いている海と同じ同期の設定で作る（この端末だけか、同じサーバー）。替えるのは設定の「海を設定する」の ⚙ から。'
       + '人を招くのは、作ったあとに「この海の名前・色」から。';
   if (opts.note) note.textContent = opts.note;
   box.appendChild(note);

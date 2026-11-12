@@ -158,7 +158,7 @@
       + 'box-shadow:0 2px 6px rgba(0,0,0,.3)';
     const msg = document.createElement('span');
     msg.style.cssText = 'flex:1 1 12em';
-    msg.textContent = '前の版 v' + pinned + ' を使っている（海域へは送らない）';
+    msg.textContent = '前の版 v' + pinned + ' を使っている（サーバーへは送らない）';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = '最新に戻る';
