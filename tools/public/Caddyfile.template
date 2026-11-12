@@ -32,3 +32,8 @@ __DOMAIN__ {
 	}
 	reverse_proxy 127.0.0.1:__PORT__
 }
+
+# 同じ機械に置くほかの app の名前（1 app 1 ファイル）。この雛形で Caddyfile を書き直しても、ほかの app の節が外れないように
+# ここで読み込む（2026-11-12。前はこの行が無く、bubble を更新するたびに同じ VM のほかの app が開けなくなった）。
+# 当てはまるファイルが無ければ Caddy は注意を出すだけで、起動は止まらない。
+import /etc/caddy/sites/*.caddy

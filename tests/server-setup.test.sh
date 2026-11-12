@@ -84,6 +84,8 @@ pass "unit はパスキーの形で 127.0.0.1 だけで待ち受け、書ける�
 grep -q "^bubbles.example.org {" "$T/etc/caddy/Caddyfile" && grep -q "reverse_proxy 127.0.0.1:$PORT" "$T/etc/caddy/Caddyfile" \
   || fail "Caddyfile に名前とポートが入っていない"
 grep -q "default_bind 10.0.0.42" "$T/etc/caddy/Caddyfile" || fail "Caddy が外向きの住所だけで待ち受けていない"
+[[ "$(grep -c '^import /etc/caddy/sites/\*\.caddy$' "$T/etc/caddy/Caddyfile")" == 1 ]] \
+  || fail "Caddyfile に、同じ機械のほかの app の節を読む import の行がちょうど1つ無い"
 if grep -q "__" "$T/etc/caddy/Caddyfile"; then fail "Caddyfile に埋め残しがある"; fi
 grep -q "_SYSTEMD_UNIT=bubbles-todo.service" "$T/etc/fail2ban/filter.d/bubbles.conf" || fail "fail2ban の filter"
 [[ -f "$T/etc/fail2ban/jail.d/bubbles.conf" ]] || fail "fail2ban の jail"
