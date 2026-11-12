@@ -32,6 +32,9 @@ const SEA = 'sabc1234';
 mem.set('bubble_todo_v1', JSON.stringify({ v: 2, todos: [{ id: 'p1', text: '個人のもの', createdAt: 1, fx: .5, fy: .5 }] }));
 mem.set('bubble_todo_spaces', JSON.stringify([{ id: SEA, name: '仕事', color: 'sand', at: 100, alive: 1 }]));
 mem.set('bubble_todo_space', SEA);
+/* 海域（2026-11-12）: 「この端末だけ」と、前の版からの個人と海を持つサーバーの海域（住所はまだ無い）。
+   前の版の「住所を入れて繋ぐ」は、サーバーの海域で住所と合言葉を入れることになった */
+mem.set('bubble_todo_regions', JSON.stringify([{ id: 'local', name: 'この端末だけ' }, { id: 'r0', name: 'サーバー', legacyMe: true, legacyConf: true }]));
 
 /* 偽のサーバー。自分の合言葉は、X-Bubbles-Space の海の置き場に入る */
 const boxes = {};

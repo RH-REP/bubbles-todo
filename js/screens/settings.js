@@ -5,7 +5,7 @@
    本番に入れるつもりのものは「タグ」と「音」で、いちばん下の3つは確認用。 */
 
 import { el, toast, escapeHtml } from '../ui.js';
-import { store } from '../store.js';
+import { store, SPACE_KEY } from '../store.js';
 import { isOn, setOn, isSfxOn, setSfxOn, playSfx } from '../sound.js';
 import { isAffinityOn, setAffinityOn } from '../related.js';
 import { sync, checkUrl } from '../sync.js';
@@ -13,6 +13,8 @@ import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMod
   requestRegistration, requestStatus } from '../passkey.js';
 import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
 import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE } from '../spacelist.js';
+import { isPersonal, PERSONAL_RE, allSpaceIds, regionList, findRegion, personalId, seasOf, regionOfSpace, defaultRegionId,
+  addServerRegion, renameRegion, removeRegion, localHasLegacy, REGION_NAME_MAX } from '../regions.js';
 import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, moveSummary, moveFileName,
   boxToState, stateToBox, mergeBox } from '../movefile.js';
 import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
@@ -372,6 +374,8 @@ export default {
     /* --- 記録の置き場（2026-11-11 Issue #42 の A 案）---
        版（サーバーあり・なし）の違いを見せず、ここで置き場を選ぶ。選ぶと合うほうのページへ移るか、その欄を開く */
     box.appendChild(placeBox({ gShare, serverEl, chainEl, pick: shareChoice.pick }));
+    /* --- 海域を設定する（2026-11-12 利用者の指示。js/regions.js）--- */
+    box.appendChild(regionsBox());
 
     /* --- 最新の版を確認する（2026-11-02。利用者の指示）---
        ホーム画面に追加した iOS で、閉じて開き直しても新しい版に気づかないことがある
@@ -640,6 +644,23 @@ function hhmm(ms) {
 function serverBox(screen) {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, '海域（サーバー）に繋ぐ'));
+  /* 開いている海が「この端末だけ」の海域なら、ここでは繋がない（2026-11-12 海域。js/regions.js）。
+     サーバーは「海域を設定する」で海域を足し、その海域の海を開いてから、ここで入る */
+  if (sync.region().kind === 'local') {
+    wrap.appendChild(el('p', 'note',
+      'いま開いている海は「' + escapeHtml(sync.region().name) + '」の海域（この端末だけ。サーバーに送らない）。'
+      + 'サーバーに繋ぐときは、上の「海域を設定する」で海域を足し、その海域の［開く］で移ってから、ここで入る。'));
+    const open = el('button', 'btn', '海域を設定するを開く');
+    open.type = 'button';
+    open.addEventListener('click', () => {
+      const d = [...document.querySelectorAll('details.set-more')].find(x => /海域を設定する/.test((x.querySelector('summary') || {}).textContent || ''));
+      if (!d) return;
+      d.open = true;
+      try { d.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 開いてある */ }
+    });
+    wrap.appendChild(open);
+    return wrap;
+  }
   wrap.appendChild(el(
     'p', 'note',
     /* 海域（2026-11-10 利用者の決定）＝1つのサーバーが預かる海のまとまり（個人・共有・作った海）。
@@ -973,7 +994,7 @@ function serverBox(screen) {
     else if (st.state === 'outdated') line.textContent = who + st.message + '（' + c.url + '）';
     else if (st.state === 'error') line.textContent = who + '届かない: ' + st.message + '（' + c.url + '）';
     else if (st.state === 'off' && c.url) {
-      line.textContent = who + (sync.space() === 'me' ? '自分の合言葉が無い（個人はこの端末の中だけ）' : '合言葉が無い（この海はこの端末の中だけ）');
+      line.textContent = who + (isPersonal(sync.space()) ? '自分の合言葉が無い（個人はこの端末の中だけ）' : '合言葉が無い（この海はこの端末の中だけ）');
     } else line.textContent = who + (STATE_TEXT[st.state] || '');
   }
   const c0 = sync.config();
@@ -1046,7 +1067,7 @@ function serverChatBox(screen) {
   wrap.appendChild(line);
 
   const has = typeof store.chatOf === 'function' && typeof store.addChat === 'function';
-  const mine = () => store.space() === 'me';
+  const mine = () => isPersonal(store.space());
   let said = '';   /* 押した結果の字（状態の字より先に出す） */
 
   function paint() {
@@ -1129,7 +1150,7 @@ function serverChatBox(screen) {
 function csvBox() {
   const wrap = el('div', 'tags');
   wrap.appendChild(el('h3', null, '書き出す・読み込む（CSV）'));
-  const shareNote = store.space() !== 'me' ? '人を招いた海で読み込むと、招いた人の端末にも届く。' : '';
+  const shareNote = !isPersonal(store.space()) ? '人を招いた海で読み込むと、招いた人の端末にも届く。' : '';
   wrap.appendChild(el(
     'p', 'note',
     'いま開いている「' + seaName(store.space()) + '」の記録を、まるごと1つの CSV にする。'
@@ -1522,7 +1543,9 @@ function folderBox() {
 /* この端末の海の記録。開いている海は store から、ほかは箱から（引っ越しのファイルとチェーンの控えで共用） */
 function collectBoxes() {
   const boxes = {};
-  ['me'].concat(seaList().map(e => e.id)).forEach(id => {
+  /* すべての海域の個人と海（2026-11-12。js/regions.js）。海域の外れた海も箱があれば入れる */
+  const ids = ['me'].concat(allSpaceIds(), seaList().map(e => e.id)).filter((v, i, a) => a.indexOf(v) === i);
+  ids.forEach(id => {
     if (id === store.space()) { boxes[id] = store.exportState(); return; }
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }
@@ -1538,7 +1561,7 @@ function mergeIntoDevice(p) {
   mergeSeas(p.seas || []);
   let n = 0;
   Object.keys(p.boxes || {}).forEach(id => {
-    if (id !== 'me' && !ID_RE.test(id)) return;
+    if (id !== 'me' && !ID_RE.test(id) && !PERSONAL_RE.test(id)) return;
     const fromFile = p.boxes[id];
     if (id === store.space()) {
       store.applyState(mergeBox(store.exportState(), fromFile));
@@ -1591,6 +1614,233 @@ function soloServerBox() {
      ・自分のサーバー … solo.html なら index.html へ移って住所を入れる。index.html なら海域の欄を開く
      ・ブロックチェーン … ブロックチェーンの欄を開く（どちらのページでも使える。サーバーと一緒にも使える）
    1 行に畳む（Issue #40。ふだん開いて見えるのは ふりかえり・使い方・タグ だけ） */
+/* 海域を設定する（2026-11-12 利用者の指示：「海域の設定をしやすくして」「海域（歯車）を追加し、中で海の編集ができるように」
+   「複数の場所からつなげるように」）。
+   一覧は「この端末だけ」と、足したサーバーの海域。各行の［開く］でその海域の個人へ移り、［⚙］で中を開く:
+     名前・（サーバーなら）住所と合言葉・その海域の海（作る・名前と色を直す・消す）・この海域を外す。
+   パスキーで入るサーバーは、その海域の海を開いてから「他の人と一緒に使う」の「海域（サーバー）」で入る
+   （パスキーの入場は、開いている海の海域にだけ効くため）。仕組みは js/regions.js・js/sync.js */
+function regionsBox() {
+  const d = document.createElement('details');
+  d.className = 'set-more';
+  d.open = !!loadPrefs().allTools;
+  const s = document.createElement('summary');
+  const tx = el('span', 'tx');
+  tx.appendChild(el('span', 'nm', '海域を設定する'));
+  const sub = el('span', 'sub');
+  tx.appendChild(sub);
+  s.appendChild(tx);
+  d.appendChild(s);
+  const wrap = el('div', 'tags');
+  wrap.appendChild(el('h3', null, '海域（海のまとまりと、その置き場）'));
+  wrap.appendChild(el('p', 'note',
+    '海域ごとに、個人の海と作った海を持つ。「この端末だけ」の海域はサーバーに送らない。サーバーの海域は、それぞれ別のサーバーに繋がる'
+    + '（いくつ足してもよい。開いている海の海域のサーバーと合わせる）。海は ⚙ の中で作る・直す・消す。'));
+  const list = el('div', 'region-list');
+  wrap.appendChild(list);
+  d.appendChild(wrap);
+  const cur = sync.region().id;
+  let openId = null;   /* ⚙ を開いている海域 */
+
+  function go(rid, spaceId) {
+    try { store.flush(); } catch (e) { /* 移るのは止めない */ }
+    try { localStorage.setItem(SPACE_KEY, spaceId || personalId(rid)); } catch (e) { toast('切り替えを覚えられなかった'); return; }
+    location.reload();
+  }
+  function backupOn() {
+    try { return !!(folderBackup && folderBackup.status().conf.on); } catch (e) { return false; }
+  }
+  function summaryOf(r) {
+    if (r.kind === 'local') return 'この端末だけ（サーバーに送らない）';
+    const c = sync.regionSummary(r.id);
+    let t = c.url ? c.url.replace(/^https?:\/\//, '') : '住所が無い';
+    if (c.passkey) t += c.passkeyValid ? '・パスキー（' + (c.passkeyName || '入っている') + '）' : '・パスキーの期限切れ';
+    else if (c.token || c.shareToken) t += '・合言葉';
+    else t += '・鍵が無い';
+    if (r.id === cur) {
+      const st = sync.status();
+      t += st.state === 'ok' ? '・合わせた' : st.state === 'error' ? '・繋がっていない' : st.state === 'outdated' ? '・古い版で止めた' : '';
+    }
+    return t;
+  }
+  function btn(label, on, cls) {
+    const b = el('button', cls || 'btn', label);
+    b.type = 'button';
+    b.addEventListener('click', on);
+    return b;
+  }
+
+  function gear(r) {
+    const box = el('div', 'region-gear');
+    /* 名前 */
+    const nameRow = el('form', 'tagadd');
+    const nameIn = document.createElement('input');
+    nameIn.type = 'text';
+    nameIn.maxLength = REGION_NAME_MAX;
+    nameIn.value = r.name;
+    nameIn.setAttribute('aria-label', '海域の名前');
+    const nameGo = el('button', 'btn', '名前を直す');
+    nameGo.type = 'submit';
+    nameRow.appendChild(nameIn);
+    nameRow.appendChild(nameGo);
+    nameRow.addEventListener('submit', ev => {
+      ev.preventDefault();
+      if (!renameRegion(r.id, nameIn.value)) { toast('名前を入れる'); return; }
+      toast('海域の名前を直した');
+      render();
+    });
+    box.appendChild(nameRow);
+
+    /* 住所と合言葉（サーバーの海域だけ） */
+    if (r.kind === 'server') {
+      const c = sync.regionSummary(r.id);
+      const f = el('form', 'tagadd');
+      const urlIn = document.createElement('input');
+      urlIn.type = 'url';
+      urlIn.autocomplete = 'off';
+      urlIn.placeholder = 'https://…（サーバーの住所）';
+      urlIn.value = c.url;
+      urlIn.setAttribute('aria-label', 'サーバーの住所');
+      const tokIn = document.createElement('input');
+      tokIn.type = 'password';
+      tokIn.autocomplete = 'off';
+      tokIn.placeholder = c.token ? '合言葉（替えるときだけ）' : '合言葉（パスキーなら空のまま）';
+      tokIn.setAttribute('aria-label', 'サーバーの合言葉');
+      const go2 = el('button', 'btn', '繋ぎ先を直す');
+      go2.type = 'submit';
+      f.appendChild(urlIn);
+      f.appendChild(tokIn);
+      f.appendChild(go2);
+      f.addEventListener('submit', ev => {
+        ev.preventDefault();
+        if (c.passkey && !window.confirm('この海域はパスキーで入っている。住所・合言葉を入れ直すと、パスキーの通行証は外れる。続ける？')) return;
+        /* 合言葉の欄が空なら、今の合言葉を残す */
+        const ok = sync.configureRegion(r.id, urlIn.value, tokIn.value.trim() || undefined);
+        if (!ok) { toast('住所が読めない（外への http は使えない）'); return; }
+        toast('繋ぎ先を直した');
+        render();
+      });
+      box.appendChild(f);
+      box.appendChild(el('p', 'note',
+        'パスキーで入るサーバーは、上の［開く］でこの海域の海を開いてから、「他の人と一緒に使う」→「サーバーを使う」の「海域（サーバー）」で入る。'));
+    }
+
+    /* その海域の海 */
+    box.appendChild(el('p', 'note', 'この海域の海'));
+    const seas = el('div', 'region-seas');
+    const pid = personalId(r.id);
+    const meRow = el('div', 'region-sea');
+    meRow.appendChild(el('span', 'nm', '個人' + (store.space() === pid ? '（開いている）' : '')));
+    if (store.space() !== pid) meRow.appendChild(btn('開く', () => go(r.id, pid)));
+    seas.appendChild(meRow);
+    seasOf(r.id).forEach(e => {
+      const row = el('div', 'region-sea');
+      const nm = el('span', 'nm is-sea-btn', escapeHtml(e.name) + (store.space() === e.id ? '（開いている）' : ''));
+      row.appendChild(nm);
+      if (store.space() !== e.id) row.appendChild(btn('開く', () => go(r.id, e.id)));
+      row.appendChild(btn('名前・色・消す', () => openSeaSheet(e, { onChanged: render })));
+      seas.appendChild(row);
+    });
+    box.appendChild(seas);
+    box.appendChild(btn('＋ この海域に海をつくる', () => openSeaSheet(null, {
+      region: r.id,
+      note: '「' + r.name + '」の海をつくる。' + (r.kind === 'local' ? 'この端末だけの海（サーバーに送らない）。' : 'この海域のサーバーと合わせる（この海域の海を開いたとき）。'),
+      onMade: () => { toast('海をつくった'); render(); },
+    })));
+
+    /* 外す */
+    if (r.id !== 'local' && !r.legacyMe) {
+      box.appendChild(btn('この海域を外す', () => {
+        if (!window.confirm('「' + r.name + '」を外す？\nこの端末の記録の箱と、サーバーに置いた記録は消さない（同じ住所で足し直すと戻る）。')) return;
+        if (!removeRegion(r.id)) { toast('外せなかった'); return; }
+        if (r.id === cur) { go(defaultRegionId()); return; }
+        openId = null;
+        render();
+      }, 'btn region-remove'));
+    }
+    return box;
+  }
+
+  function render() {
+    list.textContent = '';
+    const regions = regionList();
+    regions.forEach((r, i) => {
+      const row = el('div', 'region-row' + (r.id === cur ? ' is-on' : ''));
+      const head = el('div', 'region-head');
+      const t = el('div', 'region-tx');
+      t.appendChild(el('span', 'nm', '海域' + (i + 1) + '：' + escapeHtml(r.name) + (r.id === cur ? '（いま）' : '')));
+      t.appendChild(el('span', 'sub', escapeHtml(summaryOf(r)) + (r.kind === 'server' && backupOn() ? '・補助：決めたフォルダに控え中' : '')));
+      head.appendChild(t);
+      if (r.id !== cur) head.appendChild(btn('開く', () => go(r.id)));
+      const g = btn('⚙', () => { openId = openId === r.id ? null : r.id; render(); }, 'btn region-gear-btn');
+      g.setAttribute('aria-label', '「' + r.name + '」の設定');
+      g.setAttribute('aria-expanded', String(openId === r.id));
+      head.appendChild(g);
+      row.appendChild(head);
+      if (openId === r.id) row.appendChild(gear(r));
+      list.appendChild(row);
+    });
+    /* 海域を足す（サーバー） */
+    const add = el('form', 'tagadd region-add');
+    const nmIn = document.createElement('input');
+    nmIn.type = 'text';
+    nmIn.maxLength = REGION_NAME_MAX;
+    nmIn.placeholder = '名前（例 サーバーB。省いてもよい）';
+    nmIn.setAttribute('aria-label', '足す海域の名前');
+    const urlIn = document.createElement('input');
+    urlIn.type = 'url';
+    urlIn.autocomplete = 'off';
+    urlIn.placeholder = 'https://…（サーバーの住所）';
+    urlIn.setAttribute('aria-label', '足す海域のサーバーの住所');
+    const tokIn = document.createElement('input');
+    tokIn.type = 'password';
+    tokIn.autocomplete = 'off';
+    tokIn.placeholder = '合言葉（パスキーなら空のまま）';
+    tokIn.setAttribute('aria-label', '足す海域の合言葉');
+    const go3 = el('button', 'btn', '＋ 海域を足す');
+    go3.type = 'submit';
+    add.appendChild(nmIn);
+    add.appendChild(urlIn);
+    add.appendChild(tokIn);
+    /* サーバーに繋いでいなかった端末が初めてサーバーを足すとき、今の個人と海を移すか（既定は移す＝前の版で住所を入れたのと同じ） */
+    let takeCb = null;
+    if (localHasLegacy()) {
+      const lab = el('label', 'setrow');
+      takeCb = document.createElement('input');
+      takeCb.type = 'checkbox';
+      takeCb.checked = !regionList().some(x => x.kind === 'server');
+      lab.appendChild(takeCb);
+      lab.appendChild(el('span', null, '今の「この端末だけ」の個人と海を、このサーバーの海域に移す（移さなければ、空の個人から始まる）'));
+      add.appendChild(lab);
+    }
+    add.appendChild(go3);
+    add.addEventListener('submit', ev => {
+      ev.preventDefault();
+      const u = checkUrl(urlIn.value);
+      if (!u) { toast('サーバーの住所を入れる'); urlIn.focus(); return; }
+      if (u === 'http') { toast('外への http は使えない（https にする）'); return; }
+      const r = addServerRegion(nmIn.value, { url: u, token: tokIn.value.trim() }, Date.now(), undefined, { takeLocal: !!(takeCb && takeCb.checked) });
+      if (!r) { toast('足せなかった'); return; }
+      /* 開いている海が移ったなら、読み直して新しい海域で合わせる */
+      if (regionOfSpace(store.space()) !== cur) {
+        toast('「' + r.name + '」を足し、今の海をこの海域に移した。読み直す…');
+        try { store.flush(); } catch (e) { /* 読み直すのは止めない */ }
+        setTimeout(() => location.reload(), 600);
+        return;
+      }
+      toast('「' + r.name + '」を足した。［開く］でこの海域の海に移る');
+      openId = r.id;
+      render();
+    });
+    list.appendChild(add);
+    sub.textContent = regions.map(r => r.name).join('・');
+  }
+  sync.on(() => { if (d.open) render(); });
+  d.addEventListener('toggle', () => { if (d.open) render(); });
+  render();
+  return d;
+}
+
 function placeBox({ gShare, serverEl, chainEl, pick }) {
   const d = document.createElement('details');
   d.className = 'set-more';

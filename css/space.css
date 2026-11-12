@@ -220,3 +220,17 @@ input.is-space-locked {
   background: color-mix(in srgb, var(--surface) 55%, transparent) !important;
 }
 input.is-space-locked::placeholder { color: var(--sea-text); }
+
+/* 海域（2026-11-12。js/regions.js）。海域が2つ以上あるときだけ出す。
+   帯の頭の海域の名前は押せない字（替えるのは引き出しから）。引き出しでは海域ごとの見出し */
+.space-seg .space-region {
+  flex: 0 0 auto; align-self: center; max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10.5px; color: var(--text-3); padding: 0 6px 0 2px;
+}
+.drawer-region {
+  margin: 10px 0 6px; font-size: 12px; letter-spacing: .02em; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.drawer-region:first-child { margin-top: 2px; }
+.drawer-region.is-on { color: var(--text-2); font-weight: 600; }
+.drawer-region + .drawer-space { max-height: none; }

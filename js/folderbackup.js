@@ -26,6 +26,7 @@
 
 import { store } from './store.js';
 import { seaList, allEntries, boxKey } from './spacelist.js';
+import { allSpaceIds } from './regions.js';
 import { buildPayload, boxToState, moveSummary } from './movefile.js';
 import { deviceLabel } from './csvio.js';
 
@@ -51,7 +52,9 @@ export function backupFileName(now = Date.now()) {
 /* この端末の海の記録。開いている海は store から、ほかは箱（localStorage）から（settings.js の collectBoxes と同じ） */
 export function collectBoxes(st = store, ls = globalThis.localStorage) {
   const boxes = {};
-  ['me'].concat(seaList().map(e => e.id)).forEach(id => {
+  /* すべての海域の個人と海（js/regions.js）。海域の外れた海も箱があれば入れる */
+  const ids = ['me'].concat(allSpaceIds(), seaList().map(e => e.id)).filter((v, i, a) => a.indexOf(v) === i);
+  ids.forEach(id => {
     if (id === st.space()) { boxes[id] = st.exportState(); return; }
     let raw = null;
     try { raw = JSON.parse(ls.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }

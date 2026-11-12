@@ -7,16 +7,20 @@
      'share' … 前の版の「共有」。記録（bubble_todo_share_v1・サーバーの share/）をそのまま引き継ぎ、
                名前と色を変えられる海の1つになった（既定の名前は「共有」、色はマグマ）
      ほか    … アプリの中で名前を付けて作る海。ID は 's' と英小文字・数字（サーバーのフォルダ名にもなる）
-   一覧の1件 = { id, name, color, at, alive }。at は書き換えた時刻、alive 0 は消した印（墓石）。
+   一覧の1件 = { id, name, color, at, alive, region? }。at は書き換えた時刻、alive 0 は消した印（墓石）。
+   region はその海の海域（js/regions.js。2026-11-12）。この端末だけの ID なのでサーバーへは送らない（sync.js が外す）。
+   region の無い海は、前の版からの個人と同じ海域のもの。
    サーバーの一覧と合わせるときは、海ごとに新しいほうを残す（merge.js の記録と同じ考え）。
 
    ■ 箱
      一覧          bubble_todo_spaces
-     海ごとの記録  個人 bubble_todo_v1、共有 bubble_todo_share_v1、ほか bubble_todo_sea_<ID>_v1 */
+     海ごとの記録  個人 bubble_todo_v1、共有 bubble_todo_share_v1、ほか bubble_todo_sea_<ID>_v1、
+                   ほかの海域の個人 'me.<海域>' は bubble_todo_me_<海域>_v1（js/regions.js） */
 
 export const LIST_KEY = 'bubble_todo_spaces';
 export const ID_RE = /^s[0-9a-z]{3,23}$/;
 export const NAME_MAX = 16;
+const REGION_ID_RE = /^(local|r[0-9a-z]{1,23})$/;   /* js/regions.js の REGION_RE（ここから regions.js は読まない。循環を避ける） */
 
 /* 水の色。個人は空色のまま（ここには無い）。[ID, 名前, 印の色] */
 export const COLORS = [
@@ -42,7 +46,9 @@ export function cleanEntry(e) {
   const name = cleanName(e.name) || '名前のない海';
   const color = COLOR_IDS.indexOf(e.color) >= 0 ? e.color : 'magma';
   const at = Number(e.at);
-  return { id, name, color, at: Number.isFinite(at) && at > 0 ? Math.floor(at) : 0, alive: e.alive === 0 ? 0 : 1 };
+  const out = { id, name, color, at: Number.isFinite(at) && at > 0 ? Math.floor(at) : 0, alive: e.alive === 0 ? 0 : 1 };
+  if (REGION_ID_RE.test(String(e.region || ''))) out.region = String(e.region);
+  return out;
 }
 
 export function cleanName(s) {
@@ -96,6 +102,8 @@ export function colorMark(color) {
 /* 海ごとの記録の箱 */
 export function boxKey(id) {
   if (id === 'me') return 'bubble_todo_v1';
+  const pm = /^me\.(local|r[0-9a-z]{1,23})$/.exec(String(id || ''));
+  if (pm) return 'bubble_todo_me_' + pm[1] + '_v1';   /* ほかの海域の個人（2026-11-12） */
   if (id === 'share') return 'bubble_todo_share_v1';
   return 'bubble_todo_sea_' + id + '_v1';
 }
@@ -104,11 +112,11 @@ export function newId(now = Date.now()) {
   return 's' + now.toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-/* 海を作る → 作った1件。名前が空なら null */
-export function addSea(name, color, now = Date.now()) {
+/* 海を作る → 作った1件。名前が空なら null。region を渡せばその海域の海（省けば前の版からの個人と同じ海域） */
+export function addSea(name, color, now = Date.now(), region) {
   const nm = cleanName(name);
   if (!nm) return null;
-  const e = cleanEntry({ id: newId(now), name: nm, color, at: now, alive: 1 });
+  const e = cleanEntry({ id: newId(now), name: nm, color, at: now, alive: 1, region });
   const rows = allEntries();
   rows.push(e);
   return save(rows) ? e : null;
@@ -139,16 +147,23 @@ export function removeSea(id, now = Date.now()) {
   return save(rows);
 }
 
-/* サーバーの一覧と合わせる。海ごとに新しいほう（同じ時刻なら手元）。変わったら true */
-export function mergeSeas(remote) {
+/* サーバーの一覧と合わせる。海ごとに新しいほう（同じ時刻なら手元）。変わったら true。
+   region を渡すと（その海域のサーバーから来た一覧）、新しく来た海をその海域の海にする。手元にある海の region は替えない。
+   渡さないとき（控え・引っ越しのファイル）は、ファイルの region をそのまま使う（この端末の知らない海域なら、その海は出ない） */
+export function mergeSeas(remote, region) {
   const rows = allEntries();
   let changed = false;
   (Array.isArray(remote) ? remote : []).forEach(r => {
-    const e = cleanEntry(r);
+    /* サーバーから来た一覧（region を渡したとき）の region は信じない。控え・引っ越しのファイル（渡さないとき）は残す */
+    const e = cleanEntry(region !== undefined ? Object.assign({}, r, { region: undefined }) : r);
     if (!e) return;
     const i = rows.findIndex(x => x.id === e.id);
-    if (i < 0) { rows.push(e); changed = true; return; }
+    if (i < 0) {
+      if (REGION_ID_RE.test(String(region || ''))) e.region = String(region);
+      rows.push(e); changed = true; return;
+    }
     if (e.at > rows[i].at) {
+      if (rows[i].region) e.region = rows[i].region;
       if (JSON.stringify(rows[i]) !== JSON.stringify(e)) changed = true;
       rows[i] = e;
     }

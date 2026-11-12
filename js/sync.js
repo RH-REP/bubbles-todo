@@ -54,13 +54,18 @@
    互換性の無い変更を入れる手順は DEV_NOTES.md「記録の形の版」。
 
    ■ data の頂上の知らない欄
-   サーバーの data（{doc, stamps}）の横に、この版の知らない欄があれば、そのまま残して PUT する。 */
+   サーバーの data（{doc, stamps}）の横に、この版の知らない欄があれば、そのまま残して PUT する。
+
+   ■ 海域（2026-11-12 利用者の指示「複数の場所からつなげるように」。js/regions.js）
+   繋ぐ先は、いま開いている海の海域の住所と鍵（海域ごとの箱。前の版からの海域は 'bubble_todo_sync' のまま）。
+   「この端末だけ」の海域の海は送らない。サーバーへ言う海の ID は、個人ならどの海域でも 'me'。
+   海の一覧は、その海域の海だけを送り、届いた海をその海域の海にする（海域の ID はサーバーへ送らない）。 */
 
 import { store } from './store.js';
 import { mergeState, sameStamps } from './merge.js';
-import { allEntries, mergeSeas, seaName } from './spacelist.js';
+import { mergeSeas, seaName } from './spacelist.js';
+import { regionOfSpace, defaultRegionId, findRegion, confKeyOf, isPersonal, serverSpace, entriesOf, regionConf } from './regions.js';
 
-const CONF_KEY = 'bubble_todo_sync';
 const PUSH_DELAY = 1500;      /* 保存してから送るまで。続けて打っている間はまとめる */
 const POLL_MS = 20000;        /* 開いている間、ほかの端末の書き換えを見に行く間隔 */
 const RETRY_MAX = 60000;      /* 届かないとき、見に行く間隔をここまで延ばす */
@@ -74,8 +79,15 @@ const OUTDATED_POLL = 5 * 60000;
    設定ごと捨てていた（2026-10-23。http://127.0.0.1 の住所が、読み直すたびに消えた） */
 const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
 const SPACE = store.space();
+/* 海域（js/regions.js）。開いている海の海域の住所と鍵を使う */
+const REGION = regionOfSpace(SPACE) || defaultRegionId();
+const REGION_INFO = findRegion(REGION);
+const CONF_KEY = confKeyOf(REGION);                   /* 「この端末だけ」なら ''（繋がない） */
+const PERSONAL = isPersonal(SPACE);                   /* 個人の海か（どの海域の個人でも） */
+const SRV = serverSpace(SPACE);                       /* サーバーに言う海の ID（個人は 'me'） */
 const SEEN_KEY = 'bubble_todo_sync_seen_' + SPACE;   /* 最後に合わせた時刻（「15:30 に見たもの」） */
-const PERSON_KEY = 'bubble_todo_sync_person';       /* 個人を最後に合わせた人の番号（パスキーの形） */
+/* 個人を最後に合わせた人の番号（パスキーの形）。前の版からの海域は前の箱のまま */
+const PERSON_KEY = (!REGION_INFO || REGION_INFO.legacyConf) ? 'bubble_todo_sync_person' : 'bubble_todo_sync_person_' + REGION;
 const OWNER_PERSON = 1;
 let conf = readConf();
 let status = { state: ready() ? 'idle' : 'off', at: null, message: '' };
@@ -88,6 +100,7 @@ let failures = 0;
 let outdated = null;
 
 function readConf() {
+  if (!CONF_KEY) return blankConf();   /* この端末だけの海域 */
   try {
     const o = JSON.parse(localStorage.getItem(CONF_KEY) || 'null');
     if (o && typeof o.url === 'string') {
@@ -108,6 +121,7 @@ function blankConf() {
     sessionOwner: null };
 }
 function saveConf() {
+  if (!CONF_KEY) return;
   try {
     if (conf.url) localStorage.setItem(CONF_KEY, JSON.stringify(conf));
     else localStorage.removeItem(CONF_KEY);
@@ -127,7 +141,7 @@ function ownerKey() {
 function key() {
   if (conf.session) {
     if (!sessionLive()) return '';
-    if (SPACE === 'me') return conf.sessionSpaces.indexOf('me') >= 0 ? conf.session : '';
+    if (PERSONAL) return conf.sessionSpaces.indexOf('me') >= 0 ? conf.session : '';
     return (conf.sessionSpaces.indexOf(SPACE) >= 0 || ownerKey()) ? conf.session : '';
   }
   if (SPACE === 'share') return conf.token || conf.shareToken;
@@ -136,7 +150,7 @@ function key() {
 /* 繋ぐ先と鍵がそろっているか */
 function ready() { return !!(conf.url && key()); }
 /* 招かれた鍵で開いている海か（合わせられた間だけ書ける） */
-function guest() { return SPACE !== 'me' && ready() && !ownerKey(); }
+function guest() { return !PERSONAL && ready() && !ownerKey(); }
 
 /* 個人の番号が、この端末で前に合わせたものから変わったか。
    番号を覚える前の版で個人を合わせていた端末（SEEN はあるが PERSON が無い）は、1 番を合わせていた */
@@ -189,7 +203,7 @@ async function call(method, body, path = '/api/data', auth = key()) {
     headers: Object.assign(
       { Authorization: 'Bearer ' + auth },
       /* 持ち主の鍵はどの海にも効くので、どの海の記録かを言う */
-      { 'X-Bubbles-Space': SPACE },
+      { 'X-Bubbles-Space': SRV },
       /* 記録の形の版。サーバーはこれが minSchema より古い（か無い）書き込みを 426 で断る */
       { 'X-Bubbles-Schema': String(SCHEMA) },
       body ? { 'Content-Type': 'application/json' } : {}),
@@ -230,8 +244,8 @@ async function syncOnce() {
     if (got.status !== 200 || !got.json) throw new Error('サーバーの応答が読めない（' + got.status + '）');
     /* 取り違えの見張り。前の版のサーバーは space を返さないので、そのときは個人だけ通す */
     const space = got.json.space || 'me';
-    if (space !== SPACE) {
-      if (SPACE === 'me') throw new Error('これは「' + seaName(space) + '」の合言葉（自分の合言葉の欄に入っている）');
+    if (space !== SRV) {
+      if (PERSONAL) throw new Error('これは「' + seaName(space) + '」の合言葉（自分の合言葉の欄に入っている）');
       if (space === 'me') throw new Error('サーバーがこの海を知らない（サーバーを新しくする）');
       throw new Error('これは「' + seaName(SPACE) + '」の合言葉ではない');
     }
@@ -250,7 +264,7 @@ async function syncOnce() {
     }
     /* 個人の番号が変わった（サーバーでパスキーをほかの人の個人へ移した）。
        手元の個人は前の人のものなので、合わせずにサーバーのものへ入れ替える（前の中身は控えに残す） */
-    if (SPACE === 'me' && conf.session && Number.isInteger(got.json.person)) {
+    if (PERSONAL && conf.session && Number.isInteger(got.json.person)) {
       if (personMoved(got.json.person)) {
         try {
           localStorage.setItem('bubble_todo_v1_before_person_' + Date.now(), JSON.stringify(store.exportState()));
@@ -291,9 +305,11 @@ export async function syncSeas() {
   const k = anyKey();
   if (!conf.url || !k) return false;
   try {
-    const got = await call('POST', { spaces: allEntries() }, '/api/spaces', k);
+    /* この海域の海だけを送る。海域の ID はこの端末だけのものなので外す */
+    const mine = entriesOf(REGION).map(e => { const o = Object.assign({}, e); delete o.region; return o; });
+    const got = await call('POST', { spaces: mine }, '/api/spaces', k);
     if (got.status !== 200 || !got.json || !Array.isArray(got.json.spaces)) return false;
-    if (mergeSeas(got.json.spaces)) seaListeners.forEach(fn => { try { fn(); } catch (e) { /* 通知で落とさない */ } });
+    if (mergeSeas(got.json.spaces, REGION)) seaListeners.forEach(fn => { try { fn(); } catch (e) { /* 通知で落とさない */ } });
     return true;
   } catch (e) { return false; }
 }
@@ -388,6 +404,32 @@ export const sync = {
   outdated() { return outdated ? Object.assign({}, outdated) : null; },
   /* いま開いている海 */
   space() { return SPACE; },
+  /* いま開いている海の海域 { id, name, kind }（js/regions.js） */
+  region() { return REGION_INFO ? { id: REGION_INFO.id, name: REGION_INFO.name, kind: REGION_INFO.kind } : { id: REGION, name: '', kind: 'local' }; },
+  /* ほかの海域の住所と合言葉を決める（設定の海域の歯車から）。開いている海の海域なら configure と同じ。
+     パスキーの通行証は、その海域の海を開いてから入る（ここでは扱わない） */
+  /* token を省くと、今の合言葉を残す（住所だけ直すとき） */
+  configureRegion(rid, url, token, shareToken) {
+    if (rid === REGION) return sync.configure(url, token === undefined ? conf.token : token, shareToken);
+    const key = confKeyOf(rid);
+    if (!key) return false;
+    const u = normalizeUrl(url);
+    if (u === null) return false;
+    const prev = regionConf(rid) || {};
+    try {
+      if (!u) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify({ url: u, token: String((token === undefined ? prev.token : token) || '').trim(),
+        shareToken: shareToken === undefined ? String(prev.shareToken || '') : String(shareToken || '').trim() }));
+    } catch (e) { return false; }
+    return true;
+  },
+  /* 海域の繋ぎ先の要約（歯車に出す）。鍵の値は出さない */
+  regionSummary(rid) {
+    const c = rid === REGION ? conf : (regionConf(rid) || {});
+    return { url: String(c.url || ''), token: !!c.token, shareToken: !!c.shareToken,
+      passkey: !!c.session, passkeyName: String(c.sessionName || ''),
+      passkeyValid: !!(c.session && Number(c.sessionExpires) * 1000 > Date.now()) };
+  },
   ready,
   /* 持ち主の鍵（どの海にも入れる）を持っているか */
   owner: ownerKey,
@@ -401,6 +443,7 @@ export const sync = {
   /* 繋ぐ先を決める。url を空にすると繋がない（記録は手元に残る）。
      shareToken を省くと、今の共有の合言葉をそのまま残す */
   configure(url, token, shareToken) {
+    if (!CONF_KEY) return false;   /* この端末だけの海域には繋がない（サーバーは海域を足して使う） */
     const u = normalizeUrl(url);
     if (u === null) return false;
     conf = Object.assign(blankConf(), {

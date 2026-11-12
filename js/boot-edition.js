@@ -14,9 +14,22 @@
   var STAY_KEY = 'bubble_todo_edition_stay';    /* js/screens/settings.js の soloServerBox が書く */
   try {
     var solo = !!document.querySelector('meta[name="bubbles-edition"][content="solo"]');
-    var conf = null;
-    try { conf = JSON.parse(localStorage.getItem(SYNC_KEY) || 'null'); } catch (e) { conf = null; }
-    var hasServer = !!(conf && typeof conf.url === 'string' && conf.url);
+    /* どれかのサーバーの海域に住所があれば「サーバーあり」（2026-11-12 海域。js/regions.js の anyServerUrl と同じ見方） */
+    var hasUrl = function (key) {
+      var c = null;
+      try { c = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { c = null; }
+      return !!(c && typeof c.url === 'string' && c.url);
+    };
+    var hasServer = hasUrl(SYNC_KEY);
+    var regions = null;
+    try { regions = JSON.parse(localStorage.getItem('bubble_todo_regions') || 'null'); } catch (e) { regions = null; }
+    if (!hasServer && regions && regions.length) {
+      for (var i = 0; i < regions.length; i++) {
+        var r = regions[i];
+        if (!r || r.alive === 0 || r.id === 'local' || !/^r[0-9a-z]{1,23}$/.test(String(r.id))) continue;
+        if (hasUrl(r.legacyConf ? SYNC_KEY : SYNC_KEY + '_' + r.id)) { hasServer = true; break; }
+      }
+    }
     var noOwnServer = !!window.Capacitor || /github\.io$/.test(location.hostname);
     var stay = false;
     try { stay = sessionStorage.getItem(STAY_KEY) === 'server'; } catch (e) { stay = false; }

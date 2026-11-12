@@ -18,17 +18,24 @@
      ・状態の字   薄い帯の右に2行。「合わせた／15:30」・「繋がっていない／15:30 に見たもの」
                   件数・人数は出さない（数を出さない決まりと同じ）
      ・読むだけ   招かれて入った海で、合わせられていない間は、入力欄を点線にして「繋がると書ける」。
-                  書き込み口は store が断り、ここが知らせを出す */
+                  書き込み口は store が断り、ここが知らせを出す
+
+   海域（2026-11-12 利用者の指示。js/regions.js）:
+     ・薄い帯は、今の海域の個人と海だけを並べる。海域が2つ以上あれば、頭に海域の名前を小さく出す
+     ・引き出しの切り替えは、海域ごとに見出しを付けて並べる（ほかの海域の海へもここから移る）
+     ・海を作ると、今の海域（設定の歯車から作るときはその海域）の海になる */
 
 import { store, SPACE_KEY } from './store.js';
 import { sync } from './sync.js';
 import { toast } from './ui.js';
-import { seaList, findSea, addSea, updateSea, removeSea, boxKey, COLORS, colorMark, NAME_MAX } from './spacelist.js';
+import { findSea, addSea, updateSea, removeSea, boxKey, COLORS, colorMark, NAME_MAX } from './spacelist.js';
+import { isPersonal, personalId, regionOfSpace, defaultRegionId, regionList, seasOf } from './regions.js';
 
 const SPACE = store.space();
+const REGION = regionOfSpace(SPACE) || defaultRegionId();
 const root = document.documentElement;
 root.classList.add('has-strip');
-root.classList.toggle('is-sea', SPACE !== 'me');
+root.classList.toggle('is-sea', !isPersonal(SPACE));
 function paintColor() {
   const e = findSea(SPACE);
   if (e) root.dataset.sea = e.color; else delete root.dataset.sea;
@@ -40,9 +47,9 @@ function hhmm(ms) {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-/* 並べる海。個人がいちばん前 */
-function entries() {
-  return [{ id: 'me', name: '個人', color: null }].concat(seaList());
+/* 並べる海。個人がいちばん前。rid を省けば今の海域 */
+function entries(rid = REGION) {
+  return [{ id: personalId(rid), name: '個人', color: null }].concat(seasOf(rid));
 }
 
 /* 海を替える。今の書きかけ（位置など）を残してから読み直す */
@@ -75,6 +82,15 @@ seg.setAttribute('role', 'group');
 seg.setAttribute('aria-label', '海の切り替え');
 function renderSeg() {
   seg.textContent = '';
+  /* 海域が2つ以上なら、どの海域の海かを頭に出す（押せない。替えるのは引き出しから） */
+  const regions = regionList();
+  if (regions.length > 1) {
+    const r = regions.find(x => x.id === REGION);
+    const lab = document.createElement('span');
+    lab.className = 'space-region';
+    lab.textContent = r ? r.name : '';
+    seg.appendChild(lab);
+  }
   entries().forEach(e => seg.appendChild(seaButton(e)));
   const on = seg.querySelector('.is-on');
   if (on && typeof on.scrollIntoView === 'function') {
@@ -96,12 +112,22 @@ if (window.BUBBLES_VERSION) {
 export function spaceSwitcher() {
   const wrap = document.createElement('div');
   wrap.className = 'drawer-space-wrap';
-  const box = document.createElement('div');
-  box.className = 'drawer-space';
-  box.setAttribute('role', 'group');
-  box.setAttribute('aria-label', '海の切り替え');
-  entries().forEach(e => box.appendChild(seaButton(e)));
-  wrap.appendChild(box);
+  /* 海域ごとに見出しを付けて並べる（海域が1つなら見出しは出さない） */
+  const regions = regionList();
+  regions.forEach(r => {
+    if (regions.length > 1) {
+      const h = document.createElement('p');
+      h.className = 'drawer-region' + (r.id === REGION ? ' is-on' : '');
+      h.textContent = r.name + (r.kind === 'local' ? '（この端末だけ）' : '');
+      wrap.appendChild(h);
+    }
+    const box = document.createElement('div');
+    box.className = 'drawer-space';
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', '海の切り替え：' + r.name);
+    entries(r.id).forEach(e => box.appendChild(seaButton(e)));
+    wrap.appendChild(box);
+  });
   const tools = document.createElement('div');
   tools.className = 'drawer-space-tools';
   const add = document.createElement('button');
@@ -202,13 +228,17 @@ function openSheet(sea, opts = {}) {
         del.textContent = 'もう一度押すと消す';
         return;
       }
+      const own = regionOfSpace(sea.id) || REGION;
       removeSea(sea.id);
       try {
         localStorage.removeItem(boxKey(sea.id));
         localStorage.removeItem('bubble_todo_sync_seen_' + sea.id);
-        localStorage.setItem(SPACE_KEY, 'me');
+        /* 開いている海を消したときだけ、その海域の個人へ戻る */
+        if (sea.id === SPACE) localStorage.setItem(SPACE_KEY, personalId(own));
       } catch (e) { /* 消せなくても一覧からは外れている */ }
-      sync.syncSeas().finally(() => location.reload());
+      /* 一覧をサーバーへ届けられるのは、開いている海の海域だけ（ほかの海域は、その海域を開いたときに届く） */
+      const after = () => { if (sea.id === SPACE || typeof opts.onChanged !== 'function') location.reload(); else { done(); opts.onChanged(); } };
+      (own === REGION ? sync.syncSeas() : Promise.resolve()).finally(after);
     });
     row.appendChild(del);
   }
@@ -234,17 +264,19 @@ function openSheet(sea, opts = {}) {
       paintColor();
       renderSeg();
       window.dispatchEvent(new CustomEvent('bubbles:seas'));
-      sync.syncSeas();
+      if ((regionOfSpace(sea.id) || REGION) === REGION) sync.syncSeas();
       toast('海を直した');
+      if (typeof opts.onChanged === 'function') opts.onChanged();
       return;
     }
-    const e = addSea(nameIn.value, color);
+    const rid = opts.region || REGION;
+    const e = addSea(nameIn.value, color, Date.now(), rid);
     if (!e) { toast('海をつくれなかった'); return; }
     done();
     if (typeof opts.onMade === 'function') {
       renderSeg();
       window.dispatchEvent(new CustomEvent('bubbles:seas'));
-      sync.syncSeas();
+      if (rid === REGION) sync.syncSeas();
       opts.onMade(e);
       return;
     }
@@ -269,12 +301,12 @@ function stateText(a, b) { stateA.textContent = a; stateB.textContent = b || '';
 
 const app = document.querySelector('.app') || document.body;
 app.appendChild(strip);
-if (SPACE !== 'me') app.appendChild(stateEl);
+if (!isPersonal(SPACE)) app.appendChild(stateEl);
 
 /* サーバーから海の一覧が届いて変わったとき（名前・色・ほかの端末で消した海） */
 sync.onSeas(() => {
-  if (SPACE !== 'me' && !findSea(SPACE)) {
-    try { localStorage.setItem(SPACE_KEY, 'me'); } catch (e) { /* 次に開いたときに個人へ戻る */ }
+  if (!isPersonal(SPACE) && !findSea(SPACE)) {
+    try { localStorage.setItem(SPACE_KEY, personalId(REGION)); } catch (e) { /* 次に開いたときに個人へ戻る */ }
     toast('この海はほかの端末で消された。個人に戻る');
     setTimeout(() => location.reload(), 1500);
     return;
@@ -312,7 +344,7 @@ function paint() {
   /* 色を抜くのは、招かれた海で読むだけの間だけ（書ける海は、届かなくてもふだんの色） */
   root.classList.toggle('is-off', store.readOnly());
   lockInputs();
-  if (SPACE === 'me') return;
+  if (isPersonal(SPACE)) return;
   const st = sync.status();
   const seen = sync.seenAt();
   stateEl.hidden = !sync.ready() || settingsOpen();

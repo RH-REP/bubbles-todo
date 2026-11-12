@@ -16,6 +16,7 @@ import './schemaguard.js';
 /* 決めたフォルダに自動で控える（2026-11-12。js/folderbackup.js）。書く許しが切れていたら、1度だけ知らせる
    （許しは押した手の続きでしか求められないので、トーストのボタンで求める） */
 import { folderBackup } from './folderbackup.js';
+import { isPersonal } from './regions.js';
 if (folderBackup) {
   let told = false;
   folderBackup.on(st => {
@@ -771,14 +772,14 @@ setCenterHandler({
 
   /* ひとこと（Issue #25。js/notes.js）。個人の海では出さない。
      名前・端末の印・「最後に開いた時刻」はこの端末だけの覚え（記録に入るのは名前と端末の印だけ） */
-  notesOn:       () => store.space() !== 'me' && has('addNote'),
+  notesOn:       () => !isPersonal(store.space()) && has('addNote'),
   notes:         (id) => (has('notesOf') ? store.notesOf(id) : []),
   addNote:       (id, v) => (has('addNote') ? store.addNote(id, v, noteName(), deviceId()) : null),
   removeNote:    (nid) => (has('removeNote') ? store.removeNote(nid, deviceId()) : false),
   canRemoveNote: (n) => canRemove(n, deviceId()),
   noteName:      () => noteName(),
   setNoteName:   (v) => setNoteName(v),
-  hasNewNote:    (id) => store.space() !== 'me' && has('notesOf')
+  hasNewNote:    (id) => !isPersonal(store.space()) && has('notesOf')
     && hasUnseen(store.notesOf(id), seenAt(store.space(), id), deviceId()),
   markNotesSeen: (id) => { if (has('notesOf')) markSeen(store.space(), id, latestAt(store.notesOf(id))); },
 

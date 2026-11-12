@@ -108,6 +108,7 @@
 import { stampChanges, initialStamps, recordsOf } from './merge.js';
 import { quadrantFor } from './priority.js';
 import { findSea, boxKey } from './spacelist.js';
+import { isPersonal, regionOfSpace } from './regions.js';
 import { normalizeNotes, notesFor, makeNote, canRemove, byTime, CHAT_TODO, chatFor } from './notes.js';
 
 /* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
@@ -121,7 +122,11 @@ export const SPACE_KEY = 'bubble_todo_space';
 function readSpace() {
   try {
     const v = localStorage.getItem(SPACE_KEY);
-    return v && v !== 'me' && findSea(v) ? v : 'me';
+    if (!v || v === 'me') return 'me';
+    /* 海域（js/regions.js。2026-11-12）: ほかの海域の個人 'me.<海域>'、作った海。
+       どの海域にも出さない海（外した海域・知らない海域）は開かず、個人へ戻す */
+    if (isPersonal(v)) return regionOfSpace(v) ? v : 'me';
+    return findSea(v) && regionOfSpace(v) ? v : 'me';
   } catch (e) { return 'me'; }
 }
 const SPACE = readSpace();

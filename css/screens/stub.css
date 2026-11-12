@@ -211,3 +211,23 @@
 .stub .size-log { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-2); }
 .stub .size-log summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
 .stub .size-log pre { white-space: pre-wrap; word-break: break-all; font-size: 11px; line-height: 1.5; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; max-height: 240px; overflow: auto; }
+
+/* 海域を設定する（2026-11-12。js/screens/settings.js の regionsBox） */
+.stub .region-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.stub .region-row { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; background: var(--surface); }
+.stub .region-row.is-on { border-color: var(--bub-edge); }
+.stub .region-head { display: flex; align-items: center; gap: 8px; }
+.stub .region-tx { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.stub .region-tx .nm { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stub .region-tx .sub { font-size: 11.5px; color: var(--text-2); overflow-wrap: anywhere; }
+.stub .region-gear-btn { min-width: 44px; min-height: 44px; padding: 0; }
+.stub .region-gear { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 8px; }
+.stub .region-gear .tagadd { flex-wrap: wrap; }
+.stub .region-gear .tagadd input[type="url"], .stub .region-gear .tagadd input[type="password"] { flex-basis: 100%; }
+.stub .region-seas { display: flex; flex-direction: column; gap: 6px; }
+.stub .region-sea { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stub .region-sea .nm { flex: 1 1 8em; min-width: 0; font-size: 13.5px; }
+.stub .region-remove { align-self: flex-start; color: var(--text-2); }
+.stub .region-add { flex-wrap: wrap; }
+.stub .region-add input { flex-basis: 100%; }
+.stub .region-head .btn, .stub .region-sea .btn { flex: none; white-space: nowrap; }
