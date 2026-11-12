@@ -36,33 +36,45 @@ export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
 /* 既定で出す欄（Issue #40 までの姿と同じ。お気に入り・優先度・期間・リンクは畳む） */
 const BOARD_SHOW_DEF = ['name', 'detail', 'notes', 'tags', 'days', 'step', 'memo', 'hist'];
 
+/* 設定の「音と表示を変える」で、先に選ぶ「どの画面を変えるか」（Issue #49 の返事）。
+   各項目の pages に、その項目が効く画面を書く（2つ以上の画面に効くものは両方に出る）。
+   音・似ている泡を寄せるは js/screens/settings.js の側で同じ印を付ける */
+export const PAGES = [
+  ['all', '全体（音・起動・下のタブ）'],
+  ['sea', '海'],
+  ['today', '今日'],
+  ['list', 'リスト表示'],
+  ['board', '盤（泡を押して開く面）'],
+  ['drawer', '引き出し（左上の ≡）'],
+];
+
 /* 変えられる項目。type: 'choice'（choices の中から1つ）・'bool'・'order'（TAB_IDS の並べ替え）・
-   'set'（choices の中からいくつでも。並びは choices の順にそろえる） */
+   'set'（choices の中からいくつでも。並びは choices の順にそろえる）。pages は上の PAGES の id */
 export const ITEMS = [
   {
-    id: 'start', type: 'choice', def: 'sea',
+    id: 'start', type: 'choice', def: 'sea', pages: ['all'],
     label: '起動したときに開く画面',
     choices: TAB_IDS.map(id => [id, TAB_LABEL[id]]),
   },
   {
     /* Issue #40 の返事。海の「リスト表示」を押したときに、はじめに出す形（js/screens/sea.js の gatherBtn） */
-    id: 'listStart', type: 'choice', def: 'list',
+    id: 'listStart', type: 'choice', def: 'list', pages: ['list'],
     label: 'リスト表示を開いたときの形',
     choices: [['list', '一覧（古い順）'], ['days', '日付（終了日の近い順と天気）'], ['quad', '四つ（急ぐ・大事）']],
   },
   {
-    id: 'wind', type: 'bool', def: false,
+    id: 'wind', type: 'bool', def: false, pages: ['list'],
     label: '日付で見るの日の見出しに、風の強さ（最大 m/s）も出す',
     note: '狭い画面（幅 360px 以下）では出さない。日を押すと出る1行には、これまでどおり出る',
   },
   {
-    id: 'hideTags', type: 'bool', def: false,
+    id: 'hideTags', type: 'bool', def: false, pages: ['board', 'drawer'],
     label: 'タグ類を隠す（盤のタグの札と、引き出しのタグごとの区分）',
     note: '今日・きっかけ・すきま・長期保留の札は残す。タグそのものと海の並びは変わらない',
   },
   {
     /* Issue #40。既定ではあまり使わない機能を畳んでおく。オンにすると畳まずに全部出す */
-    id: 'allTools', type: 'bool', def: false,
+    id: 'allTools', type: 'bool', def: false, pages: ['all', 'sea', 'today', 'board'],
     label: 'あまり使わない機能も出す',
     note: '海の「はじめた日」、今日のおすすめ・四つに分ける、盤の「その他」の中身、設定の畳んだ箱（開いた姿で始める）。'
       + 'オフでも、盤は「その他」、設定はそれぞれの箱の行を押せば出る',
@@ -70,14 +82,14 @@ export const ITEMS = [
   {
     /* Issue #49。狭い画面（iPhone SE など）で盤が長く、下までなぞらないと届かないため。
        選ばなかった欄は盤の「その他」に畳む。ただし中身が入っている欄（本文・ひとこと・印・期間・リンク・書きかけの作業メモ）は畳まない */
-    id: 'boardShow', type: 'set', def: BOARD_SHOW_DEF.slice(),
+    id: 'boardShow', type: 'set', def: BOARD_SHOW_DEF.slice(), pages: ['board'],
     label: '盤（泡をタップして開く面）にはじめから出す欄',
     choices: BOARD_PARTS,
     note: '選ばなかった欄は盤の「その他」に畳む。本文・ひとこと・お気に入り・優先度・期間・リンク・書きかけの作業メモは、'
       + '中身が入っていれば選ばなくても出す。[はじめた]・[完了]・[消す] はいつも出す',
   },
   {
-    id: 'tabOrder', type: 'order', def: TAB_IDS.slice(),
+    id: 'tabOrder', type: 'order', def: TAB_IDS.slice(), pages: ['all'],
     label: '下のタブの並び',
   },
 ];

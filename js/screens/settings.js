@@ -38,7 +38,7 @@ import {
   getKey, setKey, hasKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
   PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
 } from '../ai.js';
-import { ITEMS, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
+import { ITEMS, PAGES, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
   changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
 import { openHelp } from '../help.js';
 import { openUpcoming, lastLine } from '../upcoming.js';
@@ -239,7 +239,7 @@ export default {
     }
 
     /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
-    const gLook = group('音と表示を変える', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
+    const gLook = group('音と表示を変える', '画面（全体・海・今日・リスト・盤・引き出し）を選んで、音と表示を変える');
     /* 「AI を使う」ではなく「AI を使う設定をする」（Issue #45）。ヘルプそのものは上の1行へ分けた */
     const gAi = group('AI を使う設定をする', 'API キー・モデル・先の予定');
     /* 2026-11-12 Issue #45（A 案）: 「他の人と一緒に使う」は、海を共有する・チャットする だけにし、それぞれの中で
@@ -255,8 +255,41 @@ export default {
     const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
+    /* --- どの画面を変えるか（2026-11-13 Issue #49 の返事「ごちゃごちゃしてきたので、どのページを変えるかを間に挟む」）---
+       先に画面を1つ選び、その画面に効く項目だけを下に出す。項目の画面は js/prefs.js の pages（data-pages）。
+       AI に頼む欄・既定に戻す・全体に提案するは、どの画面でも出す（data-pages を付けない）。選んだ画面は設定を開き直しても覚える */
+    const pageRow = el('div', 'prefs-pages');
+    pageRow.setAttribute('role', 'group');
+    pageRow.setAttribute('aria-label', 'どの画面を変えるか');
+    pageRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px';
+    const pageHint = el('p', 'note');
+    pageHint.setAttribute('aria-live', 'polite');   /* 選んだ画面の説明。状態の行なので隠さない */
+    const pageBtns = PAGES.map(([pid, name]) => {
+      const b = el('button', 'btn', name);
+      b.type = 'button';
+      b.dataset.page = pid;
+      b.addEventListener('click', () => { lookPage = pid; applyLookPage(); });
+      pageRow.appendChild(b);
+      return b;
+    });
+    const applyLookPage = () => {
+      pageBtns.forEach(b => b.setAttribute('aria-pressed', b.dataset.page === lookPage ? 'true' : 'false'));
+      gLook.querySelectorAll('[data-pages]').forEach(n => {
+        n.hidden = n.dataset.pages.split(' ').indexOf(lookPage) < 0;
+      });
+      const nm = (PAGES.find(p => p[0] === lookPage) || ['', ''])[1];
+      pageHint.textContent = '「' + nm + '」を変える項目だけを出している。'
+        + (lookPage === 'all' ? 'きっかけ・すきまの画面には、今は変えられる項目が無い。' : '');
+    };
+    const pageLb = el('p', 'prefs-pages-lb', 'どの画面を変える？');   /* 説明ではなく問いなので .note にしない（ⓘ の裏に隠さない） */
+    pageLb.style.cssText = 'margin:8px 0 4px;font-size:13.5px;font-weight:600';
+    gLook.appendChild(pageLb);
+    gLook.appendChild(pageRow);
+    gLook.appendChild(pageHint);
+
     /* --- 音 --- */
     const soundRow = el('label', 'setrow');
+    soundRow.dataset.pages = 'all';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.checked = isOn();
@@ -270,6 +303,7 @@ export default {
 
     /* 効果音（2026-11-07 利用者の指示 Issue #18）。完了音とは別のスイッチ */
     const sfxRow = el('label', 'setrow');
+    sfxRow.dataset.pages = 'all';
     const sfxCb = document.createElement('input');
     sfxCb.type = 'checkbox';
     sfxCb.checked = isSfxOn();
@@ -281,15 +315,18 @@ export default {
     sfxRow.appendChild(sfxCb);
     sfxRow.appendChild(el('span', null, '泡を足す・はじめた・タブに置くときに小さく鳴らす'));
     gLook.appendChild(sfxRow);
-    gLook.appendChild(el(
+    const sndNote = el(
       'p', 'note',
       '完了の音は自分で「完了」を押したときだけ。消す・戻すときには鳴らない。'
       + '端末が消音のとき（iPhone の消音スイッチなど）や、'
       + '「視差効果を減らす」をオンにしているときは鳴らない。'
-    ));
+    );
+    sndNote.dataset.pages = 'all';
+    gLook.appendChild(sndNote);
 
     /* 似ている泡を近くに寄せる（2026-11-07 Issue #23）。端末にだけ置く */
     const affRow = el('label', 'setrow');
+    affRow.dataset.pages = 'sea today';
     const affCb = document.createElement('input');
     affCb.type = 'checkbox';
     affCb.checked = isAffinityOn();
@@ -302,7 +339,8 @@ export default {
     gLook.appendChild(affRow);
 
     /* --- この端末の表示（2026-11-10。Issue #36。js/prefs.js）--- */
-    gLook.appendChild(prefsBox());
+    gLook.appendChild(prefsBox(() => applyLookPage()));
+    applyLookPage();
 
     /* --- サーバー・ブロックチェーンを準備する（Issue #45）---
        サーバーなし版（solo.html）のサーバーの欄は、繋ぐページへの案内だけ（通信してよい先を決め打ちにしているので繋がらない）。
@@ -4010,7 +4048,11 @@ function textEl(tag, cls, text) {
 const selStyle = 'font:inherit;font-size:16px;min-height:40px;padding:0 8px;border-radius:10px;'
   + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
 
-function prefsBox() {
+/* 「音と表示を変える」で選んでいる画面（js/prefs.js の PAGES の id）。設定を開き直しても覚える */
+let lookPage = 'all';
+
+/* onRender: 項目を描き直したあとに呼ぶ（「どの画面を変えるか」の出し入れをかけ直すため） */
+function prefsBox(onRender) {
   const wrap = el('div', 'tags prefs-box');
   wrap.appendChild(el('h3', null, 'この端末の表示を変える'));
   wrap.appendChild(el('p', 'note', '好みで見た目と動きを変える。この端末にだけ置く（同期・CSV・引っ越しには乗らない）。'));
@@ -4036,7 +4078,12 @@ function prefsBox() {
 
   function renderControls() {
     controls.textContent = '';
+    const outer = controls;
     ITEMS.forEach(it => {
+      /* 項目ごとの囲い。data-pages で「どの画面を変えるか」の選びに合わせて出し入れする（Issue #49 の返事） */
+      const controls = el('div', 'prefs-item');
+      controls.dataset.pages = (it.pages || ['all']).join(' ');
+      outer.appendChild(controls);
       if (it.type === 'bool') {
         const row = el('label', 'setrow');
         const cb = document.createElement('input');
@@ -4142,6 +4189,7 @@ function prefsBox() {
     controls.appendChild(el('p', 'note',
       '「全体に提案する」は、既定から変えた項目と値だけを書いた新しい Issue の画面を GitHub で開く（送るのは開いた画面で Create を押したとき。公開の repo なので誰でも読める）。'
       + '全体の既定にするかはそこで決め、決まれば版の更新で届く。'));
+    if (onRender) onRender();
   }
 
   /* GitHub の新しい Issue の画面を開く（右上の ! と同じ仕組み。押した操作の中で開く） */

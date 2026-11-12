@@ -4,8 +4,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   PREFS_KEY, TAB_IDS, defaults, normalize, checkValue, applyChanges, changedFromDefault, changeLines,
-  loadPrefs, savePrefs, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle, valueText,
+  loadPrefs, savePrefs, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle, valueText, ITEMS, PAGES,
 } from '../js/prefs.js';
+
+test('どの項目も、どの画面を変えるか（PAGES）のどれかに入る（Issue #49 の返事）', () => {
+  const ids = new Set(PAGES.map(p => p[0]));
+  ITEMS.forEach(it => {
+    assert.ok(Array.isArray(it.pages) && it.pages.length, it.id + ' に pages が無い');
+    it.pages.forEach(p => assert.ok(ids.has(p), it.id + ' の ' + p + ' は PAGES に無い'));
+  });
+});
 
 test('盤にはじめから出す欄（Issue #49。set の項目）', () => {
   const d = defaults().boardShow;
