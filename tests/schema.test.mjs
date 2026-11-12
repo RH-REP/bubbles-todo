@@ -271,25 +271,40 @@ await test('[今すぐ更新]：Android の app なら確かめに行かず「�
   assert.equal(isNativeApp({ Capacitor: {} }), true);
 });
 
-await test('[今すぐ更新]：service worker の登録が無いブラウザなら「読み直す」に変わり、押すと読み直す', async () => {
+await test('[今すぐ更新]：service worker の登録が無いブラウザなら、押したらすぐ強制更新する（2026-11-12）', async () => {
   const { mountSchemaGuard, RELOAD_TEXT, NATIVE_TEXT, OUTDATED_TEXT } = await import(GUARD_URL);
-  let reloads = 0;
+  let forced = 0;
   const api = stuckSync();
   const g = mountSchemaGuard({ document: fakeDocument(), sync: api, native: false,
-    checkForUpdate: async () => null, applyUpdate: async () => {}, reload: () => { reloads++; } });
+    checkForUpdate: async () => null, applyUpdate: async () => { throw new Error('入れ替えに行かない'); },
+    forceReload: async () => { forced++; } });
   const [msg, btn] = g.bar.children;
   await btn.listeners.click();
+  assert.equal(forced, 1, '1回押しただけで強制更新していない');
   assert.equal(msg.textContent, RELOAD_TEXT);
   assert.notEqual(msg.textContent, NATIVE_TEXT, 'Android の文を出さない');
-  assert.equal(btn.textContent, '読み直す');
-  assert.equal(reloads, 0);
-  await btn.listeners.click();
-  assert.equal(reloads, 1);
   /* いちど消えてまた出たら、初めの字とボタンに戻る */
   api.state = null; api.fire();
   api.state = { minSchema: 2 }; api.fire();
   assert.equal(msg.textContent, OUTDATED_TEXT);
   assert.equal(btn.textContent, '今すぐ更新');
+});
+
+await test('forceReload は画面のキャッシュを全部消してから読み直す（消せなくても読み直す）', async () => {
+  const { forceReload } = await import(new URL('../js/update.js', import.meta.url).href);
+  const names = new Set(['bubbles-2026-11-12b', 'bubbles-2026-11-12a', 'bubbles-meta']);
+  const order = [];
+  await forceReload({
+    cachesApi: { keys: async () => [...names], delete: async (n) => { order.push('del:' + n); return names.delete(n); } },
+    reload: () => order.push('reload'),
+  });
+  assert.equal(names.size, 0);
+  assert.equal(order[order.length - 1], 'reload', '消す前に読み直した');
+  let reloaded = 0;
+  await forceReload({ cachesApi: { keys: async () => { throw new Error('使えない'); } }, reload: () => { reloaded++; } });
+  assert.equal(reloaded, 1);
+  await forceReload({ cachesApi: undefined, reload: () => { reloaded++; } });
+  assert.equal(reloaded, 2);
 });
 
 await test('帯が出ている間は、帯の高さだけ上の段を下げる（has-guard と --guard-h）。消えたら戻す', async () => {

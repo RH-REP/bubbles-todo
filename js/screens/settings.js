@@ -26,7 +26,7 @@ import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, l
   signMsg, messagesFromPosts, signSnap } from '../p2p.js';
 /* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
 import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
-import { checkForUpdate, applyUpdate } from '../update.js';
+import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { folderBackup, folderBackupSupported, readBackup, backupSummary, backupFileName } from '../folderbackup.js';
 import {
@@ -3181,18 +3181,22 @@ function updateBox() {
     '版は' + (window.BUBBLES_VERSION ? '「v' + window.BUBBLES_VERSION + '」' : '不明') + '。'
     + 'ホーム画面に追加した端末（とくに iPhone）で、閉じて開き直しても古いままに見えるときに押す。'
   ));
-  if (!('serviceWorker' in navigator)) {
-    wrap.appendChild(el('p', 'note', 'このブラウザでは確認できない。'));
-    return wrap;
-  }
+  /* service worker の登録が無い（このブラウザに仕組みが無いときも）ときは、強制更新する
+     （画面のキャッシュを消して読み直す。2026-11-12 利用者の指示） */
+  const force = () => {
+    try { store.flush(); } catch (e) { /* 読み直すのは止めない */ }
+    toast('この端末は自動の入れ替えを使っていない。画面のキャッシュを消して、最新の版を読み直す…');
+    setTimeout(() => { forceReload(); }, 600);
+  };
   const row = el('div', 'row');
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
   const btn = el('button', 'btn', '最新の版を確認する');
   btn.type = 'button';
   btn.addEventListener('click', () => {
     btn.disabled = true;
+    if (!('serviceWorker' in navigator)) { force(); return; }
     checkForUpdate().then((found) => {
-      if (found === null) { toast('この端末では確認できない'); btn.disabled = false; return; }
+      if (found === null) { force(); return; }
       if (!found) { toast('今のが最新の版'); btn.disabled = false; return; }
       toast('新しい版が見つかった。入れ替えて読み直す…');
       applyUpdate().catch(() => { toast('入れ替えられなかった'); btn.disabled = false; });

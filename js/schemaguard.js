@@ -8,7 +8,8 @@
    押したあとの字は、その端末でできることを出す（2026-11-10 統合テスト Findings 3）：
      ・Android の app（Capacitor。www/ を中に持つので、service worker を入れ替えても新しくならない）
        → 確かめに行かず「app を作り直して入れ直す」
-     ・service worker の登録が無いブラウザ → 「ページを読み直す」。ボタンは［読み直す］に変わる
+     ・service worker の登録が無いブラウザ → 画面のキャッシュを消して、すぐ最新の版を読み直す（強制更新。
+       2026-11-12 利用者の指示。js/update.js の forceReload）
      ・登録はあるが新しい版がまだ無い → 「まだ見つからない」
    ■ 重ならない（同 Findings 4）
    帯は画面の上端に固定し、出ている間は帯の高さを --guard-h に入れて html に has-guard を付ける。
@@ -20,11 +21,11 @@
    DOM は渡されたものだけを触る（テストは小さな作り物の document で走らせる。tests/schema.test.mjs）。 */
 
 import { sync } from './sync.js';
-import { checkForUpdate, applyUpdate } from './update.js';
+import { checkForUpdate, applyUpdate, forceReload } from './update.js';
 
 export const OUTDATED_TEXT = 'この版は古いので同期を止めた。更新すると続きから合わさる';
 export const NOT_FOUND_TEXT = '新しい版がまだ見つからない（少し待ってもう一度押す）';
-export const RELOAD_TEXT = 'ここでは自動で入れ替えられない。ページを読み直す（ホーム画面の app は閉じて開き直す）';
+export const RELOAD_TEXT = '自動の入れ替えを使っていない端末なので、画面のキャッシュを消して最新の版を読み直す…';
 export const NATIVE_TEXT = 'Android の app は中の版を自分では入れ替えられない。app を作り直して入れ直す';
 
 /* Android の app（Capacitor の中）か。設定の画面（js/screens/settings.js）と同じく window.Capacitor で見る */
@@ -47,7 +48,7 @@ export function mountSchemaGuard(opts = {}) {
   const check = opts.checkForUpdate || checkForUpdate;
   const apply = opts.applyUpdate || applyUpdate;
   const native = 'native' in opts ? !!opts.native : isNativeApp();
-  const reload = opts.reload || (() => globalThis.location && globalThis.location.reload());
+  const force = opts.forceReload || (() => forceReload());
   if (!doc || !doc.body) return null;
   const root = doc.documentElement;
   if (doc.head) {
@@ -70,17 +71,15 @@ export function mountSchemaGuard(opts = {}) {
   btn.type = 'button';
   btn.textContent = '今すぐ更新';
   btn.style.cssText = 'font:inherit;padding:4px 10px;border-radius:8px;border:1px solid #fff;background:#fff;color:#3a3f5b';
-  let reloadMode = false;
-  function resetButton() { reloadMode = false; btn.textContent = '今すぐ更新'; btn.disabled = false; }
+  function resetButton() { btn.textContent = '今すぐ更新'; btn.disabled = false; }
   btn.addEventListener('click', async () => {
-    if (reloadMode) { reload(); return; }
     if (native) { msg.textContent = NATIVE_TEXT; return; }
     btn.disabled = true;
     try {
       const found = await check();
       if (found === null) {
         msg.textContent = RELOAD_TEXT;
-        reloadMode = true; btn.textContent = '読み直す'; btn.disabled = false;
+        await force();
         return;
       }
       if (!found) { msg.textContent = NOT_FOUND_TEXT; btn.disabled = false; return; }

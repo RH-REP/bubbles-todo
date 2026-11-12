@@ -50,3 +50,18 @@ export function applyUpdate() {
     setTimeout(() => resolve(), 4000);   /* controllerchange が来なくても固まらない */
   });
 }
+
+/* service worker の登録が無いときの強制更新（2026-11-12 利用者の指示「ない場合は、強制更新をする様に」）。
+   登録が無い端末（server.py から開いたページなど）では「確認できない」で止めず、
+   この端末に残っている画面のキャッシュ（Cache Storage）を消してから、ページを読み直す。
+   登録が無い＝画面を箱から出していないので、読み直せば網から最新の版を取る（server.py は no-store で返す）。
+   記録（localStorage）・IndexedDB は消さない。呼ぶ側は先に store.flush() で記録を書き切っておく。 */
+export async function forceReload({ cachesApi = globalThis.caches, reload = () => location.reload() } = {}) {
+  try {
+    if (cachesApi && typeof cachesApi.keys === 'function') {
+      const names = await cachesApi.keys();
+      await Promise.all(names.map((n) => cachesApi.delete(n)));
+    }
+  } catch (e) { /* 消せなくても読み直しは進める */ }
+  reload();
+}
