@@ -193,14 +193,14 @@ export default {
        ほかの箱と同じ1行に畳み、押したときだけ中身を出す（並びは箱のいちばん上） */
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */
     if (hasTags()) {
-      const gTag = group('タグを編集する', 'タグの名前・海にする・足す・消す');
+      const gTag = group('タグを編集する', 'タグの名前を直す・足す・消す');
       const tagBox = el('div', 'tags');
       tagBox.appendChild(el('h3', null, 'タグ'));
       tagBox.appendChild(el(
         'p', 'note',
-        'タグは海にできる（横一列に並ぶ。10個まで）。並べ替えは海を長押しして引きから。'
+        'タグは泡に付ける印。ここでは名前を直す・足す・消すだけをする。'
+        + 'タグを画面の横一列に並べる・外す・並べ替えるのは、画面を長押しして出る引きから。'
         + '上（長期保留）と下（完了）は動かせない。'
-        + '中央の海には、どのタグのものも浮かぶ。'
       ));
       const list = el('div', 'taglist');
       tagBox.appendChild(list);
@@ -639,31 +639,12 @@ function renderTags(list) {
     const fixed = fixedDirOf(tag.id);
     if (fixed) {
       const fx = el('span', 'tagdir is-fixed', FIXED_LABEL[fixed] || fixed);
-      fx.setAttribute('aria-label', tag.name + ' は ' + (FIXED_LABEL[fixed] || fixed) + ' の海（動かせない）');
+      fx.setAttribute('aria-label', tag.name + ' は ' + (FIXED_LABEL[fixed] || fixed) + ' に置かれる（動かせない）');
       row.appendChild(fx);
-    } else if (typeof store.isSea === 'function') {
-      /* 海にするか、しないか。並べ替えは海の引き（長押し）にある */
-      const isSea = store.isSea(tag.id);
-      const full = !isSea && typeof store.canBeSea === 'function' && !store.canBeSea(tag.id);
-      const b = el('button', 'tagdir is-sea', isSea ? '海にしている' : (full ? 'いっぱい' : '海にする'));
-      b.type = 'button';
-      b.disabled = full;
-      b.classList.toggle('is-on', isSea);
-      b.setAttribute('aria-pressed', isSea ? 'true' : 'false');
-      b.setAttribute('aria-label', tag.name + (isSea ? ' を海から降ろす' : ' を海にする'));
-      b.addEventListener('click', () => {
-        if (isSea) {
-          store.removeSea(tag.id);
-          toast('「' + tag.name + '」を海から降ろした（タグは残る）', {
-            label: '元に戻す', on: () => store.addSea(tag.id),
-          });
-        } else if (!store.addSea(tag.id)) {
-          toast('海は ' + (store.MAX_SEAS || 10) + ' 個まで');
-        }
-        renderTags(list);
-      });
-      row.appendChild(b);
     }
+    /* 2026-11-13 Issue #47 の返事「仕事・プライベートなどに海にするという項目がある。タグと海が混在している」:
+       「海」は1画面＝1つの同期の単位の名前になったので、タグの編集には「海にする」を置かない。
+       タグを画面の横一列に並べる・外すのは、海の画面の長押しの引き（js/seamap.js）だけにした */
 
     /* 消す。特別なタグは消せないのでボタンごと出さない */
     if (!tag.special) {
