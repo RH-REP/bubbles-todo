@@ -164,7 +164,7 @@ export default {
 
     /* --- 1行にまとめた箱（Issue #40。利用者の返事）---
        基本は個人の TODO なので、ふだん開いて見えるのは ふりかえり・使い方・ヘルプ・海域 だけにし、
-       ほかは「タグを編集する」「音と表示」「AI を使う設定をする」「他の人と一緒に使う」「記録の引っ越しと版」「その他」の
+       ほかは「タグを編集する」「音と表示」「AI を使う設定をする」「他の人と一緒に使う」「サーバー・ブロックチェーンを準備する」「記録を保存する・読み込む」「版」「その他」の
        1行ずつにまとめる。押すと中身が開く。
        「この端末の表示」で「あまり使わない機能も出す」にしていれば、開いた姿で始める */
     const allOpen = () => !!loadPrefs().allTools;
@@ -240,7 +240,11 @@ export default {
     const gLook = group('音と表示を変える', '完了の音・効果音・似ている泡を寄せる・この端末の表示');
     /* 「AI を使う」ではなく「AI を使う設定をする」（Issue #45）。ヘルプそのものは上の1行へ分けた */
     const gAi = group('AI を使う設定をする', 'API キー・モデル・先の予定');
-    const gShare = group('他の人と一緒に使う', 'サーバーを使う・ブロックチェーンを使う');
+    /* 2026-11-12 Issue #45（A 案）: 「他の人と一緒に使う」は、海を共有する・チャットする だけにし、それぞれの中で
+       「サーバーで／ブロックチェーンで」を選ぶ。サーバーに繋ぐ設定と、ブロックチェーンの始め方・ウォレット・鍵は
+       「サーバー・ブロックチェーンを準備する」へ。ブロックチェーンのバックアップは「記録を保存する・読み込む」へ移した */
+    const gShare = group('他の人と一緒に使う', '海を共有する・チャットする（サーバーで／ブロックチェーンで）');
+    const gPrep = group('サーバー・ブロックチェーンを準備する', 'サーバーに繋ぐ・ブロックチェーンを始める（ウォレット・鍵）');
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
@@ -297,24 +301,76 @@ export default {
     /* --- この端末の表示（2026-11-10。Issue #36。js/prefs.js）--- */
     gLook.appendChild(prefsBox());
 
-    /* --- サーバー（複数の端末で同じ記録を使う）---
-       サーバーなし版（solo.html）では出さない。通信してよい先を決め打ちにしているので、サーバーには繋がらない */
-    /* 「他の人と一緒に使う」は、開くとまず「サーバーを使う」「ブロックチェーンを使う」の選択肢だけを出し、
-       選んだほうの欄だけを下に出す（2026-11-11 Issue #43 の返事: 選択肢で誘導する） */
-    const shareChoice = choiceRow(gShare, 'どれで一緒に使うか');
-    let serverEl = null;
-    if (!isSolo()) {
-      serverEl = serverBox(this);
-      /* --- この海のチャット（サーバーあり版。2026-11-11 Issue #42）--- */
-      shareChoice.add('server', 'サーバーを使う', [serverEl, serverChatBox(this)]);
-    } else {
-      serverEl = soloServerBox();
-      shareChoice.add('server', 'サーバーを使う', [serverEl]);
+    /* --- サーバー・ブロックチェーンを準備する（Issue #45）---
+       サーバーなし版（solo.html）のサーバーの欄は、繋ぐページへの案内だけ（通信してよい先を決め打ちにしているので繋がらない）。
+       開くとまず「サーバー」「ブロックチェーン」の選択肢だけを出し、選んだほうの欄だけを下に出す（Issue #43 の返事: 選択肢で誘導する） */
+    const prepChoice = choiceRow(gPrep, 'どれを準備するか');
+    const serverEl = !isSolo() ? serverBox(this) : soloServerBox();
+    prepChoice.add('server', 'サーバー（海域）', [serverEl]);
+    /* 準備の箱の、ブロックチェーンのその操作を開く（ほかの箱の「ブロックチェーンを準備する」「ウォレットを開く」から） */
+    const goSetup = (k) => {
+      gPrep.open = true;
+      prepChoice.pick('chain');
+      if (k && chainEl.openTask) chainEl.openTask(k);
+      try { chainEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
+    };
+    const goServer = () => {
+      gPrep.open = true;
+      prepChoice.pick('server');
+      try { serverEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
+    };
+    /* --- ブロックチェーン（2026-11-08 Issue #31）。始め方・ネット・ウォレット・鍵・鍵を失ったとき ---
+       サーバーが配るページでも使える（2026-11-11 Issue #42 の A 案。server.py の CSP に Solana の RPC を足した） */
+    const chainEl = chainBox({ setup: true, tasks: ['wallet', 'key', 'lost'], title: 'ブロックチェーンを始める・ウォレットと鍵（Solana・試し）' });
+    prepChoice.add('chain', 'ブロックチェーン', [chainEl]);
+
+    /* --- 他の人と一緒に使う（Issue #45）: 海を共有する・チャットする。それぞれ「サーバーで／ブロックチェーンで」 --- */
+    const shareChoice = choiceRow(gShare, '何をするか');
+    const pointer = (title, text, label, on) => {
+      const w = el('div', 'tags');
+      w.appendChild(el('h3', null, title));
+      w.appendChild(el('p', 'note', text));
+      const r = el('div', 'row');
+      const b = el('button', 'btn', label);
+      b.type = 'button';
+      b.addEventListener('click', on);
+      r.appendChild(b);
+      w.appendChild(r);
+      return w;
+    };
+    /* 海を共有する */
+    {
+      const pane = el('div', null);
+      const sub = choiceRow(pane, 'どれで共有するか');
+      sub.add('server', 'サーバーで', [pointer('サーバーで海を共有する',
+        'サーバー（海域）の持ち主が、招く人の端末を認めると、その人の端末とも同じ海になる（自動で合わせる。手数料は掛からない）。'
+        + '招かれた人は、受け取った合言葉か招待コードを「サーバー・ブロックチェーンを準備する」→「サーバー（海域）」に入れる。'
+        + '海は左上の ≡ の引き出しで作り、切り替える。',
+        'サーバーの設定を開く', goServer)]);
+      const shareChain = chainBox({ tasks: ['share'], title: 'ブロックチェーンで海を共有する', goSetup });
+      sub.add('chain', 'ブロックチェーンで', [shareChain]);
+      shareChoice.add('sea', '海を共有する', [pane]);
+      if (sync.config().url) sub.pick('server');
+      else { const c = loadConfig(); if (c.mode || c.address) sub.pick('chain'); }
+    }
+    /* チャットする */
+    {
+      const pane = el('div', null);
+      const sub = choiceRow(pane, 'どれでチャットするか');
+      /* --- この海のチャット（サーバーあり版。2026-11-11 Issue #42）。solo.html はサーバーに繋がらないので、繋ぐページへの案内 --- */
+      sub.add('server', 'サーバーで', [!isSolo() ? serverChatBox(this)
+        : pointer('サーバーでチャットする', 'サーバーに繋いだときに使える。先にサーバーに繋ぐ。', 'サーバーの設定を開く', goServer)]);
+      const chatChain = chainBox({ tasks: ['memo'], title: 'ブロックチェーンでチャットする', goSetup });
+      chatChain.appendChild(el('p', 'note', '共有した海の中でのチャットは「海を共有する」→「ブロックチェーンで」の、その海の欄から開く。'));
+      sub.add('chain', 'ブロックチェーンで', [chatChain]);
+      shareChoice.add('chat', 'チャットする', [pane]);
+      if (sync.config().url) sub.pick('server');
+      else { const c = loadConfig(); if (c.mode || c.address) sub.pick('chain'); }
     }
 
     /* --- 記録を保存する・読み込む（Issue #43 の返事）---
-       置き場の選択肢: CSV のファイル・暗号化したファイル（この端末に書き出す）・サーバー・ブロックチェーン。
-       サーバーとブロックチェーンの操作は「他の人と一緒に使う」にあるので、ここでは働きの違いを書き、そちらを開くボタンを置く */
+       置き場の選択肢: CSV のファイル・暗号化したファイル（この端末に書き出す）・決めたフォルダ・サーバー・ブロックチェーン。
+       ブロックチェーンのバックアップは、ここにだけ置く（2026-11-12 Issue #45 の返事:「完全にうつしてしまう方が迷わない」） */
     const saveChoice = choiceRow(gSave, 'どこに保存するか');
     /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
     saveChoice.add('csv', 'CSV ファイル', [csvBox()]);
@@ -322,13 +378,6 @@ export default {
     saveChoice.add('file', '暗号化したファイル', [moveBox()]);
     /* --- 決めたフォルダに自動で控える（2026-11-12 利用者の指示。js/folderbackup.js）--- */
     saveChoice.add('folder', '決めたフォルダ（自動）', [folderBox()]);
-    const openShare = (k, then) => {
-      gShare.open = true;
-      shareChoice.pick(k);
-      if (then) then();
-      const t = k === 'chain' ? chainEl : serverEl;
-      try { t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
-    };
     {
       const w = el('div', 'tags');
       w.appendChild(el('h3', null, 'サーバーに置く'));
@@ -340,7 +389,7 @@ export default {
       const r = el('div', 'row');
       const b = el('button', 'btn', 'サーバーの設定を開く');
       b.type = 'button';
-      b.addEventListener('click', () => openShare('server'));
+      b.addEventListener('click', goServer);
       r.appendChild(b);
       w.appendChild(r);
       w.appendChild(st);
@@ -349,35 +398,31 @@ export default {
         if (gSave.open) st.textContent = sync.config().url ? 'いま: サーバーに繋いでいる（自動で置いている）。' : 'いま: サーバーには繋いでいない。';
       });
     }
+    /* --- ブロックチェーンのバックアップ（保存・復元・復元コード）。ここにだけ置く（Issue #45 の返事）--- */
     {
-      const w = el('div', 'tags');
-      w.appendChild(el('h3', null, 'ブロックチェーンに置く'));
-      w.appendChild(el('p', 'note',
+      const backupEl = chainBox({ tasks: ['backup'], title: 'ブロックチェーンにバックアップする（Solana・試し）', goSetup });
+      backupEl.insertBefore(el('p', 'note',
         '記録を暗号化して、Solana のチェーンにバックアップとして書く。押したときだけ書き（手数料が掛かる）、読み込みは今の記録に重ねる。'
-        + 'パスキーか合言葉で開く。どの端末からでも戻せる。'));
-      const r = el('div', 'row');
-      const b = el('button', 'btn', 'ブロックチェーンでバックアップする');
-      b.type = 'button';
-      b.addEventListener('click', () => openShare('chain', () => chainEl.openTask && chainEl.openTask('backup')));
-      r.appendChild(b);
-      w.appendChild(r);
-      saveChoice.add('chain', 'ブロックチェーン', [w]);
+        + 'パスキーか合言葉で開く。どの端末からでも戻せる。始め方・ウォレット・鍵は「サーバー・ブロックチェーンを準備する」にある。'),
+        backupEl.children[1] || null);
+      saveChoice.add('chain', 'ブロックチェーン', [backupEl]);
     }
-    /* --- ブロックチェーンに控え（2026-11-08 Issue #31）---
-       共有の海（Issue #37）もこの中にあるので「他の人と一緒に使う」へ。
-       サーバーが配るページでも使える（2026-11-11 Issue #42 の A 案。server.py の CSP に Solana の RPC を足した） */
-    const chainEl = chainBox();
-    shareChoice.add('chain', 'ブロックチェーンを使う', [chainEl]);
     /* いま使っているほうを選んだ姿で始める（サーバーに繋いでいればサーバー、ブロックチェーンを始めていればそちら） */
     {
       const c = loadConfig();
-      if (sync.config().url) shareChoice.pick('server');
-      else if (c.mode || c.address) shareChoice.pick('chain');
+      if (sync.config().url) prepChoice.pick('server');
+      else if (c.mode || c.address) prepChoice.pick('chain');
     }
+    /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
+    [gShare, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
+      if (!d.open) return;
+      d.querySelectorAll('.choice-pane').forEach(p => { if (!p.hidden && typeof p.refresh === 'function') p.refresh(); });
+    }));
 
     /* --- 記録の置き場（2026-11-11 Issue #42 の A 案）---
-       版（サーバーあり・なし）の違いを見せず、ここで置き場を選ぶ。選ぶと合うほうのページへ移るか、その欄を開く */
-    box.appendChild(placeBox({ gShare, serverEl, chainEl, pick: shareChoice.pick }));
+       版（サーバーあり・なし）の違いを見せず、ここで置き場を選ぶ。選ぶと合うほうのページへ移るか、その欄を開く。
+       サーバーとブロックチェーンの欄は「サーバー・ブロックチェーンを準備する」へ移した（Issue #45） */
+    box.appendChild(placeBox({ gShare: gPrep, serverEl, chainEl, pick: prepChoice.pick }));
     /* --- 海域を設定する（2026-11-12 利用者の指示。js/regions.js）--- */
     box.appendChild(regionsBox());
 
@@ -466,6 +511,8 @@ function choiceRow(parent, label) {
       const on = key === cur;
       it.btn.setAttribute('aria-pressed', on ? 'true' : 'false');
       it.els.forEach(e => { e.hidden = !on; });
+      /* 選んで出したとき、欄に読み直しがあれば呼ぶ（ブロックチェーンの欄。Issue #45） */
+      if (on) it.els.forEach(e => { if (typeof e.refresh === 'function') e.refresh(); });
     });
   }
   return {
@@ -1743,7 +1790,7 @@ function soloServerBox() {
    「複数の場所からつなげるように」）。
    一覧は「この端末だけ」と、足したサーバーの海域。各行の［開く］でその海域の個人へ移り、［⚙］で中を開く:
      名前・（サーバーなら）住所と合言葉・その海域の海（作る・名前と色を直す・消す）・この海域を外す。
-   パスキーで入るサーバーは、その海域の海を開いてから「他の人と一緒に使う」の「海域（サーバー）」で入る
+   パスキーで入るサーバーは、その海域の海を開いてから「サーバー・ブロックチェーンを準備する」の「海域（サーバー）」で入る（Issue #45 で移した）
    （パスキーの入場は、開いている海の海域にだけ効くため）。仕組みは js/regions.js・js/sync.js */
 function regionsBox() {
   const d = document.createElement('details');
@@ -1850,7 +1897,7 @@ function regionsBox() {
       });
       box.appendChild(f);
       box.appendChild(el('p', 'note',
-        'パスキーで入るサーバーは、上の［開く］でこの海域の海を開いてから、「他の人と一緒に使う」→「サーバーを使う」の「海域（サーバー）」で入る。'));
+        'パスキーで入るサーバーは、上の［開く］でこの海域の海を開いてから、「サーバー・ブロックチェーンを準備する」→「サーバー（海域）」の「海域（サーバー）」で入る。'));
     }
 
     /* その海域の海 */
@@ -2020,7 +2067,7 @@ function placeBox({ gShare, serverEl, chainEl, pick }) {
   function show(target) {
     gShare.open = true;
     if (!target) return;
-    /* 「他の人と一緒に使う」の中は選んだ欄だけを出す（Issue #43）。開く欄を選んだ姿にする */
+    /* 「サーバー・ブロックチェーンを準備する」の中は選んだ欄だけを出す（Issue #43・#45）。開く欄を選んだ姿にする */
     if (pick) pick(target === chainEl ? 'chain' : 'server');
     try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
   }
@@ -2049,7 +2096,7 @@ function placeBox({ gShare, serverEl, chainEl, pick }) {
     if (isSolo()) {
       /* solo.html はサーバーに繋がらない（CSP）。サーバーに繋ぐページへ移り、住所を入れる */
       try { sessionStorage.setItem(EDITION_STAY_KEY, 'server'); } catch (e) { /* 置けなければ、開いた先でまた戻る */ }
-      said = 'サーバーに繋ぐページに切り替える（「他の人と一緒に使う」→「サーバーを使う」の「海域（サーバー）に繋ぐ」に住所を入れる）…';
+      said = 'サーバーに繋ぐページに切り替える（「サーバー・ブロックチェーンを準備する」→「サーバー（海域）」の「海域（サーバー）に繋ぐ」に住所を入れる）…';
       paint();
       setTimeout(() => { location.href = 'index.html'; }, 300);
       return;
@@ -2175,21 +2222,32 @@ function resetAllBox() {
 
 /* ブロックチェーン（Solana）への控え（2026-11-08 Issue #31）。2026-11-11 Issue #42 から、サーバーが配るページにも出す。
    仕組みと形は js/chain.js。鍵の元はパスキー（PRF）か、app が作って見せる合言葉。元はどこにも置かない。 */
-function chainBox() {
+/* ブロックチェーンの欄。2026-11-12 Issue #45（A 案）で、1つの欄を働きごとの箱に分けて置けるようにした:
+     opts.setup  … 始め方（パスキー・合言葉）・ネット・鍵の移し替えを出す欄（「サーバー・ブロックチェーンを準備する」）
+     opts.tasks  … この欄で出す「やりたいこと」（TASKS の key）。1つだけならボタンを並べずに、その操作を出す
+     opts.title  … 見出し
+     opts.goSetup(k) … この欄に無いやりたいこと（ウォレット・始め方）へ移るとき。準備の箱を開く
+   どの欄も鍵と設定は同じもの（localStorage の CONFIG_KEY）を読む。別の欄で変えたら refresh() で読み直す */
+function chainBox(opts = {}) {
+  const setup = !!opts.setup;
+  const ALLOWED = opts.tasks || ['backup', 'wallet', 'key', 'share', 'memo', 'lost'];
   /* 控えに入れる海域を選ぶ（段2。利用者の指示「海域ごとに…すべてを選べる様に」） */
   const chainPick = regionPicker('ブロックチェーンの控え');
   const wrap = el('div', 'tags');
   /* 用語（2026-11-09 Issue #31 の返事で見直し）: ほかのウォレット・取引所と行き来するので、そちらと同じ言葉にそろえる。
      ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
-  wrap.appendChild(el('h3', null, 'ブロックチェーンを使う（Solana・試し）'));
+  wrap.appendChild(el('h3', null, opts.title || 'ブロックチェーンを使う（Solana・試し）'));
   /* サーバーが配るページでも使う（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
      server.py の CSP に Solana の公式 RPC を足したので、サーバーに繋いだままバックアップ・共有の海・チャットを使える。
      サーバーでない所（GitHub Pages・Android の app）で繋いでいない index.html は、開いたときに solo.html へ移る（js/boot-edition.js） */
-  wrap.appendChild(el('p', 'note',
-    '自分の記録を暗号化して、Solana の取引のメモに分けて書く。チェーンに書いたものは消せない（鍵が漏れれば、あとからでも読める）。'
-    + '分けた取引が1つでも欠けると戻せない。サーバーの住所と鍵、AI のキーは書かない。'
-    + '鍵は3種類: <b>パスキー</b>と<b>合言葉</b>は、ウォレット（手数料を払う）とバックアップの両方を開く。'
-    + '<b>復元コード</b>はバックアップを読むだけ（お金は動かせず、書けない）。ウォレットは手数料ぶんの少額だけを入れる。'));
+  if (setup) {
+    wrap.appendChild(el('p', 'note',
+      '自分の記録を暗号化して、Solana の取引のメモに分けて書く。チェーンに書いたものは消せない（鍵が漏れれば、あとからでも読める）。'
+      + '分けた取引が1つでも欠けると戻せない。サーバーの住所と鍵、AI のキーは書かない。'
+      + '鍵は3種類: <b>パスキー</b>と<b>合言葉</b>は、ウォレット（手数料を払う）とバックアップの両方を開く。'
+      + '<b>復元コード</b>はバックアップを読むだけ（お金は動かせず、書けない）。ウォレットは手数料ぶんの少額だけを入れる。'
+      + 'ここで始めたあと、バックアップは「記録を保存する・読み込む」、海の共有とチャットは「他の人と一緒に使う」で使う。'));
+  }
 
   let cfg = loadConfig();
   const netRow = el('label', 'setrow');
@@ -2204,7 +2262,8 @@ function chainBox() {
   netSel.value = cfg.network in NETWORKS ? cfg.network : 'devnet';
   netRow.appendChild(el('span', null, 'ネット: '));
   netRow.appendChild(netSel);
-  wrap.appendChild(netRow);
+  /* ネットを選ぶのは準備の欄だけ。ほかの欄は、準備の欄で選んだネット（cfg.network）で動く */
+  if (setup) wrap.appendChild(netRow);
 
   const info = el('p', 'note');
   info.setAttribute('aria-live', 'polite');
@@ -2230,7 +2289,6 @@ function chainBox() {
   let groupKey = null;
   /* やりたいこと（2026-11-11 Issue #43）。始めたあとは、ボタンを全部並べずに「やりたいこと」のボタンだけを出し、
      押したものの操作だけを下に出す。もう一度押すと畳む。paint をまたいで覚える（設定を開き直しても同じ所） */
-  let task = null;
   const TASKS = [
     /* 名前は「何をするか」で書く（Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
     ['backup', 'バックアップする', '保存・復元・復元コードを表示'],
@@ -2239,7 +2297,10 @@ function chainBox() {
     ['share', '海を共有する', '招待を受ける・自分の海に人を招く・共有中の海'],
     ['memo', '自分にメモを送る', '自分の端末どうしで短いメモを送り合う'],
     ['lost', '鍵を失ったときに読む', '復元コードで読む・この端末での設定を消す'],
-  ];
+  ].filter(([k]) => ALLOWED.includes(k));
+  /* やりたいことが1つだけの欄（バックアップ・共有など）は、ボタンを並べずにその操作をいつも出す */
+  const single = TASKS.length === 1 ? TASKS[0][0] : null;
+  let task = single;
   /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる。parent は畳む箱（fold）に入れるとき */
   function group(key, title, note, parent = row) {
     const g = el('div', null);
@@ -2308,12 +2369,16 @@ function chainBox() {
   }
   /* 失敗の知らせの横に、別のやりたいことへ移るボタンを出す */
   function offerTask(k, label) {
+    const here = TASKS.some(([key]) => key === k);
+    if (!here && !opts.goSetup) return;
     const t = target();
     const b = el('button', 'btn');
     b.type = 'button';
     b.textContent = label;
     b.style.cssText = 'margin-left:8px';
     b.addEventListener('click', () => {
+      /* この欄に無いもの（ウォレットなど）は、準備の箱のその操作を開く（Issue #45） */
+      if (!here) { opts.goSetup(k); return; }
       task = k;
       paint();
       curKey = k;
@@ -2375,6 +2440,20 @@ function chainBox() {
     into = row;
     const net = netSel.value;
     const pk = prfSupported();
+    if (!cfg.mode && !setup) {
+      /* 始め方は準備の箱にだけ置く（Issue #45）。ここでは、そこへ移るボタンだけ */
+      info.textContent = 'ブロックチェーンをまだ始めていない。先に「サーバー・ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
+      if (opts.goSetup) {
+        group('go-setup', '始める', null);
+        btn('ブロックチェーンを準備する', async () => opts.goSetup(null));
+      }
+      /* 鍵を失ったときの読むだけの復元は、バックアップの欄からも出す（始めていなくても使える） */
+      if (ALLOWED.includes('backup')) {
+        group('code', '復元コードで読む', 'パスキー・合言葉を失ったときに、バックアップを読むだけ（お金は動かせず、新しく保存もできない）。');
+        btn('復元コードで復元（読むだけ）', restoreByCode);
+      }
+      return;
+    }
     if (!cfg.mode) {
       /* 鍵の選び方（2026-11-10 Issue #31 の返事）。パスキーを先に置くが、合言葉も畳まずに並べる。
          パスキーが使える端末でも、パスキーが引き継がれない端末どうし（iPhone と Windows・Android など）で
@@ -2443,12 +2522,13 @@ function chainBox() {
 
     /* 鍵の移し替えの途中なら、いちばん上に段と次のボタンを出す（Issue #39） */
     const mv = currentMove();
-    if (mv) paintMove(mv);
+    if (mv && setup) paintMove(mv);
 
     /* やりたいこと（2026-11-11 Issue #43）。前はウォレット・バックアップ・共有・困ったときのボタンを全部並べていた。
        いまは「やりたいこと」のボタンだけを並べ、押したものの操作だけを下に出す。
-       残高・手数料が足りないなどの失敗が出たら、知らせの横に「ウォレットを開く」を出す（btn() の offerTask） */
-    taskBar({ share: sharedFor(loadShared(), cfg.address, net).length });
+       残高・手数料が足りないなどの失敗が出たら、知らせの横に「ウォレットを開く」を出す（btn() の offerTask）。
+       やりたいことが1つだけの欄（Issue #45）は、ボタンを並べない */
+    if (!single) taskBar({ share: sharedFor(loadShared(), cfg.address, net).length });
     if (task === 'wallet') paintWallet(net);
     else if (task === 'key') paintKey(net, mv, pk);
     else if (task === 'backup') paintBackup(net);
@@ -3494,7 +3574,7 @@ function chainBox() {
     if (!window.confirm('このバックアップをこの端末に復元する？\n保存した時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
       + (s.regions.length ? '\n海域 ' + s.regions.join('・') : '')
       + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。'
-      + (s.regions.length ? '\n海域の鍵は入っていない（足した海域は、歯車か「他の人と一緒に使う」で入り直す）。' : ''))) {
+      + (s.regions.length ? '\n海域の鍵は入っていない（足した海域は、歯車か「サーバー・ブロックチェーンを準備する」で入り直す）。' : ''))) {
       line.textContent = 'やめた';
       return true;
     }
@@ -3555,7 +3635,14 @@ function chainBox() {
 
   /* ほかの箱から「やりたいこと」を選んで開く（Issue #43 の返事:「記録を保存する・読み込む」→ ブロックチェーン）。
      まだ始めていなければ、鍵を選ぶ画面のまま */
-  wrap.openTask = k => { if (cfg.mode) { task = k; paint(); } };
+  wrap.openTask = k => { if (cfg.mode && TASKS.some(([key]) => key === k)) { task = k; paint(); } };
+  /* 別の欄（準備の箱など）で始めた・鍵やネットを替えたあとに読み直す（Issue #45 で欄が分かれたため）。
+     箱を開いたとき・選択肢で選んだときに呼ぶ */
+  wrap.refresh = () => {
+    cfg = loadConfig();
+    netSel.value = cfg.network in NETWORKS ? cfg.network : 'devnet';
+    paint();
+  };
 
   paint();
   return wrap;
