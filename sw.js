@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-13e';
+const VERSION = '2026-11-13f';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -76,6 +76,7 @@ const ASSETS = [
   './js/feedback.js',   /* 画面の !（改善のコメント）。module ではなく普通の script */
   './js/focus.js',
   './js/ai.js',          /* Anthropic を呼ぶ薄い層（2026-11-04 Issue #9） */
+  './js/aikey.js',       /* AI のキーに鍵をかけて置く（2026-11-13 Issue #14） */
   './js/help.js',        /* ヘルプ画面（同上） */
   './js/events.js',      /* 先の予定の計算（2026-11-04 Issue #13） */
   './js/upcoming.js',    /* 先の予定の板（同上） */

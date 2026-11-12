@@ -38,6 +38,8 @@
    会社ごとに一覧から選ぶ。一覧に無いモデル名は「手で入れる」で入れられる（'custom:<名前>' で保存）。
    Anthropic の既定は Opus 5.5（2026-11-07 利用者の指示 Issue #13。前は Haiku 5.5）。 */
 
+import { loadLock, saveLock, clearLock, loadSealed, encName, sealKey, openSealed, openLock, makeLock, forget, isOpen } from './aikey.js';
+
 const PROVIDER_STORE = 'bubble_todo_ai_provider';
 
 /* 送り先の窓口。CSP の connect-src（server.py の CSP・solo.html の <meta>）と同じものだけ。
@@ -157,8 +159,10 @@ export function modelsFor(p) { return prov(p).models; }
 const ANTHROPIC_VERSION = '2023-06-01';
 const MAX_TOKENS = 1024;
 
+/* 平文の箱（前からの置き方）。鍵をかけたキーは js/aikey.js の暗号文の箱にあり、ここでは見えない */
 export function getKey(p) { return lsGet(prov(p).keyStore); }
 
+/* 平文で置く（前からの置き方。テストと、鍵をかける前の移し替えのため残す。設定の画面は saveKeyLocked を使う） */
 export function setKey(v, p) {
   try {
     const s = String(v || '').trim();
@@ -169,8 +173,75 @@ export function setKey(v, p) {
   } catch (e) { return false; }
 }
 
-/* 今選んでいる会社のキーがあるか */
-export function hasKey(p) { return !!getKey(p); }
+/* ---- 鍵をかけて置く（2026-11-13 Issue #14） ---- */
+/* 鍵をかけたキーがあるか */
+export function isKeyLocked(p) { return !!loadSealed(prov(p).keyStore); }
+/* 平文のまま置いてあるか（鍵をかける前の古い置き方） */
+export function isKeyPlain(p) { return !!getKey(p); }
+/* 末尾 4 字（見分け用） */
+export function keyTail(p) {
+  const s = loadSealed(prov(p).keyStore);
+  if (s) return String(s.tail || '');
+  return getKey(p).slice(-4);
+}
+export function keyLock() { return loadLock(); }
+export const lockNow = forget;
+export const keyOpen = isOpen;
+
+function askPassPrompt() {
+  return typeof window !== 'undefined' && window.prompt ? window.prompt('AI のキーの合言葉（鍵をかけたときに決めたもの）') : '';
+}
+
+/* キーに鍵をかけて置く。錠がまだ無ければ mode（'passkey' | 'pass'）で作る。askNewPass = 新しい合言葉を訊く関数。
+   置いたら平文の箱は消す。押した手の続きで呼ぶ（パスキー） */
+export async function saveKeyLocked(v, p, opts = {}) {
+  const P = prov(p);
+  const s = String(v || '').trim();
+  if (!s) throw new Error('キーが空');
+  let lock = loadLock();
+  let aes;
+  if (!lock) {
+    const made = await makeLock(opts.mode === 'passkey' ? 'passkey' : 'pass', opts.askNewPass || (() => ''));
+    lock = made.lock; aes = made.aes;
+    saveLock(lock);
+  } else {
+    aes = await openLock(lock, opts.askPass || askPassPrompt);
+  }
+  const sealed = await sealKey(aes, s, P.id);
+  localStorage.setItem(encName(P.keyStore), JSON.stringify(sealed));
+  localStorage.removeItem(P.keyStore);
+  return true;
+}
+
+/* 平文で置いてあるキーに鍵をかける（古い置き方からの移し替え） */
+export async function lockPlainKey(p, opts = {}) {
+  const v = getKey(p);
+  if (!v) return false;
+  return saveKeyLocked(v, p, opts);
+}
+
+/* キーを消す（平文・暗号文の両方）。どの会社のキーも無くなったら錠も外す */
+export function removeKey(p) {
+  const P = prov(p);
+  try { localStorage.removeItem(P.keyStore); localStorage.removeItem(encName(P.keyStore)); } catch (e) { return false; }
+  if (!PROVIDER_IDS.some(id => hasKey(id))) clearLock();
+  return true;
+}
+
+/* 使う時だけ取り出す。平文の箱があればそれ、鍵をかけたものは錠を開けて復号する。
+   錠は OPEN_MS のあいだ開いたまま（キーの平文は呼び出しが終われば捨てる） */
+async function useKey(p) {
+  const P = prov(p);
+  const plain = getKey(p);
+  if (plain) return plain;
+  const sealed = loadSealed(P.keyStore);
+  if (!sealed) throw new Error('API キーが入っていない');
+  const aes = await openLock(loadLock(), askPassPrompt);
+  try { return await openSealed(aes, sealed, P.id); } catch (e) { forget(); throw e; }
+}
+
+/* 今選んでいる会社のキーがあるか（平文でも、鍵をかけたものでも） */
+export function hasKey(p) { return !!getKey(p) || isKeyLocked(p); }
 
 /* 2026-11-04 Issue #13「何回やっても一覧にできない」: 4096 では、考える分（Haiku 5.5 は既定で考える）と
    検索の結果を読む分に食われ、JSON が途中で切れていた（stop_reason: max_tokens）。
@@ -217,8 +288,7 @@ async function postAnthropic(key, body) {
    stop は、上限で切れたときは会社に関わらず 'max_tokens'（呼び出し側はこれだけを見る） */
 async function chat(system, messages, maxTokens) {
   const p = getProvider();
-  const key = getKey(p);
-  if (!key) throw new Error('API キーが入っていない');
+  const key = await useKey(p);
   const model = getModel(p);
   const sys = String(system || '');
   const msgs = (messages || []).map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '') }));
@@ -286,9 +356,9 @@ export function searchUnavailableMessage() {
    text = text の塊をつないだもの。stop = 最後の stop_reason（'max_tokens' なら途中で切れた）。
    searchError = 検索ツールが返したエラーの印（例 'max_uses_exceeded'。HTTP は 200 のまま返る） */
 export async function askWithSearchFull(system, userText, opts) {
-  if (!getKey()) throw new Error('API キーが入っていない');
+  if (!hasKey()) throw new Error('API キーが入っていない');
   if (!canSearch()) throw new Error(searchUnavailableMessage());
-  const key = getKey();
+  const key = await useKey();
   const o = opts || {};
   const uses = Math.max(1, Math.min(SEARCH_USES_CAP, Number(o.maxUses) || SEARCH_MAX_USES));
   const messages = [{ role: 'user', content: String(userText || '') }];

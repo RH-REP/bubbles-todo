@@ -151,8 +151,14 @@
   （CSV の書き出し・サーバー同期・改善のコメント・エラーの記録のどれにも混ざらない。
   保存の箱と CSV は `tests/ai.test.mjs`、同期・改善のコメント・エラーの記録・引っ越しのファイルは `tests/key-leak.test.mjs`）。
   引っ越しのファイル（Issue #19）にもキーは入れない。新しい端末では入れ直す
-- **守り方の検討のまとめ（Issue #14。実装は一旦停止）**: [docs/api-key-security.md](docs/api-key-security.md)。
-  オリジン・CSP の限界・暗号化しても使う時は守れない理由・対策の案（A〜I）・未決のことを書いてある。再開する時はここから読む
+- **キーに鍵をかけて置く（2026-11-13 Issue #14。利用者の指示）**: キーは暗号化して `<キーの箱>_enc` に置き、平文は置かない
+  （`js/aikey.js`）。鍵はパスキー（PRF。使える端末）か、自分で決める合言葉（12 字以上・PBKDF2 60 万回）。錠の形は `bubble_todo_ai_key_lock`
+  （秘密は入らない）。AI を使うときに開け、開いた AES 鍵だけを 10 分メモリに置く（ページを閉じる・「今すぐ閉じる」で閉じる）。
+  パスキーの PRF の入力はブロックチェーンの控えと別なので、同じパスキーを選んでも財布の元は出ない。
+  前の版で平文のまま入れたキーは、そのまま使えるが、設定に「鍵をかける」が出る。テストは `tests/aikey.test.mjs`。
+  **使う時（開いている間）は守れない**（docs/api-key-security.md の 3.3）。上限額の運用は続ける
+- **守り方の検討のまとめ（Issue #14）**: [docs/api-key-security.md](docs/api-key-security.md)。
+  オリジン・CSP の限界・暗号化しても使う時は守れない理由・対策の案（A〜I）・未決のことを書いてある
 - **HTML として描かない（Issue #14）**: キーを読み出せるのは、ページの中で動くスクリプトだけ。利用者・共同の海のほかの人・AI が書いた文字
   （名前・本文・ひとこと・タグ名・AI の返事）は `textContent` で描き、`js/ui.js` の `el()` の第3引数（innerHTML）には入れない。
   `tests/html-sink.test.mjs` が `el(` の第3引数にデータの欄（`.text` `.name` `.by` など）が入っていないかを見る
@@ -463,6 +469,7 @@ node tests/sea.test.mjs
 node tests/csvio.test.mjs
 node tests/ai.test.mjs
 node tests/key-leak.test.mjs
+node tests/aikey.test.mjs
 node tests/html-sink.test.mjs
 node tests/research.test.mjs
 node --test tests/rollback.test.mjs

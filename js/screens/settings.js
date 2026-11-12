@@ -35,9 +35,10 @@ import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupSummary, backupFileName } from '../folderbackup.js';
 import {
-  getKey, setKey, hasKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
+  hasKey, isKeyLocked, isKeyPlain, keyTail, keyLock, keyOpen, lockNow, saveKeyLocked, lockPlainKey, removeKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
   PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
 } from '../ai.js';
+import { PASS_MIN as AIKEY_PASS_MIN, OPEN_MS as AIKEY_OPEN_MS } from '../aikey.js';
 import { ITEMS, PAGES, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
   changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
 import { openHelp } from '../help.js';
@@ -3821,7 +3822,6 @@ const REPO = 'RH-REP/bubbles-todo';
    ・キーは「入っている（…末尾4字）」の1行＋「変える」「消す」。入っていないときだけ入力欄（Enter でも保存）
    ・キーはヘルプと先の予定の両方で使うので、節の名前を「ヘルプと AI」にした
    ・2026-11-11 Issue #45: ヘルプは設定の上の1行へ分け、箱の名前を「AI を使う設定をする」、節を「AI の API キーとモデル」にした */
-function maskKey(k) { const s = String(k || ''); return s ? '…' + s.slice(-4) : ''; }
 
 /* 2026-11-11 Issue #45: 「ヘルプを開く」は設定の上の1行（使い方の下）へ分けた。ここは AI の API キーとモデルだけ。
    キーの欄が空の欄と「保存」だけでは何を入れるのか分からない、という指摘で、欄の上に「何を入れるか・何に使うか・どこで取るか」を
@@ -3898,18 +3898,76 @@ function helpAiBox() {
     }
     const row = el('div', 'row');
     row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
+    /* 鍵のかけ方（Issue #14 2026-11-13）。錠があればその方法、無ければパスキー（使える端末）か合言葉を選ぶ */
+    const lock = keyLock();
+    const lockName = l => (l && l.mode === 'passkey') ? 'パスキー' : '合言葉';
+    const askNewPass = () => {
+      const a = window.prompt('キーに鍵をかける合言葉を決める（' + AIKEY_PASS_MIN + ' 字以上。忘れたらキーを入れ直す）');
+      if (!a) return '';
+      if (a.length < AIKEY_PASS_MIN) { toast('合言葉は ' + AIKEY_PASS_MIN + ' 字以上にする'); return ''; }
+      const b = window.prompt('確かめのため、同じ合言葉をもう一度');
+      if (a !== b) { toast('合言葉が合わなかった'); return ''; }
+      return a;
+    };
+    /* 押した手の続きで呼ぶ（パスキーの確認は、押してからすぐでないと断られる） */
+    const runLock = async (fn, done) => {
+      try { await fn(); toast(done); }
+      catch (e) { toast((e && e.message) || '鍵をかけられなかった'); }
+      renderAll();
+    };
+    const lockButtons = (label, fn) => {
+      const out = [];
+      if (lock) return out;
+      if (prfSupported()) {
+        const b = el('button', 'btn', 'パスキーで' + label);
+        b.type = 'button';
+        b.addEventListener('click', () => fn('passkey'));
+        out.push(b);
+      }
+      const b2 = el('button', 'btn', '合言葉で' + label);
+      b2.type = 'button';
+      b2.addEventListener('click', () => fn('pass'));
+      out.push(b2);
+      return out;
+    };
+
     if (hasKey() && !editing) {
       const st = el('span', 'aikey-st');
-      st.textContent = 'API キー: 入っている（' + maskKey(getKey()) + '）';
+      st.textContent = isKeyLocked()
+        ? 'API キー: 入っている（…' + keyTail() + '・' + lockName(lock) + 'で鍵をかけてある'
+          + (keyOpen() ? '・今は開いている' : '') + '）'
+        : 'API キー: 入っている（…' + keyTail() + '）・鍵がかかっていない';
       st.style.cssText = 'flex:1;min-width:160px;font-size:13.5px';
+      row.appendChild(st);
+      if (isKeyPlain()) {
+        /* 平文のまま置いてあるキー（前の版で入れたもの）に鍵をかける */
+        const doLock = mode => runLock(() => lockPlainKey(undefined, { mode, askNewPass }), 'キーに鍵をかけた');
+        if (lock) {
+          const b = el('button', 'btn', lockName(lock) + 'で鍵をかける');
+          b.type = 'button';
+          b.addEventListener('click', () => doLock(lock.mode));
+          row.appendChild(b);
+        } else lockButtons('鍵をかける', doLock).forEach(b => row.appendChild(b));
+      }
+      if (isKeyLocked() && keyOpen()) {
+        const cl = el('button', 'btn', '今すぐ閉じる');
+        cl.type = 'button';
+        cl.addEventListener('click', () => { lockNow(); toast('閉じた（次に使うときに開ける）'); renderAll(); });
+        row.appendChild(cl);
+      }
       const ch = el('button', 'btn', '変える');
       ch.type = 'button';
       ch.addEventListener('click', () => renderKey(true));
       const rm = el('button', 'btn', '消す');
       rm.type = 'button';
-      rm.addEventListener('click', () => { setKey(''); toast('キーを消した'); renderAll(); });
-      row.appendChild(st); row.appendChild(ch); row.appendChild(rm);
+      rm.addEventListener('click', () => { removeKey(); toast('キーを消した'); renderAll(); });
+      row.appendChild(ch); row.appendChild(rm);
       keyBox.appendChild(row);
+      keyBox.appendChild(el('p', 'note', isKeyLocked()
+        ? 'キーは暗号化して置いてある。AI を使うときに' + lockName(lock) + 'で開け、開いたままにするのは '
+          + Math.round(AIKEY_OPEN_MS / 60000) + ' 分まで（ページを閉じると閉じる）。開いている間にページで悪いコードが動けば読まれうるので、'
+          + '使える上限額は ' + P.keyPlace + ' の側でも決めておく。'
+        : 'このキーは平文で置いてある。鍵をかけると、使っていない間に読まれなくなる。'));
       return;
     }
     const keyIn = document.createElement('input');
@@ -3919,19 +3977,25 @@ function helpAiBox() {
     keyIn.setAttribute('aria-label', P.label + ' の API キー');
     keyIn.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:16px;min-height:44px;'
       + 'padding:0 12px;border-radius:10px;border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
-    const save = () => {
+    /* 鍵をかけて保存する。錠がまだ無ければ mode（'passkey' | 'pass'）で作る */
+    const save = mode => {
       const v = keyIn.value.trim();
       if (!v) { toast('キーを貼り付けてから保存する'); return; }
-      if (!setKey(v)) { toast('保存できなかった'); return; }
-      toast(v.indexOf(P.keyPrefix) === 0 ? 'キーを保存した'
-        : 'キーを保存した（' + P.keyPrefix + ' で始まっていない。違う会社のキーかもしれない）');
-      renderAll();
+      const msg = v.indexOf(P.keyPrefix) === 0 ? 'キーに鍵をかけて保存した'
+        : 'キーに鍵をかけて保存した（' + P.keyPrefix + ' で始まっていない。違う会社のキーかもしれない）';
+      runLock(() => saveKeyLocked(v, undefined, { mode, askNewPass }), msg);
     };
-    keyIn.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); save(); } });
-    const sv = el('button', 'btn', 'キーを保存');
-    sv.type = 'button';
-    sv.addEventListener('click', save);
-    row.appendChild(keyIn); row.appendChild(sv);
+    row.appendChild(keyIn);
+    if (lock) {
+      keyIn.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); save(lock.mode); } });
+      const sv = el('button', 'btn', 'キーを保存（' + lockName(lock) + 'で鍵）');
+      sv.type = 'button';
+      sv.addEventListener('click', () => save(lock.mode));
+      row.appendChild(sv);
+    } else {
+      keyIn.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) ev.preventDefault(); });
+      lockButtons('鍵をかけて保存', save).forEach(b => row.appendChild(b));
+    }
     if (editing) {
       const cancel = el('button', 'btn', 'やめる');
       cancel.type = 'button';
@@ -3939,8 +4003,11 @@ function helpAiBox() {
       row.appendChild(cancel);
     }
     keyBox.appendChild(row);
-    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ置く（サーバー・CSV・同期には入らない）。'
-      + P.keyPlace + ' の側で、この app 専用のキーと使える上限額を決めておくと安心。'));
+    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ、暗号化して置く（サーバー・CSV・同期には入らない）。'
+      + (lock ? '鍵は前に決めた' + lockName(lock) + '。'
+        : (prfSupported() ? 'パスキー（指・顔）か、自分で決める合言葉で鍵をかける。パスキーが使えない端末は合言葉。'
+          : 'この端末はパスキーが使えないので、自分で決める合言葉（' + AIKEY_PASS_MIN + ' 字以上）で鍵をかける。'))
+      + 'AI を使うときに開ける。' + P.keyPlace + ' の側で、この app 専用のキーと使える上限額を決めておくと安心。'));
     if (editing) setTimeout(() => keyIn.focus(), 0);
   }
   renderKey(false);
