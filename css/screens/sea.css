@@ -593,6 +593,11 @@
   flex: none; font-size: 11px; letter-spacing: .04em;
   color: var(--text-2);
 }
+/* 期間の外で長期保留にいるもの（共有の記録 v1.5 §11）。赤にしない */
+.sea-row-span {
+  flex: none; font-size: 11px; letter-spacing: .02em;
+  color: var(--text-3);
+}
 
 /* ---------- 底の気孔（出し切れていないときだけ。2026-10-25 利用者の指示）----------
    前はここに「新しいほうから出している」の1行を置いていた。いまは横から見た岩の小山（気孔）で、

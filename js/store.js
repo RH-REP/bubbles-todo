@@ -525,6 +525,29 @@ function dayKeyOrNull(v) {
   return (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : null;
 }
 
+/* 期間（start・due の欄）から見て、今日がその外か（共有の記録 v1.5 §11。2026-11-12 利用者の決定）。
+   'before'（始まる前）／'after'（終わった後）／null（期間の中か、期間が無い）。
+   start と due の両方 → start ≦ 今日 ≦ due、start だけ → start ≦ 今日、due だけ → 今日 ≦ due。
+   本文の古い「期間:」の行は見ない（欄だけ）。key を省けば今日（todayKey。DAY_CUTOFF_HOUR）。 */
+function spanOutside(t, key) {
+  if (!t) return null;
+  const s = dayKeyOrNull(t.start), d = dayKeyOrNull(t.due);
+  if (!s && !d) return null;
+  const k = key || todayKey();
+  if (s && k < s) return 'before';
+  if (d && k > d) return 'after';
+  return null;
+}
+
+/* 期間の外なので、**表示だけ**長期保留の海へ回すか。記録（hold）は書き換えない——
+   hold を書くと gantt で waiting に見え、端末どうしの書き込みもぶつかるため（§11）。
+   手で長期保留にしたもの（hold）はもともと長期保留。今日に置いたもの（days に今日）は
+   期間の外でも今日の海に出すので回さない。完了・消したものも回さない。 */
+function spanHeldOf(t, key) {
+  if (!t || t.trashed || t.done || t.hold || t.today) return null;
+  return spanOutside(t, key);
+}
+
 /* 日付キーに n 日足した日付キー。**正午に寄せてから動かす**ので、
    夏時間の切り替え日でも日が飛ばない（recentDays と同じやり方）。
    形が違えば null。 */
@@ -2247,6 +2270,17 @@ export const store = {
   spanOf(id) {
     const t = store.get(id);
     return t ? { start: t.start || null, due: t.due || null } : null;
+  },
+
+  /* 期間の外なので表示だけ長期保留の海にいるか（§11）。'before'｜'after'｜null。
+     key（日付キー）を省けば今日。記録の hold とは別（isHold は記録だけを見る） */
+  spanHeld(id, key) {
+    return spanHeldOf(store.get(id), key);
+  },
+
+  /* 期間の外で長期保留の海に回すものの一覧（items の並び） */
+  spanHeldItems(key) {
+    return items.filter(t => !!spanHeldOf(t, key));
   },
 
   /* --- ひとこと（Issue #25。js/notes.js）---

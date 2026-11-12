@@ -445,7 +445,20 @@ export function updateBubble(node, item, opts = {}) {
     if (wob) wob.appendChild(ndot);
   }
   if (ndot) ndot.hidden = !fresh;
+  /* ---- 期間の外の添え字（共有の記録 v1.5 §11）----
+     期間の外なので長期保留の海にいる泡の下端に「11/20 から」「期間を過ぎた」と小さく。
+     赤にも「期限切れ」にもしない。item.spanNote が無い画面では出ない */
+  const spanNote = (item && typeof item.spanNote === 'string') ? item.spanNote : '';
+  let snote = node.querySelector(':scope > .wob > .snote');
+  if (spanNote && !snote) {
+    snote = el('span', 'snote');
+    snote.setAttribute('aria-hidden', 'true');
+    const wob = node.querySelector(':scope > .wob');
+    if (wob) wob.appendChild(snote);
+  }
+  if (snote) { snote.textContent = spanNote; snote.hidden = !spanNote; }
   let label = ariaFor(item, names, marks, started, done);
+  if (spanNote) label += '、' + spanNote;
   if (fresh) label += '、新しいひとことあり';
   node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
   node.dataset.id = item.id;

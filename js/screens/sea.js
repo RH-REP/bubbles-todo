@@ -545,6 +545,37 @@ function hasPastDay(t, key) {
   return !!k && daysOfSafe(t.id).some(d => d < k);
 }
 
+/* ---- 期間で長期保留へ回す（共有の記録 v1.5 §11。2026-11-12 利用者の決定）----
+   「gantt の日付の内部にあるものは、基本の海に表示し、期間外のものは長期保留におく」。
+   **表示の決まりで、記録（hold）は書き換えない。**描くたびに今日で決め直すので、
+   日をまたげば（catchUpDay → rollover → 描き直し）出る海も変わる。
+   判定は store.spanHeld（期間の外・手で長期保留にしていない・今日に置いていない・完了していない）。
+   期間の無いものは今までどおり。本文の古い「期間:」の行は見ない。 */
+function spanHeldSafe(t, key) {
+  if (!t || !has('spanHeld')) return null;
+  try { return store.spanHeld(t.id, key || undefined) || null; } catch (err) { return null; }
+}
+function spanHeldItemsSafe(key) {
+  if (!has('spanHeldItems')) return [];
+  try { const r = store.spanHeldItems(key || undefined); return Array.isArray(r) ? r : []; } catch (err) { return []; }
+}
+/* 長期保留の海で見分けるための小さな添え字。赤や「期限切れ」の札は使わない（README「引き受けないこと」） */
+function spanNoteOf(t, key) {
+  const why = spanHeldSafe(t, key);
+  if (!why) return '';
+  if (why === 'before') {
+    const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(t.start || ''));
+    return m ? Number(m[1]) + '/' + Number(m[2]) + ' から' : 'まだ期間の前';
+  }
+  return '期間を過ぎた';
+}
+/* 期間（月/日〜月/日）の短い書き方。案内のトーストに使う */
+function spanText(t) {
+  const md = (v) => { const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(v || '')); return m ? Number(m[1]) + '/' + Number(m[2]) : ''; };
+  const a = md(t && t.start), b = md(t && t.due);
+  return a && b ? a + '〜' + b : a ? a + '〜' : b ? '〜' + b : '';
+}
+
 function tagsOfSafe(id) {
   if (!has('tagsOf')) return [];
   try { const r = store.tagsOf(id); return Array.isArray(r) ? r : []; } catch (err) { return []; }
@@ -647,6 +678,8 @@ function quietOf(t, except) {
 
 function isQuietItem(t, except, key) {
   if (quietOf(t, except).length) return true;
+  /* 期間の外は長期保留の海だけに出す（§11） */
+  if (except !== 'hold' && spanHeldSafe(t, key)) return true;
   /* 今日より後に置いてあるものも、その日になったら出てくる。いまは出さない */
   return hasFutureDay(t, key);
 }
@@ -656,6 +689,7 @@ function isQuietItem(t, except, key) {
    完了は「終わった」、長期保留は「まだ終わっていないが、いまは見ない」。 */
 function isHoldItem(t) {
   if (!t) return false;
+  if (spanHeldSafe(t)) return true;          /* 期間の外で長期保留の海にいる（§11） */
   if (has('isHold')) { try { return !!store.isHold(t.id); } catch (err) { /* 落ちない */ } }
   return !!t.hold;
 }
@@ -740,7 +774,7 @@ function centerItems() {
   const key = todayKeySafe();
   const live = store.all().filter(t => !isDoneItem(t));
   if (!narrowSet.size) {
-    return capForSea(live.filter(t => !tagsOfSafe(t.id).length && !hasFutureDay(t, key)), 'center');
+    return capForSea(live.filter(t => !tagsOfSafe(t.id).length && !hasFutureDay(t, key) && !spanHeldSafe(t, key)), 'center');
   }
   /* 選んだうちの**どれかが当てはまれば出す**（「または」）。
      絞ったあとにも上限はかける——絞り込みは「どれを見るか」で、
@@ -751,6 +785,7 @@ function centerItems() {
       if (k === PAST_ONLY) { if (hasPastDay(t, key)) return true; }
       else if (k === FUTURE_ONLY) { if (hasFutureDay(t, key)) return true; }
       else if (tags.indexOf(k) >= 0) return true;
+      else if (k === 'hold' && spanHeldSafe(t, key)) return true;   /* 長期保留で絞れば、期間の外も出す */
     }
     return false;
   }), 'center');
@@ -798,6 +833,11 @@ function faceItems(face) {
   }
   let list;
   try { list = store.inTag(tag.id) || []; } catch (err) { return []; }
+  /* 長期保留の海には、期間の外のもの（記録は hold でない）も足す（§11） */
+  if (tag.id === 'hold') {
+    const seen = new Set(list.map(t => t.id));
+    list = list.concat(spanHeldItemsSafe(todayKeySafe()).filter(t => !seen.has(t.id)));
+  }
   /* タグの海も同じ規則。**その海そのもののタグだけは数えない**ので、
      長期保留の海は長期保留を出すし、きっかけを左右へ置いた人の海も空にならない */
   const key = todayKeySafe();
@@ -813,7 +853,9 @@ function isStarted(t) {
 
 function itemOf(t) {
   /* urgent / important は泡の右上の区分の点のため（bubble.js） */
-  return { id: t.id, text: t.text, started: isStarted(t), urgent: t.urgent, important: t.important };
+  /* spanNote は期間の外で長期保留の海にいるものの添え字（§11。bubble.js が小さく下に出す） */
+  return { id: t.id, text: t.text, started: isStarted(t), urgent: t.urgent, important: t.important,
+    spanNote: spanNoteOf(t) };
 }
 
 /* 追補4 §1：タグは点（marks）ではなく、バブルそのものの色で表す。
@@ -1268,6 +1310,14 @@ function untagHere(id, tag) {
   if (!has('setTag')) { toast('いまはタグを外せない'); return; }
   const name = nameOf(tag);
   if (tagsOfSafe(id).indexOf(tag.id) < 0) {
+    /* 期間の外で長期保留の海にいるだけのもの（§11）。記録の hold は無いので外せない。
+       出す道は「期間を変える・消す」か「今日に置く」。どちらも盤にある */
+    if (tag.id === 'hold' && spanHeldSafe(t)) {
+      const sp = spanText(t);
+      toast('「' + trim(t.text) + '」は期間' + (sp ? '（' + sp + '）' : '') + 'の外なので、ここに浮かんでいる。'
+        + '盤の「期間」を変えるか消すと海に出る（今日に置けば今日に出る）');
+      return;
+    }
     toast('「' + trim(t.text) + '」に『' + trim(name) + '』は付いていない');
     return;
   }
@@ -2865,6 +2915,10 @@ function renderGrid() {
       const st = el('span', 'sea-row-st', DONE_LB);
       row.appendChild(st);
     }
+
+    /* 期間の外で長期保留にいるもの（§11）。一覧でも同じ添え字 */
+    const sn = spanNoteOf(t);
+    if (sn) row.appendChild(el('span', 'sea-row-span', sn));
 
     /* さがしている間は、ふだん出さないものも出す。
        出す以上、**いまどこに居るか**を言わないと「なぜここに」になる */

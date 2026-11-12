@@ -205,6 +205,15 @@ function untilLabel(key) {
   return m ? (Number(m[1]) + '/' + Number(m[2]) + ' にもどる') : '';
 }
 
+/* 期間の外で長期保留にいるものの添え字（共有の記録 v1.5 §11）。赤・「期限切れ」にしない */
+function spanLabel(t, why) {
+  if (why === 'before') {
+    const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String((t && t.start) || ''));
+    return m ? Number(m[1]) + '/' + Number(m[2]) + ' から' : 'まだ期間の前';
+  }
+  return '期間を過ぎた';
+}
+
 function trimText(sv, n = 18) {
   const t = String(sv == null ? '' : sv);
   return t.length > n ? t.slice(0, n) + '…' : t;
@@ -274,7 +283,7 @@ function revealItem(t) {
   if (t.today) screen = 'today';
   else if (Array.isArray(t.anchors) && t.anchors.length) screen = 'plan';
   else if (t.gap) screen = 'gap';
-  else if (t.hold) face = 'hold';
+  else if (t.hold || (has('spanHeld') && store.spanHeld(t.id))) face = 'hold';   /* 期間の外も（§11） */
   else {
     const seas = has('seas') ? (store.seas() || []) : [];
     const ids = seas.map(x => (x && typeof x === 'object') ? x.id : x);
@@ -323,7 +332,9 @@ function renderDrawer() {
   const sections = [
     { key: 'recent', name: '最近つかった', list: recentList(key) },
     { key: 'fav',    name: 'お気に入り',   list: has('favItems') ? store.favItems() : [] },
-    { key: 'hold',   name: '長期保留',     list: has('holds') ? store.holds() : [] },
+    /* 期間の外で長期保留の海にいるもの（共有の記録 v1.5 §11）も、ここに並べる（「◯/◯ から」付き） */
+    { key: 'hold',   name: '長期保留',
+      list: (has('holds') ? store.holds() : []).concat(has('spanHeldItems') ? store.spanHeldItems() : []) },
   ].concat(tagSections());
   sections.forEach(sec => {
     const open = openSecs.has(sec.key);
@@ -384,6 +395,11 @@ function renderDrawer() {
         const sub = document.createElement('span');
         sub.className = 'sub';
         sub.textContent = untilLabel(t.holdUntil);
+        tx.appendChild(sub);
+      } else if (has('spanHeld') && store.spanHeld(t.id)) {
+        const sub = document.createElement('span');
+        sub.className = 'sub';
+        sub.textContent = spanLabel(t, store.spanHeld(t.id));
         tx.appendChild(sub);
       }
       row.appendChild(tx);

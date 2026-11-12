@@ -817,6 +817,18 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 }
 .bub .ndot[hidden] { display: none; }
 
+/* ---------- 期間の外の添え字（共有の記録 v1.5 §11。2026-11-12）----------
+   期間の外なので長期保留の海にいる泡の下の縁に、小さな字で「11/20 から」「期間を過ぎた」。
+   色は控えめな字の色（赤は使わない。「期限切れ」の札にもしない）。押す的ではない */
+.bub .snote {
+  position: absolute; left: 50%; bottom: 4%; transform: translateX(-50%);
+  max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; line-height: 1.5; letter-spacing: .02em; padding: 0 6px; border-radius: 999px;
+  color: var(--text-2); background: color-mix(in srgb, var(--surface) 82%, transparent);
+  pointer-events: none;
+}
+.bub .snote[hidden] { display: none; }
+
 /* ---------- 盤の優先度（急ぐ・大事）----------
    お気に入りと同じ札の作法。下に今の区分を言葉で1行。区分の色は小さな帯で添えるだけ */
 .bub-center .bc-prio { margin-bottom: 6px; }
