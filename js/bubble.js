@@ -23,6 +23,7 @@ import { askFull, askWithSearchFull, hasKey } from './ai.js';
 import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, applyName, cleanText, appendSection, lostUrls, failLine,
   buildAskPrompt, parseAskReply, askSectionText, leadDay, relatedDetail, ASK_MAX, DEADLINE_LEAD } from './research.js';
 import { spanFromDetail, withSpan } from './deadline.js';
+import { loadPrefs, BOARD_PART_LABEL } from './prefs.js';
 
 export const MIN_D = 78;      /* バブルの最小直径 px（文字量で決まるとき） */
 export const MAX_D = 200;     /* 同 最大 */
@@ -824,6 +825,17 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   }, onStart);
   if (a || acts) fields = el('div', 'bc-fields');
 
+  /* ---- はじめから出す欄（Issue #49）----
+     設定の「この端末の表示」で選んだ欄だけを出し、ほかは下の「その他」に畳む（.is-extra）。
+     選んでいなくても、中身が入っている欄（has）は畳まない——書いてあることが見えなくなるため。
+     盤を開くたびに読む（盤は書くたびに組み直されるので、設定を変えれば次に開いたときから効く） */
+  const boardShow = new Set(loadPrefs().boardShow || []);
+  const foldPart = (node, part, has) => {
+    if (!node) return;
+    node.dataset.part = part;
+    if (!has && !boardShow.has(part)) node.classList.add('is-extra');
+  };
+
   /* ---- タグの名前 ----
      バブルは色でしかタグを表せない（小さくて文字が入らない）。盤には余白があるので、
      ここで名前を文字にする。点は色の目印にすぎないので aria-hidden。
@@ -870,6 +882,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     nameIn.setAttribute('aria-label', '名前');
     wrap.appendChild(lb);
     wrap.appendChild(nameIn);
+    foldPart(wrap, 'name', false);      /* 名前は泡そのものに出ている */
     fields.appendChild(wrap);
   }
 
@@ -889,6 +902,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailBtn.type = 'button';
     detailBtn.addEventListener('click', ev => { ev.preventDefault(); openDetail(); });
     drow.appendChild(detailBtn);
+    foldPart(drow, 'detail', !!detailDraft.trim());
     fields.appendChild(drow);
     syncDetailBtn();
   }
@@ -907,6 +921,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     nrow.appendChild(notesBtn);
     fields.appendChild(nrow);
     syncNotesBtn();
+    foldPart(nrow, 'notes', !notesBtn.classList.contains('is-empty'));
   }
 
   /* ---- お気に入りの印（F7・利用者の指示 2026-09-24）----
@@ -929,8 +944,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     };
     syncFav();
     favBtn.addEventListener('click', ev => { ev.preventDefault(); favWant = !favWant; syncFav(); });
-    /* 印の無い泡では「その他」に畳む（Issue #40）。付いていれば、いつも出す */
-    if (!fav0) favBtn.classList.add('is-extra');
+    /* 印の無い泡では「その他」に畳む（Issue #40。Issue #49 で設定から出せる）。付いていれば、いつも出す */
+    foldPart(favBtn, 'fav', fav0);
     fields.appendChild(favBtn);
     saveFav = () => {
       if (favWant !== fav0) ask(a, 'setFav', id, favWant);
@@ -996,7 +1011,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     }
     sync();
     /* まだ分けていない泡では「その他」に畳む（Issue #40）。印があれば、いつも出す */
-    if (p0.urgent == null && p0.important == null) box.classList.add('is-extra');
+    foldPart(box, 'prio', !(p0.urgent == null && p0.important == null));
     fields.appendChild(box);
     savePrio = () => {
       if (want.urgent !== p0.urgent || want.important !== p0.important) ask(a, 'setPriority', id, want);
@@ -1038,6 +1053,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       if (t.id === 'today') syncTodayChip = on => chip.setAttribute('aria-pressed', on ? 'true' : 'false');
       tags.appendChild(chip);
     });
+    foldPart(tags, 'tags', false);      /* 付いているタグは泡の色に出ている */
     fields.appendChild(tags);
 
     /* ---- いつの日（カレンダー。利用者の指示）----
@@ -1132,6 +1148,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         cells.push({ key, b });
       }
       box.appendChild(grid);
+      foldPart(box, 'days', false);
       fields.appendChild(box);
 
       function paint() {
@@ -1268,7 +1285,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       fields.appendChild(box);
       syncSpanRow();
       /* 期間を決めていない泡では「その他」に畳む（Issue #40）。決めてあれば、いつも出す */
-      if (!curSpan()) box.classList.add('is-extra');
+      foldPart(box, 'span', !!curSpan());
     }
 
     /* ---- 長期保留の「戻ってくる日」（利用者の指示）----
@@ -1414,6 +1431,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       chip.appendChild(tx);
       tags.appendChild(chip);
     });
+    foldPart(tags, 'tags', false);
     fields.appendChild(tags);
   }
 
@@ -1445,6 +1463,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     stepIn.enterKeyHint = 'done';
     wrap.appendChild(lb);
     wrap.appendChild(stepIn);
+    foldPart(wrap, 'step', false);
     fields.appendChild(wrap);
     /* 書きかけがあればそちら、無ければいまの「次の一手」 */
     stepIn.value = String((draft && draft.next) || ask(a, 'firstStep', id) || '');
@@ -1460,6 +1479,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       memoBtn.addEventListener('click', ev => { ev.preventDefault(); openMemo(); });
       mrow.appendChild(mlb);
       mrow.appendChild(memoBtn);
+      foldPart(mrow, 'memo', !!memoDraft.trim());   /* 書きかけがあれば畳まない */
       fields.appendChild(mrow);
       syncMemoBtn();
     }
@@ -1510,8 +1530,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     box.appendChild(urlIn);
     wrap.appendChild(lb);
     wrap.appendChild(box);
-    /* リンクが空の泡では「その他」に畳む（Issue #40）。入っていれば、いつも出す */
-    if (!urlIn.value.trim()) wrap.classList.add('is-extra');
+    /* リンクが空の泡では「その他」に畳む（Issue #40。Issue #49 で設定から出せる）。入っていれば、いつも出す */
+    foldPart(wrap, 'url', !!urlIn.value.trim());
     fields.appendChild(wrap);
   }
 
@@ -1528,6 +1548,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     histBtn.textContent = '履歴を読む ›';
     histBtn.setAttribute('aria-expanded', 'false');
     histBtn.addEventListener('click', ev => { ev.preventDefault(); openHistory(); });
+    foldPart(histBtn, 'hist', false);
     /* 作業メモの行のすぐ下へ。要約しているものの隣に置く */
     if (memoBtn && memoBtn.parentElement && memoBtn.parentElement.parentElement === fields) {
       fields.insertBefore(histBtn, memoBtn.parentElement.nextSibling);
@@ -1545,13 +1566,22 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      あまり使わない欄（印の無いお気に入り・優先度、決めていない期間、空のリンク）は畳んでおき、
      ここを押したときだけ出す。開いた・閉じたは盤を開き直しても覚えておく（盤は書くたびに組み直されるため）。
      設定の「この端末の表示」で「あまり使わない機能も出す」にしていれば、畳まずに出す（CSS の body.pref-all-tools） */
-  if (fields && fields.querySelector('.is-extra')) {
+  /* 中身が無くて隠れている欄（記録の無い履歴など）は数えない。押しても何も出ない「その他」を作らないため */
+  const foldedNodes = fields ? [...fields.querySelectorAll('.is-extra')].filter(n => !n.hidden) : [];
+  if (fields && foldedNodes.length) {
     const more = el('button', 'bc-more');
     more.type = 'button';
+    /* 畳んだ欄の名前（Issue #49。どれを畳むかは設定で変わる）。長くなれば3つまでと「ほか」 */
+    const foldedNames = foldedNodes
+      .map(n => BOARD_PART_LABEL[n.dataset.part]).filter(Boolean)
+      .filter((v, i, arr) => arr.indexOf(v) === i);
+    const foldedTx = foldedNames.length > 4 ? foldedNames.slice(0, 3).join('・') + ' ほか' : foldedNames.join('・');
     const syncMore = () => {
       fields.classList.toggle('show-extra', boardExtraOpen);
       more.setAttribute('aria-expanded', boardExtraOpen ? 'true' : 'false');
-      more.textContent = boardExtraOpen ? 'その他を畳む ▴' : 'その他（お気に入り・優先度・期間・リンク） ▾';
+      more.textContent = boardExtraOpen ? 'その他を畳む ▴' : 'その他' + (foldedTx ? '（' + foldedTx + '）' : '') + ' ▾';
+      if (!boardExtraOpen) more.setAttribute('aria-label', 'その他を開く：' + foldedNames.join('・'));
+      else more.removeAttribute('aria-label');
     };
     more.addEventListener('click', ev => {
       ev.preventDefault();

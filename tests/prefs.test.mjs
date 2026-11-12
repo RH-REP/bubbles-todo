@@ -4,8 +4,25 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   PREFS_KEY, TAB_IDS, defaults, normalize, checkValue, applyChanges, changedFromDefault, changeLines,
-  loadPrefs, savePrefs, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle,
+  loadPrefs, savePrefs, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle, valueText,
 } from '../js/prefs.js';
+
+test('盤にはじめから出す欄（Issue #49。set の項目）', () => {
+  const d = defaults().boardShow;
+  assert.ok(d.includes('step') && !d.includes('url') && !d.includes('fav'));
+  /* 知らない値は落とし、並びは選ぶものの順にそろえる。空でもよい */
+  assert.deepEqual(checkValue('boardShow', ['url', 'name', 'xx', 'name']), ['name', 'url']);
+  assert.deepEqual(checkValue('boardShow', []), []);
+  assert.equal(checkValue('boardShow', 'name'), undefined);
+  /* 既定と同じ中身なら、並びが違っても既定から変えたことにしない */
+  assert.deepEqual(changedFromDefault({ boardShow: d.slice().reverse() }), {});
+  const m = mem();
+  savePrefs({ ...defaults(), boardShow: ['name', 'step'] }, m);
+  assert.deepEqual(loadPrefs(m).boardShow, ['name', 'step']);
+  assert.equal(valueText('boardShow', ['name', 'step']), '名前・次の一手');
+  assert.equal(valueText('boardShow', []), 'なし');
+  assert.ok(buildPrefsPrompt('盤はリンクも出して', defaults()).system.includes('boardShow'));
+});
 
 function mem() {
   const m = new Map();

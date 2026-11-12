@@ -4022,6 +4022,35 @@ function prefsBox() {
         controls.appendChild(row);
         return;
       }
+      if (it.type === 'set') {
+        /* いくつでも選ぶ（Issue #49。盤にはじめから出す欄）。押したらすぐ置く */
+        const box = el('fieldset', 'prefs-set');
+        box.style.cssText = 'border:0;padding:0;margin:10px 0 0;font-size:13.5px';
+        const lg = textEl('legend', null, it.label);
+        lg.style.cssText = 'padding:0;margin-bottom:4px';
+        box.appendChild(lg);
+        const grid = el('div', 'prefs-set-grid');
+        grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:2px 14px';
+        const on = new Set(cur[it.id] || []);
+        it.choices.forEach(([val, name]) => {
+          const row = el('label', 'setrow');
+          row.style.cssText = 'margin:0;min-height:40px';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = on.has(val);
+          cb.addEventListener('change', () => {
+            const next = it.choices.map(c => c[0]).filter(x => (x === val ? cb.checked : on.has(x)));
+            commit(applyChanges(cur, { [it.id]: next }).next, '盤の「' + name + '」: ' + (cb.checked ? 'はじめから出す' : '「その他」に畳む') + '（次に盤を開いたときから）');
+          });
+          row.appendChild(cb);
+          row.appendChild(textEl('span', null, name));
+          grid.appendChild(row);
+        });
+        box.appendChild(grid);
+        controls.appendChild(box);
+        if (it.note) controls.appendChild(textEl('p', 'note', it.note));
+        return;
+      }
       if (it.type === 'order') {
         controls.appendChild(textEl('p', 'note', it.label + '（↑↓ で動かす）'));
         const list = el('div', 'prefs-order');

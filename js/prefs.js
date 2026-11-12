@@ -25,7 +25,19 @@ export const PREFS_EVENT = 'bubbles:prefs';
 export const TAB_IDS = ['sea', 'today', 'plan', 'gap'];
 export const TAB_LABEL = { sea: '海', today: '今日', plan: 'きっかけ', gap: 'すきま' };
 
-/* 変えられる項目。type: 'choice'（choices の中から1つ）・'bool'・'order'（TAB_IDS の並べ替え） */
+/* 盤（泡をタップすると下に開く面）の欄（Issue #49）。並びは盤の上からの順。
+   [はじめた]・[完了]・[消す] の行と「もどってくる日」（長期保留の札を付けたときだけ出る）は、選ぶものに入れない */
+export const BOARD_PARTS = [
+  ['name', '名前'], ['detail', '本文'], ['notes', 'ひとこと'], ['fav', 'お気に入り'], ['prio', '優先度'],
+  ['tags', 'タグ'], ['days', 'いつの日'], ['span', '期間'], ['step', '次の一手'], ['memo', '作業メモ'],
+  ['hist', '履歴'], ['url', 'リンク'],
+];
+export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
+/* 既定で出す欄（Issue #40 までの姿と同じ。お気に入り・優先度・期間・リンクは畳む） */
+const BOARD_SHOW_DEF = ['name', 'detail', 'notes', 'tags', 'days', 'step', 'memo', 'hist'];
+
+/* 変えられる項目。type: 'choice'（choices の中から1つ）・'bool'・'order'（TAB_IDS の並べ替え）・
+   'set'（choices の中からいくつでも。並びは choices の順にそろえる） */
 export const ITEMS = [
   {
     id: 'start', type: 'choice', def: 'sea',
@@ -54,6 +66,15 @@ export const ITEMS = [
     label: 'あまり使わない機能も出す',
     note: '海の「はじめた日」、今日のおすすめ・四つに分ける、盤の「その他」の中身、設定の畳んだ箱（開いた姿で始める）。'
       + 'オフでも、盤は「その他」、設定はそれぞれの箱の行を押せば出る',
+  },
+  {
+    /* Issue #49。狭い画面（iPhone SE など）で盤が長く、下までなぞらないと届かないため。
+       選ばなかった欄は盤の「その他」に畳む。ただし中身が入っている欄（本文・ひとこと・印・期間・リンク・書きかけの作業メモ）は畳まない */
+    id: 'boardShow', type: 'set', def: BOARD_SHOW_DEF.slice(),
+    label: '盤（泡をタップして開く面）にはじめから出す欄',
+    choices: BOARD_PARTS,
+    note: '選ばなかった欄は盤の「その他」に畳む。本文・ひとこと・お気に入り・優先度・期間・リンク・書きかけの作業メモは、'
+      + '中身が入っていれば選ばなくても出す。[はじめた]・[完了]・[消す] はいつも出す',
   },
   {
     id: 'tabOrder', type: 'order', def: TAB_IDS.slice(),
@@ -90,6 +111,12 @@ export function checkValue(id, v) {
     if (new Set(a).size !== a.length) return undefined;
     if (!a.every(x => TAB_IDS.indexOf(x) >= 0)) return undefined;
     return a;
+  }
+  if (it.type === 'set') {
+    if (!Array.isArray(v)) return undefined;
+    const want = new Set(v.map(String));
+    /* 知らない値は落とす。並びは choices の順（同じ中身なら同じ並び＝既定と比べられる） */
+    return it.choices.map(c => c[0]).filter(x => want.has(x));
   }
   return undefined;
 }
@@ -142,6 +169,10 @@ export function valueText(id, v) {
   if (it.type === 'bool') return v ? 'オン' : 'オフ';
   if (it.type === 'choice') { const c = it.choices.find(x => x[0] === v); return c ? c[1] : String(v); }
   if (it.type === 'order') return (Array.isArray(v) ? v : []).map(x => TAB_LABEL[x] || x).join('・');
+  if (it.type === 'set') {
+    const a = (Array.isArray(v) ? v : []).map(x => { const c = it.choices.find(y => y[0] === x); return c ? c[1] : x; });
+    return a.length ? a.join('・') : 'なし';
+  }
   return String(v);
 }
 
@@ -187,6 +218,7 @@ export function itemsForPrompt(p) {
     if (it.type === 'bool') can = 'true / false';
     else if (it.type === 'choice') can = it.choices.map(c => '"' + c[0] + '"（' + c[1] + '）').join(' / ');
     else if (it.type === 'order') can = TAB_IDS.map(x => '"' + x + '"（' + TAB_LABEL[x] + '）').join('・') + ' の4つを並べた配列';
+    else if (it.type === 'set') can = it.choices.map(c => '"' + c[0] + '"（' + c[1] + '）').join('・') + ' から、出すものだけを入れた配列';
     return '- ' + it.id + ': ' + it.label + '。値: ' + can + '。今: ' + JSON.stringify(n[it.id]);
   }).join('\n');
 }
