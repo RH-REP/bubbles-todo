@@ -22,7 +22,7 @@ export function createDeadlineView(host, opts = {}) {
   root.setAttribute('role', 'group');
   root.setAttribute('aria-label', '日付で見る（終了日の近い順）');
   const cap = el('p', 'dl-cap', '終了日の近い順');
-  const empty = el('p', 'dl-empty', '先の日付のあるものは、まだ無い。盤の「いつの日」で日を置くか、「期間」で開始日と終了日を選ぶと、ここに並ぶ。');
+  const empty = el('p', 'dl-empty', '先の日付のあるものは、まだ無い。盤の「いつの日」で日を置くか、「期間」で開始日と終了日を選ぶと、ここに並ぶ。先の予定（設定）で前に調べた予定は、この海でも調べ直さずに選んで入れられる。');
   empty.hidden = true;
   const scroller = el('div', 'dl-scroll');
   const table = el('div', 'dl-table');
@@ -150,8 +150,8 @@ export function createDeadlineView(host, opts = {}) {
   root.appendChild(wxBar);
   root.appendChild(info);
   root.appendChild(dayLine);
-  root.appendChild(empty);
   root.appendChild(scroller);
+  root.appendChild(empty);                 /* 泡が無いときの説明は、日付の見出しの下に出す（Issue #54） */
   host.appendChild(root);
 
   function syncDayLine(cols) {
@@ -169,9 +169,11 @@ export function createDeadlineView(host, opts = {}) {
     const today = keyOf(new Date());
     const rows = deadlineRows(items, today);
     table.replaceChildren();
+    /* 日付の泡が無い海でも、日付の見出し（天気・祝日）は出す（2026-11-13 Issue #54）。
+       前は泡が無いと表ごと隠していたので、個人で取った天気が、まだ日付の泡の無い共有の海では見えなかった。
+       天気と地域は端末に1つだけ置いてあり（js/weather.js）、どの海でも同じものを読む。取り直しは要らない */
     empty.hidden = rows.length > 0;
-    scroller.hidden = rows.length === 0;
-    if (!rows.length) { dayLine.hidden = true; return; }
+    scroller.hidden = false;
     const n = columnCount(rows);
     const cols = columns(today, n);
     const last = cols[cols.length - 1].key;

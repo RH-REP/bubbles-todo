@@ -839,6 +839,9 @@ bash tests/server-setup.test.sh
 - **押したときだけ取る**（起動時・定期には取らない）。取った時刻と大きさ（受け取った本文。圧縮を解いたあと）を表の上に出す。
   届かなかったときは理由を出し、前に取ったものがあればそれを出したままにする
 - 置き場: 予報は端末の `localStorage`（`bubble_todo_weather_v1`）、選んだ地域は `bubble_todo_weather_area`。同期・CSV・引っ越しのファイルには乗らない
+- **海をまたいで使う**（2026-11-13 Issue #54）: 予報と地域は端末に1つだけで、個人でも共有の海でも同じものを出す（海ごとに取り直さない）。
+  日付の泡がまだ無い海でも、日付の見出し（天気・祝日）は出し、説明はその下に出す（前は表ごと隠れて、天気が引き継がれていないように見えた）。
+  ほかの端末・ほかの人には届かない（それぞれの端末で取る）
 - 出典: 表の上に「天気: Open-Meteo.com」（CC BY 4.0）
 - 送り先の制限（server.py の CSP の connect-src）に `https://api.open-meteo.com` を足した
 - 作り: `js/weather.js`（地点・URL・読み取り・印・保存）、`js/deadlineview.js`（表の上の1行と見出し）。テスト: `node --test tests/weather.test.mjs`
