@@ -2361,16 +2361,15 @@ function setGathering(on) {
   cancelShuffle();          /* 整列に入る／戻るときは、混ぜかけを畳む */
   gathering = on;
   forgetTagColors();
-  /* リスト表示の間は、字の「もどす」をやめて丸い ✕ だけにする（Issue #59「もどすの文字がどすしか見えない」）。
-     狭い画面（iPhone SE など）では左の札（フィルター・一覧｜日付｜四つ）が伸びて字の頭を覆っていた。
-     丸い 44px にすれば幅が決まり、左の札は css で手前に止める（css/screens/sea.css .sea-gather.is-on）。
-     字が消えるぶん、読み上げには aria-label で「海へもどる」を渡す */
+  /* 字をやめて、記号だけの丸いボタンにする（Issue #59）。海の上は ⇅、リスト表示の間は ✕。
+     狭い画面（iPhone SE など）では左の札（フィルター・一覧｜日付｜四つ）が伸びて「もどす」の頭を覆っていた。
+     返事で「リスト表示」の側も記号にそろえた。丸い 44px にすれば幅が決まり、左の札は css で手前に止める
+     （css/screens/sea.css .sea-gather）。字が見えないぶん、読み上げには aria-label、指を置けば title で名前を渡す */
   gatherLabel.textContent = on ? 'もどす' : 'リスト表示';
   gatherIc.textContent = on ? '✕' : '⇅';
-  if (on) gatherBtn.setAttribute('aria-label', '海へもどる');
-  else gatherBtn.removeAttribute('aria-label');
+  gatherBtn.setAttribute('aria-label', on ? '海へもどる' : 'リスト表示');
   gatherBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  gatherBtn.title = on ? '押すと海へもどる' : '押すと全部が並ぶ';
+  gatherBtn.title = on ? '海へもどる' : 'リスト表示（全部を並べる）';
   gatherBtn.classList.toggle('is-on', on);
   if (!on) gridMode = 'list';
   grid.hidden = !on || gridMode !== 'list';
@@ -3639,7 +3638,8 @@ export default {
     gatherBtn.appendChild(gatherIc);
     gatherBtn.appendChild(gatherLabel);
     gatherBtn.setAttribute('aria-pressed', 'false');
-    gatherBtn.title = '押すと全部が並ぶ';
+    gatherBtn.setAttribute('aria-label', 'リスト表示');   /* 字は見せない（記号だけ。Issue #59） */
+    gatherBtn.title = 'リスト表示（全部を並べる）';
     gatherBtn.addEventListener('click', ev => {
       ev.preventDefault();
       /* 開くときは、この端末の表示の「リスト表示を開いたときの形」から始める（Issue #40 の返事） */

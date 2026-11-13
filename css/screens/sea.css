@@ -286,8 +286,8 @@
 @keyframes sea-hint-bob { to { transform: translateY(7px); } }
 
 /* ---------- リスト表示（トグル） ----------
-   押している間ではなく、押したら並ぶ。だから札が「リスト表示」⇄ 丸い ✕ に変わる
-   ——解除の仕方が画面に見えていること（2026-11-13 Issue #59 で字の「もどす」を ✕ にした）。 */
+   押している間ではなく、押したら並ぶ。だから丸い ⇅ ⇄ ✕ に変わる
+   ——解除の仕方が画面に見えていること（2026-11-13〜14 Issue #59 で字の「リスト表示」「もどす」を記号にした）。 */
 .sea-gather {
   position: absolute; top: 60px; right: 66px; z-index: 8;
   appearance: none; cursor: pointer; font: inherit;
@@ -309,15 +309,18 @@
   border-color: var(--bub-edge);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
 }
-/* リスト表示の間は丸い ✕ だけ（Issue #59）。前は「⇅ もどす」の札で、
-   iPhone SE（幅 375）では左の札（フィルター・一覧｜日付｜四つ）が上に重なり「どす」しか見えなかった。
-   幅を 44 に決め、左の札はこのボタンの手前（右から 66＋44＋8＋左の 10＝128px）で止める */
-.sea-gather.is-on {
+/* 記号だけの丸いボタン（Issue #59）。海の上は ⇅（リスト表示）、リスト表示の間は ✕（海へもどる）。
+   前は「⇅ もどす」の札で、iPhone SE（幅 375）では左の札（フィルター・一覧｜日付｜四つ）が
+   上に重なり「どす」しか見えなかった。返事「リストの部分も文字から記号にして表示を揃えられる？」で、
+   海の上の「リスト表示」も記号だけにして、両方を同じ丸にそろえた（隣のさいころ・カレンダーと同じ形）。
+   幅を 44 に決め、左の札はこのボタンの手前（右から 66＋44＋8＋左の 10＝128px）で止める。
+   字が無いぶん、読み上げには aria-label、指を置いたときには title で名前を渡す（js/screens/sea.js setGathering） */
+.sea-gather {
   width: 44px; height: 44px; min-height: 44px; padding: 0;
   justify-content: center; gap: 0; letter-spacing: 0;
 }
-.sea-gather.is-on .lb { display: none; }
-.sea-gather.is-on .ic { font-size: 17px; }
+.sea-gather .lb { display: none; }
+.sea-gather .ic { font-size: 17px; }
 .sea-stage.is-gathering .sea-tools { max-width: calc(100% - 130px); }
 /* 札が詰まったら、フィルターの名前を「…」で縮める（一覧｜日付｜四つ は縮めない） */
 .sea-stage.is-gathering .sea-tools .sea-narrow { flex: 0 1 auto; min-width: 0; }
