@@ -552,6 +552,20 @@ export async function readLatestMemos(network, address, { limit = 200, opt } = {
   return pickLatest(memos);
 }
 
+/* いちばん新しく全部そろった控えの ID だけ（鍵は要らない。取引の一覧を 1 回尋ねるだけで、1 件ずつの取引は読まない）。
+   無ければ null。ほかの端末が新しく書いたかを見るため（2026-11-13 Issue #52 の R1。js/chainwatch.js） */
+export async function latestBackupId(network, address, { limit = 60, opt } = {}) {
+  const list = await rpc(network, 'getSignaturesForAddress', [address, { limit, commitment: 'confirmed' }], opt) || [];
+  const memos = [];
+  list.forEach(it => {
+    if (!it || it.err || it.memo == null) return;
+    const p = parseMemo(it.memo);
+    if (p) memos.push(p);
+  });
+  const got = pickLatest(memos);
+  return got ? got[0].id : null;
+}
+
 /* アドレスの新しい取引のメモの文 → [{ signature, text }]（新しい順。メモの無い取引・失敗した取引は除く）。
    共有の海の掲示板と招待（js/board.js）が使う。text は窓口の memo 欄のまま（"[長さ] 文" の形） */
 export async function readMemos(network, address, { limit = 200, opt } = {}) {
@@ -634,7 +648,8 @@ export function loadConfig(storage = globalThis.localStorage) {
 }
 export function saveConfig(c, storage = globalThis.localStorage) {
   const keep = {};
-  ['network', 'mode', 'credId', 'address', 'lastAt', 'lastId', 'lastCount', 'share'].forEach(k => { if (c[k] != null) keep[k] = c[k]; });
+  /* seenId: この端末で最後に読み込んだ控えの ID（Issue #52。秘密ではない） */
+  ['network', 'mode', 'credId', 'address', 'lastAt', 'lastId', 'lastCount', 'share', 'seenId'].forEach(k => { if (c[k] != null) keep[k] = c[k]; });
   storage.setItem(CONFIG_KEY, JSON.stringify(keep));
 }
 

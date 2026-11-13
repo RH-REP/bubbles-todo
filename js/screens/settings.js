@@ -42,6 +42,7 @@ import { PASS_MIN as AIKEY_PASS_MIN, OPEN_MS as AIKEY_OPEN_MS } from '../aikey.j
 import { ITEMS, PAGES, BOARD_SHOW_FEW, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
   changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
 import { openHelp } from '../help.js';
+import { startChainWatch, markChainSeen } from '../chainwatch.js';
 import { openUpcoming, lastLine } from '../upcoming.js';
 import { clearAppStorage, confirmed, CONFIRM_WORD } from '../reset.js';
 
@@ -432,11 +433,10 @@ export default {
     const modeChoice = choiceRow(gSave, '書き出すか読み込むか');
     const outWrap = el('div');
     const inWrap = el('div');
-    const syncWrap = el('div');
+    /* ［ほかの端末と同期する］は外した（2026-11-13 Issue #52 の返事「おすすめで」= U1。同期 = 読み込む＋書き出すで、同じ働きが2か所にあると迷うため）。
+       サーバーは自動のまま欄に［今すぐ合わせる］、ブロックチェーンは新しい控えを帯で知らせる（js/chainwatch.js） */
     modeChoice.add('out', '書き出す', [outWrap]);
     modeChoice.add('in', '読み込む', [inWrap]);
-    /* 同期する（2026-11-13 Issue #52 の返事）。サーバーは自動、サーバーなし版はボタンを押したときだけ */
-    modeChoice.add('sync', 'ほかの端末と同期する', [syncWrap]);
     outWrap.appendChild(el('p', 'prefs-pages-lb', 'どこに書き出す？'));
     inWrap.appendChild(el('p', 'prefs-pages-lb', 'どこから読み込む？'));
     const outChoice = choiceRow(outWrap, '書き出す先');
@@ -448,46 +448,66 @@ export default {
     /* サーバーの欄（書き出す・読み込むとも、繋いでいる間は自動。押す操作は無い） */
     const serverPane = (mode) => {
       const w = el('div', 'tags');
-      w.appendChild(el('h3', null, mode === 'out' ? 'サーバーに書き出す' : mode === 'sync' ? 'サーバーで同期する（自動）' : 'サーバーから読み込む'));
-      /* もう1台の端末で同じ記録を使う手順（2026-11-13 Issue #52 の返事「サーバーあり版はおすすめで」） */
-      if (mode === 'sync') {
+      w.appendChild(el('h3', null, mode === 'out' ? 'サーバーに書き出す' : 'サーバーから読み込む'));
+      w.appendChild(el('p', 'note', mode === 'out'
+        ? 'サーバーに繋いでいる間は、記録は自動でサーバーに書かれ、ほかの端末と合う（保存して数秒で送る）。ふだんは押さなくてよい。'
+          + 'ファイルやブロックチェーンのような「その時点の控え」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'
+        : 'サーバーに繋いでいる間は、ほかの端末で書いたものも自動で読み込まれる（開いている間は 20 秒ごと・画面に戻ったとき）。ふだんは押さなくてよい。'));
+      /* もう1台の端末で同じ記録を使う手順（2026-11-13 Issue #52 の返事「サーバーあり版はおすすめで」）。読み込むの欄にだけ出す */
+      if (mode === 'in') {
         [
-          '同じサーバーの同じ海を開いている端末どうしは、自動で同じ記録になる（保存して数秒で送り、開いている間は 20 秒ごと・画面に戻ったときに読む）。完了・新しい泡も、もう片方に入る。押す操作は無い。',
           'もう1台（例: iPhone と Android）で同じ記録を使う手順:',
           '1. その端末のブラウザでサーバーのページを開く（Android は Chrome で開いてホーム画面に置く。Android の app の中ではパスキーを使えないので、公開したサーバーには入れない）。',
           '2. 「海を設定する」で個人の海を開き、⚙ の「この海のサーバーに入る」で呼び名を入れて「登録を頼む」。',
           '3. 出た確かめの字を、サーバーの持ち主が認める（自分の端末なら置き場は me:1,share）。認められたら「登録を仕上げる」。',
           '4. 終わり。以後は自動。両方の端末で別々に打った同じ名前の泡は、別の泡として両方残る（片方を消す）。',
           '合言葉で入るサーバー（手元の Mac）なら、2 と 3 の代わりに住所と合言葉を入れて「繋ぐ」。前の端末で作った「サーバーに入る鍵も入れた」ファイルを読み込んでもよい。',
-        ].forEach((t, i) => w.appendChild(el('p', i ? null : 'note', t)));   /* 手順は ⓘ の裏に隠さない */
-      } else w.appendChild(el('p', 'note', mode === 'out'
-        ? 'サーバーに繋いでいる間は、記録は自動でサーバーに書かれ、ほかの端末と合う。押して書き出さなくてよい。'
-          + 'ファイルやブロックチェーンのような「その時点の控え」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'
-        : 'サーバーに繋いでいる間は、ほかの端末で書いたものも自動で読み込まれる（20 秒ごと）。押して読み込まなくてよい。'
-          + '新しい端末で読み込むには、その端末でサーバーに繋ぐ（「ファイル」から鍵入りのファイルを読み込んでもよい）。'));
+        ].forEach(t => w.appendChild(el('p', null, t)));   /* 手順は ⓘ の裏に隠さない */
+      }
       const st = el('p', 'note');
       st.setAttribute('aria-live', 'polite');
       const r = el('div', 'row');
+      /* ［今すぐ合わせる］と最後に合わせた時刻（Issue #52 の U1。ブロックチェーンの［書き出す］［読み込む］と同じく押す所を置く） */
+      const now = el('button', 'btn', '今すぐ合わせる');
+      now.type = 'button';
+      const hhmm = t => { const d = new Date(t); return (d.toDateString() === new Date().toDateString() ? '' : (d.getMonth() + 1) + '/' + d.getDate() + ' ')
+        + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+      const showState = () => {
+        if (!sync.config().url) { st.textContent = 'いま: サーバーには繋いでいない（下の「サーバーの設定を開く」で繋ぐ）。'; return; }
+        const at = sync.seenAt();
+        st.textContent = 'いま: サーバーに繋いでいる（自動で合わせている）。' + (at ? '最後に合わせた: ' + hhmm(at) : 'まだ合わせていない');
+      };
+      now.addEventListener('click', async () => {
+        if (!sync.config().url) { showState(); return; }
+        now.disabled = true;
+        st.textContent = '合わせている…';
+        try {
+          const ok = await sync.syncNow();
+          const s = sync.status();
+          if (ok) showState();
+          else if (s.state === 'syncing') st.textContent = 'いま合わせている途中（終わるとすぐもう1回合わせる）。';
+          else st.textContent = '合わせられなかった: ' + (s.message || s.state);
+        } finally { now.disabled = false; }
+      });
+      r.appendChild(now);
       const b = el('button', 'btn', 'サーバーの設定を開く');
       b.type = 'button';
       b.addEventListener('click', goServer);
       r.appendChild(b);
       w.appendChild(r);
       w.appendChild(st);
-      gSave.addEventListener('toggle', () => {
-        if (gSave.open) st.textContent = sync.config().url ? 'いま: サーバーに繋いでいる（自動で合わせている）。' : 'いま: サーバーには繋いでいない。';
-      });
+      gSave.addEventListener('toggle', () => { if (gSave.open) showState(); });
       return w;
     };
     /* ブロックチェーンの欄（書き出す＝保存・復元コードを表示、読み込む＝復元・復元コードで復元） */
     const chainPane = (mode) => {
       const e = chainBox({ tasks: ['backup'], only: mode, goSetup,
-        title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試し）' : mode === 'sync' ? 'ブロックチェーンで同期する（押したときだけ。Solana・試し）' : 'ブロックチェーンから読み込む（Solana・試し）' });
-      e.insertBefore(el('p', 'note', mode === 'sync'
-        ? 'サーバーなしで端末どうしを合わせる。押したときだけ読み込んで保存する（自動では動かない・手数料が掛かる）。両方の端末で同じウォレット（同じパスキーか同じ合言葉）で開いておく。'
-        : mode === 'out'
+        title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試し）' : 'ブロックチェーンから読み込む（Solana・試し）' });
+      e.insertBefore(el('p', 'note', mode === 'out'
         ? '記録を暗号化して、Solana のチェーンに書く。押したときだけ書く（手数料が掛かる）。パスキーか合言葉で開く。始め方・ウォレット・鍵は「ブロックチェーンを準備する」にある。'
-        : 'チェーンに書いた記録を、今の記録に重ねる（消さない）。パスキーか合言葉、失くしたときは復元コードで開く。どの端末からでも読み込める。'),
+          + 'サーバーなし版のほかの端末（同じパスキーか同じ合言葉で開いたもの）では、書いたものが「新しい記録がある」の知らせで出る。'
+        : 'チェーンに書いた記録を、今の記録に重ねる（消さない。手数料は掛からない）。パスキーか合言葉、失くしたときは復元コードで開く。どの端末からでも読み込める。'
+          + 'サーバーなし版では、ほかの端末が新しく書いたら、開いている間に画面の下に知らせが出る（そこからも読み込める）。'),
         e.children[1] || null);
       return e;
     };
@@ -500,9 +520,6 @@ export default {
     inChoice.add('file', 'ファイル', [fileFormats('in')]);
     inChoice.add('server', 'サーバー', [serverPane('in')]);
     inChoice.add('chain', 'ブロックチェーン', [chainPane('in')]);
-    /* --- ほかの端末と同期する（Issue #52）--- */
-    if (!isSolo()) syncWrap.appendChild(serverPane('sync'));
-    syncWrap.appendChild(chainPane('sync'));
     /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
     [gShare, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
       if (!d.open) return;
@@ -2916,15 +2933,6 @@ function chainBox(opts = {}) {
   }
 
   function paintBackup(net) {
-    /* opts.only: 'sync'（ほかの端末と同期する。2026-11-13 Issue #52 の返事「サーバーなし版は、自動じゃなくて同期するボタンでユーザーが明示した時のみ」） */
-    if (opts.only === 'sync') {
-      group('backup', 'ほかの端末と同期する',
-        '押したときだけ、チェーンのいちばん新しいバックアップを今の記録に重ねてから（消さない。記録ごとに新しいほうが残る）、重ねた記録を保存する（手数料が掛かる）。'
-        + 'ほかの端末でも同じウォレットで開いて押せば、同じ記録になる。iPhone と Android のようにパスキーが引き継がれない端末どうしは、両方を同じ合言葉で開く。自動では動かない。');
-      if (into && into.parentElement) into.parentElement.insertBefore(chainPick.el, into);
-      btn('同期する（読み込んでから保存）', syncChain);
-      return;
-    }
     group('backup', opts.only === 'out' ? 'ブロックチェーンに書き出す' : opts.only === 'in' ? 'ブロックチェーンから読み込む' : 'バックアップする','保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
       + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに控えていなければ表示して書き留める。');
     /* opts.only: 'out'（書き出すだけ）／'in'（読み込むだけ）。書き出すと読み込むを分けて出す（2026-11-13 Issue #48 の返事） */
@@ -3685,26 +3693,6 @@ function chainBox(opts = {}) {
     paint();
   }
 
-  /* ほかの端末と同期する（Issue #52）。鍵は1回だけ出してもらう（パスキーは押した手の続きで1回しか呼べない端末があるため）。
-     1. いちばん新しいバックアップを読み、確かめずに重ねる（消さないので）
-     2. 重ねた記録を保存する（手数料が掛かるので saveBackup の確かめは出す） */
-  async function syncChain() {
-    const net = netSel.value;
-    const keys = await unlock();
-    await checkSame(keys);
-    line.textContent = 'バックアップを探している…';
-    const parts = await readLatestMemos(net, keys.wallet.address);
-    let n = 0;
-    if (parts) n = mergeIntoDevice(await openMemos(parts, keys.recordKey), { askLocal: true });
-    const head = parts ? '海 ' + n + ' つの記録を重ねた。' : 'チェーンにはまだバックアップが無い（読み込むものは無かった）。';
-    const r = await saveBackup(keys, net);
-    if (!r) { line.textContent = head + '保存はやめた（ほかの端末には、まだ届いていない）。'; return; }
-    cfg = Object.assign(loadConfig(), { lastAt: r.at, lastId: r.id, lastCount: r.count });
-    saveConfig(cfg);
-    paint();
-    line.textContent = head + '重ねた記録を保存した（取引 ' + r.count + ' 件）。ほかの端末では「同期する」を押すと入る。';
-  }
-
   /* いまの記録を keys のウォレットでチェーンに書く → { id, count, at }。確かめの画面でやめたら null */
   async function saveBackup(keys, net) {
     try { store.flush(); } catch (e) { /* 書くのは止めない */ }
@@ -3932,6 +3920,8 @@ function chainBox(opts = {}) {
       return true;
     }
     const n = mergeIntoDevice(p, { askLocal: true });
+    /* 読み込んだ控えは「新しい記録がある」の知らせに出さない（Issue #52。js/chainwatch.js） */
+    if (address === cfg.address) markChainSeen(parts[0].id);
     line.textContent = '海 ' + n + ' つの記録を戻した。';
     return true;
   }
@@ -4727,4 +4717,28 @@ function sizeBox() {
   d.appendChild(pre);
   d.appendChild(copy);
   return d;
+}
+
+/* サーバーなし版: ほかの端末の新しい控えを画面の下に知らせる（2026-11-13 Issue #52 の R1。js/chainwatch.js）。
+   ［読み込む］は押した手の続きで鍵を出してもらい（パスキーは await の前に呼ぶ）、いちばん新しい控えを重ねる（消さない・確かめの窓は出さない） */
+if (typeof document !== 'undefined' && isSolo()) {
+  startChainWatch({
+    open: async () => {
+      const c = loadConfig();
+      let keys;
+      if (c.mode === 'passkey') keys = await keysFromRoot((await passkeyRoot(c.credId)).root);
+      else if (c.mode === 'pass') {
+        const pass = window.prompt('合言葉（始めたときに書き留めた 24 字）');
+        if (!pass) return false;
+        keys = await keysFromRoot(await rootFromPassphrase(pass));
+      } else throw new Error('まだ始めていない');
+      if (c.address && keys.wallet.address !== c.address) throw new Error('鍵が違う（このウォレットのアドレスと合わない）');
+      const parts = await readLatestMemos(c.network, keys.wallet.address);
+      if (!parts) throw new Error('全部そろったバックアップが見つからない');
+      const n = mergeIntoDevice(await openMemos(parts, keys.recordKey), { askLocal: true });
+      markChainSeen(parts[0].id);
+      toast('ほかの端末の記録を重ねた（海 ' + n + ' つ）');
+      return true;
+    },
+  });
 }
