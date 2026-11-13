@@ -3985,6 +3985,21 @@ function helpAiBox() {
         : 'キーに鍵をかけて保存した（' + P.keyPrefix + ' で始まっていない。違う会社のキーかもしれない）';
       runLock(() => saveKeyLocked(v, undefined, { mode, askNewPass }), msg);
     };
+    /* 保存の前の警告（Issue #14 2026-11-13 利用者の指示「E 用に保存する時に警告文出して」= 上限額の運用）。
+       window.confirm にしないのは、確認の窓を挟むとパスキーの確認が「押した手の続き」でなくなり断られるため。欄のすぐ上に出す */
+    const warn = el('div', 'aikey-warn');
+    warn.setAttribute('role', 'note');
+    warn.style.cssText = 'margin:8px 0 0;padding:8px 10px;border-radius:10px;border:1px solid var(--line-strong);'
+      + 'background:var(--bg);font-size:13px;line-height:1.55';
+    const wt = el('b');
+    wt.textContent = '保存する前に（大事）';
+    warn.appendChild(wt);
+    [
+      'このキーは、AI を使っている間（鍵を開けている間）は、ページの中で悪いコードが動けば読まれうる。暗号化しても、そのときは守れない。',
+      P.keyPlace + ' の側で、この app 専用のキーを作り、使える上限額（月の上限）を決めておく。漏れても被害がそこで止まる。',
+      'ほかの用途に使っているキー・上限の無いキーは入れない。しばらく使わないときは「消す」、ときどき作り直して古いキーを取り消す。',
+    ].forEach(t => { const p = el('p'); p.style.cssText = 'margin:4px 0 0'; p.textContent = '・' + t; warn.appendChild(p); });
+    keyBox.appendChild(warn);
     row.appendChild(keyIn);
     if (lock) {
       keyIn.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); save(lock.mode); } });
