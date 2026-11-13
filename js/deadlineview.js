@@ -10,7 +10,7 @@
    泡の名前は textContent で入れる（ui.js の el の第3引数は innerHTML なので、決まった文字だけに使う）。 */
 
 import { el } from './ui.js';
-import { deadlineRows, doneRows, agoLabel, columnCount, columns, cellMark, inSpan, leftLabel, keyOf } from './deadline.js';
+import { deadlineRows, doneRows, agoLabel, columnCount, columns, cellMark, inSpan, leftLabel, keyOf, addDays } from './deadline.js';
 import { POINTS, pointId, CREDIT_URL, DAYS, loadData, loadArea, saveArea, fetchForecast, forecastFor, sizeLabel, detailText } from './weather.js';
 
 /* opts.open(id, node)   名前を押したとき
@@ -165,7 +165,8 @@ export function createDeadlineView(host, opts = {}) {
     dayLine.hidden = false;
   }
 
-  /* ro.done … 完了の海（2026-11-13 Issue #57）。列は今日から**過去へ**（右へ行くほど前の日）、
+  /* ro.done … 完了の海（2026-11-13 Issue #57）。列は**左が過去・右端が今日**
+     （2026-11-14 の返事「ふだん右が未来なので、左を過去に」。開いたときは右端＝今日まで寄せる）、
      行は完了した日の新しい順、● は完了した日、左の札は「今日・昨日・N日前」 */
   const EMPTY_TODO = empty.textContent;
   const EMPTY_DONE = '完了した日の分かるものは、まだ無い。盤の [タスク完了] を押すと、その日の列に ● が付いて並ぶ。';
@@ -175,7 +176,7 @@ export function createDeadlineView(host, opts = {}) {
     const done = !!lastOpt.done;
     const today = keyOf(new Date());
     const rows = done ? doneRows(items, today) : deadlineRows(items, today);
-    cap.textContent = done ? '完了した日の新しい順（右へ行くほど前の日）' : '終了日の近い順';
+    cap.textContent = done ? '完了した日の新しい順（右端が今日、左へ行くほど前の日）' : '終了日の近い順';
     root.setAttribute('aria-label', done ? '日付で見る（完了した日の新しい順）' : '日付で見る（終了日の近い順）');
     empty.textContent = done ? EMPTY_DONE : EMPTY_TODO;
     const lgEnd = legend.querySelector('.lg-end');
@@ -188,7 +189,9 @@ export function createDeadlineView(host, opts = {}) {
     empty.hidden = rows.length > 0;
     scroller.hidden = false;
     const n = columnCount(rows);
-    const cols = columns(today, n, done ? -1 : 1);
+    /* 完了の海は、n-1 日前から今日まで（左が過去） */
+    const cols = done ? columns(addDays(today, -(n - 1)), n) : columns(today, n);
+    const first = cols[0].key;
     const last = cols[cols.length - 1].key;
     table.style.setProperty('--dl-cols', String(n));
     const hl = cols.filter(c => c.hol);
@@ -202,7 +205,7 @@ export function createDeadlineView(host, opts = {}) {
       h.appendChild(el('span', 'dl-m', c.m));
       h.appendChild(el('b', 'dl-d', String(c.d)));
       const wd = el('span', 'dl-wd');
-      wd.textContent = i === 0 ? '今日' : (c.hol ? '祝' : c.wd);
+      wd.textContent = c.key === today ? '今日' : (c.hol ? '祝' : c.wd);
       h.appendChild(wd);
       if (c.hol) h.title = c.hol + '（' + c.wd + '）';
       const f = area >= 0 ? forecastFor(wx, area, c.key) : null;
@@ -268,19 +271,22 @@ export function createDeadlineView(host, opts = {}) {
         cell.setAttribute('aria-hidden', 'true');
         if (inSpan(r, c.key)) cell.appendChild(el('span', 'dl-bar'));
         if (mk && mk !== 'span') cell.appendChild(el('span', 'dl-mk is-' + mk));
-        /* 表の右端より先（過去の表ならもっと前）にあるもの */
-        if (i === cols.length - 1 && (done ? r.end < last : r.end > last)) cell.appendChild(el('span', 'dl-more', '→'));
+        /* 表の右端より先にあるもの。完了の海では、左端より前の日に完了したもの */
+        if (!done && i === cols.length - 1 && r.end > last) cell.appendChild(el('span', 'dl-more', '→'));
+        if (done && i === 0 && r.end < first) cell.appendChild(el('span', 'dl-more', '←'));
         row.appendChild(cell);
       });
       table.appendChild(row);
     });
+    /* 完了の海は右端が今日。開いたときに今日の側を見せる（描いたあとの幅で寄せる） */
+    if (done) requestAnimationFrame(() => { scroller.scrollLeft = scroller.scrollWidth; });
   }
 
   function clear() { table.replaceChildren(); }
 
   /* 列の印。休み（日曜・祝日）と土曜で地の色を変える */
   function dayClass(c, i) {
-    return (i === 0 ? ' is-today' : '') + (c.off ? ' is-off' : '') + (c.hol ? ' is-hol' : '')
+    return (c.key === keyOf(new Date()) ? ' is-today' : '') + (c.off ? ' is-off' : '') + (c.hol ? ' is-hol' : '')
       + (c.sat && !c.off ? ' is-sat' : '') + (c.m && i ? ' is-month' : '');
   }
 

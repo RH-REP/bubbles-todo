@@ -72,6 +72,8 @@
 .dl-cell .dl-mk { position: relative; }
 @media (max-width: 420px) { .dl-table { --dl-name: 7.5em; --dl-w: 26px; } }
 .dl-more { position: absolute; right: 1px; font-size: 11px; color: var(--text-2); }
+/* 完了の海（左が過去）では、左端より前を指す「←」を左に置く（Issue #57） */
+.dl-cell:first-of-type .dl-more { right: auto; left: 1px; }
 
 /* 天気（2026-11-08 Issue #30）。見出し・地域・取得・ⓘ を1行に。狭いと折り返す。
    見方・祝日の名前・取った時刻・出典は ⓘ の中（.dl-info）に畳む（Issue #30 の返事「シンプルに」） */
