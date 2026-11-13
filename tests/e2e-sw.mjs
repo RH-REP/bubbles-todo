@@ -7,7 +7,7 @@
    「最新の版を確認する」は「この端末では確認できない」になっていた。
    ここでは 架空のデータの一時フォルダで server.py を立て、
      1. 開くと service worker が activated になり、版の箱に入口・画面のファイルが入る
-     2. 取れなくてよいもの（noserver.html・solo.html）は箱に入らない（server.py が配らない）
+     2. 取れなくてよいもの（noserver.html）は箱に入らない（server.py が配らない）
      3. 「最新の版を確認する」を押すと「今のが最新の版」と出る（強制更新にならない）
    を見る。Node 22 の WebSocket と child_process だけで動く（tests/e2e-passkey.mjs と同じ作り）。 */
 
@@ -72,14 +72,14 @@ try {
     await until(`navigator.serviceWorker && navigator.serviceWorker.getRegistration().then(r => !!(r && r.active && r.active.state === 'activated'))`);
   });
 
-  await step('版の箱に入口と画面のファイルが入り、取れなくてよい noserver.html・solo.html は入らない', async () => {
+  await step('版の箱に入口と画面のファイルが入り、取れなくてよい noserver.html は入らない', async () => {
     const got = await js(`
       const box = await caches.open('bubbles-${VERSION}');
       const keys = (await box.keys()).map(r => new URL(r.url).pathname);
       return { n: keys.length, index: keys.includes('/index.html'), root: keys.includes('/'), store: keys.includes('/js/store.js'),
-        noserver: keys.includes('/noserver.html'), solo: keys.includes('/solo.html') };`);
+        noserver: keys.includes('/noserver.html') };`);
     assert.ok(got.n > 50, '箱の中が少ない: ' + got.n);
-    assert.deepEqual([got.index, got.root, got.store, got.noserver, got.solo], [true, true, true, false, false]);
+    assert.deepEqual([got.index, got.root, got.store, got.noserver], [true, true, true, false]);
   });
 
   await step('「最新の版を確認する」は「確認できない」でなく「今のが最新の版」になる', async () => {

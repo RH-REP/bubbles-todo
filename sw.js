@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-13r';
+const VERSION = '2026-11-13s';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -136,9 +136,7 @@ const ASSETS = [
    ここに置いたものは1つずつ取り、取れたものだけ箱に入れる。ASSETS は全部が server.py から取れること
    （tests/test_server.py の test_sw_assets_are_all_served が見る） */
 const OPTIONAL = [
-  './noserver.html',      /* サーバーなし版の入口（2026-11-08 Issue #31。2026-11-13 Issue #51 で solo.html から名前を変えた） */
-  './solo.html',          /* 前の名前。noserver.html へ送るだけ（栞・ホーム画面のアイコンから来た人のため） */
-  './manifest-solo.json',
+  './noserver.html',      /* サーバーなし版の入口（2026-11-08 Issue #31。2026-11-13 Issue #51 で solo.html から名前を変えた） */  './manifest-solo.json',
 ];
 
 self.addEventListener('install', (ev) => {

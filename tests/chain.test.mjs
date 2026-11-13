@@ -285,11 +285,9 @@ await test('noserver.html は index.html と CSP・印・manifest・title だけ
   assert.match(idxCsp, /base-uri 'self';/);
   Object.values(NETWORKS).forEach(x => assert.ok(connect.includes(x.rpc), x.rpc + ' が CSP に無い'));
   const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
-  ["'./js/chain.js'", "'./noserver.html'", "'./solo.html'", "'./manifest-solo.json'"].forEach(a => assert.ok(sw.includes(a), 'sw.js の ASSETS に ' + a + ' が無い'));
-  /* 前の名前（solo.html）は noserver.html へ送るだけ。ホーム画面のアイコンも新しい名前で開く（Issue #51） */
-  const old = readFileSync(new URL('../solo.html', import.meta.url), 'utf8');
-  assert.match(old, /http-equiv="refresh" content="0; url=noserver\.html"/);
-  assert.ok(!/<script/.test(old), 'solo.html にスクリプトがある');
+  ["'./js/chain.js'", "'./noserver.html'", "'./manifest-solo.json'"].forEach(a => assert.ok(sw.includes(a), 'sw.js の ASSETS に ' + a + ' が無い'));
+  /* 前の名前（solo.html）は消した（Issue #51）。ホーム画面のアイコンは新しい名前で開く。id は前のまま */
+  assert.ok(!sw.includes("'./solo.html'"), 'sw.js に消した solo.html が残っている');
   const man = JSON.parse(readFileSync(new URL('../manifest-solo.json', import.meta.url), 'utf8'));
   assert.equal(man.start_url, './noserver.html');
   assert.equal(man.id, './solo.html', 'id を変えると、ホーム画面に置いた app が別物になる');

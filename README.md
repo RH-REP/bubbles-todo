@@ -936,7 +936,7 @@ CSV（2026-11-13 に外した）は開いている海だけで、サーバーに
   `<meta>` の CSP・`<meta name="bubbles-edition" content="solo">`・`manifest-solo.json`・題名だけ（`tests/chain.test.mjs` が見る）。
   index.html を直したら noserver.html も同じに直す
 - **名前**（2026-11-13 Issue #51「サーバーあり版とサーバーなし版がわかるような名前に」）: 前は `solo.html`。サーバーあり版はサイトのトップ（`index.html`）のままにした（トップの住所を変えないため）。
-  `solo.html` は `noserver.html` へ送るだけのページとして残す（前の住所の栞・ホーム画面のアイコンのため。スクリプトは無く meta の refresh だけ）。
+  `solo.html` は消した（Issue #51 の返事「消して」）。前の住所で取った栞・リンク、前に `solo.html` で置いたホーム画面のアイコンは 404 になる。記録は消えないので、トップを開き直して置き直す。
   `manifest-solo.json` の `id` は `./solo.html` のまま（変えるとホーム画面に置いた app が別物になる）、`start_url` だけ `./noserver.html` にした。
   住所のパスが変わっても、記録（localStorage）・パスキー・合言葉はそのまま使える（どれもドメインに結び付き、パスには結び付かない）
 - **入口は1つ**（2026-11-11 Issue #38「solo.html をまとめられる？」）: 両方の head の先頭で `js/boot-edition.js` を読み、開いたときに合うほうへ移す。

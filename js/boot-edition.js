@@ -1,5 +1,5 @@
 /* 入口を1つにする（2026-11-11 Issue #38。「solo.html をまとめられる？」）。
-   サーバーなし版は 2026-11-13 Issue #51 で solo.html から noserver.html へ名前を変えた（solo.html は noserver.html へ送るだけのページ）。
+   サーバーなし版は 2026-11-13 Issue #51 で solo.html から noserver.html へ名前を変えた（solo.html は消した）。
    index.html と noserver.html の head の先頭で読む（module ではない普通の script。CSP が script-src 'self' のため直書きしない）。
 
    中身は1つの app で、違いは通信してよい先の決め打ち（noserver.html の <meta> の CSP）だけ。
