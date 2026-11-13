@@ -2745,7 +2745,59 @@ function listItems() {
   capOff = true;
   let base;
   try { base = faceItems(curFace) || []; } finally { capOff = false; }
+  /* 完了の海だけは、完了した時刻の新しい順（Issue #57）。読むのは「いつ何を終えたか」なので */
+  if (isDoneFace()) return base.slice().sort(byDoneNew);
   return base.slice().sort(byAge);
+}
+
+/* ---------------- 完了の海のリスト：完了した日ごと（Issue #57）----------------
+
+   > 完了したものだけ見やすく表示してその時の内容読めるようにできる？
+   > 未来にスライドできるカレンダーを流用して、過去にスライドできて近い順にTODOが並ぶとか
+
+   新しい画面は作らない。完了の海で「リスト表示」を押すと、完了した時刻の新しい順に並び、
+   日が変わるところに日付の見出し（今日・昨日・11月12日（木））が入る。行の右端に完了した時刻。
+   下へスクロールするほど過去へ戻る＝過去へ滑らせるカレンダーの代わり。
+   行を押すと、ほかの海と同じ盤が開いて、そのときの本文・作業メモが読める。
+   完了した時刻を持たない古いデータは、最後に「完了した日が分からないもの」としてまとめる。 */
+function isDoneFace() {
+  return curFace !== 'center' && (faceTag(curFace) || {}).id === 'done';
+}
+
+function doneAtOf(t) {
+  const n = Number(t && t.doneAt);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function byDoneNew(a, b) {
+  const da = doneAtOf(a), db = doneAtOf(b);
+  if (da !== db) return (db || -1) - (da || -1);       /* 時刻の無いものは最後 */
+  return (b.createdAt || 0) - (a.createdAt || 0);
+}
+
+const WD = ['日', '月', '火', '水', '木', '金', '土'];
+
+function dayKeyOf(ms) {
+  if (!ms) return 'none';
+  const d = new Date(ms);
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+
+function dayLabelOf(ms) {
+  if (!ms) return '完了した日が分からないもの';
+  const d = new Date(ms);
+  const now = new Date();
+  const k = dayKeyOf(ms);
+  if (k === dayKeyOf(now.getTime())) return '今日';
+  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (k === dayKeyOf(y.getTime())) return '昨日';
+  const md = (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WD[d.getDay()] + '）';
+  return d.getFullYear() === now.getFullYear() ? md : d.getFullYear() + '年' + md;
+}
+
+function hhmmOf(ms) {
+  const d = new Date(ms);
+  return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
 /* ---------------- 行をつまむ（A-65。利用者の指示） ----------------
@@ -2917,9 +2969,13 @@ function renderGrid() {
   gridEmpty.textContent = q
     ? '「' + gridQ.trim() + '」は見つからない。'
     : (what ? '「' + what + '」には何も無い。' : 'まだ何も無い。下に書くと、ここに並ぶ。');
+  const doneView = !q && isDoneFace();
   if (gridCap) {
-    gridCap.textContent = (q ? 'さがした結果' : (what ? '「' + what + '」' : '')) + (q || what ? '（古い順）' : '古い順');
+    gridCap.textContent = doneView
+      ? '「' + what + '」（完了した日の新しい順。下へ行くほど前の日）'
+      : (q ? 'さがした結果' : (what ? '「' + what + '」' : '')) + (q || what ? '（古い順）' : '古い順');
   }
+  let lastDay = null;
 
   /* 行はバブルを組まずに作り直す。**海が新しいほうしか出さなくなったので、
      ここが「ぜんぶ読む場所」になった**——読む場所は、絵ではなく文字のほうが速い。
@@ -2933,6 +2989,19 @@ function renderGrid() {
 
   const map = tagColorMap();
   list.forEach(t => {
+    /* 完了の海では、日が変わるところに日付の見出しを挟む（Issue #57）。
+       見出しも gridNodes に入れて、作り直し・片づけで行と一緒に消えるようにする */
+    if (doneView) {
+      const k = dayKeyOf(doneAtOf(t));
+      if (k !== lastDay) {
+        lastDay = k;
+        const h = el('p', 'sea-row-day', dayLabelOf(doneAtOf(t)));
+        h.setAttribute('role', 'heading');
+        h.setAttribute('aria-level', '3');
+        gridNodes.set('day:' + k, { node: h, detach: null });
+        grid.appendChild(h);
+      }
+    }
     const row = el('button', 'sea-row');
     row.type = 'button';
     row.dataset.id = t.id;
@@ -2967,6 +3036,13 @@ function renderGrid() {
     /* 期間の外で長期保留にいるもの（§11）。一覧でも同じ添え字 */
     const sn = spanNoteOf(t);
     if (sn) row.appendChild(el('span', 'sea-row-span', sn));
+
+    /* 完了の海では、完了した時刻（見出しが日付なので時刻だけ） */
+    if (doneView && doneAtOf(t)) {
+      const tm = el('span', 'sea-row-time', hhmmOf(doneAtOf(t)));
+      tm.setAttribute('aria-label', hhmmOf(doneAtOf(t)) + 'に完了');
+      row.appendChild(tm);
+    }
 
     /* さがしている間は、ふだん出さないものも出す。
        出す以上、**いまどこに居るか**を言わないと「なぜここに」になる */
@@ -3806,7 +3882,7 @@ export default {
      移動のアニメーションは付けない。goFace() は setWorldFace() で面を差し替えるだけで、
      滑らせるのは指でなぞったときの cancelSwipe/settle 経路。タブを切り替えた直後なので、
      ここは「もうその面が開いている」状態で見えるのが素直。 */
-  openFace(face) {
+  openFace(face, opt) {
     if (typeof face !== 'string' || !face) return false;
     forgetSeas();
     let dir = null;
@@ -3823,6 +3899,8 @@ export default {
     /* 絞り込み（フィルター）はそのままにする。指でなぞって面を移ったときも解けないので、
        ここだけ解くと戻ってきたときの見え方が食い違う */
     goFace(dir);
+    /* opt.list … 移った先をリスト表示で開く（ふりかえり → 完了したものを日ごとに。Issue #57） */
+    if (opt && opt.list) { gridMode = 'list'; setGathering(true); }
     return true;
   },
 

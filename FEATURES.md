@@ -48,6 +48,7 @@
 | 長期保留と「もどってくる日」 | `js/store.js` `setHold` / `holdUntil` | 過ぎたら開いた時点で静かに戻す |
 | **完了しても置いた日の水面に残る**（✓ が付く） | `js/screens/today.js` `dayItems`、`css/bubble.css` `.is-done` | 2026-09-18 |
 | 完了したものを今日の水面で戻す（盤・長押しの「未完了にもどす」。完了の海では「海にもどす」） | `js/screens/today.js` `toggleComplete`・`uncompleteWithUndo`、`js/bubble.js` の `reopenLabel` | 2026-11-07（Issue #29）。音は鳴らさない。トーストから取り消せる |
+| いつ何を完了したか（完了の海のリスト表示は、完了した日の見出しつき・新しい順。行の右に時刻。ふりかえりの「いつ何を完了したか（日ごと）」からも開く） | `js/screens/sea.js` `listItems`・`renderGrid`（`isDoneFace`・`dayLabelOf`）、`openFace(face, {list})`、`js/screens/review.js` | 2026-11-13（Issue #57）。行を押すと盤でそのときの本文が読める |
 | さいころ（無作為に1つ。完了は引かない） | `js/screens/today.js` `pickList` | 候補0なら押せない |
 | リスト表示・さがす・フィルター | `js/screens/sea.js` | |
 | タブへドラッグ＝状態を足す（移動ではない） | `js/bubble.js`、`js/app.js` | |

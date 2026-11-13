@@ -824,7 +824,7 @@ window.addEventListener('bubbles:goto', (ev) => {
   const target = SCREENS.find(s => s.id === d.screen);
   if (!target) return;
   show(target.id);
-  if (d.face && typeof target.openFace === 'function') target.openFace(d.face);
+  if (d.face && typeof target.openFace === 'function') target.openFace(d.face, d);
 });
 
 /* ---- この端末の表示（2026-11-10。Issue #36。js/prefs.js）----

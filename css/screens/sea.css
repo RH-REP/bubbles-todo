@@ -593,6 +593,15 @@
   flex: none; font-size: 11px; letter-spacing: .04em;
   color: var(--text-2);
 }
+/* 完了の海のリスト：日付の見出しと、行の右端の完了した時刻（Issue #57） */
+.sea-row-day {
+  margin: 14px 4px 4px; font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
+  color: var(--text-2);
+}
+.sea-row-time {
+  flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
 /* 期間の外で長期保留にいるもの（共有の記録 v1.5 §11）。赤にしない */
 .sea-row-span {
   flex: none; font-size: 11px; letter-spacing: .02em;

@@ -235,6 +235,15 @@ function makeCounts() {
       }));
     });
     sec.appendChild(go);
+    /* 完了の海をリスト表示で開く：完了した日ごと・新しい順（Issue #57） */
+    const byDay = el('button', 'btn rv-go', 'いつ何を完了したか（日ごと）');
+    byDay.type = 'button';
+    byDay.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('bubbles:goto', {
+        detail: { screen: 'sea', face: 'done', list: true },
+      }));
+    });
+    sec.appendChild(byDay);
   } else if (typeof store.doneItems === 'function' && store.doneItems().length) {
     sec.appendChild(el('p', 'rv-note',
       '完了の海は、設定で「完了」を上・左・右のどれかに置くと開く。'));
