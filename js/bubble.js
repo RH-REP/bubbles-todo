@@ -1952,7 +1952,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      （外を触っても閉じても、そのまま上書きされた）。
      ・[保存]     … 書いた本文を残して盤へ戻る
      ・[キャンセル] … 書く面に入ったときの本文へ戻して盤へ戻る（何も書き替えない）
-     ・外を触る／Esc … いままでどおり残す（打った文字を黙って捨てない） */
+     ・Esc       … 残して本文の面を閉じ、盤へ戻る（打った文字を黙って捨てない）
+     ・外を触る   … 書く面の間は何も起きない（Issue #55。前は残して盤ごと閉じ、海へ戻った） */
   function setDetailMode(editing) {
     if (!detailPane) return;
     detailPane.classList.toggle('is-reading', !editing);
@@ -1963,7 +1964,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailSave.hidden = !editing;
     detailCancel.hidden = !editing;
     if (editing) detailBase = detailDraft;
-    detailNote.textContent = editing ? '[保存] か外を触ると残る。[キャンセル] で書く前に戻す。履歴には積まない' : '';
+    detailNote.textContent = editing ? '[保存] で残る。[キャンセル] で書く前に戻す。書いている間は外を触っても閉じない。履歴には積まない' : '';
     detailNote.hidden = !editing;
     if (!editing) detailView.textContent = detailDraft;   /* 改行は CSS の pre-wrap で出す */
   }
@@ -2670,8 +2671,19 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       if (first) first.focus({ preventScroll: true });
     },
     isTyping() {
+      if (this.isWriting()) return true;
       const el2 = document.activeElement;
       return !!(el2 && root.contains(el2) && el2.classList.contains('bc-in'));
+    },
+    /* 書く面（本文の [編集] のあと・作業メモ）が開いているか（Issue #55）。
+       開いている間は、覆い・下タブ・画面の揺れ（キーボードの出入り）で盤を閉じない。
+       抜けるのは [保存]・[キャンセル]・[閉じる]・Esc だけ。
+       前は覆いを触ると盤ごと閉じて海へ戻った（書いた文は残るが、書いている途中で放り出された）。
+       また本文の入力欄は .bm-in で、上の .bc-in の判定に入らず、キーボードの出入りでも閉じていた */
+    isWriting() {
+      if (detailPane && !detailPane.hidden && !detailPane.classList.contains('is-reading')) return true;
+      if (memoPane && !memoPane.hidden) return true;
+      return false;
     },
     /* Escape をここで先に受ける。履歴が開いていれば、閉じるのは履歴だけ
        （中央から抜けない）。開いていなければ false を返し、中央が閉じる。 */
@@ -3012,8 +3024,10 @@ export function attachGestures(node, handlers = {}) {
     veil.addEventListener('pointerdown', eat);
     veil.addEventListener('click', eat);
     veil.addEventListener('contextmenu', eat);
-    veil.addEventListener('pointerup', ev => { eat(ev); cancelCenter(); });
-    veil.addEventListener('pointercancel', ev => { eat(ev); cancelCenter(); });
+    /* 書く面が開いている間は、覆いを触っても閉じない（Issue #55）。触りは吸うだけ */
+    const writing = () => !!(center && center.panel && center.panel.isWriting());
+    veil.addEventListener('pointerup', ev => { eat(ev); if (!writing()) cancelCenter(); });
+    veil.addEventListener('pointercancel', ev => { eat(ev); if (!writing()) cancelCenter(); });
     layerEl().appendChild(veil);
 
     /* 当たり判定は押した瞬間から中央に置く。動いている的を押させない。
@@ -3108,6 +3122,16 @@ export function attachGestures(node, handlers = {}) {
       if (center.hit && center.hit.contains(t)) return;
       if (center.panel && center.panel.root.contains(t)) return;
       if (node.contains(t)) return;
+      /* 書く面が開いている間は、下タブに指が当たっても画面を移らない（Issue #55） */
+      if (center.panel && center.panel.isWriting()) {
+        ev.preventDefault(); ev.stopPropagation();
+        /* タブは click で移るので、この触りが生む click も1つだけ捨てる（来なければ少しで外す） */
+        const eatClick = e => { e.preventDefault(); e.stopPropagation(); drop(); };
+        const drop = () => { clearTimeout(tm); window.removeEventListener('click', eatClick, true); };
+        const tm = setTimeout(drop, 800);
+        window.addEventListener('click', eatClick, true);
+        return;
+      }
       cancelCenter();
     };
     /* Escape は、まず盤に渡す。履歴が開いていれば履歴だけが閉じ、中央は残る
