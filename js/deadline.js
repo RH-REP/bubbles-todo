@@ -122,6 +122,31 @@ export function deadlineRows(items, today) {
   return rows;
 }
 
+/* 完了の海の行（2026-11-13 Issue #57）。完了した日の新しい順、同じ日なら完了した時刻の新しい順。
+   end＝完了した日、left＝何日前か。完了した時刻を持たないもの（古いデータ）は並べない。
+   印は cellMark の 'end'（完了した日の ●）だけ。置いた日・期間は出さない */
+export function doneRows(items, today) {
+  const rows = [];
+  (items || []).forEach(t => {
+    if (!t || !t.done || t.trashed) return;
+    const at = Number(t.doneAt);
+    if (!Number.isFinite(at) || at <= 0) return;
+    const end = keyOf(new Date(at));
+    const left = daysBetween(end, today);
+    if (!(left >= 0)) return;                  /* 端末の時計が戻ったなどで未来の日なら出さない */
+    rows.push({ id: t.id, text: t.text, doneAt: at, end, left, days: [], span: null });
+  });
+  rows.sort((p, q) => q.doneAt - p.doneAt);
+  return rows;
+}
+
+/* 何日前の札。0 は「今日」、1 は「昨日」 */
+export function agoLabel(n) {
+  if (n === 0) return '今日';
+  if (n === 1) return '昨日';
+  return n + '日前';
+}
+
 /* 何列（日）出すか。いちばん遠い終了日まで。少なくとも2週間、多くても60日 */
 export function columnCount(rows) {
   const far = rows.reduce((m, r) => Math.max(m, r.left), 0);
@@ -137,14 +162,19 @@ export function leftLabel(n) {
 
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 /* 列の見出し。{ key, d: 日, m: 月（月の頭か最初の列だけ）, wd: 曜日, sun, sat, hol: 祝日の名前か '', off: 日曜か祝日 } */
-export function columns(today, n) {
+/* dir = -1 なら今日から過去へ（完了の海。2026-11-13 Issue #57）。月の名前は、最初の列と月が変わった列に出す */
+export function columns(today, n, dir = 1) {
   const out = [];
+  let prevMonth = -1;
   for (let i = 0; i < n; i++) {
-    const key = addDays(today, i);
+    const key = addDays(today, dir < 0 ? -i : i);
     const dt = dateOf(key);
     const day = dt.getDate();
+    const mon = dt.getMonth();
+    const newMonth = i === 0 || mon !== prevMonth;
+    prevMonth = mon;
     out.push({
-      key, d: day, m: (i === 0 || day === 1) ? (dt.getMonth() + 1) + '月' : '',
+      key, d: day, m: newMonth ? (mon + 1) + '月' : '',
       wd: WD[dt.getDay()], sun: dt.getDay() === 0, sat: dt.getDay() === 6,
       hol: holidayName(key),
     });

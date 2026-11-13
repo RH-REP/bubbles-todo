@@ -10,7 +10,7 @@
    泡の名前は textContent で入れる（ui.js の el の第3引数は innerHTML なので、決まった文字だけに使う）。 */
 
 import { el } from './ui.js';
-import { deadlineRows, columnCount, columns, cellMark, inSpan, leftLabel, keyOf } from './deadline.js';
+import { deadlineRows, doneRows, agoLabel, columnCount, columns, cellMark, inSpan, leftLabel, keyOf } from './deadline.js';
 import { POINTS, pointId, CREDIT_URL, DAYS, loadData, loadArea, saveArea, fetchForecast, forecastFor, sizeLabel, detailText } from './weather.js';
 
 /* opts.open(id, node)   名前を押したとき
@@ -30,7 +30,7 @@ export function createDeadlineView(host, opts = {}) {
   const legend = el('p', 'dl-legend');
   legend.setAttribute('aria-hidden', 'true');
   [['end', '終了日'], ['day', '置いた日'], ['span', '期間']].forEach(([k, lb]) => {
-    const it = el('span', 'dl-lg');
+    const it = el('span', 'dl-lg lg-' + k);
     it.appendChild(el('span', 'dl-mk is-' + k));
     it.appendChild(document.createTextNode(lb));
     legend.appendChild(it);
@@ -49,6 +49,7 @@ export function createDeadlineView(host, opts = {}) {
   let wx = loadData();
   let area = loadArea();
   let lastItems = [];
+  let lastOpt = {};
   const wxBar = el('div', 'dl-wxbar');
   const pick = el('select', 'dl-wxarea');
   pick.setAttribute('aria-label', '天気を見る地域');
@@ -74,7 +75,7 @@ export function createDeadlineView(host, opts = {}) {
     area = pick.value === '' ? -1 : Number(pick.value);
     saveArea(area);
     syncWx();
-    render(lastItems);
+    render(lastItems, lastOpt);
   });
   const getBtn = el('button', 'dl-wxget');
   getBtn.type = 'button';
@@ -128,7 +129,7 @@ export function createDeadlineView(host, opts = {}) {
     busy = false;
     getBtn.disabled = false;
     syncWx();
-    render(lastItems);
+    render(lastItems, lastOpt);
   });
   function syncWx() {
     credit.hidden = !wx;
@@ -164,10 +165,22 @@ export function createDeadlineView(host, opts = {}) {
     dayLine.hidden = false;
   }
 
-  function render(items) {
+  /* ro.done … 完了の海（2026-11-13 Issue #57）。列は今日から**過去へ**（右へ行くほど前の日）、
+     行は完了した日の新しい順、● は完了した日、左の札は「今日・昨日・N日前」 */
+  const EMPTY_TODO = empty.textContent;
+  const EMPTY_DONE = '完了した日の分かるものは、まだ無い。盤の [タスク完了] を押すと、その日の列に ● が付いて並ぶ。';
+  function render(items, ro) {
     lastItems = items || [];
+    lastOpt = ro || {};
+    const done = !!lastOpt.done;
     const today = keyOf(new Date());
-    const rows = deadlineRows(items, today);
+    const rows = done ? doneRows(items, today) : deadlineRows(items, today);
+    cap.textContent = done ? '完了した日の新しい順（右へ行くほど前の日）' : '終了日の近い順';
+    root.setAttribute('aria-label', done ? '日付で見る（完了した日の新しい順）' : '日付で見る（終了日の近い順）');
+    empty.textContent = done ? EMPTY_DONE : EMPTY_TODO;
+    const lgEnd = legend.querySelector('.lg-end');
+    if (lgEnd) lgEnd.lastChild.textContent = done ? '完了した日' : '終了日';
+    legend.querySelectorAll('.lg-day, .lg-span').forEach(x => { x.style.display = done ? 'none' : ''; });
     table.replaceChildren();
     /* 日付の泡が無い海でも、日付の見出し（天気・祝日）は出す（2026-11-13 Issue #54）。
        前は泡が無いと表ごと隠していたので、個人で取った天気が、まだ日付の泡の無い共有の海では見えなかった。
@@ -175,7 +188,7 @@ export function createDeadlineView(host, opts = {}) {
     empty.hidden = rows.length > 0;
     scroller.hidden = false;
     const n = columnCount(rows);
-    const cols = columns(today, n);
+    const cols = columns(today, n, done ? -1 : 1);
     const last = cols[cols.length - 1].key;
     table.style.setProperty('--dl-cols', String(n));
     const hl = cols.filter(c => c.hol);
@@ -224,7 +237,7 @@ export function createDeadlineView(host, opts = {}) {
         h.setAttribute('aria-pressed', selDay === c.key ? 'true' : 'false');
         h.setAttribute('aria-label', (+c.key.slice(5, 7)) + '月' + c.d + '日（' + c.wd + '）'
           + (c.hol ? '　' + c.hol : '') + (f ? '　' + detailText(f) : '') + '。押すと詳しく');
-        const toggle = () => { selDay = selDay === c.key ? '' : c.key; render(lastItems); };
+        const toggle = () => { selDay = selDay === c.key ? '' : c.key; render(lastItems, lastOpt); };
         h.addEventListener('click', ev => { ev.preventDefault(); toggle(); });
         h.addEventListener('keydown', ev => {
           if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); }
@@ -244,8 +257,9 @@ export function createDeadlineView(host, opts = {}) {
       const tx = el('span', 'dl-tx');
       tx.textContent = r.text;                          /* ユーザーの文字。el の第3引数は innerHTML なので使わない */
       nm.appendChild(tx);
-      nm.appendChild(el('span', 'dl-left' + (r.left === 0 ? ' is-today' : ''), leftLabel(r.left)));
-      nm.setAttribute('aria-label', r.text + '、' + leftLabel(r.left) + '（' + r.end + '）');
+      const lb = done ? agoLabel(r.left) : leftLabel(r.left);
+      nm.appendChild(el('span', 'dl-left' + (r.left === 0 ? ' is-today' : ''), lb));
+      nm.setAttribute('aria-label', r.text + '、' + lb + (done ? 'に完了' : '') + '（' + r.end + '）');
       nm.addEventListener('click', ev => { ev.preventDefault(); if (opts.open) opts.open(r.id, nm); });
       row.appendChild(nm);
       cols.forEach((c, i) => {
@@ -254,7 +268,8 @@ export function createDeadlineView(host, opts = {}) {
         cell.setAttribute('aria-hidden', 'true');
         if (inSpan(r, c.key)) cell.appendChild(el('span', 'dl-bar'));
         if (mk && mk !== 'span') cell.appendChild(el('span', 'dl-mk is-' + mk));
-        if (i === cols.length - 1 && r.end > last) cell.appendChild(el('span', 'dl-more', '→'));
+        /* 表の右端より先（過去の表ならもっと前）にあるもの */
+        if (i === cols.length - 1 && (done ? r.end < last : r.end > last)) cell.appendChild(el('span', 'dl-more', '→'));
         row.appendChild(cell);
       });
       table.appendChild(row);

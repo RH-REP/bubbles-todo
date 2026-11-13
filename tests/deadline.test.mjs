@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  deadlineOf, deadlineRows, columnCount, columns, cellMark, inSpan, leftLabel, spanFromDetail, daysBetween, withSpan,
+  deadlineOf, deadlineRows, doneRows, agoLabel, columnCount, columns, cellMark, inSpan, leftLabel, spanFromDetail, daysBetween, withSpan,
   COLS_MIN, COLS_MAX,
 } from '../js/deadline.js';
 import { holidaysOf, holidayName } from '../js/holiday.js';
@@ -144,4 +144,22 @@ test('欄の due を先に読み、start があれば期間にする（v1.1）',
   assert.equal(deadlineOf({ due: '2026-11-01' }, T), null);
   assert.equal(deadlineOf({ due: '2026/11/12' }, T), null);
   assert.equal(deadlineOf({ due: '2026-11-12', done: true }, T), null);
+});
+
+test('完了の海: 完了した日の新しい順・過去へ向かう列（Issue #57）', () => {
+  const at = (d, h) => new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10), h).getTime();
+  const rows = doneRows([
+    { id: 'a', text: 'a', done: true, doneAt: at('2026-11-05', 9) },
+    { id: 'b', text: 'b', done: true, doneAt: at('2026-11-07', 8) },
+    { id: 'c', text: 'c', done: true, doneAt: null },          /* 時刻の無い古いデータは並べない */
+    { id: 'd', text: 'd', done: false, doneAt: null },
+    { id: 'e', text: 'e', done: true, doneAt: at('2026-11-07', 20) },
+  ], T);
+  assert.deepEqual(rows.map(r => r.id), ['e', 'b', 'a']);
+  assert.deepEqual(rows.map(r => r.left), [0, 0, 2]);
+  assert.equal(cellMark(rows[2], '2026-11-05'), 'end');
+  assert.deepEqual([0, 1, 5].map(agoLabel), ['今日', '昨日', '5日前']);
+  const c = columns('2026-12-02', 4, -1);
+  assert.deepEqual(c.map(x => x.key), ['2026-12-02', '2026-12-01', '2026-11-30', '2026-11-29']);
+  assert.deepEqual(c.map(x => x.m), ['12月', '', '11月', '']);
 });

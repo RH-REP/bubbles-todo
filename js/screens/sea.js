@@ -3109,6 +3109,8 @@ function setGridMode(mode) {
 
 function renderDays() {
   if (!dl) return;
+  /* 完了の海では、完了した日を過去へ並べる（2026-11-13 Issue #57。js/deadline.js doneRows） */
+  if (isDoneFace()) { dl.render(store.all().filter(isDoneItem), { done: true }); return; }
   dl.render(store.all());
 }
 
