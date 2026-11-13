@@ -2815,6 +2815,8 @@ function chainBox(opts = {}) {
           + '前にこの app のパスキーを作ったことがあるなら「パスキーで開く」（同じウォレットを開き、いちばん新しいバックアップを戻す）。'
           + '初めてなら「パスキーを新しく作る」（作るたびに別のウォレット・別のバックアップになる）。');
         btn('パスキーで開く', async () => {
+          /* 押した手応えを先に出す（Issue #53: パスキーの画面が出ないと、押しても反応しないように見えた）。await の前なので押した手の続きのまま */
+          line.textContent = 'パスキーの画面を開いている…（出ないときは、この端末・ブラウザでパスキーが使えない。合言葉を使う）';
           const got = await passkeyRoot(null);
           const keys = await keysFromRoot(got.root);
           cfg = Object.assign(loadConfig(), { network: net, mode: 'passkey', credId: got.credId, address: keys.wallet.address });
@@ -2834,7 +2836,8 @@ function chainBox(opts = {}) {
       /* パスキーと同じく「開く → 新しく作る」の順に並べる（Issue #53。前に作った人が押し間違えないように） */
       btn('合言葉で開く', async () => {
         const pass = window.prompt('合言葉（24 字）');
-        if (!pass) return;
+        /* 何も出さずに戻ると、押しても反応しないように見える（Issue #53） */
+        if (!pass) { line.textContent = 'やめた（合言葉を打つ窓が出なかったなら、このブラウザで入力の窓が止められている。ページを開き直してもう一度押す）'; return; }
         line.textContent = '鍵を作っている…';
         const keys = await keysFromRoot(await rootFromPassphrase(pass));
         cfg = Object.assign(loadConfig(), { network: net, mode: 'pass', credId: null, address: keys.wallet.address });
@@ -2857,6 +2860,7 @@ function chainBox(opts = {}) {
         into = lines.get('start').previousSibling;
         groupKey = 'start';
         btn('パスキーを新しく作る', async () => {
+          line.textContent = 'パスキーを作る画面を開いている…（出ないときは、この端末・ブラウザでパスキーが使えない。合言葉を使う）';
           const made = await createPasskey();
           let got = made;
           if (!made.root) {

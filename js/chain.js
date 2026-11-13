@@ -605,17 +605,39 @@ export function passkeyLabel(now = new Date()) {
   return { name: 'bubbles-backup-' + d.replace(/[-: ]/g, ''), displayName: 'Bubbles の控え（' + d + ' 作成）' };
 }
 
+/* パスキーの画面を待つ長さ（2026-11-13 Issue #53: 押しても何も出ないまま待ち続けると、反応しないように見える）。
+   この長さで打ち切り、知らせの行に理由を出す */
+export const PASSKEY_WAIT_MS = 120000;
+function passkeyWait() {
+  const o = { timeout: PASSKEY_WAIT_MS };
+  const s = (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(PASSKEY_WAIT_MS + 5000) : null;
+  return { publicKey: o, signal: s };
+}
+/* パスキーの失敗を、何が起きたか分かる文にする（Issue #53。前は理由の分からない英語のまま出るか、何も出なかった） */
+export function passkeyError(e) {
+  const n = e && e.name;
+  if (n === 'NotAllowedError') return new Error('パスキーの確認ができなかった（やめた・時間切れ、またはこの端末にこの app のパスキーが無い。もう一度押すか、合言葉を使う）');
+  if (n === 'AbortError' || n === 'TimeoutError') return new Error('パスキーの画面が出ないまま時間が切れた（このブラウザ・端末ではパスキーが使えないかもしれない。合言葉を使う）');
+  if (n === 'SecurityError') return new Error('このページの住所ではパスキーを使えない（https で開いているかを確かめる）');
+  if (n === 'InvalidStateError') return new Error('このパスキーはもうこの端末にある（「パスキーで開く」を押す）');
+  return e instanceof Error ? e : new Error(String(e));
+}
+
 /* 新しいパスキーを作る → { credId, root }（root は作ったときに返らない端末では null。続けて passkeyRoot を呼ぶ） */
 export async function createPasskey() {
   const label = passkeyLabel();
-  const cred = await navigator.credentials.create({ publicKey: {
-    rp: { name: 'Bubbles の控え' },
-    user: { id: randomBytes(16), name: label.name, displayName: label.displayName },
-    challenge: randomBytes(32),
-    pubKeyCredParams: [{ type: 'public-key', alg: -8 }, { type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-    authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-    extensions: { prf: { eval: { first: PRF_SALT } } },
-  } });
+  const w = passkeyWait();
+  let cred;
+  try {
+    cred = await navigator.credentials.create(Object.assign({ publicKey: Object.assign({
+      rp: { name: 'Bubbles の控え' },
+      user: { id: randomBytes(16), name: label.name, displayName: label.displayName },
+      challenge: randomBytes(32),
+      pubKeyCredParams: [{ type: 'public-key', alg: -8 }, { type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+      extensions: { prf: { eval: { first: PRF_SALT } } },
+    }, w.publicKey) }, w.signal ? { signal: w.signal } : {}));
+  } catch (e) { throw passkeyError(e); }
   if (!cred) throw new Error('パスキーを作れなかった');
   const ext = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
   if (!ext.prf || ext.prf.enabled === false) {
@@ -626,12 +648,17 @@ export async function createPasskey() {
 
 /* パスキーで元を作る。credId を渡さなければ、端末にあるこの app のパスキーから選ばせる → { credId, root } */
 export async function passkeyRoot(credId) {
-  const cred = await navigator.credentials.get({ publicKey: {
-    challenge: randomBytes(32),
-    allowCredentials: credId ? [{ type: 'public-key', id: fromB64u(credId) }] : [],
-    userVerification: 'required',
-    extensions: { prf: { eval: { first: PRF_SALT } } },
-  } });
+  const w = passkeyWait();
+  let cred;
+  try {
+    cred = await navigator.credentials.get(Object.assign({ publicKey: Object.assign({
+      challenge: randomBytes(32),
+      allowCredentials: credId ? [{ type: 'public-key', id: fromB64u(credId) }] : [],
+      userVerification: 'required',
+      extensions: { prf: { eval: { first: PRF_SALT } } },
+    }, w.publicKey) }, w.signal ? { signal: w.signal } : {}));
+  } catch (e) { throw passkeyError(e); }
+  if (!cred) throw new Error('パスキーを選ばなかった（もう一度押す）');
   const root = prfFirst(cred);
   if (!root) throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（合言葉か復元コードを使う）');
   return { credId: toB64u(cred.rawId), root };
