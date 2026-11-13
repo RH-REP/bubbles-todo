@@ -179,10 +179,12 @@ try {
   await toServer();
   await shot('12_server_connected');
   /* 書き出し・読み込み（CSV）。読み込み方を選ぶ窓は、書き出した CSV をそのまま読ませて出す */
-  /* CSV の欄は「記録を保存する・読み込む」の選択肢「CSV（1つの海・表）」を押すと出る（Issue #43。字は Issue #48 で変えた） */
-  await js(`const c = [...document.querySelectorAll('#pane-settings .choice-row button')].find(b => b.textContent.trim().startsWith('CSV'));
+  /* CSV の欄は「記録を保存する・読み込む」の選択肢［ファイルに書き出す］を押し、形の「表（CSV）」を選ぶと出る（Issue #43・#48） */
+  await js(`const c = [...document.querySelectorAll('#pane-settings .choice-row button')].find(b => b.textContent.trim() === 'ファイルに書き出す');
     if (c && c.getAttribute('aria-pressed') !== 'true') c.click();
-    const g = c && c.closest('details'); if (g) g.open = true;`);
+    const g = c && c.closest('details'); if (g) g.open = true;
+    const r = document.querySelector('#pane-settings input[name="save-fmt"][value="csv"]');
+    if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change')); }`);
   await js(`const h = [...document.querySelectorAll('#pane-settings h3')].find(e => e.textContent.startsWith('書き出す'));
     let s = h.parentElement; while (s && !(s.scrollHeight > s.clientHeight + 2 && /(auto|scroll)/.test(getComputedStyle(s).overflowY))) s = s.parentElement;
     (s || document.scrollingElement).scrollBy(0, h.getBoundingClientRect().top - 100);`);

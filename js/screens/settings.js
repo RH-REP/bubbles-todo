@@ -252,7 +252,7 @@ export default {
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
-    const gSave = group('記録を保存する・読み込む', '控え（ファイル）・サーバー・ブロックチェーン・CSV');
+    const gSave = group('記録を保存する・読み込む', 'ファイル・フォルダ・サーバー・ブロックチェーンに書き出す');
     const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
@@ -413,17 +413,50 @@ export default {
        選択肢の字を「何のために使うか」にし、使い分けを箱の行の ⓘ の裏に置く（見出しの無い p.note は markInfo が ⓘ へ畳む） */
     /* 引っ越しと控えを［控え］1つにまとめた（2026-11-13 Issue #48 の返事「おすすめで」= A 案）。
        サーバーに入る鍵は、押して作る控えのチェックボックスで入れる（入れたら暗号化は必須）。自動の控えには入れない */
+    /* 字を「書き出す先を選ぶ」動詞の形にし、CSV は「ファイルに書き出す」の形の1つにした
+       （2026-11-13 Issue #48 の返事「控えとかわかりにくい」「書き出す場所を選ぶみたいな動詞にして、選択肢を示す形」「控えと CSV まとめれる？」） */
     [
       'どれを使う？',
       '・同じサーバーに繋いだ端末どうし（iPhone・Android・PC を同時に使うなど）は、自動で同じ記録になる。ふだんは何もしなくてよい。',
-      '・控え（ファイル）… 新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付けて作る（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。もしものための保険は、印なしで作るか、毎日の控え（自動）を回す（記録だけ。戻したあと、サーバーには入り直す）。',
-      '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。',
-      '・CSV… 開いている海1つを表にする。Excel で見る・1つの海だけ移すとき。暗号化しない。',
-      'どれから戻しても、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
+      '・ファイルに書き出す… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。形は「すべての海」か、Excel で開ける「表（CSV。開いている海1つ・暗号化しない）」を選ぶ。',
+      '・フォルダに自動で書き出す… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く（記録だけ。鍵は入らない）。',
+      '・ブロックチェーンに書き出す… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。',
+      'どれから読み込んでも、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
     ].forEach(t => gSave.appendChild(el('p', 'note', t)));
-    const saveChoice = choiceRow(gSave, 'どこに保存するか');
-    /* --- 控え（押して作る控え・引っ越し・毎日の控え・戻す。Issue #19・2026-11-12・Issue #48）--- */
-    saveChoice.add('file', '控え（ファイル）', [moveBox(), folderBox()]);
+    /* 問いなので .note にしない（ⓘ の裏に隠さない） */
+    gSave.appendChild(el('p', 'prefs-pages-lb', 'どこに書き出す？'));
+    const saveChoice = choiceRow(gSave, '書き出す場所を選ぶ');
+    /* --- ファイルに書き出す（すべての海＝引っ越し・控え、または表＝CSV。Issue #19・#48）--- */
+    {
+      const fileWrap = el('div');
+      const moveEl = moveBox();
+      const csvEl = csvBox();
+      const fmt = el('div', 'row');
+      fmt.setAttribute('role', 'radiogroup');
+      fmt.setAttribute('aria-label', '書き出す形');
+      fmt.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;margin:8px 0';
+      const radio = (val, text, on) => {
+        const lb = el('label', 'setrow');
+        const r = document.createElement('input');
+        r.type = 'radio';
+        r.name = 'save-fmt';
+        r.value = val;
+        r.checked = on;
+        r.addEventListener('change', () => { moveEl.hidden = val !== 'all'; csvEl.hidden = val !== 'csv'; });
+        lb.appendChild(r);
+        lb.appendChild(document.createTextNode(' ' + text));
+        fmt.appendChild(lb);
+      };
+      radio('all', 'すべての海（暗号化できる・鍵も入れられる）', true);
+      radio('csv', '表（CSV。開いている海1つ・Excel で開ける）', false);
+      csvEl.hidden = true;
+      fileWrap.appendChild(fmt);
+      fileWrap.appendChild(moveEl);
+      fileWrap.appendChild(csvEl);
+      saveChoice.add('file', 'ファイルに書き出す', [fileWrap]);
+    }
+    /* --- フォルダに自動で書き出す（2026-11-12 利用者の指示。js/folderbackup.js）--- */
+    saveChoice.add('folder', 'フォルダに自動で書き出す', [folderBox()]);
     {
       const w = el('div', 'tags');
       w.appendChild(el('h3', null, 'サーバーに置く'));
@@ -439,7 +472,7 @@ export default {
       r.appendChild(b);
       w.appendChild(r);
       w.appendChild(st);
-      saveChoice.add('server', 'サーバー（いつも同じ）', [w]);
+      saveChoice.add('server', 'サーバーに置く（自動）', [w]);
       gSave.addEventListener('toggle', () => {
         if (gSave.open) st.textContent = sync.config().url ? 'いま: サーバーに繋いでいる（自動で置いている）。' : 'いま: サーバーには繋いでいない。';
       });
@@ -451,10 +484,8 @@ export default {
         '記録を暗号化して、Solana のチェーンにバックアップとして書く。押したときだけ書き（手数料が掛かる）、読み込みは今の記録に重ねる。'
         + 'パスキーか合言葉で開く。どの端末からでも戻せる。始め方・ウォレット・鍵は「ブロックチェーンを準備する」にある。'),
         backupEl.children[1] || null);
-      saveChoice.add('chain', 'ブロックチェーン（もしもの控え）', [backupEl]);
+      saveChoice.add('chain', 'ブロックチェーンに書き出す', [backupEl]);
     }
-    /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示）--- */
-    saveChoice.add('csv', 'CSV（1つの海・表）', [csvBox()]);
     /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
     [gShare, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
       if (!d.open) return;
@@ -1224,7 +1255,7 @@ function serverChatBox(screen) {
    対象は、いま開いている海。形とやり方は js/csvio.js */
 function csvBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '書き出す・読み込む（CSV）'));
+  wrap.appendChild(el('h3', null, '表（CSV）に書き出す・読み込む'));
   const shareNote = !isPersonal(store.space()) ? '人を招いた海で読み込むと、招いた人の端末にも届く。' : '';
   wrap.appendChild(el(
     'p', 'note',
@@ -1304,10 +1335,10 @@ function csvBox() {
    形と暗号は js/movefile.js。サーバーの「引っ越しの鍵」は server.py の /api/passkey/move */
 function moveBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '控えを作る・戻す'));
+  wrap.appendChild(el('h3', null, 'ファイルに書き出す・読み込む（すべての海）'));
   wrap.appendChild(el(
     'p', 'note',
-    '選んだ海の記録を1つのファイルにする（いつでも押したときに作る）。'
+    '選んだ海の記録を1つのファイルに書き出す（押したときに1つ作る）。'
     + '新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける。新しい端末でこのファイルを開いて合言葉を入れると、記録が戻り、招かれた海にもそのまま入れる（持ち主に招待を頼まなくてよい）。'
     + '鍵を入れるときは、必ず合言葉で暗号化する。ファイルは iCloud Drive・Google Drive など自分の置き場へ。合言葉はファイルと別に書き留める（忘れたら開けない）。'
   ));
@@ -1336,14 +1367,14 @@ function moveBox() {
   });
   const row = el('div', 'row');
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
-  const movePick = regionPicker('控え');
+  const movePick = regionPicker('ファイル');
   wrap.appendChild(movePick.el);
-  const make = el('button', 'btn', '控えを作る');
+  const make = el('button', 'btn', '書き出す');
   make.type = 'button';
   const save = el('button', 'btn', 'ファイルを保存する');
   save.type = 'button';
   save.hidden = true;
-  const openBtn = el('button', 'btn', '控えから戻す');
+  const openBtn = el('button', 'btn', 'ファイルから読み込む');
   openBtn.type = 'button';
   row.appendChild(make);
   row.appendChild(save);
@@ -1503,7 +1534,7 @@ function moveBox() {
       fileText = '';
       const info = moveSummary(p);
       const at = info.at ? new Date(info.at).toLocaleString() : '不明';
-      if (!window.confirm('この控えから戻す？\n' + f.name + '\n控えた時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
+      if (!window.confirm('このファイルから読み込む？\n' + f.name + '\n書き出した時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
         + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
       restore(p);
       return;
@@ -1645,7 +1676,7 @@ function moveBox() {
    仕組みは js/folderbackup.js。ここはフォルダを選ぶ・止める・許しを出し直す・控えから戻すボタンと、状態の1行 */
 function folderBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '毎日の控え（決めたフォルダに自動で書く）'));
+  wrap.appendChild(el('h3', null, 'フォルダに自動で書き出す'));
   wrap.appendChild(el('p', 'note',
     'フォルダを1度選ぶと、この app を開いている間、書き換えて 30 秒たったときと 10 分ごと（と画面を裏に回したとき）に、'
     + 'そのフォルダの「bubbles-backup-日付.json」へ、この端末のすべての海の記録を書く。1日1つのファイルで、その日のうちは上書きする。'
@@ -1660,7 +1691,7 @@ function folderBox() {
   if (!ok) {
     wrap.appendChild(el('p', 'note',
       'このブラウザでは使えない（フォルダに書く仕組みが無い）。Chrome か Edge で開く（Mac の Chrome でインストールした app でもよい）。'
-      + '上の「控えから戻す」は、どのブラウザでも使える（毎日の控えのファイルも開ける）。'));
+      + '書いたファイルは「ファイルに書き出す」の［ファイルから読み込む］で開ける（どのブラウザでも使える）。'));
   }
   const row = el('div', 'row');
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
@@ -1674,7 +1705,7 @@ function folderBox() {
   offBtn.type = 'button';
   const encBtn = el('button', 'btn', '暗号化して書く');
   encBtn.type = 'button';
-  /* 戻すボタンは上の「控えを作る・戻す」の［控えから戻す］1つにまとめた（Issue #48 の A 案） */
+  /* 読み込むボタンは「ファイルに書き出す」の［ファイルから読み込む］1つにまとめた（Issue #48） */
   [pickBtn, nowBtn, permBtn, encBtn, offBtn].forEach(b => { if (ok) row.appendChild(b); });
   wrap.appendChild(row);
   const line = el('p', 'note');
@@ -2269,7 +2300,7 @@ function resetAllBox() {
     '画面の「!」が覚えているエラーの記録と、app 本体'].forEach(s => { const li = el('li'); li.textContent = s; kept.appendChild(li); });
   panel.appendChild(kept);
   panel.appendChild(el('p', 'note',
-    '残しておきたい記録があれば、先に上の「記録を保存する・読み込む」の「控えを作る」か「CSV で書き出す」で控えを取る。'
+    '残しておきたい記録があれば、先に上の「記録を保存する・読み込む」の「ファイルに書き出す」で書き出しておく。'
     + 'サーバーなし版と通常版は、この端末では同じ記録を使うので、どちらも初期化される。'));
 
   const form = el('form', 'tagadd');

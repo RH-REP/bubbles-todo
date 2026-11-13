@@ -16,7 +16,7 @@
    既定では暗号化しない。設定で選べば、この端末の鍵で包んで書く（下の「暗号化して書く」。format は 'bubbles-backup-enc'）。
    海の記録（doc と印）と海の一覧、海域の一覧（名前と住所。2026-11-12 段2）。**合言葉・鍵は入れない**（平文で置くため）。
    住所は、新しい端末で戻したときに海域ごとに付け替えるために入れる（鍵ではない）。
-   戻すときは設定の「控えから戻す」（Issue #48 で押して作る控えと1つにまとめた）で、引っ越しと同じく記録ごとに新しいほうを残して重ねる。
+   戻すときは設定の「ファイルに書き出す」の［ファイルから読み込む］（Issue #48 で1つにまとめた）で、引っ越しと同じく記録ごとに新しいほうを残して重ねる。
 
    ■ 使えるところ
    File System Access API（showDirectoryPicker）のあるブラウザだけ（Chrome・Edge。Mac の Chrome でインストールした app も）。
@@ -161,7 +161,7 @@ export function readBackup(text) {
   let p;
   try { p = JSON.parse(String(text || '')); } catch (e) { throw new Error('控えのファイルではない（JSON として読めない）'); }
   if (!p || typeof p !== 'object' || p.format !== FORMAT) {
-    if (p && p.format === 'bubbles-move') throw new Error('これは引っ越しのファイル（暗号化）。「控えから戻す」から開く');
+    if (p && p.format === 'bubbles-move') throw new Error('これは引っ越しのファイル（暗号化）。「ファイルに書き出す」の［ファイルから読み込む］で開く');
     if (p && p.format === FORMAT_ENC) throw new Error('暗号化した控え（openBackup で開く）');
     throw new Error('控えのファイルではない（bubbles-backup の形でない）');
   }
