@@ -3144,6 +3144,8 @@ export function attachGestures(node, handlers = {}) {
       hit, veil, panel, host, wasFocused,
       onOutside, onEsc, onAway, onScroll, cx, cy, d: W,
     };
+    /* 盤を開いたことを知らせる（2026-11-13 Issue #52。サーバーなし版はほかの端末の新しい控えを見に行く。js/chainwatch.js が1分に1回までに間引く） */
+    try { window.dispatchEvent(new CustomEvent('bubbles:boardopen')); } catch (e) { /* 知らせられなくても盤は開く */ }
 
     /* キーボードで来たときだけ、盤の先頭へ移す（指のときは焦点を横取りしない）。
        時間で開く窓が無くなったので、鍵盤の経路はこのボタン1つに集約する。 */

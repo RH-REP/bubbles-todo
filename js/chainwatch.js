@@ -14,6 +14,7 @@ import { loadConfig, saveConfig, latestBackupId } from './chain.js';
 
 export const NEW_TEXT = 'ほかの端末の新しい記録がある（ブロックチェーン）';
 export const EVERY_MS = 5 * 60000;
+export const BOARD_GAP_MS = 60000;   /* 泡の盤を開いたときに見に行く間隔の下限 */
 
 /* この端末で最後に読み込んだ控えの ID を覚える（読み込んだものは知らせない） */
 export function markChainSeen(id, storage = globalThis.localStorage) {
@@ -60,6 +61,7 @@ export function startChainWatch(opts = {}) {
   let shown = null;      /* 知らせている控えの ID */
   let dismissed = null;  /* ×で隠した控えの ID（この窓の間だけ） */
   let busy = false;
+  let lastAsk = 0;       /* 最後に窓口へ尋ねた時刻 */
   function show(id) {
     shown = id;
     msg.textContent = NEW_TEXT;
@@ -92,6 +94,7 @@ export function startChainWatch(opts = {}) {
     const cfg = loadConfig(storage);
     if (!cfg.address) return;   /* ブロックチェーンを始めていない端末では尋ねない */
     busy = true;
+    lastAsk = Date.now();
     try {
       const id = await latest(cfg.network, cfg.address);
       const now = loadConfig(storage);   /* 尋ねている間に書いた・読み込んだかもしれない */
@@ -106,6 +109,10 @@ export function startChainWatch(opts = {}) {
     setTimeout(check, 4000);   /* 開いてすぐの読み込みと重ねない */
     setInterval(check, EVERY_MS);   /* 隠れている間は check の中で飛ばす */
     doc.addEventListener('visibilitychange', () => { if (!doc.hidden) check(); });
+    /* 泡の盤を開いたときも見る（Issue #52 の返事）。続けて開いても尋ねすぎないよう、前に尋ねてから 1 分は見ない */
+    if (typeof addEventListener === 'function') addEventListener('bubbles:boardopen', () => {
+      if (Date.now() - lastAsk >= BOARD_GAP_MS) check();
+    });
   }
   return { check, bar, show };
 }
