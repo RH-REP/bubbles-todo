@@ -60,7 +60,8 @@ class ServerTest(unittest.TestCase):
             return re.findall(r"'(\./[^']*)'", m.group(1))
         assets, optional = listed('ASSETS'), listed('OPTIONAL')
         self.assertGreater(len(assets), 50)
-        self.assertIn('./solo.html', optional)
+        self.assertIn('./noserver.html', optional)   # サーバーなし版（2026-11-13 Issue #51 で solo.html から名前を変えた）
+        self.assertIn('./solo.html', optional)       # 前の名前（noserver.html へ送るだけ）
         bad = [u for u in assets if self.req('GET', '/' + u[2:], token=None)[0] != 200]
         self.assertEqual(bad, [], 'server.py が配らないものが ASSETS に入っている（OPTIONAL へ移す）')
         for u in optional:

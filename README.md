@@ -4,7 +4,7 @@
 
 **[動かしてみる →](https://rh-rep.github.io/bubbles-todo/)**
 
-公開している入口はこの1つ（2026-11-13 Issue #51）。サーバーに繋いでいなければ `solo.html` に移るが、それは決めた動き（下の「サーバーなし版」の「入口は1つ」）。
+公開している入口はこの1つ（2026-11-13 Issue #51）。サーバーに繋いでいなければサーバーなし版の `noserver.html`（前の名前は `solo.html`）に移るが、それは決めた動き（下の「サーバーなし版」の「入口は1つ」）。
 サーバーに繋いだ端末では同じ住所が `index.html` のまま開く。使い方の記事は [docs/guide/](https://rh-rep.github.io/bubbles-todo/docs/guide/)。
 
 ---
@@ -194,7 +194,7 @@
   | 開き方 | CSP | よそのスクリプトを動かさない（script-src 'self'） | 送り先の決め打ち（connect-src） |
   |---|---|---|---|
   | server.py が配るページ | ヘッダー（server.py の `CSP`） | ある | `'self'`・Anthropic・OpenAI・Gemini・天気・Solana の公式 RPC |
-  | solo.html（GitHub Pages・Android でサーバーに繋いでいないとき。js/boot-edition.js が移す） | `<meta>` | ある | 同上 |
+  | noserver.html（GitHub Pages・Android でサーバーに繋いでいないとき。js/boot-edition.js が移す） | `<meta>` | ある | 同上 |
   | index.html を GitHub Pages・Android で開き、サーバーに繋いでいるとき | `<meta>`（2026-11-11 に足した） | ある | **無い**（`*`。利用者が入れる同期の住所に繋ぐため） |
 
   - **送り先の決め打ちは、キーを外へ出さない柵としてはもう完全ではない。**Solana の公式 RPC は誰でも書ける公開の掲示板なので、
@@ -202,7 +202,7 @@
     対象外で、どのページでも塞げない。だから守りの主は「悪いコードを動かさない」こと:
     外のスクリプトを読まない（外部依存ゼロ）・`script-src 'self'`（差し込まれた `<script>` や `onclick=` を動かさない）・
     人や AI の文字を HTML にしない（上の「HTML として描かない」）。index.html の `<meta>` はこのために足した（connect-src は開けたまま）
-  - index.html の `<meta>` は solo.html の `<meta>` と同じ位置に置く（tests/chain.test.mjs が両方の CSP の行を外して見比べる）。
+  - index.html の `<meta>` は noserver.html の `<meta>` と同じ位置に置く（tests/chain.test.mjs が両方の CSP の行を外して見比べる）。
     server.py が配るときはヘッダーと `<meta>` の両方が効き、厳しいほう（ヘッダーの connect-src）になる
 - **送る中身**: 書いた質問の文・この app の使い方の要約（README の目次ぶん）・版と今の画面 ID・件数（海・今日・長期保留・完了・タグ）だけ。
   **バブルの本文・作業メモは送らない**
@@ -418,7 +418,7 @@ AI に頼む欄・既定に戻す・全体に提案するは、どの画面で�
   今日の画面の「おすすめ」の [AI で選び直す]（2026-11-07 利用者の指示 Issue #12）も、押したときだけ、端末で絞った候補（30 件まで）の**名前と印だけ**を同じく Anthropic へ送る（下の「今日のおすすめ」）。
   4つ目の例外は右上の **!** の「AI で題名」（2026-11-07 利用者の指示 Issue #10）。押したときだけ、そのコメントの文を同じく Anthropic へ送る（上の「改善のコメント」）。キーは端末の `localStorage` にだけ置き、サーバーへは送らない（CSV・サーバー同期・改善のコメントのどれにも混ざらない）。
   会話は端末のメモリにだけ置き、閉じると消える。
-  5つ目の例外はサーバーなし版（`solo.html`）の「ブロックチェーンにバックアップ」（2026-11-08 利用者の指示 Issue #31）。押したときだけ、暗号化した記録を Solana の公式 RPC へ送る（下の「サーバーなし版とブロックチェーンへの控え」）
+  5つ目の例外はサーバーなし版（`noserver.html`）の「ブロックチェーンにバックアップ」（2026-11-08 利用者の指示 Issue #31）。押したときだけ、暗号化した記録を Solana の公式 RPC へ送る（下の「サーバーなし版とブロックチェーンへの控え」）
 - 物理（漂う・投げる・跳ね返る）は `js/drift.js` の自前実装。使うのは海と今日だけで、
   きっかけ・すきまはカードの中へ並べる（物理は使わない）
 - 完了音と効果音（泡を足す・はじめた・タブに置く。2026-11-07 Issue #18）は音声ファイルを持たず WebAudio で合成する。設定で別々に切れる
@@ -672,7 +672,7 @@ bash tests/server-setup.test.sh
   いまは画面のキャッシュ（Cache Storage）を消してから読み直す（`js/update.js` の `forceReload`。記録は消さない）。
   登録が無いページは箱から画面を出していないので、読み直せば網から最新を取る（server.py は `no-store` で返す）。
   **server.py から開いたページで登録が無かった件は直した**（2026-11-12。3f060cd から続いていた。原因は2つ）:
-  1. `sw.js` が入れる一覧に、server.py が配らない `solo.html`・`manifest-solo.json` があり、`cache.addAll` ごと失敗した。
+  1. `sw.js` が入れる一覧に、server.py が配らない `solo.html`（今の `noserver.html`）・`manifest-solo.json` があり、`cache.addAll` ごと失敗した。
      この2つは `OPTIONAL` に分け、1つずつ取って取れたものだけ入れる。`ASSETS` は全部が server.py から取れること（`tests/test_server.py` の `test_sw_assets_are_all_served`）
   2. server.py の守り（`guard.py`）が画面のファイルも要求の数（120 回/分）に数え、初めて開いたとき（ページ約 70＋取り込み約 80）に 429 になった。
      画面のファイル（/api/ 以外の GET・HEAD）は別の枠（600 回/分）で数える（`Guard.request_static`）
@@ -740,7 +740,7 @@ bash tests/server-setup.test.sh
 - チェーン・直の通信のチャット（下の「共有の海」）とは別の道。ただし**サーバーに繋いでいるページでは、チェーン・直の通信のチャットの履歴もここへ写す**
   （同日 返事「おすすめで」= A 案・写す）。共有の海はその海の記録へ、自分あてのメモは個人（me）の記録へ。
   1 件 = `chatCopies`（id は `x` ＋メッセージの id。何度写しても増えない。名前は呼び名、`dev` は空なので、ここからは消せない）。未送は写さない。
-  `solo.html` はサーバーに繋がらない（CSP）ので、そこで開いている間は写さない
+  `noserver.html` はサーバーに繋がらない（CSP）ので、そこで開いている間は写さない
 - 作り: `js/notes.js` の `CHAT_TODO`・`chatFor`・`chatCopies`、`js/store.js` の `chatOf`・`addChat`、`js/screens/settings.js` の `serverChatBox` と `openChat` の `copyToServer`。
   テスト: `node --test tests/notes.test.mjs` の「チャット」
 
@@ -750,11 +750,11 @@ bash tests/server-setup.test.sh
 
 - **2026-11-13 Issue #47 で「記録の置き場を選ぶ」は外した**（下は当時の形。サーバーは「海を設定する」の ⚙、サーバーなし版からサーバーに繋ぐページへ移るのも、そこでサーバーを同期の先にしたとき）。
 - 設定の 1 行「記録の置き場を選ぶ」（畳んである。横に今の置き場 `この端末＋自分のサーバー＋ブロックチェーン`）。開くと「この端末だけ」「自分のサーバー（海域）」「ブロックチェーン」:
-  - この端末だけ … サーバーを外す（確かめてから。記録は端末にもサーバーにも残る）。サーバーでない所（GitHub Pages・Android の app）で開いていれば `solo.html` へ移る
-  - 自分のサーバー … `solo.html` なら `index.html` へ移り（その窓の間は戻さない印）、「海域（サーバー）」に住所を入れる。`index.html` なら海域の欄を開く
+  - この端末だけ … サーバーを外す（確かめてから。記録は端末にもサーバーにも残る）。サーバーでない所（GitHub Pages・Android の app）で開いていれば `noserver.html` へ移る
+  - 自分のサーバー … `noserver.html` なら `index.html` へ移り（その窓の間は戻さない印）、「海域（サーバー）」に住所を入れる。`index.html` なら海域の欄を開く
   - ブロックチェーン … ブロックチェーンの欄を開く（どちらのページでも）
-- **ページは裏で 2 つのまま**: `<meta>` の CSP は読み込みの時点で決まり、1 つのページの中で切り替えられない。`solo.html` は決め打ちの守りのため自分のサーバーに繋がらない（住所は人ごとに違い、決め打ちに書けない）
-- **サーバーが配るページでもブロックチェーンを使う**: `server.py` の CSP の connect-src に Solana の公式 RPC（devnet・mainnet。`solo.html` と同じ窓口だけ）を足した。
+- **ページは裏で 2 つのまま**: `<meta>` の CSP は読み込みの時点で決まり、1 つのページの中で切り替えられない。`noserver.html` は決め打ちの守りのため自分のサーバーに繋がらない（住所は人ごとに違い、決め打ちに書けない）
+- **サーバーが配るページでもブロックチェーンを使う**: `server.py` の CSP の connect-src に Solana の公式 RPC（devnet・mainnet。`noserver.html` と同じ窓口だけ）を足した。
   サーバーに繋いだまま、バックアップ・共有の海・チャット・直の通信が使える。（2026-11-12 Issue #45 で、繋ぐ・始めるは「サーバー・ブロックチェーンを準備する」、共有とチャットは「他の人と一緒に使う」、バックアップは「記録を保存する・読み込む」に分けた。以下は #43 の時点の形）設定の「他の人と一緒に使う」を開くと「サーバーを使う」「ブロックチェーンを使う」の選択肢だけが出て、
   選んだほうの欄（海域・この海のチャット／ブロックチェーン）だけを下に出す（2026-11-11 Issue #43 の返事。もう一度押すと畳む。
   サーバーに繋いでいればサーバー、ブロックチェーンを始めていればそちらを選んだ姿で始める。「記録の置き場を選ぶ」から開くときも、そのほうを選ぶ。作りは `choiceRow`）
@@ -926,13 +926,17 @@ CSV（2026-11-13 に外した）は開いている海だけで、サーバーに
 
 利用者の返事「おすすめで」（Issue #31 の D 案）で作った。**まだ実機で確かめていない（下）。**
 
-- **入口**: `solo.html`（GitHub Pages ならリポジトリのページの `solo.html`）。中身は index.html と同じ app で、違いは
+- **入口**: `noserver.html`（GitHub Pages ならリポジトリのページの `noserver.html`）。中身は index.html と同じ app で、違いは
   `<meta>` の CSP・`<meta name="bubbles-edition" content="solo">`・`manifest-solo.json`・題名だけ（`tests/chain.test.mjs` が見る）。
-  index.html を直したら solo.html も同じに直す
+  index.html を直したら noserver.html も同じに直す
+- **名前**（2026-11-13 Issue #51「サーバーあり版とサーバーなし版がわかるような名前に」）: 前は `solo.html`。サーバーあり版はサイトのトップ（`index.html`）のままにした（トップの住所を変えないため）。
+  `solo.html` は `noserver.html` へ送るだけのページとして残す（前の住所の栞・ホーム画面のアイコンのため。スクリプトは無く meta の refresh だけ）。
+  `manifest-solo.json` の `id` は `./solo.html` のまま（変えるとホーム画面に置いた app が別物になる）、`start_url` だけ `./noserver.html` にした。
+  住所のパスが変わっても、記録（localStorage）・パスキー・合言葉はそのまま使える（どれもドメインに結び付き、パスには結び付かない）
 - **入口は1つ**（2026-11-11 Issue #38「solo.html をまとめられる？」）: 両方の head の先頭で `js/boot-edition.js` を読み、開いたときに合うほうへ移す。
   index.html は、サーバーに繋いでいない（`localStorage` の `bubble_todo_sync` に住所が無い）かつ、ページを配っているのがサーバーでない
-  （GitHub Pages・Android の app）なら solo.html へ。solo.html は、サーバーに繋いでいれば index.html へ。server.py が配るページは移さない（そのサーバーに繋ぐ欄を出すため）。
-  solo.html の設定には、サーバーの欄の代わりに「サーバーありの版を開く」を出す（その窓の間だけ移さない印を `sessionStorage` に置く。住所を入れて繋げば、次からはサーバーありの版で開く）。
+  （GitHub Pages・Android の app）なら noserver.html へ。noserver.html は、サーバーに繋いでいれば index.html へ。server.py が配るページは移さない（そのサーバーに繋ぐ欄を出すため）。
+  noserver.html の設定には、サーバーの欄の代わりに「サーバーありの版を開く」を出す（その窓の間だけ移さない印を `sessionStorage` に置く。住所を入れて繋げば、次からはサーバーありの版で開く）。
   CSP は `<meta>` で読み込みの時点に決まるので、1つのページの中では切り替えず、ファイルは2つのまま移す形にした
 - **Android の app（Capacitor）**（Issue #38 の A 案）: パスキーは使わず、合言葉と復元コードだけ（`chain.js` の `inNativeApp` で `prfSupported` が偽になり、パスキーのまとまりを出さない）。
   ページが `https://localhost` なのでパスキーを作れてもブラウザの版とは別物になり、WebView は既定でパスキーを扱わない。
@@ -1010,7 +1014,7 @@ CSV（2026-11-13 に外した）は開いている海だけで、サーバーに
   空の住所へは最低の額より少なく送れないので、そのときは移す前に断る）。送り先の住所は貼ってもらい、移す前に額と住所を確かめさせる
 - **チェーンの上の控えの読まれ方**: 暗号文を開けるのは、パスキー（その住所のサイトで）・合言葉・復元コードのどれかを持つ人。
   端末の記録を消しても、これらがあれば読める（逆に、これらが無ければ端末に何があっても読めない）。暗号の外に見えるのは、お財布の住所・書いた時刻・取引の件数（記録のおおよその大きさ）
-- 作り: `js/chain.js`（鍵・暗号・取引・RPC・パスキー）、`js/screens/settings.js`（chainBox・collectBoxes・mergeIntoDevice）、`solo.html`、`manifest-solo.json`。
+- 作り: `js/chain.js`（鍵・暗号・取引・RPC・パスキー）、`js/screens/settings.js`（chainBox・collectBoxes・mergeIntoDevice）、`noserver.html`、`manifest-solo.json`。
   テスト `node tests/chain.test.mjs`（網には出ない。窓口は偽物）
 
 ### 共有の海（掲示板。2026-11-11 Issue #37。試し）

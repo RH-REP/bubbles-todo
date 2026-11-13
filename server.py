@@ -498,7 +498,7 @@ LOOPBACK = {'127.0.0.1', '::1'}
 # api.open-meteo.com を足した（2026-11-08 Issue #30）。日付で見るの [天気を取得] を押したときだけ、
 # 全国の約140地点の予報をまとめて取る（js/weather.js。選んだ地域・todo は送らない）。ほかの外部サービスへは広げない。
 # Solana の公式 RPC（devnet・mainnet）を足した（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
-# サーバーに繋いだままブロックチェーンのバックアップ・共有の海・チャットを使うため。solo.html の <meta> の CSP と同じ窓口だけ
+# サーバーに繋いだままブロックチェーンのバックアップ・共有の海・チャットを使うため。noserver.html の <meta> の CSP と同じ窓口だけ
 # （js/chain.js の NETWORKS）。押したときだけ呼び、書くのは暗号化した記録だけ。
 # AI の会社を選べるようにし、OpenAI（api.openai.com）と Google Gemini（generativelanguage.googleapis.com）を
 # 足した（2026-11-12 Issue #46 の返事「おすすめで」= A 案）。js/ai.js の PROVIDERS の origin と同じ窓口だけ。

@@ -344,10 +344,10 @@ export default {
     applyLookPage();
 
     /* --- サーバー・ブロックチェーンを準備する（Issue #45）---
-       サーバーなし版（solo.html）のサーバーの欄は、繋ぐページへの案内だけ（通信してよい先を決め打ちにしているので繋がらない）。
+       サーバーなし版（noserver.html）のサーバーの欄は、繋ぐページへの案内だけ（通信してよい先を決め打ちにしているので繋がらない）。
        開くとまず「サーバー」「ブロックチェーン」の選択肢だけを出し、選んだほうの欄だけを下に出す（Issue #43 の返事: 選択肢で誘導する） */
     /* サーバーに入る欄（合言葉・パスキー・登録の頼み）。「海を設定する」の、開いている海の ⚙ の中に出す（Issue #47 の C）。
-       サーバーなし版（solo.html）では、繋ぐページへの案内（通信してよい先を決め打ちにしているので繋がらない） */
+       サーバーなし版（noserver.html）では、繋ぐページへの案内（通信してよい先を決め打ちにしているので繋がらない） */
     const serverEl = !isSolo() ? serverBox(this) : soloServerBox();
     let seasEl = null;
     /* ブロックチェーンの始め方・ウォレット・鍵を開く（ほかの箱の「ブロックチェーンを準備する」「ウォレットを開く」から） */
@@ -395,7 +395,7 @@ export default {
     {
       const pane = el('div', null);
       const sub = choiceRow(pane, 'どれでチャットするか');
-      /* --- この海のチャット（サーバーあり版。2026-11-11 Issue #42）。solo.html はサーバーに繋がらないので、繋ぐページへの案内 --- */
+      /* --- この海のチャット（サーバーあり版。2026-11-11 Issue #42）。noserver.html はサーバーに繋がらないので、繋ぐページへの案内 --- */
       sub.add('server', 'サーバーで', [!isSolo() ? serverChatBox(this)
         : pointer('サーバーでチャットする', 'サーバーに繋いだときに使える。先にサーバーに繋ぐ。', 'サーバーの設定を開く', goServer)]);
       const chatChain = chainBox({ tasks: ['memo'], title: 'ブロックチェーンでチャットする', goSetup });
@@ -1802,13 +1802,13 @@ function mergeBoxes(p) {
   return n;
 }
 
-/* サーバーなし版（solo.html）か。head の <meta name="bubbles-edition" content="solo"> で見分ける */
+/* サーバーなし版（noserver.html）か。head の <meta name="bubbles-edition" content="solo"> で見分ける */
 function isSolo() {
   try { return !!document.querySelector('meta[name="bubbles-edition"][content="solo"]'); } catch (e) { return false; }
 }
 
 /* 入口を1つにした（2026-11-11 Issue #38）。開いたときに js/boot-edition.js が、サーバーに繋いでいなければ
-   サーバーなし版（solo.html）へ移す。サーバーに繋ぐときは、ここからサーバーありの版（index.html）を開く。
+   サーバーなし版（noserver.html）へ移す。サーバーに繋ぐときは、ここからサーバーありの版（index.html）を開く。
    その窓の間だけ移さない印（sessionStorage）を置く。住所を入れて繋げば、次からはずっとサーバーありの版で開く */
 const EDITION_STAY_KEY = 'bubble_todo_edition_stay';   /* js/boot-edition.js の STAY_KEY */
 function soloServerBox() {
@@ -1878,7 +1878,7 @@ function seasBox({ serverEl } = {}) {
   function backupOn() {
     try { return !!(folderBackup && folderBackup.status().conf.on); } catch (e) { return false; }
   }
-  /* サーバーなし版（solo.html）はサーバーに繋がらない（CSP）。サーバーを使い始めたら、サーバーに繋ぐページ（index.html）で開き直す。
+  /* サーバーなし版（noserver.html）はサーバーに繋がらない（CSP）。サーバーを使い始めたら、サーバーに繋ぐページ（index.html）で開き直す。
      前は「記録の置き場を選ぶ」の［自分のサーバー］がしていたこと（Issue #47 の C でその箱を外した） */
   function reloadForServer() {
     if (isSolo()) {
@@ -2304,7 +2304,7 @@ function chainBox(opts = {}) {
   wrap.appendChild(el('h3', null, opts.title || 'ブロックチェーンを使う（Solana・試し）'));
   /* サーバーが配るページでも使う（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
      server.py の CSP に Solana の公式 RPC を足したので、サーバーに繋いだままバックアップ・共有の海・チャットを使える。
-     サーバーでない所（GitHub Pages・Android の app）で繋いでいない index.html は、開いたときに solo.html へ移る（js/boot-edition.js） */
+     サーバーでない所（GitHub Pages・Android の app）で繋いでいない index.html は、開いたときに noserver.html へ移る（js/boot-edition.js） */
   if (setup) {
     wrap.appendChild(el('p', 'note',
       '自分の記録を暗号化して、Solana の取引のメモに分けて書く。チェーンに書いたものは消せない（鍵が漏れれば、あとからでも読める）。'

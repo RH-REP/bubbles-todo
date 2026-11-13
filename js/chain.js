@@ -22,7 +22,7 @@
 
    ■ 窓口（RPC）
    公式の公開 RPC だけ（テスト用 = devnet、本番 = mainnet）。送り先はこの 2 つに決め打ちで、
-   サーバーなし版（solo.html）の CSP の connect-src にも同じものだけを書く。
+   サーバーなし版（noserver.html）の CSP の connect-src にも同じものだけを書く。
    混んで断られたら（429）少し待ってやり直す。
 
    ■ 署名

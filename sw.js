@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-13n';
+const VERSION = '2026-11-13o';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -68,7 +68,7 @@ const ASSETS = [
   /* 本体（実際に import されている20本＋ feedback.js。todo.js / stub.js は誰も読まない） */
   './js/app.js',
   './js/boot-dvh.js',   /* head で読む（画面の高さに枠を合わせる） */
-  './js/boot-edition.js',   /* head で読む（サーバーの有無で index.html と solo.html の合うほうへ移す。Issue #38） */
+  './js/boot-edition.js',   /* head で読む（サーバーの有無で index.html と noserver.html の合うほうへ移す。Issue #38） */
   './js/bubble.js',
   './js/calendar.js',
   './js/device.js',     /* この端末の呼び名（Issue #50 で csvio.js から移した） */
@@ -129,14 +129,15 @@ const ASSETS = [
   './icons/favicon-32.png',
 ];
 
-/* 取れなくてもよいもの（2026-11-12）。サーバーなし版（solo.html）の入口は、server.py が配らない
+/* 取れなくてもよいもの（2026-11-12）。サーバーなし版（noserver.html。前の名前は solo.html）の入口は、server.py が配らない
    （PUBLIC_FILES に無い。サーバーのページはサーバーなし版へ移さないため）。
    前はこれも ASSETS に入れていて、server.py から開いたページでは addAll ごと失敗し、
    service worker が入らなかった（2026-11-08 の 3f060cd から。「最新の版を確認する」が「確認できない」になった）。
    ここに置いたものは1つずつ取り、取れたものだけ箱に入れる。ASSETS は全部が server.py から取れること
    （tests/test_server.py の test_sw_assets_are_all_served が見る） */
 const OPTIONAL = [
-  './solo.html',          /* サーバーなし版の入口（2026-11-08 Issue #31） */
+  './noserver.html',      /* サーバーなし版の入口（2026-11-08 Issue #31。2026-11-13 Issue #51 で solo.html から名前を変えた） */
+  './solo.html',          /* 前の名前。noserver.html へ送るだけ（栞・ホーム画面のアイコンから来た人のため） */
   './manifest-solo.json',
 ];
 

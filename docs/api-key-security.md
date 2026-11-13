@@ -17,7 +17,7 @@ Issue #14 の検討（2026-11-04〜11-12）をまとめたもの。**実装は�
   | 開き方 | CSP | script-src 'self' | connect-src の決め打ち |
   |---|---|---|---|
   | server.py が配るページ | ヘッダー | ある | `'self'`・Anthropic・天気・Solana の公式 RPC |
-  | solo.html（Pages・Android でサーバー無し） | `<meta>` | ある | 同上 |
+  | noserver.html（Pages・Android でサーバー無し） | `<meta>` | ある | 同上 |
   | index.html（Pages・Android でサーバーあり） | `<meta>` | ある | 無い（同期の住所へ繋ぐため） |
 
 - 外部依存ゼロ（CDN・外のスクリプトを読まない）。

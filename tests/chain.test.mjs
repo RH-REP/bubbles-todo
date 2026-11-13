@@ -260,9 +260,9 @@ await test('鍵の移し替え（Issue #39）: 段の進み・秘密を置かな
   assert.equal(loadMove(st), null);
 });
 
-await test('solo.html は index.html と CSP・印・manifest・title だけが違い、送り先は決め打ち', () => {
+await test('noserver.html は index.html と CSP・印・manifest・title だけが違い、送り先は決め打ち', () => {
   const idx = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  const solo = readFileSync(new URL('../solo.html', import.meta.url), 'utf8');
+  const solo = readFileSync(new URL('../noserver.html', import.meta.url), 'utf8');
   const strip = s => s
     .replace(/<!-- サーバーなし版[\s\S]*?-->\n/, '')
     .replace(/<meta http-equiv="Content-Security-Policy"[^>]*>\n/, '')
@@ -276,7 +276,7 @@ await test('solo.html は index.html と CSP・印・manifest・title だけが�
     'https://generativelanguage.googleapis.com', 'https://api.devnet.solana.com',
     'https://api.mainnet-beta.solana.com', 'https://api.open-meteo.com'].sort());
   /* AI の会社の窓口（js/ai.js の PROVIDERS。Issue #46）が全部 CSP にある */
-  Object.values(PROVIDERS).forEach(p => assert.ok(connect.includes(p.origin), p.origin + ' が solo.html の CSP に無い'));
+  Object.values(PROVIDERS).forEach(p => assert.ok(connect.includes(p.origin), p.origin + ' が noserver.html の CSP に無い'));
   assert.match(csp, /script-src 'self';/);
   /* index.html にも <meta> の CSP。送り先は開けたまま（同期の住所）、スクリプトは自分のものだけ（Issue #14 の見直し） */
   const idxCsp = (/http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(idx) || [])[1] || '';
@@ -285,7 +285,15 @@ await test('solo.html は index.html と CSP・印・manifest・title だけが�
   assert.match(idxCsp, /base-uri 'self';/);
   Object.values(NETWORKS).forEach(x => assert.ok(connect.includes(x.rpc), x.rpc + ' が CSP に無い'));
   const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
-  ["'./js/chain.js'", "'./solo.html'", "'./manifest-solo.json'"].forEach(a => assert.ok(sw.includes(a), 'sw.js の ASSETS に ' + a + ' が無い'));
+  ["'./js/chain.js'", "'./noserver.html'", "'./solo.html'", "'./manifest-solo.json'"].forEach(a => assert.ok(sw.includes(a), 'sw.js の ASSETS に ' + a + ' が無い'));
+  /* 前の名前（solo.html）は noserver.html へ送るだけ。ホーム画面のアイコンも新しい名前で開く（Issue #51） */
+  const old = readFileSync(new URL('../solo.html', import.meta.url), 'utf8');
+  assert.match(old, /http-equiv="refresh" content="0; url=noserver\.html"/);
+  assert.ok(!/<script/.test(old), 'solo.html にスクリプトがある');
+  const man = JSON.parse(readFileSync(new URL('../manifest-solo.json', import.meta.url), 'utf8'));
+  assert.equal(man.start_url, './noserver.html');
+  assert.equal(man.id, './solo.html', 'id を変えると、ホーム画面に置いた app が別物になる');
+  assert.match(readFileSync(new URL('../js/boot-edition.js', import.meta.url), 'utf8'), /to = 'noserver\.html'/);
 });
 
 await test('サーバーが配るページ（server.py の CSP）でも Solana の公式 RPC だけを足して使える（Issue #42 の A 案）', () => {
@@ -308,7 +316,7 @@ await test('Android の app（Capacitor）ではパスキーを使わない・�
   assert.equal(inNativeApp({ Capacitor: { isNativePlatform: () => false } }), false);
   assert.equal(inNativeApp({ Capacitor: {} }), true);
   const tag = '<script src="js/boot-edition.js"></script>';
-  ['../index.html', '../solo.html'].forEach(f => {
+  ['../index.html', '../noserver.html'].forEach(f => {
     const html = readFileSync(new URL(f, import.meta.url), 'utf8');
     assert.ok(html.includes(tag), f + ' に ' + tag + ' が無い');
     /* 移す前に画面の部品を読まないよう、ほかの script より前に置く */

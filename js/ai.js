@@ -42,7 +42,7 @@ import { loadLock, saveLock, clearLock, loadSealed, encName, sealKey, openSealed
 
 const PROVIDER_STORE = 'bubble_todo_ai_provider';
 
-/* 送り先の窓口。CSP の connect-src（server.py の CSP・solo.html の <meta>）と同じものだけ。
+/* 送り先の窓口。CSP の connect-src（server.py の CSP・noserver.html の <meta>）と同じものだけ。
    tests/chain.test.mjs が CSP と突き合わせる */
 export const PROVIDERS = {
   anthropic: {

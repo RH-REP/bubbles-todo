@@ -5,7 +5,7 @@
   "id": "./solo.html",
   "lang": "ja",
   "dir": "ltr",
-  "start_url": "./solo.html",
+  "start_url": "./noserver.html",
   "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
