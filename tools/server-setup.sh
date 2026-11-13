@@ -41,7 +41,7 @@
 #   BUBBLES_BIND     Caddy が待ち受ける住所（既定 外へ出ていく道の住所）
 #
 # 2026-10-25: Tailscale の形（合言葉で入り、tailscale serve で tailnet にだけ見せる）は外した（利用者の指示）。
-#   手順と考え方は library/tech_stack の記録に残し、例のコードはこの repo の履歴（commit 0263e6a まで）にある。
+#   手順と考え方は tech_stack の記録に残し、例のコードはこの repo の履歴（commit 0263e6a まで）にある。
 set -euo pipefail
 
 PORT="${BUBBLES_PORT:-8931}"

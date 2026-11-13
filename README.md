@@ -550,7 +550,7 @@ bash tests/server-setup.test.sh
   形の決まりはこの repo の外の仕様書（共有の記録 v1.1）が正。テスト: `node tests/shared-fields.test.mjs`・`node tests/schema.test.mjs`
 - **記録の形の版（2026-11-10。共有の記録 v1.1 §6。利用者の指示「非互換性 update を通知するための機能」）**:
   古い版の端末は、新しい欄を知らずに落とし、印が変わらないまま広げてしまう
-  （`library/tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md`）。そこで版で守る。
+  （`tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md`）。そこで版で守る。
   - 端末は分かる記録の形の版 `SCHEMA`（`js/sync.js`。いま `1`）を、すべての要求に頭書き `X-Bubbles-Schema` で付ける
   - サーバーは受け付ける最も古い版を `--min-schema`（環境変数 `BUBBLE_TODO_MIN_SCHEMA`。既定 `1`）で持ち、`GET /api/data` の応答に `minSchema` を足す。
     `PUT /api/data` で頭書きが無いか `minSchema` より小さければ、書かずに `426 {"error":"upgrade","minSchema":n}`（個人・共有・作った海のどれでも）。GET は断らない

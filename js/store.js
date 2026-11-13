@@ -975,7 +975,7 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
   }
   /* 知らない欄は丸ごと残す（共有の記録 v1.1。2026-11-10）。ほかの app（gantt・diary）や
      この先の版が足した欄を、読み込みで落とすと、印は変わらないまま中身だけ消えて
-     ほかの端末にも広がる（library/tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md）。
+     ほかの端末にも広がる（tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md）。
      知っている欄は下で形を確かめて上書きする */
   return defineToday(Object.assign(unknownFields(t, TODO_KNOWN), {
     id: typeof t.id === 'string' ? t.id : uid(),
