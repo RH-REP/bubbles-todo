@@ -175,15 +175,30 @@ export function personalLabel(rid, st) {
 }
 /* すべての海を1列に。前の版からの個人がいちばん前、次に繋ぎ先の順（個人 → 作った海）。
    1件 = { id, name, color, rid, personal }（作った海は spacelist の欄も持つ） */
-export function allSeas(st) {
+export function allSeas(st = ls()) {
   const out = [];
   regionList(st).forEach(r => {
+    /* 「この端末だけ」の個人（前の版からの個人でないもの）は、中身が空で開いてもいなければ出さない
+       （2026-11-13 Issue #50 の返事「おすすめで」= A 案。サーバーにつないだあと、空の「個人（この端末だけ）」が残って海が増えて見えたため） */
+    if (r.kind === 'local' && !r.legacyMe && personalEmpty(personalId(r.id, st), st)) return;
     out.push({ id: personalId(r.id, st), name: personalLabel(r.id, st), color: null, rid: r.id, personal: true });
     seasOf(r.id, st).forEach(e => out.push(Object.assign({}, e, { rid: r.id, personal: false })));
   });
   const i = out.findIndex(e => e.id === 'me');
   if (i > 0) out.unshift(out.splice(i, 1)[0]);
   return out;
+}
+/* 個人の箱に todo が1つも無く、開いている海でもないか（開いている海は、いつも出す） */
+function personalEmpty(id, st) {
+  if (!st) return false;
+  try {
+    if (st.getItem('bubble_todo_space') === id) return false;
+    const m = PERSONAL_RE.exec(id);
+    if (!m) return false;
+    const raw = JSON.parse(st.getItem('bubble_todo_me_' + m[1] + '_v1') || 'null');
+    const todos = raw && Array.isArray(raw.todos) ? raw.todos.filter(t => t && !t.trashed) : [];
+    return todos.length === 0;
+  } catch (e) { return false; }
 }
 /* サーバーの繋ぎ先だけ */
 export function serverRegions(st) { return regionList(st).filter(r => r.kind === 'server'); }

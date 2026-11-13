@@ -300,10 +300,16 @@ await test('allSeas: すべての繋ぎ先の海を1列に。前の版からの�
   const list = R.allSeas();
   assert.equal(list[0].id, 'me');
   assert.equal(list[0].name, '個人');
+  /* 空の「個人（この端末だけ）」は出さない（2026-11-13 Issue #50 の A 案） */
   assert.deepEqual(list.map(e => [e.id, e.rid, e.personal]), [
-    ['me', 'r0', true], ['me.local', 'local', true], ['share', 'r0', false], [SEA.id, 'r0', false], ['me.' + rb.id, rb.id, true],
+    ['me', 'r0', true], ['share', 'r0', false], [SEA.id, 'r0', false], ['me.' + rb.id, rb.id, true],
   ]);
-  assert.equal(list.find(e => e.id === 'me.local').name, '個人（この端末だけ）');
+  /* 中身があれば出す */
+  localStorage.setItem('bubble_todo_me_local_v1', JSON.stringify({ todos: [{ id: 'b1', text: 'x' }] }));
+  const list2 = R.allSeas();
+  assert.deepEqual(list2.map(e => e.id), ['me', 'me.local', 'share', SEA.id, 'me.' + rb.id]);
+  assert.equal(list2.find(e => e.id === 'me.local').name, '個人（この端末だけ）');
+  localStorage.removeItem('bubble_todo_me_local_v1');
   assert.equal(list.find(e => e.id === 'me.' + rb.id).name, '個人（サーバーB）');
   assert.equal(R.serverByUrl('https://srv-b.test').id, rb.id);
   assert.equal(R.serverByUrl('https://srv-c.test'), null);

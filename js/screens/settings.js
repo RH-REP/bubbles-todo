@@ -13,7 +13,7 @@ import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMod
   requestRegistration, requestStatus } from '../passkey.js';
 import { deviceLabel } from '../device.js';
 import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE,
-  findSea, addSea, setSeaRegion, cleanId, NAME_MAX, colorMark } from '../spacelist.js';
+  findSea, addSea, setSeaRegion, cleanId, NAME_MAX, colorMark, removeSea } from '../spacelist.js';
 import { isPersonal, PERSONAL_RE, allSpaceIds, regionList, findRegion, personalId, seasOf, regionOfSpace, defaultRegionId,
   addServerRegion, renameRegion, removeRegion, localHasLegacy, REGION_NAME_MAX,
   allSeas, serverRegions, serverByUrl,
@@ -2058,8 +2058,76 @@ function seasBox({ serverEl } = {}) {
     };
   }
 
+  /* 海をほかの海へまとめる（2026-11-13 Issue #50 の返事「おすすめで」= A 案）。
+     元の海の記録をすべて先の海に重ね（記録ごとに新しいほうが残る。同じ記録は1つになる）、元の海を空にする:
+     作った海は消す（ほかの端末の一覧からも外れる。サーバーに置いた記録は残る）、「この端末だけ」の個人は箱を消す（空なら一覧に出ない）。
+     サーバーと合わせる個人・前の版からの個人は、まとめる元にしない（サーバーから戻ってくる・消せないため） */
+  function canMergeFrom(s) {
+    if (!s.personal) return true;
+    return s.id !== 'me' && !serverOf(s.rid);
+  }
+  function readSeaState(id) {
+    if (id === cur) { try { store.flush(); } catch (e) { /* 読むのは止めない */ } return store.exportState(); }
+    try { return boxToState(JSON.parse(localStorage.getItem(boxKey(id)) || 'null')); } catch (e) { return null; }
+  }
+  function mergeSeaInto(s, toId) {
+    const to = allSeas().find(x => x.id === toId);
+    if (!to) return;
+    const shared = !to.personal;
+    if (!window.confirm('「' + s.name + '」の記録を、すべて「' + to.name + '」へまとめる？\n'
+      + (serverOf(to.rid) ? '「' + to.name + '」はサーバーと合わせる海なので、まとめた記録はサーバーへ写る。\n' : '')
+      + (shared ? '「' + to.name + '」に人を招いていれば、その人にも見える。\n' : '')
+      + 'まとめたあと「' + s.name + '」は' + (s.personal ? '空にする' : '消す') + '。')) return;
+    const src = readSeaState(s.id);
+    if (!src) { toast('「' + s.name + '」の記録が読めなかった'); return; }
+    try {
+      if (toId === cur) store.applyState(mergeBox(store.exportState(), src));
+      else {
+        let raw = null;
+        try { raw = JSON.parse(localStorage.getItem(boxKey(toId)) || 'null'); } catch (e) { raw = null; }
+        localStorage.setItem(boxKey(toId), JSON.stringify(stateToBox(mergeBox(boxToState(raw), src))));
+      }
+    } catch (e) { toast('まとめられなかった（端末の空きが足りない）'); return; }
+    if (!s.personal) removeSea(s.id);
+    try {
+      localStorage.removeItem(boxKey(s.id));
+      localStorage.removeItem('bubble_todo_sync_seen_' + s.id);
+    } catch (e) { /* 一覧からは外れている */ }
+    window.dispatchEvent(new CustomEvent('bubbles:seas'));
+    if (!s.personal && s.rid === curRid) sync.syncSeas();
+    toast('「' + s.name + '」を「' + to.name + '」へまとめた');
+    /* 元の海を開いていたら、まとめた先へ移る（記録の箱を消したので、そのままでは書き戻してしまう） */
+    if (s.id === cur) {
+      try { store.halt(); } catch (e) { /* 移るのは止めない */ }
+      go(toId);
+      return;
+    }
+    openId = null;
+    render();
+  }
+  function mergeRow(s) {
+    const f = el('form', 'tagadd region-merge');
+    const sel = document.createElement('select');
+    sel.setAttribute('aria-label', '「' + s.name + '」をまとめる先');
+    allSeas().filter(x => x.id !== s.id).forEach(x => {
+      const o = document.createElement('option');
+      o.value = x.id;
+      o.textContent = x.name;
+      sel.appendChild(o);
+    });
+    if (!sel.options.length) return null;
+    const b = el('button', 'btn', 'ほかの海へまとめる');
+    b.type = 'submit';
+    f.appendChild(el('span', 'region-lab', 'まとめる先'));
+    f.appendChild(sel);
+    f.appendChild(b);
+    f.addEventListener('submit', ev => { ev.preventDefault(); mergeSeaInto(s, sel.value); });
+    return f;
+  }
+
   function gear(s) {
     const box = el('div', 'region-gear');
+    if (canMergeFrom(s)) { const m = mergeRow(s); if (m) box.appendChild(m); }
     if (!s.personal) {
       const e = findSea(s.id);
       box.appendChild(el('p', 'note', 'ID: ' + escapeHtml(s.id) + '（ほかの端末で同じ ID の海を足すと、同じ海になる）'));
