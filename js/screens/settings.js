@@ -789,7 +789,7 @@ function serverBox(screen) {
   const tokIn = document.createElement('input');
   tokIn.type = 'password';
   tokIn.autocomplete = 'off';
-  tokIn.placeholder = '自分の合言葉（個人の記録。token.txt）';
+  tokIn.placeholder = '自分の合言葉（手元の Mac のサーバーだけ。token.txt）';
   tokIn.setAttribute('aria-label', 'サーバーの合言葉');
   /* 共有の合言葉（2026-10-23）。空なら共有は使わない。自分の合言葉と取り違えたら、
      サーバーが返す置き場の名前で sync.js が気づいて送らない */
@@ -922,6 +922,26 @@ function serverBox(screen) {
     const u = checkUrl(raw);
     return u && u !== 'http' ? u : '';
   }
+  /* 入場の形が分からなかったとき（2026-11-13 Issue #50 の返事「登録を頼むが表示されず、合言葉の欄が出る」）。
+     公開のサーバーは、よそのページ（GitHub Pages・Android の app・手元の Mac など）からの問い合わせを CORS で断るので、
+     形が分からず合言葉の欄だけが出ていた。パスキーもページの住所に結び付くので、そのサーバーのページで開いて入るしかない。
+     そのわけと、サーバーのページを開く道を出す */
+  const unknownBox = el('div');
+  unknownBox.hidden = true;
+  unknownBox.style.cssText = 'margin-top:12px';
+  const unknownLine = el('p');
+  unknownBox.appendChild(unknownLine);
+  const unknownRow = el('div', 'row');
+  unknownRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
+  const openSrv = el('a', 'btn', 'サーバーのページを開く');
+  openSrv.rel = 'noopener';
+  const retryMode = el('button', 'btn', 'もう一度確かめる');
+  retryMode.type = 'button';
+  retryMode.addEventListener('click', () => lookMode());
+  unknownRow.appendChild(openSrv);
+  unknownRow.appendChild(retryMode);
+  unknownBox.appendChild(unknownRow);
+  wrap.insertBefore(unknownBox, pkBox);
   let mode = null;
   async function lookMode() {
     const b = baseUrl();
@@ -931,6 +951,17 @@ function serverBox(screen) {
     tokIn.hidden = pk;
     shareIn.hidden = pk;
     go.hidden = pk;
+    const other = !!b && b !== location.origin;
+    unknownBox.hidden = !(b && !mode);
+    if (!unknownBox.hidden) {
+      unknownLine.textContent = 'このサーバーが、パスキーで入る形か合言葉で入る形かを確かめられなかった（届かないか、このページからの問い合わせを断っている）。'
+        + (other
+          ? 'パスキーで入るサーバー（公開したサーバー）なら、このページでは入れない。下の「サーバーのページを開く」でそのサーバーのページを開き、そこで同じ手順（個人の ⚙ →「このサーバーと合わせる」→「この海のサーバーに入る」）をたどると「登録を頼む」が出る。'
+          : '住所が合っているか、サーバーが動いているかを確かめて、「もう一度確かめる」を押す。')
+        + '合言葉の欄は、手元の Mac で start.command から起動したサーバーのときだけ使う（公開したサーバーなら空のまま）。';
+      openSrv.hidden = !other;
+      if (other) openSrv.href = b + '/';
+    }
     paint();
   }
   async function withBusy(btn, fn) {
