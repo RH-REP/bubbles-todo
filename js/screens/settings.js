@@ -2816,14 +2816,10 @@ function chainBox(opts = {}) {
         + 'OS をまたいで複数の端末で使う（iPhone と Windows・Android など、パスキーが引き継がれない組み合わせ）なら、こちら。'
         + '合言葉（24 字）はパスキーの代わりで、ウォレットとバックアップの両方を開く。紙に書き留め、どの端末でも同じ合言葉を打つ。'
         + '漏れるとお金も記録も取られるので、パスキーより扱いに気をつける。'
+        + '前にこの app の合言葉を作ったことがあるなら「合言葉で開く」（同じウォレットを開き、いちばん新しいバックアップを戻す）。'
+        + '初めてなら「合言葉で新しく作る」（作るたびに別のウォレット・別のバックアップになる）。'
         + 'パスキーで使っていた記録を合言葉へ移すときは、先にパスキーで開き、「鍵を替える」→「新しい鍵へ移し替える」を押す（鍵を作る → 残高を送る → バックアップする、を順に案内する）。');
-      btn('合言葉で新しく作る', async () => {
-        const pass = makePassphrase();
-        if (!window.confirm('合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。'
-          + '合言葉はウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
-        line.textContent = '鍵を作っている…';
-        await start('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
-      });
+      /* パスキーと同じく「開く → 新しく作る」の順に並べる（Issue #53。前に作った人が押し間違えないように） */
       btn('合言葉で開く', async () => {
         const pass = window.prompt('合言葉（24 字）');
         if (!pass) return;
@@ -2833,6 +2829,13 @@ function chainBox(opts = {}) {
         saveConfig(cfg);
         paint();
         await restoreWith(keys.recordKey, keys.wallet.address, net);
+      });
+      btn('合言葉で新しく作る', async () => {
+        const pass = makePassphrase();
+        if (!window.confirm('合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。'
+          + '合言葉はウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
+        line.textContent = '鍵を作っている…';
+        await start('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
       });
       const alt = fold('パスキー・合言葉を失ったとき', false);
       group('code', '復元コードで読む', 'パスキーを失った・このページを開くドメインが変わったときに、バックアップを読むだけ（お金は動かせず、新しく保存もできない）。', alt);
