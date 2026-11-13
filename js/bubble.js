@@ -1306,7 +1306,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           const f = ask(a, 'span', id) || {};
           rep.disabled = !(f.start && f.due);
           rep.setAttribute('aria-pressed', rp ? 'true' : 'false');
-          repNote.textContent = rp ? '完了すると、期間を1か月ずらした泡ができる'
+          repNote.textContent = rp ? '完了すると、次の月の泡ができる。完了しないまま終わる日が過ぎたら、この泡の期間が次の月へ進む'
             : (rep.disabled ? '期間を決めると、毎月くりかえせる' : '');
           repNote.hidden = !repNote.textContent;
         }

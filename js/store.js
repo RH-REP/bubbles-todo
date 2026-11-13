@@ -1378,7 +1378,14 @@ function emit() {
    日をまたいだくらいで中身を書き換えない。 */
 function rollover() {
   const day = dayOf(Date.now());
-  if (lastDay === day) return 0;
+  /* 毎月くりかえす（Issue #60）：完了しないまま終わる日が過ぎた泡は、期間を次の月へ進める。
+     日が変わったときだけでなく毎回見る（読み込み直後・同期で受け取った記録にも効かせるため。軽い） */
+  let rolled = false;
+  items.forEach(t => { if (rollRepeat(t, day)) rolled = true; });
+  if (lastDay === day) {
+    if (rolled) { persist(); emit(); }
+    return 0;
+  }
   /* lastDay が無い＝旧形式からの移行直後。いつのぶんか判らないので、
      この一回だけは戻さずに今日として引き継ぐ（勝手に消さないことを優先） */
   const first = lastDay === null;
@@ -1531,10 +1538,8 @@ function writeRepeat(t, r) {
 /* 次の写しの期間。{ start, due, n } か null。today は日付キー */
 function nextRepeatSpan(r, today) {
   for (let k = r.n + 1; k <= r.n + 1200; k++) {
-    const s = addMonths(r.from, k);
-    let d = addMonths(r.to, k);
+    const { start: s, due: d } = repeatSpanAt(r, k);
     if (!s || !d) return null;
-    if (d < s) d = s;
     if (d >= today) return { start: s, due: d, n: k };
   }
   return null;
@@ -1567,6 +1572,37 @@ function spawnRepeat(t) {
   items.push(c);
   writeRepeat(t, Object.assign({}, r, { next: c.id }));
   return c;
+}
+
+/* 元の期間 + k か月の期間 { start, due } */
+function repeatSpanAt(r, k) {
+  const s = addMonths(r.from, k);
+  let d = addMonths(r.to, k);
+  if (s && d && d < s) d = s;
+  return { start: s, due: d };
+}
+
+/* **完了しないまま終わる日が過ぎたら、同じ泡の期間を次の月へ進める**（Issue #60 の返事
+   「完了しなくても毎月作るほうがよい。完了と区別するために期間だけ変更できる？」）。
+   完了したときは新しい泡を作り（spawnRepeat）、完了しなかったときは泡を増やさずに期間だけ動かす——
+   これで完了した月と、しなかった月とが分かれる。しなかった月のことは何も残さない（未処理の山にしない）。
+   進め方は nextRepeatSpan と同じ（終わる日が今日より前でない最初の月）。
+   期間の欄がほかの app などで直されて「元 + n か月」と合わなくなっていたら、いまの欄を新しい元にする。
+   何度・どの端末で走っても同じ値になるので、端末どうしで食い違わない。-> 動かしたか */
+function rollRepeat(t, today) {
+  if (!isLive(t) || t.done) return false;
+  let r = repeatOfItem(t);
+  if (!r) return false;
+  const start = dayKeyOrNull(t.start), due = dayKeyOrNull(t.due);
+  if (!start || !due || due >= today) return false;
+  const at = repeatSpanAt(r, r.n);
+  if (at.start !== start || at.due !== due) r = Object.assign({}, r, { from: start, to: due, n: 0 });
+  const nx = nextRepeatSpan(r, today);
+  if (!nx) return false;
+  t.start = nx.start;
+  t.due = nx.due;
+  writeRepeat(t, Object.assign({}, r, { n: nx.n }));
+  return true;
 }
 
 /* 完了を取り消したとき、手を付けていない写しを消す（墓石）。消したか */
@@ -2410,6 +2446,7 @@ export const store = {
       if (!a || !b) return false;
       if (cur) return false;
       writeRepeat(t, { from: a, to: b, n: 0 });
+      rollRepeat(t, todayKey());            /* もう終わった期間に付けたら、すぐ次の月へ進める */
     }
     persist(); emit();
     return true;

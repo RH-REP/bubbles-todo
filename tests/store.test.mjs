@@ -4239,18 +4239,52 @@ await test('毎月くりかえす: 完了で月をまたぐ期間の写しがで
   assert.equal(store.all().length, before + 1, 'もう一度完了すると作り直す（1つだけ）');
 });
 
-await test('毎月くりかえす: 遅れて完了すると過ぎた月は飛ばす。月末はずれない', async () => {
+await test('毎月くりかえす: 終わった期間に付けるとすぐ今の月へ進む。月末はずれない', async () => {
   const store = await open({ raw: null, now: ms(2026, 4, 10, 10, 0) });
   const t = store.add('架空の月末の作業');
   store.setSpan(t.id, '2026-01-31', '2026-02-03');
   store.setRepeat(t.id, true);
+  assert.equal(store.get(t.id).start, '2026-04-30', '2・3月は飛ばす（4/3 は今日より前）');
+  assert.equal(store.get(t.id).due, '2026-05-03');
+  const before = store.all().length;
   store.complete(t.id);
+  assert.equal(store.all().length, before + 1);
   const c = store.all().find(x => x.id !== t.id && x.text === '架空の月末の作業');
-  assert.equal(c.start, '2026-04-30', '2・3月のぶんは作らない（4/3 は今日より前）');
-  assert.equal(c.due, '2026-05-03');
-  store.complete(c.id);
-  const c2 = store.all().find(x => x.id !== t.id && x.id !== c.id && x.text === '架空の月末の作業');
-  assert.equal(c2.start, '2026-05-31', '元の 31 日から数えるので 30 日にずれていかない');
+  assert.equal(c.start, '2026-05-31', '元の 31 日から数えるので 30 日にずれていかない');
+  assert.equal(c.due, '2026-06-03');
+});
+
+await test('毎月くりかえす: 完了しないまま終わる日が過ぎたら、泡を増やさず期間だけ進める', async () => {
+  const store = await open({ raw: null, now: NOW });           /* 今日は 2026-08-20 */
+  const t = store.add('架空の月初めの作業');
+  store.setSpan(t.id, '2026-08-01', '2026-08-08');
+  store.setRepeat(t.id, true);
+  assert.equal(store.get(t.id).start, '2026-09-01', '8/8 は過ぎているのですぐ 9 月へ');
+  assert.equal(store.get(t.id).due, '2026-09-08');
+  const before = store.all().length;
+  setNow(ms(2026, 9, 9, 10, 0));                               /* 9/8 を過ぎた */
+  store.rollover();
+  assert.equal(store.get(t.id).start, '2026-10-01');
+  assert.equal(store.get(t.id).due, '2026-10-08');
+  assert.equal(store.get(t.id).done, false);
+  assert.equal(store.all().length, before, '泡は増えない');
+  setNow(ms(2026, 12, 20, 10, 0));                             /* 開いていなかった間に何か月も過ぎた */
+  store.rollover();
+  assert.equal(store.get(t.id).start, '2027-01-01', '今日より後に終わる最初の月まで進む');
+  assert.equal(saved().todos.find(x => x.id === t.id).due, '2027-01-08', '保存にも入る');
+  setNow(NOW);
+});
+
+await test('毎月くりかえす: 完了したものは期間を進めない', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空の作業');
+  store.setSpan(t.id, '2026-08-15', '2026-08-25');
+  store.setRepeat(t.id, true);
+  store.complete(t.id);
+  setNow(ms(2026, 9, 1, 10, 0));
+  store.rollover();
+  assert.equal(store.get(t.id).start, '2026-08-15', '完了した月のぶんはそのまま');
+  setNow(NOW);
 });
 
 await test('毎月くりかえす: 期間を外すとくりかえしも外れる。ほかの app の ext は残る', async () => {
