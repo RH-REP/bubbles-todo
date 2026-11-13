@@ -39,7 +39,7 @@ import {
   PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
 } from '../ai.js';
 import { PASS_MIN as AIKEY_PASS_MIN, OPEN_MS as AIKEY_OPEN_MS } from '../aikey.js';
-import { ITEMS, PAGES, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
+import { ITEMS, PAGES, BOARD_SHOW_FEW, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
   changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
 import { openHelp } from '../help.js';
 import { openUpcoming, lastLine } from '../upcoming.js';
@@ -4206,6 +4206,22 @@ function prefsBox(onRender) {
           grid.appendChild(row);
         });
         box.appendChild(grid);
+        /* まとめて選ぶ（Issue #49 の返事「本文・タイトル・終了のみデフォルトで表示しときたい」） */
+        if (it.id === 'boardShow') {
+          const pr = el('div', 'row');
+          pr.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px';
+          const few = el('button', 'btn', '少なめにする（名前・本文・期間だけ）');
+          few.type = 'button';
+          few.addEventListener('click', () => commit(applyChanges(cur, { boardShow: BOARD_SHOW_FEW }).next,
+            '盤は 名前・本文・期間 だけを出し、ほかは「その他」に畳む（次に盤を開いたときから）'));
+          const all = el('button', 'btn', '全部出す');
+          all.type = 'button';
+          all.addEventListener('click', () => commit(applyChanges(cur, { boardShow: it.choices.map(c => c[0]) }).next,
+            '盤の欄とボタンを全部出す（次に盤を開いたときから）'));
+          pr.appendChild(few);
+          pr.appendChild(all);
+          box.appendChild(pr);
+        }
         controls.appendChild(box);
         if (it.note) controls.appendChild(textEl('p', 'note', it.note));
         return;

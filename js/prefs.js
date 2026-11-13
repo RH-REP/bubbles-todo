@@ -31,10 +31,18 @@ export const BOARD_PARTS = [
   ['name', '名前'], ['detail', '本文'], ['notes', 'ひとこと'], ['fav', 'お気に入り'], ['prio', '優先度'],
   ['tags', 'タグ'], ['days', 'いつの日'], ['span', '期間'], ['step', '次の一手'], ['memo', '作業メモ'],
   ['hist', '履歴'], ['url', 'リンク'],
+  /* 下のボタン（Issue #49 の返事「タスク開始、今日は終わる、書き留める、タスク完了、消すも」）。
+     畳むと「その他」を開いたときに出る。完了した泡の「海にもどす」は done と同じ扱い */
+  ['start', 'タスク開始'], ['ended', '今日は終わり'], ['ok', '書き留める'], ['done', 'タスク完了'], ['del', '消す'],
 ];
+/* 「少なめにする」で選ぶ欄（Issue #49 の返事「本文・タイトル・終了のみデフォルトで表示」。終了は終了日＝期間と読んだ） */
+export const BOARD_SHOW_FEW = ['name', 'detail', 'span'];
+const BOARD_ACTS = ['start', 'ended', 'ok', 'done', 'del'];
+const BOARD_SHOW_V = 2;
 export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
 /* 既定で出す欄（Issue #40 までの姿と同じ。お気に入り・優先度・期間・リンクは畳む） */
-const BOARD_SHOW_DEF = ['name', 'detail', 'notes', 'tags', 'days', 'step', 'memo', 'hist'];
+const BOARD_SHOW_DEF = ['name', 'detail', 'notes', 'tags', 'days', 'step', 'memo', 'hist',
+  'start', 'ended', 'ok', 'done', 'del'];
 
 /* 設定の「音と表示を変える」で、先に選ぶ「どの画面を変えるか」（Issue #49 の返事）。
    各項目の pages に、その項目が効く画面を書く（2つ以上の画面に効くものは両方に出る）。
@@ -86,7 +94,8 @@ export const ITEMS = [
     label: '盤（泡をタップして開く面）にはじめから出す欄',
     choices: BOARD_PARTS,
     note: '選ばなかった欄は盤の「その他」に畳む。本文・ひとこと・お気に入り・優先度・期間・リンク・書きかけの作業メモは、'
-      + '中身が入っていれば選ばなくても出す。[はじめた]・[完了]・[消す] はいつも出す',
+      + '中身が入っていれば選ばなくても出す。下のボタン（タスク開始・今日は終わり・書き留める・タスク完了・消す）も選べ、'
+      + '選ばなかったボタンは「その他」を開くと出る',
   },
   {
     id: 'tabOrder', type: 'order', def: TAB_IDS.slice(), pages: ['all'],
@@ -99,6 +108,9 @@ const byId = Object.fromEntries(ITEMS.map(it => [it.id, it]));
 export function defaults() {
   const o = {};
   ITEMS.forEach(it => { o[it.id] = Array.isArray(it.def) ? it.def.slice() : it.def; });
+  /* 手元で組んだ値（defaults・normalize の返り値）は新しい版の値。normalize で古い値と取り違えて
+     ボタンを足し直さないよう、印を持たせる（項目ではないので、比べる・保存する対象にはならない） */
+  o.boardShowV = BOARD_SHOW_V;
   return o;
 }
 
@@ -141,6 +153,11 @@ export function normalize(raw) {
     const v = checkValue(it.id, raw[it.id]);
     if (v !== undefined) out[it.id] = v;
   });
+  /* 2026-11-13c〜d で置いた boardShow には下のボタンが選ぶものに無かった。
+     そのまま読むとボタンが全部畳まれるので、印（boardShowV）の無い古い値にはボタンを足す */
+  if (Array.isArray(raw.boardShow) && raw.boardShowV !== BOARD_SHOW_V) {
+    out.boardShow = checkValue('boardShow', out.boardShow.concat(BOARD_ACTS));
+  }
   return out;
 }
 
@@ -214,6 +231,7 @@ export function savePrefs(p, storage) {
   const s = ls(storage);
   if (!s) return false;
   const diff = changedFromDefault(p);
+  if (diff.boardShow) diff.boardShowV = BOARD_SHOW_V;   /* 下のボタンも選べる版の値（normalize を見る） */
   try {
     if (Object.keys(diff).length) s.setItem(PREFS_KEY, JSON.stringify(diff));
     else s.removeItem(PREFS_KEY);

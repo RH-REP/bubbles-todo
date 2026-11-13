@@ -561,12 +561,15 @@ function actionRow(actions, run, onOk, onStart) {
   if (canStart) {
     const st = el('button', 'bc-act bc-act-start', 'タスク開始');
     st.type = 'button';
+    st.dataset.part = 'start';
     st.addEventListener('click', ev => { ev.preventDefault(); onStart(); });
     box.appendChild(st);
   }
-  const mk = (cls, label, key) => {
+  /* part: 設定の「盤にはじめから出す欄」で選ぶときの名前（Issue #49 の返事。js/prefs.js の BOARD_PARTS） */
+  const mk = (cls, label, key, part) => {
     const b = el('button', 'bc-act ' + cls);
     b.type = 'button';
+    b.dataset.part = part;
     b.textContent = label;                   /* innerHTML には入れない */
     b.addEventListener('click', ev => { ev.preventDefault(); run(a[key], key); });
     return b;
@@ -578,7 +581,7 @@ function actionRow(actions, run, onOk, onStart) {
      名前を変えたのは、この印が実際にしていることが「今日ぶんはここまで」だから——
      押すとバブルが薄くなって「もう見なくていい」を伝え、日が変わると戻る（契約 §5）。
      「はじめた」ではその意味が読めなかった、という指摘。 */
-  if (has('onStarted')) top.appendChild(mk('bc-act-started', '今日は終わり', 'onStarted'));
+  if (has('onStarted')) top.appendChild(mk('bc-act-started', '今日は終わり', 'onStarted', 'ended'));
   if (canOk) {
     /* OK は他のボタンと性質が違う。**盤を閉じない**（書き留めるだけ）。
        押したことが分かるよう、少しのあいだ文字を変える——
@@ -595,6 +598,7 @@ function actionRow(actions, run, onOk, onStart) {
     const ok = el('button', 'bc-act bc-act-ok');
     ok.type = 'button';
     ok.textContent = '書き留める';
+    ok.dataset.part = 'ok';
     let back = 0;
     ok.addEventListener('click', ev => {
       ev.preventDefault();
@@ -619,9 +623,9 @@ function actionRow(actions, run, onOk, onStart) {
      戻した先が海でない画面（今日の水面）は a.reopenLabel で名前を渡す（Issue #29） */
   if (has('onComplete')) {
     box.appendChild(mk('bc-act-done',
-      a.isDone === true ? (a.reopenLabel || '海にもどす') : 'タスク完了', 'onComplete'));
+      a.isDone === true ? (a.reopenLabel || '海にもどす') : 'タスク完了', 'onComplete', 'done'));
   }
-  if (has('onDelete')) box.appendChild(mk('bc-act-del', '消す', 'onDelete'));
+  if (has('onDelete')) box.appendChild(mk('bc-act-del', '消す', 'onDelete', 'del'));
   return box;
 }
 
@@ -835,6 +839,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     node.dataset.part = part;
     if (!has && !boardShow.has(part)) node.classList.add('is-extra');
   };
+  /* 下のボタン（タスク開始・今日は終わり・書き留める・タスク完了・消す）も選べる（Issue #49 の返事）。
+     ボタンは actionRow が data-part を付けて作る。完了した泡の「海にもどす」も done として扱う */
+  if (acts) acts.querySelectorAll('[data-part]').forEach(b => foldPart(b, b.dataset.part, false));
 
   /* ---- タグの名前 ----
      バブルは色でしかタグを表せない（小さくて文字が入らない）。盤には余白があるので、
@@ -1567,7 +1574,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      ここを押したときだけ出す。開いた・閉じたは盤を開き直しても覚えておく（盤は書くたびに組み直されるため）。
      設定の「この端末の表示」で「あまり使わない機能も出す」にしていれば、畳まずに出す（CSS の body.pref-all-tools） */
   /* 中身が無くて隠れている欄（記録の無い履歴など）は数えない。押しても何も出ない「その他」を作らないため */
-  const foldedNodes = fields ? [...fields.querySelectorAll('.is-extra')].filter(n => !n.hidden) : [];
+  const foldedNodes = fields
+    ? [...fields.querySelectorAll('.is-extra'), ...(acts ? acts.querySelectorAll('.is-extra') : [])].filter(n => !n.hidden)
+    : [];
   if (fields && foldedNodes.length) {
     const more = el('button', 'bc-more');
     more.type = 'button';

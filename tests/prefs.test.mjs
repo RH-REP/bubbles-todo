@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   PREFS_KEY, TAB_IDS, defaults, normalize, checkValue, applyChanges, changedFromDefault, changeLines,
-  loadPrefs, savePrefs, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle, valueText, ITEMS, PAGES,
+  loadPrefs, savePrefs, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle, valueText, ITEMS, PAGES, BOARD_SHOW_FEW,
 } from '../js/prefs.js';
 
 test('どの項目も、どの画面を変えるか（PAGES）のどれかに入る（Issue #49 の返事）', () => {
@@ -13,6 +13,20 @@ test('どの項目も、どの画面を変えるか（PAGES）のどれかに入
     assert.ok(Array.isArray(it.pages) && it.pages.length, it.id + ' に pages が無い');
     it.pages.forEach(p => assert.ok(ids.has(p), it.id + ' の ' + p + ' は PAGES に無い'));
   });
+});
+
+test('盤の下のボタンも選べ、古い値にはボタンを足して読む（Issue #49 の返事）', () => {
+  const acts = ['start', 'ended', 'ok', 'done', 'del'];
+  acts.forEach(k => assert.ok(defaults().boardShow.includes(k)));
+  /* 下のボタンを選べなかった版で置いた値（印 boardShowV が無い）→ ボタンを足す */
+  const m = mem();
+  m.setItem(PREFS_KEY, JSON.stringify({ boardShow: ['name', 'step'] }));
+  assert.deepEqual(loadPrefs(m).boardShow, ['name', 'step'].concat(acts));
+  /* 今の版で「少なめ」にした値は、そのまま読む（ボタンを足し直さない） */
+  const m2 = mem();
+  savePrefs(applyChanges(loadPrefs(m2), { boardShow: BOARD_SHOW_FEW }).next, m2);
+  assert.deepEqual(loadPrefs(m2).boardShow, ['name', 'detail', 'span']);
+  assert.deepEqual(normalize(loadPrefs(m2)).boardShow, ['name', 'detail', 'span']);
 });
 
 test('盤にはじめから出す欄（Issue #49。set の項目）', () => {
