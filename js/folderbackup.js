@@ -161,7 +161,7 @@ export function readBackup(text) {
   let p;
   try { p = JSON.parse(String(text || '')); } catch (e) { throw new Error('控えのファイルではない（JSON として読めない）'); }
   if (!p || typeof p !== 'object' || p.format !== FORMAT) {
-    if (p && p.format === 'bubbles-move') throw new Error('これは引っ越しのファイル（暗号化）。「暗号化したファイル」から開く');
+    if (p && p.format === 'bubbles-move') throw new Error('これは引っ越しのファイル（暗号化）。「端末を替える（引っ越し）」から開く');
     if (p && p.format === FORMAT_ENC) throw new Error('暗号化した控え（openBackup で開く）');
     throw new Error('控えのファイルではない（bubbles-backup の形でない）');
   }

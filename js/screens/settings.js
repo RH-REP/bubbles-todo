@@ -252,7 +252,7 @@ export default {
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
-    const gSave = group('記録を保存する・読み込む', 'ファイル（CSV・暗号化）・決めたフォルダ・サーバー・ブロックチェーン');
+    const gSave = group('記録を保存する・読み込む', '端末を替える（引っ越し）・毎日の控え・サーバー・ブロックチェーン・CSV');
     const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
@@ -409,13 +409,24 @@ export default {
     /* --- 記録を保存する・読み込む（Issue #43 の返事）---
        置き場の選択肢: CSV のファイル・暗号化したファイル（この端末に書き出す）・決めたフォルダ・サーバー・ブロックチェーン。
        ブロックチェーンのバックアップは、ここにだけ置く（2026-11-12 Issue #45 の返事:「完全にうつしてしまう方が迷わない」） */
+    /* 引っ越しとバックアップの違い（2026-11-13 Issue #48 の返事「わかりやすく表現できない？端末を変えるなど、もしくは i ボタン」）。
+       選択肢の字を「何のために使うか」にし、使い分けを箱の行の ⓘ の裏に置く（見出しの無い p.note は markInfo が ⓘ へ畳む） */
+    [
+      'どれを使う？',
+      '・端末を替える（引っ越し）… 新しい端末へ移るときに1回だけ。記録と、サーバーに入る鍵が入る。招かれた海にも、招待を頼み直さずに入れる。いつも合言葉で暗号化する。',
+      '・毎日の控え（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く。記録だけで、鍵は入らない（戻したあと、サーバーには入り直す）。暗号化は選べる。',
+      '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。記録だけで、いつも暗号化する。',
+      '・サーバー… 繋いでいる間は自動で同じ中身になる（控えではないので、消したものは消える）。',
+      '・CSV… 開いている海1つを表にする。Excel で見る・1つの海だけ移すとき。暗号化しない。',
+      'どれから戻しても、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
+    ].forEach(t => gSave.appendChild(el('p', 'note', t)));
     const saveChoice = choiceRow(gSave, 'どこに保存するか');
-    /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
-    saveChoice.add('csv', 'CSV ファイル', [csvBox()]);
     /* --- 引っ越し（暗号化したファイル。2026-11-07 Issue #19）--- */
-    saveChoice.add('file', '暗号化したファイル', [moveBox()]);
+    saveChoice.add('file', '端末を替える（引っ越し）', [moveBox()]);
     /* --- 決めたフォルダに自動で控える（2026-11-12 利用者の指示。js/folderbackup.js）--- */
-    saveChoice.add('folder', '決めたフォルダ（自動）', [folderBox()]);
+    saveChoice.add('folder', '毎日の控え（自動）', [folderBox()]);
+    /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
+    saveChoice.add('csv', 'CSV（1つの海・表）', [csvBox()]);
     {
       const w = el('div', 'tags');
       w.appendChild(el('h3', null, 'サーバーに置く'));
@@ -431,7 +442,7 @@ export default {
       r.appendChild(b);
       w.appendChild(r);
       w.appendChild(st);
-      saveChoice.add('server', 'サーバー', [w]);
+      saveChoice.add('server', 'サーバー（いつも同じ）', [w]);
       gSave.addEventListener('toggle', () => {
         if (gSave.open) st.textContent = sync.config().url ? 'いま: サーバーに繋いでいる（自動で置いている）。' : 'いま: サーバーには繋いでいない。';
       });
@@ -443,7 +454,7 @@ export default {
         '記録を暗号化して、Solana のチェーンにバックアップとして書く。押したときだけ書き（手数料が掛かる）、読み込みは今の記録に重ねる。'
         + 'パスキーか合言葉で開く。どの端末からでも戻せる。始め方・ウォレット・鍵は「ブロックチェーンを準備する」にある。'),
         backupEl.children[1] || null);
-      saveChoice.add('chain', 'ブロックチェーン', [backupEl]);
+      saveChoice.add('chain', 'ブロックチェーン（もしもの控え）', [backupEl]);
     }
     /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
     [gShare, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
@@ -1294,7 +1305,7 @@ function csvBox() {
    形と暗号は js/movefile.js。サーバーの「引っ越しの鍵」は server.py の /api/passkey/move */
 function moveBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '暗号化したファイルに書き出す・読み込む'));
+  wrap.appendChild(el('h3', null, '端末を替える（引っ越しのファイル。暗号化）'));
   wrap.appendChild(el(
     'p', 'note',
     'すべての海の記録と、サーバーに入る鍵を1つのファイルにして、合言葉で暗号化する。'
@@ -1576,7 +1587,7 @@ function moveBox() {
    仕組みは js/folderbackup.js。ここはフォルダを選ぶ・止める・許しを出し直す・控えから戻すボタンと、状態の1行 */
 function folderBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '決めたフォルダに自動で控える'));
+  wrap.appendChild(el('h3', null, '毎日の控え（決めたフォルダに自動で書く）'));
   wrap.appendChild(el('p', 'note',
     'フォルダを1度選ぶと、この app を開いている間、書き換えて 30 秒たったときと 10 分ごと（と画面を裏に回したとき）に、'
     + 'そのフォルダの「bubbles-backup-日付.json」へ、この端末のすべての海の記録を書く。1日1つのファイルで、その日のうちは上書きする。'

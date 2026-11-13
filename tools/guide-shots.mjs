@@ -179,8 +179,8 @@ try {
   await toServer();
   await shot('12_server_connected');
   /* 書き出し・読み込み（CSV）。読み込み方を選ぶ窓は、書き出した CSV をそのまま読ませて出す */
-  /* CSV の欄は「記録を保存する・読み込む」の選択肢「CSV ファイル」を押すと出る（Issue #43） */
-  await js(`const c = [...document.querySelectorAll('#pane-settings .choice-row button')].find(b => b.textContent.trim() === 'CSV ファイル');
+  /* CSV の欄は「記録を保存する・読み込む」の選択肢「CSV（1つの海・表）」を押すと出る（Issue #43。字は Issue #48 で変えた） */
+  await js(`const c = [...document.querySelectorAll('#pane-settings .choice-row button')].find(b => b.textContent.trim().startsWith('CSV'));
     if (c && c.getAttribute('aria-pressed') !== 'true') c.click();
     const g = c && c.closest('details'); if (g) g.open = true;`);
   await js(`const h = [...document.querySelectorAll('#pane-settings h3')].find(e => e.textContent.startsWith('書き出す'));
