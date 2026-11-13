@@ -1891,12 +1891,19 @@ function seasBox({ serverEl } = {}) {
     '海ごとに、どこと合わせるか（同期）を決める。「この端末だけ」の海はサーバーに送らない。'
     + '同じサーバーと合わせる海は、住所と合言葉（パスキー）を共有する（入るのはサーバーごとに1回）。'
     + '海を足すときに、ほかの端末で足した海と同じ ID を入れると、同じ海になる（共有）。ID を空にすると、ほかと重ならない ID で作る。'));
+  /* サーバーにつなぐ案内（2026-11-13 Issue #50 の返事「設定で聞かなくてもいいように、UI で誘導できる？」）。
+     今の様子から「次にすること」を1つだけ出す: 住所を入れる → そのサーバーの海を開く →（別のページなら）サーバーのページを開く → 入る。
+     中身は、下の海の一覧・⚙ と同じ操作を呼ぶだけ（新しい送り先・鍵の扱いは足していない） */
+  const guideEl = el('div', 'server-guide');
+  guideEl.style.cssText = 'border:1px solid var(--line-strong);border-radius:12px;padding:10px 12px;margin:8px 0 12px';
+  wrap.appendChild(guideEl);
   const list = el('div', 'region-list');
   wrap.appendChild(list);
   d.appendChild(wrap);
   const cur = store.space();
   const curRid = sync.region().id;
   let openId = null;   /* ⚙ を開いている海 */
+  let guideMode = { url: '', mode: undefined };   /* 入場の形の問い合わせの結果（住所ごと。undefined = まだ・確かめ中） */
   /* 海を足す欄を開いているか（Issue #47: ふだんは［＋ 海を追加］の1つだけ。押すと名前・ID・同期を入れる欄が出る） */
   let adding = false;
 
@@ -2132,7 +2139,121 @@ function seasBox({ serverEl } = {}) {
     return box;
   }
 
+  /* 案内の1段。title は「いまの段」、text は説明、parts は押すもの */
+  function guideStep(title, text, parts) {
+    guideEl.textContent = '';
+    guideEl.appendChild(el('h4', null, 'サーバーにつなぐ：' + title));
+    if (text) {
+      const p = el('p');
+      p.style.cssText = 'margin:4px 0 8px;font-size:13px;line-height:1.7';
+      p.textContent = text;
+      guideEl.appendChild(p);
+    }
+    (parts || []).forEach(x => guideEl.appendChild(x));
+  }
+  function renderGuide() {
+    const servers = serverRegions();
+    /* 1. 住所を入れる（サーバーをまだ1つも足していない） */
+    if (!servers.length) {
+      const f = el('form', 'tagadd');
+      f.style.flexWrap = 'wrap';
+      const u = input('url', 'https://…（サーバーの住所）', 'つなぐサーバーの住所');
+      u.style.flexBasis = '100%';
+      if (/^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname) && !window.Capacitor) u.value = location.origin;
+      const tk = input('password', '合言葉（手元の Mac のサーバーだけ。公開のサーバーは空のまま）', 'つなぐサーバーの合言葉');
+      const b = el('button', 'btn', 'つなぐ');
+      b.type = 'submit';
+      f.appendChild(u); f.appendChild(tk); f.appendChild(b);
+      f.addEventListener('submit', ev => {
+        ev.preventDefault();
+        const url = checkUrl(u.value);
+        if (!url) { toast('サーバーの住所を入れる'); u.focus(); return; }
+        if (url === 'http') { toast('外への http は使えない（https にする）'); u.focus(); return; }
+        /* 前からの個人が この端末だけ なら、その個人ごとこのサーバーと合わせる（個人の ⚙ の「このサーバーと合わせる」と同じ） */
+        const take = localHasLegacy();
+        const r = addServerRegion('', { url, token: tk.value.trim() }, Date.now(), undefined, take ? { takeLocal: true } : undefined);
+        if (!r) { toast('つなげなかった'); return; }
+        toast('「' + r.name + '」とつなぐ。読み直す…');
+        try { store.flush(); } catch (e) { /* 読み直すのは止めない */ }
+        if (take) setTimeout(reloadForServer, 600);
+        else go(personalId(r.id));
+      });
+      guideStep('1. 住所を入れる',
+        'ほかの端末と同じ記録を使うときだけ。サーバーの持ち主から聞いた住所（https://…）を入れて「つなぐ」。サーバーを使わないなら、何もしなくてよい。',
+        [f]);
+      return;
+    }
+    /* つなぐ先: 開いている海のサーバー、無ければ最初に足したサーバー */
+    const target = serverOf(curRid) || servers[0];
+    /* 2. そのサーバーの海を開く */
+    if (target.id !== curRid) {
+      guideStep('2. そのサーバーの海を開く',
+        'サーバー「' + target.name + '」に入るのは、そのサーバーと合わせる海を開いている間だけ。',
+        [btn('「' + ((allSeas().find(x => x.id === personalId(target.id)) || {}).name || '個人') + '」を開く', () => go(personalId(target.id)))]);
+      return;
+    }
+    const c = sync.config();
+    const st = sync.status();
+    const inside = (c.passkey && c.passkey.valid) || !!c.token;
+    if (inside && st.state === 'ok') {
+      guideStep('つながっている', 'サーバー「' + target.name + '」と合わせた（' + hhmm(st.at) + '）。ほかの端末で書いたものも届く。', []);
+      return;
+    }
+    if (inside && st.state === 'error') {
+      guideStep('届かない', 'サーバー「' + target.name + '」に入っているが、届かない（' + st.message + '）。通信と住所を確かめる。',
+        [btn('今すぐ合わせる', () => sync.syncNow())]);
+      return;
+    }
+    if (inside) {
+      guideStep('合わせている…', 'サーバー「' + target.name + '」と合わせている。少し待つ。', []);
+      return;
+    }
+    /* 3. 入場の形を確かめる（パスキーか合言葉か） */
+    const url = c.url;
+    if (guideMode.url !== url) {
+      guideMode = { url, mode: undefined };
+      authMode(url).then(m => {
+        if (guideMode.url !== url) return;
+        guideMode.mode = m;
+        if (d.open && !typing()) render();
+      });
+    }
+    if (guideMode.mode === undefined) {
+      guideStep('3. 確かめている…', 'サーバー「' + target.name + '」の入り方（パスキーか合言葉か）を確かめている。', []);
+      return;
+    }
+    const openBox = btn('入る欄を開く', () => d.openServer());
+    if (guideMode.mode === null) {
+      const other = url && url !== location.origin;
+      if (other) {
+        const a = el('a', 'btn', 'サーバーのページを開く');
+        a.href = url + '/';
+        a.rel = 'noopener';
+        guideStep('3. サーバーのページで開く',
+          'このページからは、サーバー「' + target.name + '」に入れない（公開したサーバーは、ほかの住所のページからの問い合わせを断る。パスキーもページの住所に結び付く）。'
+          + '「サーバーのページを開く」で開き、ホーム画面に追加して、そちらで設定を開くと、ここに続きが出る。',
+          [a, btn('もう一度確かめる', () => { guideMode = { url: '', mode: undefined }; render(); })]);
+      } else {
+        guideStep('3. 届かない', 'サーバー「' + target.name + '」に届かない。住所が合っているか、サーバーが動いているかを確かめる。',
+          [btn('もう一度確かめる', () => { guideMode = { url: '', mode: undefined }; render(); })]);
+      }
+      return;
+    }
+    if (guideMode.mode === 'passkey') {
+      guideStep(c.passkey ? '4. パスキーで入り直す' : '4. この端末を登録する',
+        c.passkey
+          ? '通行証の期限が切れた。「入る欄を開く」→「パスキーで入る」。'
+          : '「入る欄を開く」で欄を出す。招待コードがあれば入れて「この端末を登録」。無ければ、呼び名を入れて「登録を頼む」→ 出た字をサーバーの持ち主に伝え、認めてもらってから「登録を仕上げる」。',
+        [openBox]);
+      return;
+    }
+    guideStep('4. 合言葉を入れる',
+      '手元の Mac のサーバー（合言葉で入る形）。「入る欄を開く」で、サーバーを起動したときに出た合言葉を「自分の合言葉」に入れて「繋ぐ」。',
+      [openBox]);
+  }
+
   function render() {
+    renderGuide();
     list.textContent = '';
     const seas = allSeas();
     seas.forEach(s => {
@@ -2154,7 +2275,7 @@ function seasBox({ serverEl } = {}) {
       if (openId === s.id) row.appendChild(gear(s));
       list.appendChild(row);
     });
-    sub.textContent = seas.map(x => x.name).join('・');
+    sub.textContent = seas.map(x => x.name).join('・') + (serverRegions().length ? '' : '（サーバーにつなぐときもここ）');
     /* 海を足す。ふだんはボタン1つ。押すと名前・ID・同期を入れる欄を出す */
     if (!adding) {
       const open = btn('＋ 海を追加', () => {
@@ -2203,7 +2324,7 @@ function seasBox({ serverEl } = {}) {
   }
   /* 同期の知らせで描き直すと、入れかけの欄が空になる。海を足す欄や ⚙ の中で打っている・選んでいる間は描き直さない
      （Issue #47 でこの箱を開いた姿で始めるようにしたので、同期の知らせに当たりやすくなった） */
-  const typing = () => adding || !!(document.activeElement && list.contains(document.activeElement)
+  const typing = () => adding || !!(document.activeElement && (list.contains(document.activeElement) || guideEl.contains(document.activeElement))
     && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
   sync.on(() => { if (d.open && !typing()) render(); });
   sync.onSeas(() => { if (d.open && !typing()) render(); });
