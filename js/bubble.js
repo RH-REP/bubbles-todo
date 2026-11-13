@@ -656,8 +656,8 @@ function nameOfNode(node) {
   return ((node && node.getAttribute('aria-label')) || '').split('（')[0];
 }
 
-/* 盤の「その他」を開いているか（Issue #40）。盤は書くたびに組み直されるので、盤の外で覚える。
-   読み込み直すと畳んだ姿に戻る */
+/* 盤の「その他」を開いているか（Issue #40）。盤の外で持つ。
+   2026-11-13 Issue #49 の返事で、盤を閉じたら（cancelCenter）畳んだ姿へ戻すようにした。開いたままにするのは、その盤を開いている間だけ */
 let boardExtraOpen = false;
 
 let askSeq = 0;
@@ -1571,7 +1571,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
   /* ---- 「その他」（Issue #40）----
      あまり使わない欄（印の無いお気に入り・優先度、決めていない期間、空のリンク）は畳んでおき、
-     ここを押したときだけ出す。開いた・閉じたは盤を開き直しても覚えておく（盤は書くたびに組み直されるため）。
+     ここを押したときだけ出す。盤を閉じると畳んだ姿に戻る（Issue #49 の返事。前は開き直しても開いたままだった）。
      設定の「この端末の表示」で「あまり使わない機能も出す」にしていれば、畳まずに出す（CSS の body.pref-all-tools） */
   /* 中身が無くて隠れている欄（記録の無い履歴など）は数えない。押しても何も出ない「その他」を作らないため */
   const foldedNodes = fields
@@ -2916,6 +2916,9 @@ export function attachGestures(node, handlers = {}) {
     if (!center) return;
     const c = center;
     center = null;
+    /* 盤を閉じたら「その他」も畳んだ姿へ戻す（Issue #49 の返事「それ以外を開くと、再度泡を開いても全部開いたままになる」）。
+       次に泡を開いたときは、設定の「盤にはじめから出す欄」の姿から始まる */
+    boardExtraOpen = false;
     window.removeEventListener('pointerdown', c.onOutside, true);
     window.removeEventListener('keydown', c.onEsc, true);
     window.removeEventListener('resize', c.onAway);
