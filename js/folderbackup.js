@@ -30,7 +30,7 @@ import { store } from './store.js';
 import { seaList, allEntries, boxKey } from './spacelist.js';
 import { allSpaceIds, regionList, regionsPayload } from './regions.js';
 import { buildPayload, boxToState, moveSummary, makePassphrase, normalizePassphrase, ITER } from './movefile.js';
-import { deviceLabel } from './csvio.js';
+import { deviceLabel } from './device.js';
 
 /* ■ 暗号化して書く（2026-11-13 Issue #48 の B 案。選んだときだけ）
    自動で書くので、書くたびにパスキー・合言葉を求められない。そこで、

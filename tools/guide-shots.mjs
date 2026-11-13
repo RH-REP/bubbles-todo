@@ -178,39 +178,7 @@ try {
   await sleep(3000);
   await toServer();
   await shot('12_server_connected');
-  /* 書き出し・読み込み（CSV）。読み込み方を選ぶ窓は、書き出した CSV をそのまま読ませて出す */
-  /* CSV の欄は「記録を保存する・読み込む」の［書き出す］→［ファイル］→ 形の「表（CSV）」で出る（Issue #43・#48） */
-  await js(`const rows = [...document.querySelectorAll('#pane-settings .choice-row')];
-    const press = (row, t) => { const b = row && [...row.querySelectorAll('button')].find(x => x.textContent.trim() === t);
-      if (b && b.getAttribute('aria-pressed') !== 'true') b.click(); return b; };
-    const m = rows.find(r => r.getAttribute('aria-label') === '書き出すか読み込むか');
-    const g = m && m.closest('details'); if (g) g.open = true;
-    press(m, '書き出す');
-    press(rows.find(r => r.getAttribute('aria-label') === '書き出す先'), 'ファイル');
-    const r = document.querySelector('#pane-settings input[name="save-fmt-out"][value="csv"]');
-    if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change')); }`);
-  await js(`const h = [...document.querySelectorAll('#pane-settings h3')].find(e => e.textContent.startsWith('表（CSV）に書き出す'));
-    let s = h.parentElement; while (s && !(s.scrollHeight > s.clientHeight + 2 && /(auto|scroll)/.test(getComputedStyle(s).overflowY))) s = s.parentElement;
-    (s || document.scrollingElement).scrollBy(0, h.getBoundingClientRect().top - 100);`);
-  await sleep(300);
-  await shot('18_csv');
-  /* 読み込む窓は［読み込む］→［ファイル］→「表（CSV）」の欄から出す（Issue #48 で書き出すと分けた） */
-  await js(`const rows = [...document.querySelectorAll('#pane-settings .choice-row')];
-    const press = (row, t) => { const b = row && [...row.querySelectorAll('button')].find(x => x.textContent.trim() === t);
-      if (b && b.getAttribute('aria-pressed') !== 'true') b.click(); return b; };
-    press(rows.find(r => r.getAttribute('aria-label') === '書き出すか読み込むか'), '読み込む');
-    press(rows.find(r => r.getAttribute('aria-label') === '読み込む元'), 'ファイル');
-    const r = document.querySelector('#pane-settings input[name="save-fmt-in"][value="csv"]');
-    if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change')); }`);
-  await js(`const { store } = await import('/js/store.js'); const { toCsv, csvFileName } = await import('/js/csvio.js');
-    const h = [...document.querySelectorAll('#pane-settings h3')].find(e => e.textContent.startsWith('表（CSV）から読み込む'));
-    const inp = h.parentElement.querySelector('input[type=file]'); const dt = new DataTransfer();
-    dt.items.add(new File([toCsv(store.exportState(), 'me')], csvFileName('me'), { type: 'text/csv' }));
-    inp.files = dt.files; inp.dispatchEvent(new Event('change'));`);
-  await sleep(600);
-  await shot('19_csv_ask');
-  await clickText('やめる');
-  await sleep(300);
+  /* 表（CSV）の書き出し・読み込みの写真（18_csv・19_csv_ask）は、Issue #50 で CSV を外したので撮らない */
 
   /* --- 共有 --- */
   await js(`localStorage.setItem('bubble_todo_space', 'share');`);

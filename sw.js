@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-13m';
+const VERSION = '2026-11-13n';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -71,7 +71,7 @@ const ASSETS = [
   './js/boot-edition.js',   /* head で読む（サーバーの有無で index.html と solo.html の合うほうへ移す。Issue #38） */
   './js/bubble.js',
   './js/calendar.js',
-  './js/csvio.js',
+  './js/device.js',     /* この端末の呼び名（Issue #50 で csvio.js から移した） */
   './js/drift.js',
   './js/feedback.js',   /* 画面の !（改善のコメント）。module ではなく普通の script */
   './js/focus.js',

@@ -15,7 +15,6 @@ globalThis.localStorage = {
 
 const N = await import('../js/notes.js');
 const { mergeState } = await import('../js/merge.js');
-const { toCsv, readCsv, importInto } = await import('../js/csvio.js');
 const STORE_URL = new URL('../js/store.js', import.meta.url).href;
 let seq = 0;
 async function openStore(saved) {
@@ -191,13 +190,3 @@ test('チャット: チェーン・直の通信の履歴をサーバーへ写す
   assert.equal(N.normalizeNotes(twice.doc.notes).length, 2);
 });
 
-test('CSV の書き出し・読み込みにも入る', () => {
-  const state = { doc: { notes: [{ id: 'n1', todo: 'b1', at: 10, by: 'A', dev: 'da', text: '進んだ' }] },
-    stamps: { 'note:n1': [10, 1] } };
-  const csv = toCsv(state, 'share', 1000, '共有');
-  const read = readCsv(csv);
-  assert.equal(read.bad, 0);
-  assert.equal(read.recs.get('note:n1').text, '進んだ');
-  const out = importInto({ doc: {}, stamps: {} }, read, 'add', 2000);
-  assert.equal(out.state.doc.notes.length, 1);
-});

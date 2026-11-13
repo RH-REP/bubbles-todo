@@ -11,7 +11,7 @@ import { isAffinityOn, setAffinityOn } from '../related.js';
 import { sync, checkUrl } from '../sync.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode, makeMoveKey,
   requestRegistration, requestStatus } from '../passkey.js';
-import { toCsv, readCsv, importInto, csvFileName, csvSummary, deviceLabel } from '../csvio.js';
+import { deviceLabel } from '../device.js';
 import { seaName, seaList, allEntries, mergeSeas, boxKey, ID_RE,
   findSea, addSea, setSeaRegion, cleanId, NAME_MAX, colorMark } from '../spacelist.js';
 import { isPersonal, PERSONAL_RE, allSpaceIds, regionList, findRegion, personalId, seasOf, regionOfSpace, defaultRegionId,
@@ -407,7 +407,7 @@ export default {
     }
 
     /* --- 記録を保存する・読み込む（Issue #43 の返事）---
-       置き場の選択肢: CSV のファイル・暗号化したファイル（この端末に書き出す）・決めたフォルダ・サーバー・ブロックチェーン。
+       置き場の選択肢: 暗号化したファイル（この端末に書き出す。CSV は Issue #50 で外した）・決めたフォルダ・サーバー・ブロックチェーン。
        ブロックチェーンのバックアップは、ここにだけ置く（2026-11-12 Issue #45 の返事:「完全にうつしてしまう方が迷わない」） */
     /* 引っ越しとバックアップの違い（2026-11-13 Issue #48 の返事「わかりやすく表現できない？端末を変えるなど、もしくは i ボタン」）。
        選択肢の字を「何のために使うか」にし、使い分けを箱の行の ⓘ の裏に置く（見出しの無い p.note は markInfo が ⓘ へ畳む） */
@@ -422,7 +422,7 @@ export default {
     [
       'どれを使う？',
       '・同じサーバーに繋いだ端末どうし（iPhone・Android・PC を同時に使うなど）は、自動で同じ記録になる。ふだんは何もしなくてよい。',
-      '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。形は「すべての海」か、Excel で開ける「表（CSV。開いている海1つ・暗号化しない）」を選ぶ。',
+      '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。すべての海が1つのファイルに入る。',
       '・フォルダ（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く（記録だけ。鍵は入らない）。読み込むときは「ファイル」から選ぶ。',
       '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。',
       'どれから読み込んでも、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
@@ -439,35 +439,9 @@ export default {
     const outChoice = choiceRow(outWrap, '書き出す先');
     const inChoice = choiceRow(inWrap, '読み込む元');
 
-    /* ファイルの形（すべての海／表（CSV））を選ぶ欄。書き出す・読み込むで1つずつ */
-    const fileFormats = (mode) => {
-      const fileWrap = el('div');
-      const moveEl = moveBox(mode);
-      const csvEl = csvBox(mode);
-      const fmt = el('div', 'row');
-      fmt.setAttribute('role', 'radiogroup');
-      fmt.setAttribute('aria-label', mode === 'out' ? '書き出す形' : '読み込む形');
-      fmt.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;margin:8px 0';
-      const radio = (val, text, on) => {
-        const lb = el('label', 'setrow');
-        const r = document.createElement('input');
-        r.type = 'radio';
-        r.name = 'save-fmt-' + mode;
-        r.value = val;
-        r.checked = on;
-        r.addEventListener('change', () => { moveEl.hidden = val !== 'all'; csvEl.hidden = val !== 'csv'; });
-        lb.appendChild(r);
-        lb.appendChild(document.createTextNode(' ' + text));
-        fmt.appendChild(lb);
-      };
-      radio('all', 'すべての海（暗号化できる・鍵も入れられる）', true);
-      radio('csv', '表（CSV。開いている海1つ・Excel で開ける）', false);
-      csvEl.hidden = true;
-      fileWrap.appendChild(fmt);
-      fileWrap.appendChild(moveEl);
-      fileWrap.appendChild(csvEl);
-      return fileWrap;
-    };
+    /* ファイルの欄（すべての海。暗号化できる・鍵も入れられる）。書き出す・読み込むで1つずつ。
+       2026-11-13 Issue #50 の返事「B」: 形を選ぶ欄と「表（CSV）」は外した（簡素にするため） */
+    const fileFormats = (mode) => moveBox(mode);
     /* サーバーの欄（書き出す・読み込むとも、繋いでいる間は自動。押す操作は無い） */
     const serverPane = (mode) => {
       const w = el('div', 'tags');
@@ -1272,88 +1246,6 @@ function serverChatBox(screen) {
   sync.on(paint);
   screen._chat = () => { said = ''; paint(); };
   paint();
-  return wrap;
-}
-
-/* 書き出し・読み込み（CSV）。記録をまるごと1つの CSV にして、別の端末へ引っ越す。
-   対象は、いま開いている海。形とやり方は js/csvio.js */
-/* mode: 'out'（書き出すだけ）／'in'（読み込むだけ）／無し（両方）。書き出すと読み込むを分けて出す（2026-11-13 Issue #48 の返事） */
-function csvBox(mode) {
-  const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, mode === 'out' ? '表（CSV）に書き出す' : mode === 'in' ? '表（CSV）から読み込む' : '表（CSV）に書き出す・読み込む'));
-  const shareNote = !isPersonal(store.space()) ? '人を招いた海で読み込むと、招いた人の端末にも届く。' : '';
-  wrap.appendChild(el(
-    'p', 'note',
-    'いま開いている「' + seaName(store.space()) + '」の記録を、まるごと1つの CSV にする。'
-    + '別の端末で読み込むと、同じ記録になる（引っ越し）。' + shareNote
-  ));
-  const row = el('div', 'row');
-  row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
-  const out = el('button', 'btn', 'CSV で書き出す');
-  out.type = 'button';
-  out.addEventListener('click', () => {
-    try { store.flush(); } catch (e) { /* 書き出しは止めない */ }
-    const now = Date.now();
-    const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
-    const csv = toCsv(store.exportState(), store.space(), now, seaName(store.space()), dev);
-    const name = csvFileName(store.space(), now, seaName(store.space()));
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    /* iPhone（とくにホーム画面のアプリ）は <a download> でファイルにならないことがある（Issue #7）。
-       共有シートでファイルを渡せる端末では、そちらで「"ファイル"に保存」してもらう */
-    let file = null;
-    try { file = new File([blob], name, { type: 'text/csv' }); } catch (e) { file = null; }
-    if (file && navigator.canShare && navigator.share && touchDevice()) {
-      let ok = false;
-      try { ok = navigator.canShare({ files: [file] }); } catch (e) { ok = false; }
-      if (ok) {
-        navigator.share({ files: [file], title: name })
-          .then(() => toast('書き出した（' + name + '）'))
-          .catch(e => {
-            if (e && e.name === 'AbortError') toast('書き出しをやめた');
-            else download(blob, name);
-          });
-        return;
-      }
-    }
-    download(blob, name);
-  });
-  const pick = document.createElement('input');
-  pick.type = 'file';
-  pick.accept = '.csv,text/csv';
-  pick.hidden = true;
-  const inBtn = el('button', 'btn', 'CSV を読み込む');
-  inBtn.type = 'button';
-  inBtn.addEventListener('click', () => {
-    if (store.readOnly()) { toast('繋がると読み込める（いまは読むだけの間）'); return; }
-    pick.value = '';
-    pick.click();
-  });
-  pick.addEventListener('change', async () => {
-    const f = pick.files && pick.files[0];
-    if (!f) return;
-    let got;
-    try { got = readCsv(await f.text()); } catch (e) { toast('読み込めない: ' + e.message); return; }
-    const mode = await askMode(f.name, got);
-    if (!mode) return;
-    if (store.readOnly()) { toast('繋がると読み込める（いまは読むだけの間）'); return; }
-    const r = importInto(store.exportState(), got, mode);
-    store.applyState(r.state);
-    toast(mode === 'add'
-      ? 'CSV にしかない記録を足した（todo ' + r.added + ' 件）'
-      : 'CSV の中身で書き換えた（todo 書き換え ' + r.replaced + ' 件・足した ' + r.added + ' 件）');
-  });
-  row.appendChild(out);
-  row.appendChild(inBtn);
-  wrap.appendChild(row);
-  wrap.appendChild(pick);
-  const inNote = el(
-    'p', 'note',
-    '読み込むときに「足す」か「同じものは上書き」かを選ぶ。'
-    + 'CSV は Excel でも開けるが、data の欄（記録の中身）を書き換えると読み込めなくなることがある。'
-  );
-  wrap.appendChild(inNote);
-  if (mode === 'out') { inBtn.remove(); inNote.remove(); }
-  if (mode === 'in') out.remove();
   return wrap;
 }
 
@@ -4122,7 +4014,7 @@ function helpAiBox() {
       row.appendChild(cancel);
     }
     keyBox.appendChild(row);
-    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ、暗号化して置く（サーバー・CSV・同期には入らない）。'
+    keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ、暗号化して置く（サーバー・同期・引っ越しのファイルには入らない）。'
       + (lock ? '鍵は前に決めた' + lockName(lock) + '。'
         : (prfSupported() ? 'パスキー（指・顔）か、自分で決める合言葉で鍵をかける。パスキーが使えない端末は合言葉。'
           : 'この端末はパスキーが使えないので、自分で決める合言葉（' + AIKEY_PASS_MIN + ' 字以上）で鍵をかける。'))
@@ -4241,7 +4133,7 @@ let lookPage = 'all';
 function prefsBox(onRender) {
   const wrap = el('div', 'tags prefs-box');
   wrap.appendChild(el('h3', null, 'この端末の表示を変える'));
-  wrap.appendChild(el('p', 'note', '好みで見た目と動きを変える。この端末にだけ置く（同期・CSV・引っ越しには乗らない）。'));
+  wrap.appendChild(el('p', 'note', '好みで見た目と動きを変える。この端末にだけ置く（同期・引っ越しには乗らない）。'));
 
   let cur = loadPrefs();
   const controls = el('div', 'prefs-ctl');
@@ -4521,53 +4413,6 @@ function upcomingBox() {
   row.appendChild(btn);
   wrap.appendChild(row);
   return wrap;
-}
-
-/* 読み込みのやり方を選ばせる。'add' / 'overwrite' / null（やめる） */
-function askMode(fileName, got) {
-  return new Promise(resolve => {
-    const back = el('div', 'csv-ask-back');
-    const box = el('div', 'csv-ask');
-    box.setAttribute('role', 'dialog');
-    box.setAttribute('aria-modal', 'true');
-    box.setAttribute('aria-label', 'CSV の読み込み方を選ぶ');
-    const fromId = (got.meta && got.meta.space) || 'me';
-    const from = seaName(fromId) || '別の海';
-    const to = seaName(store.space());
-    box.appendChild(el('h4', null, 'CSV をどう読み込む？'));
-    const p = el('p', 'note');
-    const info = csvSummary(got);
-    p.textContent = fileName + '（' + from + 'の記録）を、いま開いている' + to + 'に読み込む。'
-      + (fromId !== store.space() ? '別の海の記録なので、気をつけて。' : '');
-    box.appendChild(p);
-    /* どの端末でいつ書き出したものかを見せる。取り違え（別の端末の CSV）に気づけるように（Issue #7） */
-    const q = el('p', 'note');
-    q.textContent = '書き出した時刻: ' + (info.at || '不明') + '／todo ' + info.todos + ' 件'
-      + (info.device ? '／書き出した端末: ' + info.device : '');
-    box.appendChild(q);
-    const done = v => { back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
-    const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(null); } };
-    [['add', '足す', 'いまの記録はそのまま、CSV にしかない記録だけを足す。何度読んでも増えない'],
-     ['overwrite', '同じものは上書き', 'CSV と同じ記録を CSV の中身で書き換え、無いものは足す。この端末にしかない記録は残る']]
-      .forEach(([v, label, sub]) => {
-        const b = el('button', 'csv-ask-choice');
-        b.type = 'button';
-        const t = el('span', 'nm'); t.textContent = label;
-        const u = el('span', 'sub'); u.textContent = sub;
-        b.appendChild(t); b.appendChild(u);
-        b.addEventListener('click', () => done(v));
-        box.appendChild(b);
-      });
-    const cancel = el('button', 'btn', 'やめる');
-    cancel.type = 'button';
-    cancel.addEventListener('click', () => done(null));
-    box.appendChild(cancel);
-    back.appendChild(box);
-    back.addEventListener('click', ev => { if (ev.target === back) done(null); });
-    document.addEventListener('keydown', onKey, true);
-    document.body.appendChild(back);
-    box.querySelector('button').focus();
-  });
 }
 
 /* 画面の大きさの記録。js/boot-dvh.js が立ち上げから測った値（大きさだけ。記録の中身は入らない） */

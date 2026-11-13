@@ -148,7 +148,7 @@ export function mergeState(a, b) {
 }
 
 /* 記録の Map（recordsOf の形）から保存データを組み直す。base の、記録に分けない欄（v など）は残す。
-   mergeState と、CSV の読み込み（csvio.js）が使う */
+   mergeState が使う（前は CSV の読み込みも使っていた。Issue #50 で外した） */
 export function buildDoc(recs, base) {
   const doc = Object.assign({}, base || {});
   LIST_KEYS.forEach(([field, head, keyOf, ordered]) => {
