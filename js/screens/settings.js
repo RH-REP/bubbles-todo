@@ -1828,11 +1828,16 @@ function mergeIntoDevice(p, opts) { return importIntoDevice(p, opts).n; }
 function importIntoDevice(p, opts = {}) {
   if (p && Array.isArray(p.regions) && p.regions.length) {
     const { map, added } = importRegions(p.regions);
-    const here = sync.region();
+    /* 入れる先: 開いている海のサーバー。開いている海が この端末だけ なら、前からの個人のサーバーか、最初に足したサーバー
+       （2026-11-13 Issue #50 の返事「ブロックチェーン経由で移したら、先の選択が出てこなかった」） */
+    const cur0 = sync.region();
+    const srvs = serverRegions();
+    const here = cur0.kind === 'server' ? cur0
+      : (srvs.find(r => r.id === defaultRegionId()) || srvs[0] || cur0);
     const locals = Object.keys(map).filter(k => map[k] === 'local');
     if (opts.askLocal && locals.length && here.kind === 'server'
       && window.confirm('このファイルには「この端末だけ」（サーバーなし版など）の記録がある。\n'
-        + 'それを、いま開いている海のサーバー「' + here.name + '」に入れる？（個人は個人へ、作った海はこのサーバーと合わせる海になり、サーバーへ写る）\n'
+        + 'それを、サーバー「' + here.name + '」に入れる？（個人は個人へ、作った海はこのサーバーと合わせる海になり、サーバーへ写る）\n'
         + 'キャンセルなら、この端末だけの海に入れる（サーバーへは送らない）。')) {
       locals.forEach(k => { map[k] = here.id; });
     }
@@ -3622,7 +3627,7 @@ function chainBox(opts = {}) {
     line.textContent = 'バックアップを探している…';
     const parts = await readLatestMemos(net, keys.wallet.address);
     let n = 0;
-    if (parts) n = mergeIntoDevice(await openMemos(parts, keys.recordKey), {});
+    if (parts) n = mergeIntoDevice(await openMemos(parts, keys.recordKey), { askLocal: true });
     const head = parts ? '海 ' + n + ' つの記録を重ねた。' : 'チェーンにはまだバックアップが無い（読み込むものは無かった）。';
     const r = await saveBackup(keys, net);
     if (!r) { line.textContent = head + '保存はやめた（ほかの端末には、まだ届いていない）。'; return; }
