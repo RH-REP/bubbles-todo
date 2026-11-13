@@ -1531,7 +1531,7 @@ function moveBox(mode) {
   wrap.appendChild(joinRow);
 
   function restore(p) {
-    const got = importIntoDevice(p);
+    const got = importIntoDevice(p, { askLocal: true });
     const n = got.n;
     line.textContent = '海 ' + n + ' つの記録を戻した。';
     if (Array.isArray(p.regions) && p.regions.length) {
@@ -1798,13 +1798,25 @@ function collectBoxes() {
 
 /* 引っ越しの中身（movefile.js の形）をこの端末に重ねる。戻り値 戻した海の数。
    記録は消さずに重ねる（記録ごとに新しいほうが残る）。サーバーの扱いは呼ぶ側 */
-function mergeIntoDevice(p) { return importIntoDevice(p).n; }
+function mergeIntoDevice(p, opts) { return importIntoDevice(p, opts).n; }
 
 /* 海域の一覧（regions）のあるファイルは、この端末の海域へ付け替えてから重ねる（段2。js/regions.js）。
-   戻り値 { n: 戻した海の数, map: { ファイルの海域の ID: この端末の海域の ID }, added: 足した海域 } */
-function importIntoDevice(p) {
+   戻り値 { n: 戻した海の数, map: { ファイルの海域の ID: この端末の海域の ID }, added: 足した海域 }
+   opts.askLocal: ファイルに「この端末だけ」（サーバーなし版など）の記録があり、いま開いている海がサーバーと合わせる海なら、
+   その記録をこのサーバーに入れるかを聞く（2026-11-13 Issue #50 の返事「サーバーなし版で作った TODO をサーバーあり版に移せる？」）。
+   入れると、ファイルの個人はこのサーバーの個人へ、作った海はこのサーバーと合わせる海になる（ふだんの同期でサーバーへ写る）。
+   断ると前のとおり「この端末だけ」の海に入る */
+function importIntoDevice(p, opts = {}) {
   if (p && Array.isArray(p.regions) && p.regions.length) {
     const { map, added } = importRegions(p.regions);
+    const here = sync.region();
+    const locals = Object.keys(map).filter(k => map[k] === 'local');
+    if (opts.askLocal && locals.length && here.kind === 'server'
+      && window.confirm('このファイルには「この端末だけ」（サーバーなし版など）の記録がある。\n'
+        + 'それを、いま開いている海のサーバー「' + here.name + '」に入れる？（個人は個人へ、作った海はこのサーバーと合わせる海になり、サーバーへ写る）\n'
+        + 'キャンセルなら、この端末だけの海に入れる（サーバーへは送らない）。')) {
+      locals.forEach(k => { map[k] = here.id; });
+    }
     const r = remapPayload(p, map);
     const n = mergeBoxes({ seas: r.seas, boxes: r.boxes });
     return { n, map, added };
@@ -3798,7 +3810,7 @@ function chainBox(opts = {}) {
       line.textContent = 'やめた';
       return true;
     }
-    const n = mergeIntoDevice(p);
+    const n = mergeIntoDevice(p, { askLocal: true });
     line.textContent = '海 ' + n + ' つの記録を戻した。';
     return true;
   }
