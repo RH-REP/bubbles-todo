@@ -42,6 +42,7 @@ import { PASS_MIN as AIKEY_PASS_MIN, OPEN_MS as AIKEY_OPEN_MS } from '../aikey.j
 import { ITEMS, PAGES, BOARD_SHOW_FEW, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
   changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
 import { openHelp } from '../help.js';
+import { askText } from '../asktext.js';
 import { startChainWatch, markChainSeen } from '../chainwatch.js';
 import { openUpcoming, lastLine } from '../upcoming.js';
 import { clearAppStorage, confirmed, CONFIRM_WORD } from '../reset.js';
@@ -1530,7 +1531,7 @@ function moveBox(mode) {
           p = null;
           if (k) { try { p = await openBackup(fileText, { key: k }); } catch (e) { p = null; } }
           if (!p) {
-            const pass = window.prompt('暗号化した控え。合言葉（暗号化を始めたときに書き留めた 24 字）');
+            const pass = await askText('暗号化した控え。合言葉（暗号化を始めたときに書き留めた 24 字）');
             if (!pass) { fileText = ''; return; }
             p = await openBackup(fileText, { pass });
           }
@@ -2758,7 +2759,7 @@ function chainBox(opts = {}) {
       return keysFromRoot(got.root);
     }
     if (cfg.mode === 'pass') {
-      const pass = window.prompt('合言葉（始めたときに書き留めた 24 字）');
+      const pass = await askText('合言葉（始めたときに書き留めた 24 字）');
       if (!pass) throw new Error('やめた');
       line.textContent = '鍵を作っている…';
       return keysFromRoot(await rootFromPassphrase(pass));
@@ -2835,9 +2836,9 @@ function chainBox(opts = {}) {
         + 'パスキーで使っていた記録を合言葉へ移すときは、先にパスキーで開き、「鍵を替える」→「新しい鍵へ移し替える」を押す（鍵を作る → 残高を送る → バックアップする、を順に案内する）。');
       /* パスキーと同じく「開く → 新しく作る」の順に並べる（Issue #53。前に作った人が押し間違えないように） */
       btn('合言葉で開く', async () => {
-        const pass = window.prompt('合言葉（24 字）');
-        /* 何も出さずに戻ると、押しても反応しないように見える（Issue #53） */
-        if (!pass) { line.textContent = 'やめた（合言葉を打つ窓が出なかったなら、このブラウザで入力の窓が止められている。ページを開き直してもう一度押す）'; return; }
+        /* ページの中の欄で聞く（Issue #53: iPhone のホーム画面版で、ブラウザの入力の窓に打てなかった） */
+        const pass = await askText('合言葉（24 字）');
+        if (!pass) { line.textContent = 'やめた'; return; }
         line.textContent = '鍵を作っている…';
         const keys = await keysFromRoot(await rootFromPassphrase(pass));
         cfg = Object.assign(loadConfig(), { network: net, mode: 'pass', credId: null, address: keys.wallet.address });
@@ -3915,7 +3916,7 @@ function chainBox(opts = {}) {
     if (m.to.mode === 'passkey') {
       keys = await keysFromRoot((await passkeyRoot(m.to.credId)).root);
     } else {
-      const pass = window.prompt('新しい合言葉（1 で書き留めた 24 字）');
+      const pass = await askText('新しい合言葉（1 で書き留めた 24 字）');
       if (!pass) throw new Error('やめた');
       line.textContent = '鍵を作っている…';
       keys = await keysFromRoot(await rootFromPassphrase(pass));
@@ -3989,7 +3990,7 @@ function chainBox(opts = {}) {
   /* 合言葉を切り替える（2026-11-11 Issue #31 の返事: パスキーを切り替えると対になるもの）。
      ほかの合言葉（＝別のウォレット）を打って替える。パスキーで開いていても、合言葉のウォレットへ替えられる */
   async function switchPassphrase() {
-    const pass = window.prompt('切り替える先の合言葉（24 字）');
+    const pass = await askText('切り替える先の合言葉（24 字）');
     if (!pass) return;
     line.textContent = '鍵を作っている…';
     await switchTo('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
@@ -4020,7 +4021,7 @@ function chainBox(opts = {}) {
   }
 
   async function restoreByCode() {
-    const code = window.prompt('復元コード（BT1-…）');
+    const code = await askText('復元コード（BT1-…）');
     if (!code) return;
     const r = await readRecoveryCode(code);
     netSel.value = r.network;
@@ -4780,7 +4781,7 @@ if (typeof document !== 'undefined' && isSolo()) {
       let keys;
       if (c.mode === 'passkey') keys = await keysFromRoot((await passkeyRoot(c.credId)).root);
       else if (c.mode === 'pass') {
-        const pass = window.prompt('合言葉（始めたときに書き留めた 24 字）');
+        const pass = await askText('合言葉（始めたときに書き留めた 24 字）');
         if (!pass) return false;
         keys = await keysFromRoot(await rootFromPassphrase(pass));
       } else throw new Error('まだ始めていない');
