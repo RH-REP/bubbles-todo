@@ -46,7 +46,9 @@
                            ・done は完了の海に見えていて、UI から取り消せる
                            ・trashed はどこにも見えない。UI から戻す道は作らない。
                              戻せるのは localStorage を直接いじるか、
-                             コンソールから store.untrash(id) を叩いたときだけ
+                             コンソールから store.untrash(id) を叩いたときだけ。
+                             例外：リスト表示の「さがす」の結果にだけ出て、そこから戻せる
+                             （Issue #58。利用者が選んだ。js/screens/sea.js の askUntrash）
                            trashed:true のものは get() が null を返し、
                            「いま生きているもの」を返す問い合わせから全部外れる
                            （all / floating / todays / count / inSlot / unslotted /

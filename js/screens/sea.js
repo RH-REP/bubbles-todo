@@ -2730,6 +2730,33 @@ function hay(t) {
   return parts.join('\n').toLowerCase();
 }
 
+/* 消したもの（墓石）を、さがすの結果でだけ見せる（Issue #58。返事「おすすめで」= 案 A）。
+
+   > 消したのか、完了おしたのかTODO見つかならい
+
+   store.js の決まりは「trashed はどこにも見えない。UI から戻す道は作らない」だったが、
+   利用者がこの Issue で、さがすの結果に出して戻せるほうを選んだ。
+   海・ふつうの一覧・今日などには今までどおり出さない。出るのは文字で探したときだけ。
+   右端に「消した（日付）」。押すと「戻す」の札を出し、戻したらふだんの盤を開く。 */
+function goneLabel(t) {
+  const at = Number(t && t.trashedAt);
+  return '消した' + (Number.isFinite(at) && at > 0 ? '（' + dayLabelOf(at) + '）' : '');
+}
+
+function askUntrash(t) {
+  toast('「' + trim(t.text) + '」は消してある。戻す？', {
+    label: '戻す',
+    undo: false,
+    on: () => {
+      if (!has('untrash') || !store.untrash(t.id)) { toast('戻せなかった'); return; }
+      renderGrid();
+      const row = [...grid.querySelectorAll('.sea-row')].find(r => r.dataset.id === t.id);
+      if (row) openBoardFor(t.id, row);
+      toast('「' + trim(t.text) + '」を戻した');
+    },
+  }, 8000);
+}
+
 /* 一覧に出すもの。**いまの海のものだけ**（A-65。利用者の指示「見え方だけの違いに」）。
 
    前はここが `store.all()` で、海とは別に「全件を読む場所」だった。いまは
@@ -2742,7 +2769,13 @@ function hay(t) {
 function listItems() {
   const q = normQ(gridQ);
   const byAge = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
-  if (q) return store.all().filter(t => hay(t).indexOf(q) >= 0).sort(byAge);
+  if (q) {
+    const live = store.all().filter(t => hay(t).indexOf(q) >= 0).sort(byAge);
+    /* 消したもの（墓石）も、さがしている間だけ後ろに足す（Issue #58 の返事「おすすめで」）。
+       「消したのか完了したのか分からない」を、ここで見分けられるように。新しく消した順 */
+    const gone = has('trashedItems') ? store.trashedItems().filter(t => hay(t).indexOf(q) >= 0) : [];
+    return live.concat(gone);
+  }
   capOff = true;
   let base;
   try { base = faceItems(curFace) || []; } finally { capOff = false; }
@@ -3047,8 +3080,10 @@ function renderGrid() {
 
     /* さがしている間は、ふだん出さないものも出す。
        出す以上、**いまどこに居るか**を言わないと「なぜここに」になる */
+    const gone = !!t.trashed;
     if (normQ(gridQ)) {
-      const where = isDoneItem(t) ? nameOf(fixedTag('down'))
+      const where = gone ? goneLabel(t)
+        : isDoneItem(t) ? nameOf(fixedTag('down'))
         : isHoldItem(t) ? nameOf(fixedTag('up')) : '';
       if (where) {
         const w = el('span', 'sea-row-where');
@@ -3058,7 +3093,17 @@ function renderGrid() {
     }
 
     const names = namesOf(t);
-    row.setAttribute('aria-label', t.text + (names.length ? '（' + names.join('、') + '）' : ''));
+    row.setAttribute('aria-label', t.text + (names.length ? '（' + names.join('、') + '）' : '')
+      + (gone ? '（' + goneLabel(t) + '）' : ''));
+    if (gone) {
+      /* 消したものは盤もメニューもつまむのも無し。押すと「戻す」を聞く（Issue #58） */
+      row.classList.add('is-gone');
+      row.addEventListener('click', ev => { ev.preventDefault(); askUntrash(t); });
+      row.addEventListener('contextmenu', ev => { ev.preventDefault(); askUntrash(t); });
+      gridNodes.set(t.id, { node: row, detach: null });
+      grid.appendChild(row);
+      return;
+    }
     row.addEventListener('click', ev => {
       ev.preventDefault();
       /* つまんで運んだ直後の click は捨てる（運んだ先で盤が開いてしまう） */

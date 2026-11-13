@@ -1081,6 +1081,9 @@
   border: 1px solid var(--line); color: var(--text-2);
   font-size: 11px; white-space: nowrap;
 }
+/* 消したもの（Issue #58）。さがしたときだけ出る。字を薄くして、ふつうの行と見分ける */
+.sea-row.is-gone .sea-row-tx { color: var(--text-2); text-decoration: line-through; }
+.sea-row.is-gone .sea-row-where { border-style: dashed; }
 
 /* ---------- はじめた日のカレンダー（利用者の指示） ----------
    1段目の右、歯車（right:62px。右上の隅は「!」）の左どなり。**海に置く**のが肝で、
