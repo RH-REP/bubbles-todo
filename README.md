@@ -4,6 +4,9 @@
 
 **[動かしてみる →](https://rh-rep.github.io/bubbles-todo/)**
 
+公開している入口はこの1つ（2026-11-13 Issue #51）。サーバーに繋いでいなければ `solo.html` に移るが、それは決めた動き（下の「サーバーなし版」の「入口は1つ」）。
+サーバーに繋いだ端末では同じ住所が `index.html` のまま開く。使い方の記事は [docs/guide/](https://rh-rep.github.io/bubbles-todo/docs/guide/)。
+
 ---
 
 ## 言葉（2026-11-13 Issue #47 の返事「全部」の A。初めて読む人・エージェントはここから）
