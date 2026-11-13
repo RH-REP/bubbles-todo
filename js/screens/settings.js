@@ -33,7 +33,7 @@ import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, l
 import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
 import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
-import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupSummary, backupFileName } from '../folderbackup.js';
+import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupFileName, buildBackup } from '../folderbackup.js';
 import {
   hasKey, isKeyLocked, isKeyPlain, keyTail, keyLock, keyOpen, lockNow, saveKeyLocked, lockPlainKey, removeKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
   PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
@@ -252,7 +252,7 @@ export default {
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
-    const gSave = group('記録を保存する・読み込む', '端末を替える（引っ越し）・毎日の控え・サーバー・ブロックチェーン・CSV');
+    const gSave = group('記録を保存する・読み込む', '控え（ファイル）・サーバー・ブロックチェーン・CSV');
     const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
@@ -411,22 +411,19 @@ export default {
        ブロックチェーンのバックアップは、ここにだけ置く（2026-11-12 Issue #45 の返事:「完全にうつしてしまう方が迷わない」） */
     /* 引っ越しとバックアップの違い（2026-11-13 Issue #48 の返事「わかりやすく表現できない？端末を変えるなど、もしくは i ボタン」）。
        選択肢の字を「何のために使うか」にし、使い分けを箱の行の ⓘ の裏に置く（見出しの無い p.note は markInfo が ⓘ へ畳む） */
+    /* 引っ越しと控えを［控え］1つにまとめた（2026-11-13 Issue #48 の返事「おすすめで」= A 案）。
+       サーバーに入る鍵は、押して作る控えのチェックボックスで入れる（入れたら暗号化は必須）。自動の控えには入れない */
     [
       'どれを使う？',
-      '・端末を替える（引っ越し）… 新しい端末へ移るときに1回だけ。記録と、サーバーに入る鍵が入る。招かれた海にも、招待を頼み直さずに入れる。いつも合言葉で暗号化する。',
-      '・毎日の控え（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く。記録だけで、鍵は入らない（戻したあと、サーバーには入り直す）。暗号化は選べる。',
-      '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。記録だけで、いつも暗号化する。',
-      '・サーバー… 繋いでいる間は自動で同じ中身になる（控えではないので、消したものは消える）。',
+      '・同じサーバーに繋いだ端末どうし（iPhone・Android・PC を同時に使うなど）は、自動で同じ記録になる。ふだんは何もしなくてよい。',
+      '・控え（ファイル）… 新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付けて作る（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。もしものための保険は、印なしで作るか、毎日の控え（自動）を回す（記録だけ。戻したあと、サーバーには入り直す）。',
+      '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。',
       '・CSV… 開いている海1つを表にする。Excel で見る・1つの海だけ移すとき。暗号化しない。',
       'どれから戻しても、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
     ].forEach(t => gSave.appendChild(el('p', 'note', t)));
     const saveChoice = choiceRow(gSave, 'どこに保存するか');
-    /* --- 引っ越し（暗号化したファイル。2026-11-07 Issue #19）--- */
-    saveChoice.add('file', '端末を替える（引っ越し）', [moveBox()]);
-    /* --- 決めたフォルダに自動で控える（2026-11-12 利用者の指示。js/folderbackup.js）--- */
-    saveChoice.add('folder', '毎日の控え（自動）', [folderBox()]);
-    /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示：引っ越し）--- */
-    saveChoice.add('csv', 'CSV（1つの海・表）', [csvBox()]);
+    /* --- 控え（押して作る控え・引っ越し・毎日の控え・戻す。Issue #19・2026-11-12・Issue #48）--- */
+    saveChoice.add('file', '控え（ファイル）', [moveBox(), folderBox()]);
     {
       const w = el('div', 'tags');
       w.appendChild(el('h3', null, 'サーバーに置く'));
@@ -456,6 +453,8 @@ export default {
         backupEl.children[1] || null);
       saveChoice.add('chain', 'ブロックチェーン（もしもの控え）', [backupEl]);
     }
+    /* --- 書き出し・読み込み（CSV。2026-10-24 利用者の指示）--- */
+    saveChoice.add('csv', 'CSV（1つの海・表）', [csvBox()]);
     /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
     [gShare, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
       if (!d.open) return;
@@ -1305,23 +1304,46 @@ function csvBox() {
    形と暗号は js/movefile.js。サーバーの「引っ越しの鍵」は server.py の /api/passkey/move */
 function moveBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '端末を替える（引っ越しのファイル。暗号化）'));
+  wrap.appendChild(el('h3', null, '控えを作る・戻す'));
   wrap.appendChild(el(
     'p', 'note',
-    'すべての海の記録と、サーバーに入る鍵を1つのファイルにして、合言葉で暗号化する。'
-    + '新しい端末でこのファイルを開いて合言葉を入れると、記録が戻り、招かれた海にもそのまま入れる（持ち主に招待を頼まなくてよい）。'
-    + 'ファイルは iCloud Drive・Google Drive など自分の置き場へ。合言葉はファイルと別に書き留める（忘れたら開けない）。'
+    '選んだ海の記録を1つのファイルにする（いつでも押したときに作る）。'
+    + '新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける。新しい端末でこのファイルを開いて合言葉を入れると、記録が戻り、招かれた海にもそのまま入れる（持ち主に招待を頼まなくてよい）。'
+    + '鍵を入れるときは、必ず合言葉で暗号化する。ファイルは iCloud Drive・Google Drive など自分の置き場へ。合言葉はファイルと別に書き留める（忘れたら開けない）。'
   ));
+  wrap.appendChild(el('p', 'note',
+    'サーバーに入る鍵（パスキーのサーバーの「引っ越しの鍵」）は使い切りで、作るたびに前のファイルの鍵は使えなくなる（記録は前のファイルからも戻せる）。'
+    + '1つのパスキーで入れる端末は 3 台まで。いっぱいのときに新しい端末で使うと、このファイルを作った端末のパスキーが外れる。'));
+  /* 鍵を入れるか・暗号化するか（Issue #48 の A 案）。鍵を入れたら暗号化は外せない */
+  const keysLb = el('label', 'setrow');
+  const keysCb = document.createElement('input');
+  keysCb.type = 'checkbox';
+  keysLb.appendChild(keysCb);
+  keysLb.appendChild(document.createTextNode(' サーバーに入る鍵も入れる（別の端末をつなぐ・替えるとき）'));
+  wrap.appendChild(keysLb);
+  const encLb = el('label', 'setrow');
+  const encCb = document.createElement('input');
+  encCb.type = 'checkbox';
+  encCb.checked = true;
+  encLb.appendChild(encCb);
+  encLb.appendChild(document.createTextNode(' 合言葉で暗号化する（鍵を入れるときは必ず）'));
+  wrap.appendChild(encLb);
+  let encWanted = true;
+  encCb.addEventListener('change', () => { encWanted = encCb.checked; });
+  keysCb.addEventListener('change', () => {
+    encCb.disabled = keysCb.checked;
+    encCb.checked = keysCb.checked ? true : encWanted;
+  });
   const row = el('div', 'row');
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
-  const movePick = regionPicker('引っ越しのファイル');
+  const movePick = regionPicker('控え');
   wrap.appendChild(movePick.el);
-  const make = el('button', 'btn', '引っ越しのファイルを作る');
+  const make = el('button', 'btn', '控えを作る');
   make.type = 'button';
   const save = el('button', 'btn', 'ファイルを保存する');
   save.type = 'button';
   save.hidden = true;
-  const openBtn = el('button', 'btn', '引っ越しのファイルを開く');
+  const openBtn = el('button', 'btn', '控えから戻す');
   openBtn.type = 'button';
   row.appendChild(make);
   row.appendChild(save);
@@ -1373,10 +1395,12 @@ function moveBox() {
       /* 選んだ海域ごとに、住所と入る鍵を入れる（段2）。パスキーの海域は、その海域のサーバーに引っ越しの鍵を頼む */
       const chosen = movePick.chosen();
       if (!chosen.length) { toast('入れる海を選ぶ'); return; }
+      const withKeys = keysCb.checked;
+      const encrypt = withKeys || encCb.checked;
       const servers = {};
       const warns = [];
       let anyMove = false;
-      for (const rid of chosen) {
+      for (const rid of (withKeys ? chosen : [])) {
         const r = findRegion(rid);
         if (!r || r.kind !== 'server') continue;
         const sec = sync.moveSecretsOf(rid);
@@ -1404,18 +1428,25 @@ function moveBox() {
       const server = legacyRid ? servers[legacyRid] : null;
       const now = Date.now();
       const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
-      const pass = makePassphrase();
       const picked = pickForPayload(chosen, collectBoxes(), allEntries());
       const payload = buildPayload({ boxes: picked.boxes, seas: picked.seas, server, at: now, device: dev,
-        regions: regionsPayload(chosen), servers });
-      const text = await encryptMove(payload, pass);
-      const name = moveFileName(now);
-      ready = { blob: new Blob([text], { type: 'application/json' }), name };
+        regions: regionsPayload(chosen), servers: withKeys ? servers : undefined });
       const info = moveSummary(payload);
-      passLine.textContent = '合言葉: ' + pass + '　← 書き留めてから「ファイルを保存する」。'
-        + (info.regions.length ? '同期の先 ' + info.regions.join('・') + '・' : '')
-        + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + warn
-        + (anyMove ? '。前に作った引っ越しのファイルでは、もうサーバーに入れない（記録は戻せる）' : '');
+      const what = (info.regions.length ? '同期の先 ' + info.regions.join('・') + '・' : '')
+        + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + (withKeys ? '・サーバーに入る鍵' : '（鍵は入れていない）');
+      if (encrypt) {
+        const pass = makePassphrase();
+        const text = await encryptMove(payload, pass);
+        ready = { blob: new Blob([text], { type: 'application/json' }), name: moveFileName(now) };
+        passLine.textContent = '合言葉: ' + pass + '　← 書き留めてから「ファイルを保存する」。' + what + warn
+          + (anyMove ? '。前に作った控えの鍵では、もうサーバーに入れない（記録は戻せる）' : '');
+      } else {
+        /* 鍵を入れず、暗号化もしない控え（毎日の控えと同じ形 bubbles-backup） */
+        const plain = buildBackup({ boxes: picked.boxes, seas: picked.seas, at: now, device: dev, regions: regionsPayload(chosen) });
+        ready = { blob: new Blob([JSON.stringify(plain, null, 1) + '\n'], { type: 'application/json' }),
+          name: moveFileName(now).replace('bubbles-move', 'bubbles-backup') };
+        passLine.textContent = '暗号化していない控えを作った（中の todo はそのまま読める）。「ファイルを保存する」で置く。' + what;
+      }
       save.hidden = false;
       save.focus();
     } catch (e) {
@@ -1446,10 +1477,37 @@ function moveBox() {
   pick.addEventListener('change', async () => {
     const f = pick.files && pick.files[0];
     if (!f) return;
-    try {
-      fileText = await f.text();
-      readMoveHead(fileText);
-    } catch (e) { toast((e && e.message) || '読めない'); fileText = ''; return; }
+    try { fileText = await f.text(); } catch (e) { toast((e && e.message) || '読めない'); fileText = ''; return; }
+    /* どの形の控えも、このボタン1つで開く（Issue #48 の A 案）:
+       bubbles-move（合言葉で暗号化）… 下の合言葉の欄で開く
+       bubbles-backup-enc（毎日の控えの暗号化）… この端末の鍵で、だめなら合言葉で
+       bubbles-backup（平文）… そのまま */
+    let isMove = false;
+    try { readMoveHead(fileText); isMove = true; } catch (e) { isMove = false; }
+    if (!isMove) {
+      let p;
+      try {
+        if (encryptedHead(fileText)) {
+          const k = folderBackup ? await folderBackup.deviceKey() : null;
+          p = null;
+          if (k) { try { p = await openBackup(fileText, { key: k }); } catch (e) { p = null; } }
+          if (!p) {
+            const pass = window.prompt('暗号化した控え。合言葉（暗号化を始めたときに書き留めた 24 字）');
+            if (!pass) { fileText = ''; return; }
+            p = await openBackup(fileText, { pass });
+          }
+        } else {
+          p = await openBackup(fileText);
+        }
+      } catch (e) { toast((e && e.message) || '読めない'); fileText = ''; return; }
+      fileText = '';
+      const info = moveSummary(p);
+      const at = info.at ? new Date(info.at).toLocaleString() : '不明';
+      if (!window.confirm('この控えから戻す？\n' + f.name + '\n控えた時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
+        + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
+      restore(p);
+      return;
+    }
     passForm.hidden = false;
     passIn.value = '';
     passIn.focus();
@@ -1602,7 +1660,7 @@ function folderBox() {
   if (!ok) {
     wrap.appendChild(el('p', 'note',
       'このブラウザでは使えない（フォルダに書く仕組みが無い）。Chrome か Edge で開く（Mac の Chrome でインストールした app でもよい）。'
-      + '下の「控えのファイルから戻す」は、どのブラウザでも使える。'));
+      + '上の「控えから戻す」は、どのブラウザでも使える（毎日の控えのファイルも開ける）。'));
   }
   const row = el('div', 'row');
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
@@ -1616,10 +1674,8 @@ function folderBox() {
   offBtn.type = 'button';
   const encBtn = el('button', 'btn', '暗号化して書く');
   encBtn.type = 'button';
-  const restoreBtn = el('button', 'btn', '控えのファイルから戻す');
-  restoreBtn.type = 'button';
+  /* 戻すボタンは上の「控えを作る・戻す」の［控えから戻す］1つにまとめた（Issue #48 の A 案） */
   [pickBtn, nowBtn, permBtn, encBtn, offBtn].forEach(b => { if (ok) row.appendChild(b); });
-  row.appendChild(restoreBtn);
   wrap.appendChild(row);
   const line = el('p', 'note');
   line.setAttribute('aria-live', 'polite');
@@ -1627,11 +1683,6 @@ function folderBox() {
   const encPassLine = el('p', 'note');
   encPassLine.hidden = true;
   wrap.appendChild(encPassLine);
-  const pick = document.createElement('input');
-  pick.type = 'file';
-  pick.accept = '.json,application/json';
-  pick.hidden = true;
-  wrap.appendChild(pick);
 
   function when(ms) {
     if (!ms) return '';
@@ -1703,34 +1754,6 @@ function folderBox() {
     } catch (e) {
       toast('切り替えられなかった: ' + ((e && e.message) || e));
     } finally { encBtn.disabled = false; paint(); }
-  });
-  restoreBtn.addEventListener('click', () => { pick.value = ''; pick.click(); });
-  pick.addEventListener('change', async () => {
-    const f = pick.files && pick.files[0];
-    if (!f) return;
-    let p;
-    try {
-      const text = await f.text();
-      if (encryptedHead(text)) {
-        /* 暗号化した控え: まずこの端末の鍵で、だめなら合言葉で開く */
-        const k = folderBackup ? await folderBackup.deviceKey() : null;
-        p = null;
-        if (k) { try { p = await openBackup(text, { key: k }); } catch (e) { p = null; } }
-        if (!p) {
-          const pass = window.prompt('暗号化した控え。合言葉（暗号化を始めたときに書き留めた 24 字）');
-          if (!pass) return;
-          p = await openBackup(text, { pass });
-        }
-      } else {
-        p = await openBackup(text);
-      }
-    } catch (e) { toast((e && e.message) || '読めない'); return; }
-    const info = backupSummary(p);
-    const at = info.at ? new Date(info.at).toLocaleString() : '不明';
-    if (!window.confirm('この控えから戻す？\n' + f.name + '\n控えた時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
-      + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
-    const n = mergeIntoDevice(p);
-    line.textContent = '海 ' + n + ' つの記録を、' + f.name + ' から戻した。';
   });
   return wrap;
 }
@@ -2246,7 +2269,7 @@ function resetAllBox() {
     '画面の「!」が覚えているエラーの記録と、app 本体'].forEach(s => { const li = el('li'); li.textContent = s; kept.appendChild(li); });
   panel.appendChild(kept);
   panel.appendChild(el('p', 'note',
-    '残しておきたい記録があれば、先に上の「記録を保存する・読み込む」の「引っ越しのファイルを作る」か「CSV で書き出す」で控えを取る。'
+    '残しておきたい記録があれば、先に上の「記録を保存する・読み込む」の「控えを作る」か「CSV で書き出す」で控えを取る。'
     + 'サーバーなし版と通常版は、この端末では同じ記録を使うので、どちらも初期化される。'));
 
   const form = el('form', 'tagadd');
