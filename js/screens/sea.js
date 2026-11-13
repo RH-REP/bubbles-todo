@@ -2716,10 +2716,11 @@ let gridFind = null;
 
 function normQ(v) { return String(v || '').trim().toLowerCase(); }
 
-/* さがす対象は本文・次の一手・リンク・積んだ記録。
-   「あれ、なんて書いたっけ」は本文以外に書いてあることも多い */
+/* さがす対象は名前・本文（盤の本文＝detail）・次の一手・リンク・積んだ記録。
+   「あれ、なんて書いたっけ」は名前以外に書いてあることも多い。
+   前は盤の本文（detail）が入っておらず、本文にだけ書いた言葉では見つからなかった（Issue #58） */
 function hay(t) {
-  const parts = [t.text || ''];
+  const parts = [t.text || '', typeof t.detail === 'string' ? t.detail : ''];
   if (has('firstStepOf')) { try { parts.push(store.firstStepOf(t.id) || ''); } catch (err) { /* 無ければ空 */ } }
   if (has('urlOf')) { try { parts.push(store.urlOf(t.id) || ''); } catch (err) { /* 同上 */ } }
   if (has('stepsOf')) {
@@ -3665,7 +3666,9 @@ export default {
     const findBox = el('div', 'sea-find');
     gridFind = el('input', 'in');
     gridFind.type = 'search';
-    gridFind.placeholder = 'さがす';
+    /* 完了・長期保留にあるものも出ることを、欄の中で言う（Issue #58。
+       「消したのか完了したのか分からない」ときに、ここで探せると分からなかった） */
+    gridFind.placeholder = 'さがす（完了・長期保留も）';
     gridFind.autocomplete = 'off';
     gridFind.setAttribute('aria-label', '書いたものをさがす');
     gridFind.addEventListener('input', () => { gridQ = gridFind.value; renderGrid(); });
