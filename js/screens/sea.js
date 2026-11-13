@@ -215,7 +215,7 @@ const EDGE_SPAN = 1;
 
 let root, stage, view, world, hint, grid, gridCap, gridEmpty, vent;
 let faceName, faceDot, faceLabel;
-let gatherBtn, gatherLabel;
+let gatherBtn, gatherLabel, gatherIc;
 let narrowBtn, narrowLabel, centerEmpty;
 let randomBtn;
 let calBtn = null;      /* はじめた日のカレンダー（利用者の指示） */
@@ -2360,7 +2360,14 @@ function setGathering(on) {
   cancelShuffle();          /* 整列に入る／戻るときは、混ぜかけを畳む */
   gathering = on;
   forgetTagColors();
+  /* リスト表示の間は、字の「もどす」をやめて丸い ✕ だけにする（Issue #59「もどすの文字がどすしか見えない」）。
+     狭い画面（iPhone SE など）では左の札（フィルター・一覧｜日付｜四つ）が伸びて字の頭を覆っていた。
+     丸い 44px にすれば幅が決まり、左の札は css で手前に止める（css/screens/sea.css .sea-gather.is-on）。
+     字が消えるぶん、読み上げには aria-label で「海へもどる」を渡す */
   gatherLabel.textContent = on ? 'もどす' : 'リスト表示';
+  gatherIc.textContent = on ? '✕' : '⇅';
+  if (on) gatherBtn.setAttribute('aria-label', '海へもどる');
+  else gatherBtn.removeAttribute('aria-label');
   gatherBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
   gatherBtn.title = on ? '押すと海へもどる' : '押すと全部が並ぶ';
   gatherBtn.classList.toggle('is-on', on);
@@ -3621,10 +3628,10 @@ export default {
     /* --- リスト表示（トグル） --- */
     gatherBtn = el('button', 'sea-gather');
     gatherBtn.type = 'button';
-    const ic = el('span', 'ic', '⇅');
-    ic.setAttribute('aria-hidden', 'true');
+    gatherIc = el('span', 'ic', '⇅');
+    gatherIc.setAttribute('aria-hidden', 'true');
     gatherLabel = el('span', 'lb', 'リスト表示');
-    gatherBtn.appendChild(ic);
+    gatherBtn.appendChild(gatherIc);
     gatherBtn.appendChild(gatherLabel);
     gatherBtn.setAttribute('aria-pressed', 'false');
     gatherBtn.title = '押すと全部が並ぶ';

@@ -286,8 +286,8 @@
 @keyframes sea-hint-bob { to { transform: translateY(7px); } }
 
 /* ---------- リスト表示（トグル） ----------
-   押している間ではなく、押したら並ぶ。だから文字が「リスト表示」⇄「もどす」に変わる
-   ——解除の仕方が画面に見えていること。 */
+   押している間ではなく、押したら並ぶ。だから札が「リスト表示」⇄ 丸い ✕ に変わる
+   ——解除の仕方が画面に見えていること（2026-11-13 Issue #59 で字の「もどす」を ✕ にした）。 */
 .sea-gather {
   position: absolute; top: 60px; right: 66px; z-index: 8;
   appearance: none; cursor: pointer; font: inherit;
@@ -308,6 +308,24 @@
   color: var(--text);
   border-color: var(--bub-edge);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
+}
+/* リスト表示の間は丸い ✕ だけ（Issue #59）。前は「⇅ もどす」の札で、
+   iPhone SE（幅 375）では左の札（フィルター・一覧｜日付｜四つ）が上に重なり「どす」しか見えなかった。
+   幅を 44 に決め、左の札はこのボタンの手前（右から 66＋44＋8＋左の 10＝128px）で止める */
+.sea-gather.is-on {
+  width: 44px; height: 44px; min-height: 44px; padding: 0;
+  justify-content: center; gap: 0; letter-spacing: 0;
+}
+.sea-gather.is-on .lb { display: none; }
+.sea-gather.is-on .ic { font-size: 17px; }
+.sea-stage.is-gathering .sea-tools { max-width: calc(100% - 130px); }
+/* 札が詰まったら、フィルターの名前を「…」で縮める（一覧｜日付｜四つ は縮めない） */
+.sea-stage.is-gathering .sea-tools .sea-narrow { flex: 0 1 auto; min-width: 0; }
+.sea-stage.is-gathering .sea-tools .sea-narrow .lb { min-width: 0; }
+.sea-stage.is-gathering .sea-mode { flex: 0 0 auto; }
+@media (max-width: 400px) {
+  .sea-stage.is-gathering .sea-tools { gap: 6px; }
+  .sea-stage.is-gathering .sea-tools .sea-narrow { padding: 0 12px; letter-spacing: 0; }
 }
 
 /* ---------- フィルター（中央の海だけ／追補4 §2） ----------
