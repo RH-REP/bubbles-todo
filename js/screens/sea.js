@@ -1846,7 +1846,8 @@ function goFace(face) {
   syncFaces();
   /* リスト表示は「いまの海の見え方」なので、面が変われば中身も変わる（A-65）。
      先頭へ戻すのは、前の海の途中の位置に居ると「移った」が分からないため */
-  if (gathering) { renderGrid(); if (grid) grid.scrollTop = 0; }
+  if (gathering && gridMode === 'quad' && isDoneFace()) setGridMode('list');   /* 完了の海に四つは無い（Issue #57） */
+  else if (gathering) { renderGrid(); if (grid) grid.scrollTop = 0; }
   renderChrome();
   scheduleStop();     /* 滑っている間は出ていく面も動かしておく */
   startCurrent();
@@ -2526,6 +2527,7 @@ function syncNarrowBtn() {
   /* リストの形の切り替え（Issue #40）。いまの形のボタンに印 */
   if (stage) stage.querySelectorAll('.sea-mode-b').forEach(b => {
     b.setAttribute('aria-pressed', gathering && gridMode === b.dataset.mode ? 'true' : 'false');
+    if (b.dataset.mode === 'quad') b.hidden = isDoneFace();   /* 完了の海に四つは無い（Issue #57） */
   });
   if (!narrowBtn) return;
   if (pruneNarrow()) syncFaces();          /* 消えたタグを選んだままにしない */
@@ -3138,6 +3140,9 @@ function renderGrid() {
    並べている最中なら、いまの形を片づけてから新しい形を出す（海の物理は降ろしたまま） */
 function setGridMode(mode) {
   if (!mode) { setGathering(false); return; }
+  /* 完了の海には「四つ」を出さない（Issue #57 の返事「四つは増えると入りきらない。なくていいのでは？」）。
+     終えたものの急ぐ・大事は、もう分ける意味が無い。開く形が四つでも一覧で開く */
+  if (mode === 'quad' && isDoneFace()) mode = 'list';
   gridMode = mode;
   if (gridQ) { gridQ = ''; if (gridFind) gridFind.value = ''; }
   if (!gathering) { setGathering(true); return; }
