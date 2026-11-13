@@ -24,7 +24,7 @@
 
 import { store } from '../store.js';
 import { el, toast, clamp, holdRing } from '../ui.js';
-import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor, DROPPABLE } from '../bubble.js';
+import { makeBubble, updateBubble, attachGestures, openMenu, diameterFor, DROPPABLE, centerBubble } from '../bubble.js';
 import { createField } from '../drift.js';
 import { openSeaMap, closeSeaMap, isOpen as seaMapOpen } from '../seamap.js';
 import { openCalendar, closeCalendar, isOpen as calOpen } from '../calendar.js';
@@ -1082,6 +1082,54 @@ function menuFor(id, node) {
     },
     onDelete:  () => removeWithUndo(id, node),
   });
+}
+
+/* ---------------- 一覧の行から盤を開く（Issue #56） ----------------
+
+   > リスト画面からTODOを、バブルから編集できるのと同じように編集できるようにできる？
+   > あと、リストから今日にうつせる？
+
+   前は行を押すと5項目のメニュー（詳細・5分・はじめた・完了・消す）だった。
+   泡を押したときに開く盤（本文・タグ・今日の札・カレンダー・期間・次の一手…）は出なかった。
+   盤は bubble.js の attachGestures が**泡のノードに付けて**開くものなので、
+   行の上にその場かぎりの泡を1つ作り、同じ道（centerBubble）で中央へ寄せる。
+   盤を閉じたら（onHold(id, false)）泡は捨てる。行は泡を持たないまま（3ノードのまま）。
+   今日へ移すのも、盤の「今日」の札でできる（つまんで下タブの「今日」へ運ぶ道も残す）。 */
+let rowBoard = null;     /* { node, off } いま開いているぶん。2枚目は開かない */
+
+function openBoardFor(id, row) {
+  const t = store.get(id);
+  if (!t || !row) return;
+  if (rowBoard) return;
+  const r = row.getBoundingClientRect();
+  const dw = stage ? stage.clientWidth : 0, dh = stage ? stage.clientHeight : 0;
+  const d = Math.max(44, Math.round(diameterFor(t.text, dw, dh)));
+  const node = makeBubble(Object.assign(itemOf(t), { colors: colorsOf(t), tagNames: namesOf(t) }),
+    optsOf(t, d));
+  /* 押した行の真ん中から寄っていくように置く（ドラッグ層の .bub は position:fixed） */
+  node.style.left = Math.round(r.left + r.width / 2 - d / 2) + 'px';
+  node.style.top = Math.round(r.top + r.height / 2 - d / 2) + 'px';
+  (document.getElementById('drag-layer') || document.body).appendChild(node);
+
+  const rec = { node, off: null };
+  rowBoard = rec;
+  const drop = () => {
+    if (rowBoard !== rec) return;
+    rowBoard = null;
+    /* 閉じる処理（cancelCenter）の途中で呼ばれるので、抜けてから片づける */
+    setTimeout(() => {
+      if (typeof rec.off === 'function') rec.off();
+      node.remove();
+    }, 0);
+  };
+  const h = makeHandlers(() => stage);
+  h.onHold = (hid, on) => { if (!on) drop(); };
+  rec.off = attachGestures(node, h);
+  if (!centerBubble(node)) {
+    /* 寄せられなかった（寸法が取れない等）。前の入口で開く */
+    drop();
+    menuFor(id, row);
+  }
 }
 
 /* 完了。音を鳴らし、トーストから取り消せる（契約 §6）。
@@ -2878,8 +2926,8 @@ function renderGrid() {
      バブルを1件ずつ組むと DOM 5ノード・グラデーション7層が件数ぶん増えるが、
      行なら3ノードで済む（実測：バブル1個で5ノード／7層／影1／動くアニメ1本）。
 
-     押したら長押しメニューを開く。詳細・5分・はじめた・完了・消す が全部そこにある
-     ——一覧のために別の操作を発明しない。 */
+     押したら、泡を押したときと同じ盤を開く（Issue #56。openBoardFor）。
+     前の5項目のメニューは右クリック・メニューキーに残す——一覧のために別の操作を発明しない。 */
   gridNodes.forEach(g => { if (typeof g.detach === 'function') g.detach(); g.node.remove(); });
   gridNodes.clear();
 
@@ -2938,8 +2986,10 @@ function renderGrid() {
       ev.preventDefault();
       /* つまんで運んだ直後の click は捨てる（運んだ先で盤が開いてしまう） */
       if (Date.now() - rowClickBlock < 400) return;
-      menuFor(t.id, row);
+      openBoardFor(t.id, row);            /* 泡を押したときと同じ盤（Issue #56） */
     });
+    /* 前の入口（5項目のメニュー）は、右クリック・メニューキー・Shift+F10 に残す */
+    row.addEventListener('contextmenu', ev => { ev.preventDefault(); menuFor(t.id, row); });
     row.addEventListener('pointerdown', ev => onRowDown(ev, row, t.id));
 
     gridNodes.set(t.id, { node: row, detach: null });
@@ -3567,7 +3617,7 @@ export default {
     quad.el.dataset.screen = 'sea.quad';
 
     /* --- 日付で見る（終了日の近い順。2026-11-07 Issue #24）--- */
-    dl = createDeadlineView(stage, { className: 'sea-days', open: (id, node) => menuFor(id, node) });
+    dl = createDeadlineView(stage, { className: 'sea-days', open: (id, node) => openBoardFor(id, node) });
     dl.el.dataset.screen = 'sea.days';
 
     /* overflow:clip を知らないブラウザでは、ステージがスクロール容器のままになる。
