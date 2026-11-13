@@ -754,6 +754,9 @@ setCenterHandler({
   /* 期間（start・due。共有の記録 v1.1） */
   span:         (id) => (has('spanOf') ? store.spanOf(id) : null),
   setSpan:      (id, s, e) => (has('setSpan') ? store.setSpan(id, s, e) : false),
+  /* 毎月くりかえす（Issue #60）。完了すると次の月の写しを store が作る */
+  repeat:       (id) => (has('repeatOf') ? store.repeatOf(id) : null),
+  setRepeat:    (id, on) => (has('setRepeat') ? store.setRepeat(id, on) : false),
   /* 関連 TODO（Issue #15）。本文の面の「書いて頼む」が、選んだ候補だけを新しい泡にする。
      元の泡と同じアンカー・自分で作ったタグに入れ、本文に「元: <名前>」。-> 新しい id か null */
   addRelated:   (fromId, text, detail) => {

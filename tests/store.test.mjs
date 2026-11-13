@@ -4203,6 +4203,67 @@ await test('優先度: setQuadrant で区分へ入れ、null で「まだ分け�
   assert.equal(saved().todos.find(x => x.id === t.id).urgent, null);
 });
 
+/* ---- 毎月くりかえす（Issue #60） ---- */
+
+await test('毎月くりかえす: 期間が無いと付けられない。付けると ext.bubble.repeat に入る', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空の月の作業');
+  assert.equal(store.setRepeat(t.id, true), false, '期間が無い');
+  store.setSpan(t.id, '2026-08-25', '2026-09-03');
+  assert.equal(store.setRepeat(t.id, true), true);
+  assert.deepEqual(store.repeatOf(t.id), { every: 'month', from: '2026-08-25', to: '2026-09-03' });
+  assert.equal(saved().todos.find(x => x.id === t.id).ext.bubble.repeat.every, 'month');
+  assert.equal(store.setRepeat(t.id, true), false, '二度付けても変わらない');
+});
+
+await test('毎月くりかえす: 完了で月をまたぐ期間の写しができ、取り消すと写しが消える', async () => {
+  const store = await open({ raw: null, now: NOW });           /* 今日は 2026-08-20 */
+  const t = store.add('架空の月の作業');
+  store.setDetail(t.id, '本文');
+  store.setSpan(t.id, '2026-08-25', '2026-09-03');
+  store.setRepeat(t.id, true);
+  const before = store.all().length;
+  store.complete(t.id);
+  assert.equal(store.all().length, before + 1);
+  const c = store.all().find(x => x.id !== t.id && x.text === '架空の月の作業');
+  assert.equal(c.start, '2026-09-25');
+  assert.equal(c.due, '2026-10-03');
+  assert.equal(c.detail, '本文');
+  assert.equal(c.done, false);
+  assert.deepEqual(store.repeatOf(c.id), { every: 'month', from: '2026-08-25', to: '2026-09-03' });
+  store.complete(t.id);
+  assert.equal(store.all().length, before + 1, '完了済みをもう一度完了しても増えない');
+  store.uncomplete(t.id);
+  assert.equal(store.get(c.id), null, '手を付けていない写しは消える');
+  store.complete(t.id);
+  assert.equal(store.all().length, before + 1, 'もう一度完了すると作り直す（1つだけ）');
+});
+
+await test('毎月くりかえす: 遅れて完了すると過ぎた月は飛ばす。月末はずれない', async () => {
+  const store = await open({ raw: null, now: ms(2026, 4, 10, 10, 0) });
+  const t = store.add('架空の月末の作業');
+  store.setSpan(t.id, '2026-01-31', '2026-02-03');
+  store.setRepeat(t.id, true);
+  store.complete(t.id);
+  const c = store.all().find(x => x.id !== t.id && x.text === '架空の月末の作業');
+  assert.equal(c.start, '2026-04-30', '2・3月のぶんは作らない（4/3 は今日より前）');
+  assert.equal(c.due, '2026-05-03');
+  store.complete(c.id);
+  const c2 = store.all().find(x => x.id !== t.id && x.id !== c.id && x.text === '架空の月末の作業');
+  assert.equal(c2.start, '2026-05-31', '元の 31 日から数えるので 30 日にずれていかない');
+});
+
+await test('毎月くりかえす: 期間を外すとくりかえしも外れる。ほかの app の ext は残る', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空の作業');
+  store.setSpan(t.id, '2026-09-01', '2026-09-08');
+  store.get(t.id).ext = { gantt: { goal: '架空' } };
+  store.setRepeat(t.id, true);
+  store.setSpan(t.id, '', '');
+  assert.equal(store.repeatOf(t.id), null);
+  assert.deepEqual(store.get(t.id).ext, { gantt: { goal: '架空' } });
+});
+
 /* ============================================================ */
 
 Date.now = REAL_NOW;

@@ -1441,6 +1441,151 @@ function useData(data) {
    画面が all() を並べる場所（海の「リスト表示」など）に墓石を混ぜないため */
 function isLive(t) { return !!t && !t.trashed; }
 
+/* 新しい泡の雛形（add と、毎月くりかえす の写しが使う）。
+   opts = { fx, fy, today }。today:true なら今日のキーを1つ入れる */
+function blankTodo(body, opts) {
+  const o = opts || {};
+  return defineToday({
+    id: uid(),
+    text: body,
+    /* days が本体。today:true で作るときは今日のキーを1つ入れる
+       （today そのものは defineToday() が days から出す） */
+    days: o.today ? [todayKey()] : [],
+    hold: false,
+    holdUntil: null,
+    createdAt: Date.now(),
+    fx: Number.isFinite(o.fx) ? o.fx : 0.2 + Math.random() * 0.6,
+    fy: Number.isFinite(o.fy) ? o.fy : 0.2 + Math.random() * 0.5,
+    slots: [],
+    anchors: [],
+    anchorAt: {},
+    started: {},
+    firstStep: '',
+    url: '',
+    detail: '',
+    gap: false,
+    gapSlots: [],
+    gapAt: {},
+    plan: false,
+    steps: [],
+    draft: { did: '', next: '' },
+    tags: [],
+    done: false,
+    doneAt: null,
+    trashed: false,
+    trashedAt: null,
+    fav: false,
+    urgent: null,
+    important: null,
+  });
+}
+
+/* ---------------- 毎月くりかえす（Issue #60。2026-11-14 利用者の決定「おすすめで」）----------------
+
+   > 25日から3日まで(月を跨ぐ期間) / 1日から8日まで(その月の間) に繰り返し発生するTODO …
+   > その月のTODOを完了しても。来月分を自動で生成などして無くならないようにできる？
+
+   **完了したら、期間を1か月ずらした写しを新しく作る**（案 A）。泡は月ごとに別のものなので、
+   完了した月のぶんは完了の海・ふりかえり・日付で見る にそのまま残る。
+   写しは期間の外のあいだ、今までどおり長期保留の海に回り（spanHeldOf）、期間に入ると海へ戻る。
+
+   ■ 置き場：`ext.bubble.repeat`（この app だけが読む欄。共有の記録の `ext` は app ごとの持ち物で、
+     ほかの app は中を見ない）。形は
+       { every: 'month', from: 'YYYY-MM-DD', to: 'YYYY-MM-DD', n: 0, next?: '<写しの id>' }
+     from・to は**くりかえしの元の期間**、n はそこから何か月目か。
+     毎回「元の期間 + n か月」で出すので、月末でつぶれた日がずれていかない
+     （1/31〜2/3 → 2/28〜3/3 → 3/31〜4/3。前の写しから1か月ずつ足すと 3/28 になってしまう）。
+     ほかの app には、写しの期間が普通の期間（start・due）として見える。
+
+   ■ 次の期間：n+1, n+2 … と進めて、**終わる日が今日より前でない最初の月**。
+     遅れて完了しても、もう過ぎた月のぶんは作らない（未処理の山にしない）。
+
+   ■ 取り消し：完了を取り消したら（uncomplete）、作った写しを消す（墓石）。
+     ただし写しにもう手を付けていたら（一手を積んだ・今日に置いた・完了した）、消さずに残し、
+     次にまた完了しても二つ目は作らない（next が生きている写しを指すかぎり作らない）。 */
+function repeatOfItem(t) {
+  const r = t && t.ext && typeof t.ext === 'object' && t.ext.bubble && typeof t.ext.bubble === 'object'
+    ? t.ext.bubble.repeat : null;
+  if (!r || typeof r !== 'object' || r.every !== 'month') return null;
+  const from = dayKeyOrNull(r.from), to = dayKeyOrNull(r.to);
+  if (!from || !to || to < from) return null;
+  const out = { every: 'month', from, to, n: Math.max(0, Math.floor(Number(r.n)) || 0) };
+  if (typeof r.next === 'string' && r.next) out.next = r.next;
+  return out;
+}
+
+/* ext.bubble.repeat を書く（null で外す）。ext のほかの中身（ほかの app の持ち物）には触らない。
+   空になった入れ物は欄ごと省く（sharedFields と同じ） */
+function writeRepeat(t, r) {
+  const ext = (t.ext && typeof t.ext === 'object' && !Array.isArray(t.ext)) ? Object.assign({}, t.ext) : {};
+  const b = (ext.bubble && typeof ext.bubble === 'object' && !Array.isArray(ext.bubble)) ? Object.assign({}, ext.bubble) : {};
+  if (r) {
+    const v = { every: 'month', from: r.from, to: r.to, n: r.n || 0 };
+    if (r.next) v.next = r.next;
+    b.repeat = v;
+  } else delete b.repeat;
+  if (Object.keys(b).length) ext.bubble = b; else delete ext.bubble;
+  if (Object.keys(ext).length) t.ext = ext; else delete t.ext;
+}
+
+/* 次の写しの期間。{ start, due, n } か null。today は日付キー */
+function nextRepeatSpan(r, today) {
+  for (let k = r.n + 1; k <= r.n + 1200; k++) {
+    const s = addMonths(r.from, k);
+    let d = addMonths(r.to, k);
+    if (!s || !d) return null;
+    if (d < s) d = s;
+    if (d >= today) return { start: s, due: d, n: k };
+  }
+  return null;
+}
+
+/* 完了した t の次の月の写しを作る（items に足す）。作った写し（か、もう作ってあった写し）／null。
+   写すもの：名前・本文・リンク・タグ・project・急ぐ／大事・お気に入り・ext（くりかえしは n を進める）。
+   写さないもの：積んだ一手・今日に置いた日・着手・きっかけ・すきま・ひとこと（月ごとに新しく始める） */
+function spawnRepeat(t) {
+  const r = repeatOfItem(t);
+  if (!r) return null;
+  if (r.next) {
+    const c = items.find(x => x.id === r.next && isLive(x));
+    if (c) return c;
+  }
+  const nx = nextRepeatSpan(r, todayKey());
+  if (!nx) return null;
+  const c = blankTodo(t.text);
+  c.detail = t.detail || '';
+  c.url = t.url || '';
+  c.tags = Array.isArray(t.tags) ? t.tags.slice() : [];
+  if (typeof t.project === 'string') c.project = t.project;
+  c.urgent = triState(t.urgent);
+  c.important = triState(t.important);
+  c.fav = t.fav === true;
+  if (t.ext && typeof t.ext === 'object') c.ext = JSON.parse(JSON.stringify(t.ext));
+  writeRepeat(c, { from: r.from, to: r.to, n: nx.n });
+  c.start = nx.start;
+  c.due = nx.due;
+  items.push(c);
+  writeRepeat(t, Object.assign({}, r, { next: c.id }));
+  return c;
+}
+
+/* 完了を取り消したとき、手を付けていない写しを消す（墓石）。消したか */
+function dropRepeatCopy(t) {
+  const r = repeatOfItem(t);
+  if (!r || !r.next) return false;
+  const c = items.find(x => x.id === r.next);
+  if (c && isLive(c)) {
+    const touched = c.done || (Array.isArray(c.steps) && c.steps.length) || (Array.isArray(c.days) && c.days.length);
+    if (touched) return false;              /* 手を付けた写しは残す（next も残す＝二つ目を作らない） */
+    c.trashed = true;
+    c.trashedAt = Date.now();
+  }
+  const keep = Object.assign({}, r);
+  delete keep.next;
+  writeRepeat(t, keep);
+  return true;
+}
+
 /* 墓石も含めた全件から id で引く。remove / untrash / restore の内部だけが使う。
    外向きの get() は墓石を null で返す（消したものは画面から見えない） */
 function findAny(id) {
@@ -1488,40 +1633,7 @@ export const store = {
   add(text, opts) {
     const body = String(text).trim();
     if (!body) return null;
-    const o = opts || {};
-    const t = defineToday({
-      id: uid(),
-      text: body,
-      /* days が本体。today:true で作るときは今日のキーを1つ入れる
-         （today そのものは defineToday() が days から出す） */
-      days: o.today ? [todayKey()] : [],
-      hold: false,
-      holdUntil: null,
-      createdAt: Date.now(),
-      fx: Number.isFinite(o.fx) ? o.fx : 0.2 + Math.random() * 0.6,
-      fy: Number.isFinite(o.fy) ? o.fy : 0.2 + Math.random() * 0.5,
-      slots: [],
-      anchors: [],
-      anchorAt: {},
-      started: {},
-      firstStep: '',
-      url: '',
-      detail: '',
-      gap: false,
-      gapSlots: [],
-      gapAt: {},
-      plan: false,
-      steps: [],
-      draft: { did: '', next: '' },
-      tags: [],
-      done: false,
-      doneAt: null,
-      trashed: false,
-      trashedAt: null,
-      fav: false,
-      urgent: null,
-      important: null,
-    });
+    const t = blankTodo(body, opts);
     items.push(t);
     /* 「今日する」枠に直接書いた場合も「入れた」記録に残す（setToday を通らない経路） */
     if (t.today) todayLogs.push({ id: t.id, text: t.text, at: t.createdAt });
@@ -1600,6 +1712,7 @@ export const store = {
     if (t.done) return t;
     t.done = true;
     t.doneAt = Date.now();
+    spawnRepeat(t);                         /* 毎月くりかえす なら次の月の写し（Issue #60） */
     persist(); emit();
     return t;
   },
@@ -1611,6 +1724,7 @@ export const store = {
     if (!t || !t.done) return false;
     t.done = false;
     t.doneAt = null;
+    dropRepeatCopy(t);                      /* 完了で作った次の月の写しを消す（手を付けていなければ） */
     /* 消している／完了している間に枠そのものが消されていることがある。
        残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
        「押し出し」はもう無い——枠には何個でもぶら下がるので） */
@@ -2269,6 +2383,34 @@ export const store = {
     if (a && b && b < a) { const x = a; a = b; b = x; }
     if ((t.start || null) === a && (t.due || null) === b) return false;
     if (a) { t.start = a; t.due = b; } else { delete t.start; delete t.due; }
+    /* 毎月くりかえす（Issue #60）：期間を直したら、その期間を新しい元にする。期間を外したら、くりかえしも外す */
+    const r = repeatOfItem(t);
+    if (r) writeRepeat(t, a ? Object.assign({}, r, { from: a, to: b, n: 0 }) : null);
+    persist(); emit();
+    return true;
+  },
+
+  /* 毎月くりかえす（Issue #60）。{ every: 'month', from, to } か null（くりかえさない・泡が無い） */
+  repeatOf(id) {
+    const r = repeatOfItem(store.get(id));
+    return r ? { every: r.every, from: r.from, to: r.to } : null;
+  },
+
+  /* 毎月くりかえす を付ける／外す。付けるのは期間（start・due）があるときだけで、
+     いまの期間をくりかえしの元にする -> 変えたか */
+  setRepeat(id, on) {
+    const t = store.get(id);
+    if (!t) return false;
+    const cur = repeatOfItem(t);
+    if (!on) {
+      if (!cur) return false;
+      writeRepeat(t, null);
+    } else {
+      const a = dayKeyOrNull(t.start), b = dayKeyOrNull(t.due);
+      if (!a || !b) return false;
+      if (cur) return false;
+      writeRepeat(t, { from: a, to: b, n: 0 });
+    }
     persist(); emit();
     return true;
   },
@@ -3205,7 +3347,7 @@ export const WRITE_METHODS = [
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
-  'setSpan', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'addChat', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
+  'setSpan', 'setRepeat', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'addChat', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
 ];
 /* 知らせない口（画面が裏で何度も呼ぶもの。断るだけ） */
 const QUIET = new Set(['flush', 'setDraft']);

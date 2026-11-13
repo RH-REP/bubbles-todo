@@ -1241,8 +1241,23 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const clear = el('button', 'bc-hold-pick', '決めない');
       clear.type = 'button';
       picks.appendChild(clear);
+      /* 毎月くりかえす（Issue #60）。期間があるときだけ押せる。
+         付けると、完了したときに期間を1か月ずらした泡ができる（store.setRepeat / complete） */
+      const canRepeat = typeof (a || {}).setRepeat === 'function';
+      const rep = canRepeat ? el('button', 'bc-hold-pick', '毎月くりかえす') : null;
+      if (rep) {
+        rep.type = 'button';
+        picks.appendChild(rep);
+        rep.addEventListener('click', ev => {
+          ev.preventDefault();
+          a.setRepeat(id, !ask(a, 'repeat', id));
+          syncSpanRow();
+        });
+      }
       body.appendChild(picks);
       body.appendChild(el('p', 'bc-span-note', '日付で見る（▤）に帯で出る'));
+      const repNote = rep ? el('p', 'bc-span-note', '') : null;
+      if (repNote) body.appendChild(repNote);
 
       /* いまの本文（書く面が開いていればそちら） */
       const curDetail = () => ((detailArea && detailPane && !detailPane.hidden) ? detailArea.value : detailDraft);
@@ -1282,9 +1297,19 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         endIn.value = sp ? sp.end : '';
         if (sp) endIn.min = sp.start; else endIn.removeAttribute('min');
         /* 数（あと◯日）は出さない。日だけ */
+        const rp = rep ? ask(a, 'repeat', id) : null;
         ssum.textContent = !sp ? '決めていない'
-          : (sp.start === sp.end ? md(sp.start) : md(sp.start) + ' 〜 ' + md(sp.end));
+          : (sp.start === sp.end ? md(sp.start) : md(sp.start) + ' 〜 ' + md(sp.end)) + (rp ? '・毎月' : '');
         clear.setAttribute('aria-pressed', sp ? 'false' : 'true');
+        if (rep) {
+          /* くりかえしは欄（start・due）の期間だけを元にする。本文の古い行しか無いときは押せない */
+          const f = ask(a, 'span', id) || {};
+          rep.disabled = !(f.start && f.due);
+          rep.setAttribute('aria-pressed', rp ? 'true' : 'false');
+          repNote.textContent = rp ? '完了すると、期間を1か月ずらした泡ができる'
+            : (rep.disabled ? '期間を決めると、毎月くりかえせる' : '');
+          repNote.hidden = !repNote.textContent;
+        }
         head.setAttribute('aria-label', '期間：' + ssum.textContent + '。押すと開始日と終了日を選べる');
       };
       box.appendChild(head);
