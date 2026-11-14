@@ -16,7 +16,6 @@ import './schemaguard.js';
 /* 決めたフォルダに自動で控える（2026-11-12。js/folderbackup.js）。書く許しが切れていたら、1度だけ知らせる
    （許しは押した手の続きでしか求められないので、トーストのボタンで求める） */
 import { folderBackup } from './folderbackup.js';
-import { isPersonal } from './regions.js';
 if (folderBackup) {
   let told = false;
   folderBackup.on(st => {
@@ -35,7 +34,7 @@ import { playSfx } from './sound.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
 import { setCenterHandler, centerBubble } from './bubble.js';
-import { deviceId, noteName, setNoteName, canRemove, hasUnseen, seenAt, markSeen, latestAt } from './notes.js';
+import { deviceId, noteName, setNoteName, hasUnseen, seenAt, markSeen, latestAt } from './notes.js';
 import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import { closeHelp } from './help.js';
 import { closeUpcoming } from './upcoming.js';
@@ -773,16 +772,16 @@ setCenterHandler({
   /* [元に戻す] で、いま作った関連 TODO を消す（ほかの消し方と同じく墓石にする） */
   removeTodo:   (id) => !!store.remove(id),
 
-  /* ひとこと（Issue #25。js/notes.js）。個人の海では出さない。
+  /* ひとこと（Issue #25。js/notes.js）。2026-11-14 Issue #61 の返事: 個人の海でも出す（UI をそろえる）・消さない
+     （盤に消す口を渡さない。海のチャットの消すは設定の画面が store.removeNote を直に呼ぶ）。
      名前・端末の印・「最後に開いた時刻」はこの端末だけの覚え（記録に入るのは名前と端末の印だけ） */
-  notesOn:       () => !isPersonal(store.space()) && has('addNote'),
+  notesOn:       () => has('addNote'),
   notes:         (id) => (has('notesOf') ? store.notesOf(id) : []),
   addNote:       (id, v) => (has('addNote') ? store.addNote(id, v, noteName(), deviceId()) : null),
-  removeNote:    (nid) => (has('removeNote') ? store.removeNote(nid, deviceId()) : false),
-  canRemoveNote: (n) => canRemove(n, deviceId()),
+  isMyNote:      (n) => !!(n && n.dev && n.dev === deviceId()),
   noteName:      () => noteName(),
   setNoteName:   (v) => setNoteName(v),
-  hasNewNote:    (id) => !isPersonal(store.space()) && has('notesOf')
+  hasNewNote:    (id) => has('notesOf')
     && hasUnseen(store.notesOf(id), seenAt(store.space(), id), deviceId()),
   markNotesSeen: (id) => { if (has('notesOf')) markSeen(store.space(), id, latestAt(store.notesOf(id))); },
 
