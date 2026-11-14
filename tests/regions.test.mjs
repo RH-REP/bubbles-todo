@@ -222,6 +222,25 @@ await test('戻す端末に同じ住所の海域があれば、そこへ付け�
   assert.equal(R.regionConf('r0').token, 'mine', '手元の鍵を替えた');
 });
 
+await test('サーバーなし版へ（Issue #62）: サーバーの海域をみな「この端末だけ」へ付け替えると、個人は1つに重なり、海はこの端末だけの海になる', async () => {
+  const boxes = deviceOne();
+  const all = R.pickForPayload(['local', 'r0', 'rb1'], boxes, SL.allEntries());
+  const file = JSON.parse(JSON.stringify(MV.buildPayload({ boxes: all.boxes, seas: all.seas, server: null, regions: R.regionsPayload(['local', 'r0', 'rb1']) })));
+  fresh({});                                   /* サーバーなし版の端末（この端末だけの1つ） */
+  const rest = file.regions.filter(r => !r.url);
+  const { map, added } = R.importRegions(rest, 7000);
+  assert.equal(added.length, 0, 'サーバーの海域を足した');
+  file.regions.filter(r => r.url).forEach(r => { map[r.id] = 'local'; });
+  const r = R.remapPayload(file, map, undefined, MV.mergeBox);
+  assert.deepEqual(Object.keys(r.boxes).sort(), ['me', 'sabc1234', 'sinb0001']);
+  assert.deepEqual(r.boxes.me.doc.todos.map(t => t.text).sort(), ['A の個人', 'B の個人', 'ローカルの個人'], '個人の記録が上書きで落ちた');
+  assert.deepEqual(r.seas.map(e => [e.id, e.region]).sort(), [['sabc1234', 'local'], ['sinb0001', 'local']]);
+  assert.deepEqual(R.regionList().map(x => x.id), ['local'], 'サーバーの海域が増えた');
+  /* combine を渡さないときは前のとおり（後のもので上書き） */
+  const old = R.remapPayload(file, map);
+  assert.equal(old.boxes.me.doc.todos.length, 1);
+});
+
 /* ============================================================ */
 /* 2. 開いている海の海域で、繋ぐ先が決まる */
 

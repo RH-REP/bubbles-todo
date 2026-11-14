@@ -1605,7 +1605,8 @@ function moveBox(mode) {
       const rid = map[fid];
       const s = p.servers[fid];
       const r = rid && findRegion(rid);
-      if (!r || !s || !s.url) return;
+      /* サーバーの海域を「この端末だけ」へ付け替えたとき（Issue #62）は、その鍵で繋がない */
+      if (!r || r.kind !== 'server' || !s || !s.url) return;
       const now = sync.regionSummary(rid);
       if (s.token || s.shareToken) {
         if (now.token || now.passkey) { said.push(r.name + 'はもう鍵がある（替えない）'); return; }
@@ -1854,10 +1855,26 @@ function mergeIntoDevice(p, opts) { return importIntoDevice(p, opts).n; }
    opts.askLocal: ファイルに「この端末だけ」（サーバーなし版など）の記録があり、いま開いている海がサーバーと合わせる海なら、
    その記録をこのサーバーに入れるかを聞く（2026-11-13 Issue #50 の返事「サーバーなし版で作った TODO をサーバーあり版に移せる？」）。
    入れると、ファイルの個人はこのサーバーの個人へ、作った海はこのサーバーと合わせる海になる（ふだんの同期でサーバーへ写る）。
-   断ると前のとおり「この端末だけ」の海に入る */
+   断ると前のとおり「この端末だけ」の海に入る。
+   逆向き（2026-11-14 Issue #62「サーバーあり版からサーバーなし版に TODO 移せる？」）: サーバーなし版で opts.askLocal の道から読み、
+   ファイルにサーバーと合わせる記録があれば、それを「この端末だけ」の海に入れるかを聞く。入れると、サーバーの個人はこの端末の個人へ
+   （いくつあっても記録ごとに重ねる）、作った海はこの端末だけの海になる。サーバーの海域は足さない・どこへも送らない。
+   断ると前のとおりサーバーの海として入る（サーバーなし版では、開くとサーバーに繋ぐページへ移る） */
 function importIntoDevice(p, opts = {}) {
   if (p && Array.isArray(p.regions) && p.regions.length) {
-    const { map, added } = importRegions(p.regions);
+    const fileServers = serverRegionsInFile(p.regions);
+    const toLocal = !!(opts.askLocal && isSolo() && fileServers.length
+      && window.confirm('このファイルには、サーバーと合わせる記録がある（' + fileServers.map(r => '「' + r.name + '」').join('・') + '）。\n'
+        + 'それを、この端末だけの海に入れる？（個人は個人へ、作った海はこの端末だけの海になる。サーバーへは送らない）\n'
+        + 'キャンセルなら、サーバーの海として入れる（開くとサーバーに繋ぐページへ移る）。'));
+    const rest = toLocal ? p.regions.filter(r => fileServers.indexOf(r) < 0) : p.regions;
+    const { map, added } = importRegions(rest);
+    if (toLocal) {
+      fileServers.forEach(r => { map[r.id] = 'local'; });
+      const r = remapPayload(p, map, undefined, mergeBox);
+      const n = mergeBoxes({ seas: r.seas, boxes: r.boxes });
+      return { n, map, added };
+    }
     /* 入れる先: 開いている海のサーバー。開いている海が この端末だけ なら、前からの個人のサーバーか、最初に足したサーバー
        （2026-11-13 Issue #50 の返事「ブロックチェーン経由で移したら、先の選択が出てこなかった」） */
     const cur0 = sync.region();
@@ -1876,6 +1893,11 @@ function importIntoDevice(p, opts = {}) {
     return { n, map, added };
   }
   return { n: mergeBoxes(p), map: {}, added: [] };
+}
+
+/* ファイルの海域の一覧のうち、サーバーと合わせるもの（住所のあるもの。importRegions が付け替えられるもの） */
+function serverRegionsInFile(fileRegions) {
+  return (fileRegions || []).filter(r => r && r.id !== 'local' && r.kind !== 'local' && String(r.url || ''));
 }
 
 function mergeBoxes(p) {

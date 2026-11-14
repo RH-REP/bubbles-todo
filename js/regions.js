@@ -316,8 +316,10 @@ export function importRegions(fileRegions, now = Date.now(), st = ls()) {
 }
 
 /* ファイルの中身（boxes・seas）を、この端末の海の ID と海域へ付け替える。
-   ファイルの個人 'me' はファイルの legacyMe の海域の個人、'me.<ID>' はその海域の個人。付け替えられないものは落とす */
-export function remapPayload(p, map, st = ls()) {
+   ファイルの個人 'me' はファイルの legacyMe の海域の個人、'me.<ID>' はその海域の個人。付け替えられないものは落とす。
+   combine(a, b): いくつかの海域を同じ海域へ付け替えて、個人が同じ先に重なったときに記録を重ねる関数（Issue #62。
+   無ければ前のとおり後のもので上書き） */
+export function remapPayload(p, map, st = ls(), combine = null) {
   const fileRegions = Array.isArray(p && p.regions) ? p.regions : [];
   const fileDef = (fileRegions.find(r => r && r.legacyMe) || {}).id || null;
   const toLocal = (fid) => (fid && map[fid]) || null;
@@ -336,7 +338,7 @@ export function remapPayload(p, map, st = ls()) {
         target = personalId(rid, st);
       }
     }
-    boxes[target] = p.boxes[id];
+    boxes[target] = (combine && boxes[target]) ? combine(boxes[target], p.boxes[id]) : p.boxes[id];
   });
   const seas = [];
   ((p && p.seas) || []).forEach(e => {
