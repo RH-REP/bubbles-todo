@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-14f';
+const VERSION = '2026-11-14g';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -103,6 +103,7 @@ const ASSETS = [
   './js/holiday.js',       /* 日本の祝日（日付で見るの色分け） */
   './js/weather.js',       /* 天気（日付で見るの列の見出し。2026-11-08 Issue #30） */
   './js/notes.js',         /* 泡ごとのひとこと（2026-11-07 Issue #25） */
+  './js/notesign.js',      /* ひとこと 1 件ずつの署名（2026-11-14 Issue #61） */
   './js/suggest.js',       /* 今日のおすすめ（2026-11-07 Issue #12） */
   './js/movefile.js',      /* 引っ越しのファイル（2026-11-07 Issue #19） */
   './js/chain.js',         /* ブロックチェーンへの控え（2026-11-08 Issue #31） */

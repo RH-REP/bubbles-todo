@@ -34,7 +34,8 @@ import { playSfx } from './sound.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
 import { setCenterHandler, centerBubble } from './bubble.js';
-import { deviceId, noteName, setNoteName, hasUnseen, seenAt, markSeen, latestAt } from './notes.js';
+import { sharedSeaOf, signingOn, unlockWallet, signNote, checkNote } from './notesign.js';
+import { makeNote, deviceId, noteName, setNoteName, hasUnseen, seenAt, markSeen, latestAt } from './notes.js';
 import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import { closeHelp } from './help.js';
 import { closeUpcoming } from './upcoming.js';
@@ -779,6 +780,18 @@ setCenterHandler({
   notes:         (id) => (has('notesOf') ? store.notesOf(id) : []),
   addNote:       (id, v) => (has('addNote') ? store.addNote(id, v, noteName(), deviceId()) : null),
   isMyNote:      (n) => !!(n && n.dev && n.dev === deviceId()),
+  /* サーバーなし版の共有の海では 1 件ずつウォレットで署名する（Issue #61 の N-A。js/notesign.js）。
+     noteSigned = 署名を確かめて出す海か、noteSigning = 書くときに署名するか（この端末がブロックチェーンを始めている）。
+     addNoteSigned はパスキーを押した手の続きで呼ぶので、unlockWallet より前で await しない */
+  noteSigned:    () => !!sharedSeaOf(store.space()),
+  noteSigning:   () => has('putNote') && signingOn(store.space()),
+  addNoteSigned: async (id, v) => {
+    const w = await unlockWallet();
+    const n = makeNote(id, v, noteName(), deviceId(), Date.now());
+    if (!n) return null;
+    return store.putNote(await signNote(n, w));
+  },
+  checkNote:     (n) => checkNote(n, sharedSeaOf(store.space())),
   noteName:      () => noteName(),
   setNoteName:   (v) => setNoteName(v),
   hasNewNote:    (id) => has('notesOf')

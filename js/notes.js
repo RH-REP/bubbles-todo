@@ -14,6 +14,7 @@
        by   … 書いた人の名前（この端末の設定。初めはパスキーの名前）。空なら名前なし
        dev  … 書いた端末の印（ランダム。localStorage の 'bubble_todo_device'）。
               消せるのは自分の端末で書いたものだけ、の見分けに使う
+       sa, sg … （ブロックチェーンで共有している海だけ）書いた人のウォレットのアドレスと署名。js/notesign.js（Issue #61）
    合わせ方は merge.js の1件ずつの記録（鍵は note:<id>）。**書き換えはしない**——
    足すのと、消した印（gone）を付けるのだけ。消しても記録は残り「（消した）」と出る。
 
@@ -66,6 +67,9 @@ export function normalizeNote(r) {
   else {
     out.text = cleanNote(r.text);
     if (!out.text) return null;
+    /* 書いた人のウォレットの署名（Issue #61 の N-A。js/notesign.js）。形だけ見て残す（確かめるのは読むとき） */
+    if (typeof r.sa === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(r.sa)
+      && typeof r.sg === 'string' && /^[A-Za-z0-9+/=]{40,200}$/.test(r.sg)) { out.sa = r.sa; out.sg = r.sg; }
   }
   return out;
 }

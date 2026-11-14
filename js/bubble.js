@@ -946,13 +946,13 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const qsend = el('button', 'bn-quick-send', '送る');
     qsend.type = 'button';
     let qback = 0;
-    const quickSend = () => {
-      const said = sendQuick();
+    const showSaid = (said) => {
       clearTimeout(qback);
       qsend.textContent = said;
-      qsend.classList.toggle('is-nope', said !== '送った');
-      qback = setTimeout(() => { qsend.textContent = '送る'; qsend.classList.remove('is-nope'); }, 1400);
+      qsend.classList.toggle('is-nope', said !== '送った' && said !== '署名中…');
+      if (said !== '署名中…') qback = setTimeout(() => { qsend.textContent = '送る'; qsend.classList.remove('is-nope'); }, 1400);
     };
+    const quickSend = () => { showSaid(sendQuick(showSaid)); };
     qsend.addEventListener('click', ev => { ev.preventDefault(); quickSend(); });
     chatIn.addEventListener('keydown', ev => {
       if (ev.key === 'Enter' && !ev.isComposing && !ev.shiftKey) { ev.preventDefault(); quickSend(); }
@@ -2467,6 +2467,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       /* 書いた人と文は、ほかの端末の人が書いた文字。el の第3引数は innerHTML なので使わない（Issue #14） */
       const by = el('span', 'bn-by'); by.textContent = n.by || '名前なし'; meta.appendChild(by);
       meta.appendChild(el('span', 'bn-at', fmtAt(n.at)));
+      sigMark(meta, n);
       li.appendChild(meta);
       const tx = el('p', 'bn-tx'); tx.textContent = n.gone ? '（消した）' : String(n.text || ''); li.appendChild(tx);
       chatList.appendChild(li);
@@ -2474,19 +2475,49 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     chatList.scrollTop = chatList.scrollHeight;
   }
 
-  /* 本文の下の 1 行の欄から積む -> ボタンに出す言葉 */
-  function sendQuick() {
+  /* 書いた人の印（Issue #61 の N-A）。ブロックチェーンで共有している海だけ、名前の横に
+     「✓ 呼び名」（名簿のアドレスの署名が合った）か「（確かめられない）」を出す。確かめは非同期なので、あとから埋める */
+  function sigMark(meta, n) {
+    if (n.gone || ask(a, 'noteSigned') !== true) return;
+    const mk = el('span', 'bn-sig');
+    meta.appendChild(mk);
+    const p = ask(a, 'checkNote', n);
+    if (!p || typeof p.then !== 'function') return;
+    p.then(r => {
+      if (r && r.ok) { mk.textContent = '✓ ' + r.name; mk.classList.add('is-ok'); mk.title = 'ウォレットの署名で確かめた書き手'; }
+      else { mk.textContent = '（確かめられない）'; mk.title = '書き手の署名が無いか、名簿に無い'; }
+    }, () => { mk.textContent = '（確かめられない）'; });
+  }
+
+  /* 1 件積む。ブロックチェーンで共有している海では署名してから（パスキーを求めることがある）。
+     done(言葉) で結果を返す。署名のときは非同期なので、先に '署名中…' を返す。
+     押した手の続きでパスキーを呼ぶため、ここより前で await しない */
+  function postNote(t, after, done) {
+    if (ask(a, 'noteSigning') === true) {
+      const p = ask(a, 'addNoteSigned', id, t);
+      if (!p || typeof p.then !== 'function') return done('まだ書けない');
+      p.then(n => { if (!n) return done('まだ書けない'); after(); done('送った'); },
+        e => done(e && /やめた/.test(String(e.message || e)) ? 'やめた' : '署名できない'));
+      return '署名中…';
+    }
+    if (!ask(a, 'addNote', id, t)) return 'まだ書けない';
+    after();
+    return '送った';
+  }
+
+  /* 本文の下の 1 行の欄から積む -> ボタンに出す言葉（done は署名のときの後の言葉） */
+  function sendQuick(done) {
     const t = chatIn ? chatIn.value.trim() : '';
     if (!t) return '書いてから';
-    if (!ask(a, 'addNote', id, t)) return 'まだ書けない';
-    chatIn.value = '';
-    noteDrafts.delete(id);
-    ask(a, 'markNotesSeen', id);
-    document.querySelectorAll('.bub[data-id="' + String(id).replace(/["\\]/g, '') + '"] .ndot')
-      .forEach(d => { d.hidden = true; });
-    syncNotesBtn();
-    if (notesPane && !notesPane.hidden) renderNotes();
-    return '送った';
+    return postNote(t, () => {
+      if (chatIn && chatIn.value.trim() === t) chatIn.value = '';
+      noteDrafts.delete(id);
+      ask(a, 'markNotesSeen', id);
+      document.querySelectorAll('.bub[data-id="' + String(id).replace(/["\\]/g, '') + '"] .ndot')
+        .forEach(d => { d.hidden = true; });
+      syncNotesBtn();
+      if (notesPane && !notesPane.hidden) renderNotes();
+    }, done || (() => {}));
   }
 
   function renderNotes() {
@@ -2503,6 +2534,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       /* 書いた人とひとことは、ほかの端末の人が書いた文字。el の第3引数は innerHTML なので使わない（Issue #14） */
       const by = el('span', 'bn-by'); by.textContent = n.by || '名前なし'; meta.appendChild(by);
       meta.appendChild(el('span', 'bn-at', fmtAt(n.at)));
+      sigMark(meta, n);
       /* 消すボタンは置かない（2026-11-14 Issue #61 の返事「消さない」）。前の版で消したものは「（消した）」のまま出す */
       li.appendChild(meta);
       const tx = el('p', 'bn-tx'); tx.textContent = n.gone ? '（消した）' : String(n.text || ''); li.appendChild(tx);
@@ -2560,13 +2592,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const send = el('button', 'bm-save', '書く');
     send.type = 'button';
     let back = 0;
-    send.addEventListener('click', ev => {
-      ev.preventDefault();
-      const said = sendNote();
+    const showSaid = (said) => {
       clearTimeout(back);
       send.textContent = said;
-      send.classList.toggle('is-nope', said !== '書いた');
-      back = setTimeout(() => { send.textContent = '書く'; send.classList.remove('is-nope'); }, 1400);
+      send.classList.toggle('is-nope', said !== '書いた' && said !== '署名中…');
+      if (said !== '署名中…') back = setTimeout(() => { send.textContent = '書く'; send.classList.remove('is-nope'); }, 1400);
+    };
+    send.addEventListener('click', ev => {
+      ev.preventDefault();
+      showSaid(sendNote(showSaid));
     });
     notesPane.appendChild(send);
 
@@ -2578,18 +2612,20 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   }
 
   /* -> ボタンに出す言葉 */
-  function sendNote() {
+  function sendNote(done) {
     const t = notesArea ? notesArea.value.trim() : '';
     if (!t) return '書いてから';
     if (notesName) ask(a, 'setNoteName', notesName.value);
-    if (!ask(a, 'addNote', id, t)) return 'まだ書けない';
-    notesArea.value = '';
-    noteDrafts.delete(id);
-    ask(a, 'markNotesSeen', id);
-    renderNotes(); syncNotesBtn();
-    notesList.scrollTop = notesList.scrollHeight;
-    if (notesSaid) notesSaid.textContent = '残した（この海の人に届く）';
-    return '書いた';
+    const said = postNote(t, () => {
+      if (notesArea && notesArea.value.trim() === t) notesArea.value = '';
+      noteDrafts.delete(id);
+      if (chatIn) chatIn.value = '';
+      ask(a, 'markNotesSeen', id);
+      renderNotes(); syncNotesBtn();
+      notesList.scrollTop = notesList.scrollHeight;
+      if (notesSaid) notesSaid.textContent = '残した（あとから変えられない・消せない）';
+    }, (w) => { if (typeof done === 'function') done(w === '送った' ? '書いた' : w); });
+    return said === '送った' ? '書いた' : said;
   }
 
   function openNotes() {

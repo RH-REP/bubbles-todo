@@ -111,7 +111,7 @@ import { stampChanges, initialStamps, recordsOf } from './merge.js';
 import { quadrantFor } from './priority.js';
 import { findSea, boxKey } from './spacelist.js';
 import { isPersonal, regionOfSpace } from './regions.js';
-import { normalizeNotes, notesFor, makeNote, canRemove, byTime, CHAT_TODO, chatFor } from './notes.js';
+import { normalizeNotes, normalizeNote, notesFor, makeNote, canRemove, byTime, CHAT_TODO, chatFor } from './notes.js';
 
 /* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
    2026-11-02（Issue #4）: 「共有」は名前を付けて複数作れる海の1つになった（js/spacelist.js）。
@@ -2486,6 +2486,16 @@ export const store = {
     return { ...n };
   },
 
+  /* 作ってある 1 件（署名を足したもの。Issue #61 の N-A）をそのまま足す -> 足した1件（写し）か null */
+  putNote(n) {
+    const v = normalizeNote(n);
+    if (!v || v.gone || !store.get(v.todo) || noteList.some(x => x.id === v.id)) return null;
+    noteList.push(v);
+    noteList.sort(byTime);
+    persist(); emit();
+    return { ...v };
+  },
+
   /* --- 海のチャット（サーバーあり版。Issue #42。js/notes.js の CHAT_TODO）---
      ひとことと同じ notes 欄に、泡でない宛先で積む。サーバーへは記録と一緒に写る。消すのは removeNote */
 
@@ -3384,7 +3394,7 @@ export const WRITE_METHODS = [
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
-  'setSpan', 'setRepeat', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'addChat', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
+  'setSpan', 'setRepeat', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'putNote', 'addChat', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
 ];
 /* 知らせない口（画面が裏で何度も呼ぶもの。断るだけ） */
 const QUIET = new Set(['flush', 'setDraft']);
@@ -3394,7 +3404,7 @@ WRITE_METHODS.forEach(name => {
   store[name] = function (...args) {
     if (readOnly) {
       if (!QUIET.has(name)) blockedListeners.forEach(fn => { try { fn(name); } catch (e) { /* 通知で落とさない */ } });
-      return name === 'add' || name === 'addAnchor' || name === 'addTag' || name === 'addGapSlot' ? null : false;
+      return name === 'add' || name === 'addAnchor' || name === 'addTag' || name === 'addGapSlot' || name === 'putNote' ? null : false;
     }
     return orig.apply(this, args);
   };
