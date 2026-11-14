@@ -194,6 +194,11 @@ function fmtAt(at) {
     + p2(d.getHours()) + ':' + p2(d.getMinutes());
 }
 
+/* 盤の本文の下に並べる、ひとことの新しい件数（Issue #61）。
+   buildCenterPanel の中の const にすると、盤を組む途中（syncNotesBtn）で宣言より先に読まれて
+   ReferenceError になり、盤が組めずに画面が固まった（Issue #63）。だから外に置く */
+const CHAT_SHOW = 3;
+
 /* ---------------- 大きさ ---------------- */
 
 /* 文字数から直径を決める。面積が文字数に比例するよう sqrt を使う。
@@ -2442,8 +2447,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   }
 
   /* 行の右のボタン（全部の履歴と名前の面を開く）と、本文の下のチャットの形（新しい 3 件）を今の記録にそろえる */
-  const CHAT_SHOW = 3;
-  function syncNotesBtn() {
+  function syncNotesBtn() {   /* CHAT_SHOW はファイルの上（盤を組む途中で呼ぶので、ここで const にしない。Issue #63） */
     if (!notesBtn) return;
     const rows = notesNow();
     const live = rows.filter(n => !n.gone);
