@@ -13,7 +13,7 @@ import {
   requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL, COMPUTE_BUDGET_PROGRAM, COMPUTE_UNITS, memoFromMessage,
   isAddress, transferMessage, planSweep, SYSTEM_PROGRAM, passkeyLabel,
   MOVE_KEY, loadMove, saveMove, clearMove, moveStep, moveSteps, inNativeApp,
-  MAX_TX, MAX_TX_FORCE, READ_TX, backupSize,
+  MAX_TX, MAX_PARTS, READ_TX, backupSize, latestBackupId,
 } from '../js/chain.js';
 import { PROVIDERS } from '../js/ai.js';
 
@@ -125,6 +125,7 @@ await test('取引の形: 1232 バイトの内・署名がメッセージに合�
 /* 偽の窓口。書いた取引を覚え、住所の履歴として新しい順に返す */
 function fakeChain() {
   const sent = [];
+  const calls = { list: 0 };
   let busy = 1;   /* 最初の 1 回は混んでいる（429）ことにして、やり直しを試す */
   const fetchFn = async (url, init) => {
     assert.ok(Object.values(NETWORKS).some(x => x.rpc === url), '公式の窓口だけに送る');
@@ -139,13 +140,21 @@ function fakeChain() {
       sent.push({ sig, memo });
       return ok(sig);
     }
-    if (method === 'getSignatureStatuses') return ok({ value: params[0].map(() => ({ confirmationStatus: 'confirmed', err: null })) });
+    if (method === 'getSignatureStatuses') {
+      assert.ok(params[0].length <= 256, '窓口は 1 回に 256 件まで');
+      return ok({ value: params[0].map(() => ({ confirmationStatus: 'confirmed', err: null })) });
+    }
     if (method === 'getSignaturesForAddress') {
-      return ok(sent.slice().reverse().map(x => ({ signature: x.sig, err: null, memo: '[' + x.memo.length + '] ' + x.memo })));
+      /* 本物と同じく limit 件ずつ、before の署名より古いものを返す */
+      calls.list++;
+      const all = sent.slice().reverse().map(x => ({ signature: x.sig, err: null, memo: '[' + x.memo.length + '] ' + x.memo }));
+      const q = params[1] || {};
+      const from = q.before ? all.findIndex(x => x.signature === q.before) + 1 : 0;
+      return ok(all.slice(from, from + (q.limit || 1000)));
     }
     throw new Error('知らない呼び出し ' + method);
   };
-  return { fetchFn, sent };
+  return { fetchFn, sent, calls };
 }
 
 await test('偽の窓口で、書いて読む（混んでいたらやり直す）', async () => {
@@ -331,19 +340,45 @@ await test('Android の app（Capacitor）ではパスキーを使わない・�
   assert.ok(boot.includes("'bubble_todo_sync'") && syncSrc.includes("CONF_KEY = 'bubble_todo_sync'"));
 });
 
-await test('控えの大きさ: 上限を超えても「それでも書く」で書け、読めなくなる大きさは書かない（Issue #67）', async () => {
+await test('控えの大きさ: 上限を超えても「それでも書く」で書け、メモの形の上限だけは書かない（Issue #67）', async () => {
   assert.equal(backupSize(1), 'ok');
   assert.equal(backupSize(MAX_TX), 'ok');
   assert.equal(backupSize(MAX_TX + 1), 'over');
   assert.equal(backupSize(81), 'over');
-  assert.equal(backupSize(MAX_TX_FORCE), 'over');
-  assert.equal(backupSize(MAX_TX_FORCE + 1), 'too-big');
-  /* 書ける上限は、読むときに見る取引の数の内に余裕を残す */
-  assert.ok(MAX_TX < MAX_TX_FORCE && MAX_TX_FORCE < READ_TX);
+  assert.equal(backupSize(READ_TX + 1), 'over');   /* 1 回で読む数を超えても書ける（続きのページを読む） */
+  assert.equal(backupSize(MAX_PARTS), 'over');
+  assert.equal(backupSize(MAX_PARTS + 1), 'too-big');
+  assert.notEqual(parseMemo('bt1 0123abcd 1/' + MAX_PARTS + ' AAAA'), null);
+  assert.equal(parseMemo('bt1 0123abcd 1/' + (MAX_PARTS + 1) + ' AAAA'), null);
   /* 画面は上限を超えたら確かめの文に手数料と「それでも書く」を出し、止めるのは too-big のときだけ */
   const settings = readFileSync(new URL('../js/screens/settings.js', import.meta.url), 'utf8');
   assert.ok(settings.includes("size === 'too-big'") && settings.includes('それでも書くなら OK'));
   assert.ok(!settings.includes('件に分かれる）。引っ越しのファイルを使う'));
+});
+
+await test('1 ページより大きい控えも、続きのページを読んでそろえる（Issue #67）', async () => {
+  const { recordKey, wallet } = await keysFromRoot(new Uint8Array(32).fill(6));
+  const chain = fakeChain();
+  const opt = { fetchFn: chain.fetchFn, wait: 1 };
+  /* 縮みにくい中身で、切れ端を十数個にする */
+  const rnd = Array.from({ length: 4000 }, (_, i) => ((i * 2654435761) >>> 0).toString(36)).join('');
+  const old = await sealToMemos({ v: 'old' }, recordKey);
+  await writeMemos('devnet', wallet, old, { gap: 0, opt });
+  const payload = { v: 'new', rnd };
+  const memos = await sealToMemos(payload, recordKey);
+  assert.ok(memos.length > 10, '切れ端が少ない: ' + memos.length);
+  await writeMemos('devnet', wallet, memos, { gap: 0, opt });
+  /* 1 ページ 4 件で読ませる → 続きを尋ねないとそろわない */
+  chain.calls.list = 0;
+  const parts = await readLatestMemos('devnet', wallet.address, { limit: 4, opt });
+  assert.deepEqual(await openMemos(parts, recordKey), payload);
+  assert.ok(chain.calls.list > 1, '続きのページを尋ねていない');
+  assert.equal(await latestBackupId('devnet', wallet.address, { limit: 4, opt }), memos[0].split(' ')[1]);
+  /* 控えの無いウォレットは最初の 1 ページだけで止める */
+  const empty = fakeChain();
+  const eopt = { fetchFn: empty.fetchFn, wait: 1 };
+  assert.equal(await readLatestMemos('devnet', wallet.address, { limit: 4, opt: eopt }), null);
+  assert.ok(empty.calls.list <= 1);
 });
 
 void toB64;

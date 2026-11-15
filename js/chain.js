@@ -39,14 +39,16 @@ export const TAG = 'bt1';
 export const BOARD_TAG = 'bt2';
 const BOARD_SALT = 'bubbles-board-v1';
 export const CHUNK = 500;          /* 1 つのメモに入れる base64 の字数（取引 1 件 1232 バイトの内に余裕を持って収め、計算も軽くする） */
-export const MAX_TX = 60;          /* これより多くの取引に分かれるなら、ふつうは書かない（ファイルの引っ越しを勧める） */
-/* 読むときに見る新しい取引の数（readLatestMemos・latestBackupId）。控えの切れ端はこの中に全部そろっていないと戻せない */
+export const MAX_TX = 60;          /* これより多くの取引に分かれるなら、確かめの画面で上限を超えると知らせる（ファイルの引っ越しも勧める） */
+/* 読むときに 1 回で尋ねる取引の数（readLatestMemos・latestBackupId）。控えがこれより大きければ続きのページを読む */
 export const READ_TX = 200;
-/* MAX_TX を超えても「それでも書く」で書ける上限（2026-11-15 Issue #67）。READ_TX の内に、ほかの取引（掲示板・入金など）の余裕を残す */
-export const MAX_TX_FORCE = 180;
-/* 控えが取引 count 件に分かれるとき、書いてよいか → 'ok'（ふつうに書く）／'over'（MAX_TX を超える。確かめて「それでも書く」なら書く）／'too-big'（読めなくなるので書かない） */
+/* 1 つの控えの切れ端の数の上限。メモの形（parseMemo）が 1000 までしか受け付けない。
+   ここを上げると、前の版の app では読めない控えになるので上げない（2026-11-15 Issue #67。前は 180 件で止めていた） */
+export const MAX_PARTS = 1000;
+const STATUS_BATCH = 256;          /* getSignatureStatuses に 1 回で渡せる署名の数 */
+/* 控えが取引 count 件に分かれるとき、書いてよいか → 'ok'（ふつうに書く）／'over'（MAX_TX を超える。確かめて「それでも書く」なら書く）／'too-big'（メモの形の上限を超えるので書かない） */
 export function backupSize(count) {
-  if (count > MAX_TX_FORCE) return 'too-big';
+  if (count > MAX_PARTS) return 'too-big';
   return count > MAX_TX ? 'over' : 'ok';
 }
 export const FEE_LAMPORTS = 5000;  /* 署名 1 つの手数料（目安） */
@@ -253,7 +255,7 @@ export function parseMemo(text, tag = TAG) {
   const m = memoRe(tag).exec(String(text || ''));
   if (!m) return null;
   const i = Number(m[2]), n = Number(m[3]);
-  if (!(i >= 1 && n >= 1 && i <= n && n <= 1000)) return null;
+  if (!(i >= 1 && n >= 1 && i <= n && n <= MAX_PARTS)) return null;
   return { id: m[1], i, n, part: m[4] };
 }
 
@@ -518,8 +520,12 @@ export async function writeMemos(network, wallet, memos, { onStep = () => {}, ga
 export async function waitConfirmed(network, sigs, opt, { limitMs = 90000, every = 2000 } = {}) {
   const until = Date.now() + limitMs;
   for (;;) {
-    const r = await rpc(network, 'getSignatureStatuses', [sigs], opt);
-    const vals = (r && r.value) || [];
+    /* 窓口は 1 回に 256 件まで（Issue #67 で 60 件より大きい控えを書けるようにしたので、分けて尋ねる） */
+    const vals = [];
+    for (let i = 0; i < sigs.length; i += STATUS_BATCH) {
+      const r = await rpc(network, 'getSignatureStatuses', [sigs.slice(i, i + STATUS_BATCH)], opt);
+      vals.push(...((r && r.value) || []));
+    }
     const bad = vals.find(v => v && v.err);
     if (bad) throw new Error('書けなかった取引がある（もう一度書く）');
     const ok = vals.filter(v => v && (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized')).length;
@@ -543,35 +549,68 @@ async function memoOfTx(network, sig, opt) {
   return null;
 }
 
-/* 住所のいちばん新しく全部そろった控えの切れ端。無ければ null */
+/* 住所の取引の一覧を新しい順に 1 ページ（limit 件）ずつ渡す（2026-11-15 Issue #67）。
+   窓口は 1 回に最大 1000 件しか返さないので、前のページの最後の署名を before に入れて続きを尋ねる。
+   ページが limit より短い・続きが進まないときは終わり */
+async function* signaturePages(network, address, limit, opt) {
+  let before = null;
+  for (;;) {
+    const q = { limit, commitment: 'confirmed' };
+    if (before) q.before = before;
+    const list = await rpc(network, 'getSignaturesForAddress', [address, q], opt) || [];
+    yield list;
+    const last = list[list.length - 1];
+    if (list.length < limit || !last || !last.signature || last.signature === before) return;
+    before = last.signature;
+  }
+}
+/* 続きのページを読むか。いちばん新しい切れ端が見つかったら、その控えの数 n ＋ 1 ページぶん（間に挟まるほかの取引の余裕）まで読む。
+   切れ端がまだ 1 つも無ければ、最初の 1 ページだけ（前と同じ。履歴の長いウォレットで全部をたどらない） */
+function wantMore(memos, scanned, limit) {
+  if (!memos.length) return scanned < limit;
+  return scanned < Math.min(memos[0].n, MAX_PARTS) + limit;
+}
+
+/* 住所のいちばん新しく全部そろった控えの切れ端。無ければ null。
+   控えが 1 ページ（limit 件）より多くの取引に分かれていても、そろうまで続きのページを読む（Issue #67） */
 export async function readLatestMemos(network, address, { limit = READ_TX, opt } = {}) {
-  const list = await rpc(network, 'getSignaturesForAddress', [address, { limit, commitment: 'confirmed' }], opt) || [];
   const memos = [];
-  for (const it of list) {
-    if (!it || it.err) continue;
-    let p = parseMemo(it.memo);
-    if (!p && it.memo == null) continue;   /* メモの無い取引（お金を受け取った、など） */
-    /* 共有の海の掲示板へ書いた取引・届いた招待（Issue #37）。このウォレットの一覧にも出るが、バックアップではない */
-    if (!p && /(?:^|\s|\])bt2e? /.test(String(it.memo))) continue;
-    if (!p) p = parseMemo(await memoOfTx(network, it.signature, opt));
-    if (p) memos.push(p);
-    const got = pickLatest(memos);
-    if (got && got[0].id === memos[0].id) return got;   /* いちばん新しい控えがそろった */
+  let scanned = 0;
+  for await (const list of signaturePages(network, address, limit, opt)) {
+    for (const it of list) {
+      scanned++;
+      if (!it || it.err) continue;
+      let p = parseMemo(it.memo);
+      if (!p && it.memo == null) continue;   /* メモの無い取引（お金を受け取った、など） */
+      /* 共有の海の掲示板へ書いた取引・届いた招待（Issue #37）。このウォレットの一覧にも出るが、バックアップではない */
+      if (!p && /(?:^|\s|\])bt2e? /.test(String(it.memo))) continue;
+      if (!p) p = parseMemo(await memoOfTx(network, it.signature, opt));
+      if (p) memos.push(p);
+      const got = pickLatest(memos);
+      if (got && got[0].id === memos[0].id) return got;   /* いちばん新しい控えがそろった */
+    }
+    if (!wantMore(memos, scanned, limit)) break;
   }
   return pickLatest(memos);
 }
 
-/* いちばん新しく全部そろった控えの ID だけ（鍵は要らない。取引の一覧を 1 回尋ねるだけで、1 件ずつの取引は読まない）。
+/* いちばん新しく全部そろった控えの ID だけ（鍵は要らない。取引の一覧を尋ねるだけで、1 件ずつの取引は読まない）。
    無ければ null。ほかの端末が新しく書いたかを見るため（2026-11-13 Issue #52 の R1。js/chainwatch.js）。
-   MAX_TX を超えて書いた控え（Issue #67）もそろって見えるよう、読む数は READ_TX にそろえる（一覧を 1 回尋ねるのは変わらない） */
+   ふつうは一覧を 1 回尋ねるだけ。1 ページより大きい控えのときだけ、そろうまで続きを尋ねる（Issue #67） */
 export async function latestBackupId(network, address, { limit = READ_TX, opt } = {}) {
-  const list = await rpc(network, 'getSignaturesForAddress', [address, { limit, commitment: 'confirmed' }], opt) || [];
   const memos = [];
-  list.forEach(it => {
-    if (!it || it.err || it.memo == null) return;
-    const p = parseMemo(it.memo);
-    if (p) memos.push(p);
-  });
+  let scanned = 0;
+  for await (const list of signaturePages(network, address, limit, opt)) {
+    list.forEach(it => {
+      scanned++;
+      if (!it || it.err || it.memo == null) return;
+      const p = parseMemo(it.memo);
+      if (p) memos.push(p);
+    });
+    const got = pickLatest(memos);
+    if (got && got[0].id === memos[0].id) return got[0].id;
+    if (!wantMore(memos, scanned, limit)) break;
+  }
   const got = pickLatest(memos);
   return got ? got[0].id : null;
 }
