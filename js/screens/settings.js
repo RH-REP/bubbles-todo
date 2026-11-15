@@ -2794,12 +2794,20 @@ function chainBox(opts = {}) {
 
   /* 鍵の元を出してもらう（パスキーは押した手の続きで呼ぶ。ここより前で await しない） */
   async function unlock() {
+    /* 鍵の選び方は、押したときに端末の設定から読み直す（Issue #68 の返事「招待コードを読み取る時に合言葉のみでてきた。ウォレットはパス…で設定してる」）。
+       欄ごとに設定の写しを持っていて、別の欄（準備の箱）でパスキーへ切り替えても、開いたままの欄は前の「合言葉」のままだった。
+       読み直しは await の前なので、パスキーを押した手の続きのまま呼べる */
+    const fresh = loadConfig();
+    if (fresh.mode && (fresh.mode !== cfg.mode || fresh.address !== cfg.address || fresh.credId !== cfg.credId)) {
+      cfg = Object.assign({}, cfg, { mode: fresh.mode, credId: fresh.credId, address: fresh.address });
+    }
     if (cfg.mode === 'passkey') {
       const got = await passkeyRoot(cfg.credId);
       return keysFromRoot(got.root);
     }
     if (cfg.mode === 'pass') {
-      const pass = await askText('合言葉（始めたときに書き留めた 24 字）');
+      /* どのウォレットの合言葉かを出す（パスキーのつもりで合言葉を聞かれたときに気づけるように） */
+      const pass = await askText('合言葉（始めたときに書き留めた 24 字。このウォレット ' + shortAddr(cfg.address) + ' は合言葉で始めた）');
       if (!pass) throw new Error('やめた');
       line.textContent = '鍵を作っている…';
       return keysFromRoot(await rootFromPassphrase(pass));
@@ -3128,7 +3136,10 @@ function chainBox(opts = {}) {
       into.appendChild(giftLab);
       btn('招待コードを作る', () => createInvite(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled));
       const open = (selRec.invites || []).filter(i => !i.used && i.exp > Date.now()).length;
-      if (open) into.appendChild(el('span', 'note', '使われていない招待コード ' + open + ' 件'));
+      /* コードそのものは端末に残さない（合言葉と同じ秘密なので）。画面を閉じると見直せないことを添える（Issue #68 の返事
+         「使われていない招待コード 1 件となり、タブを閉じると招待コードは読めなくなる？」） */
+      if (open) into.appendChild(el('span', 'note', 'まだ誰も使っていない招待コード ' + open + ' 件（' + INVITE_DAYS + ' 日のうちは、送ったコードで受け取れる。'
+        + 'コードは作ったときに出た 1 度だけで、あとから見直せない。送り忘れたら作り直す）'));
     }
 
     /* 招かれる側。招く側のすぐ下に置く（Issue #68 の返事「招かれるが下の方にある。招く招かれるで近くにあった方がわかりやすくない？」。
@@ -3695,7 +3706,7 @@ function chainBox(opts = {}) {
       .concat([{ inv: box.address, at: now, exp: now + INVITE_DAYS * 86400000, used: addr ? now : null }]);
     if (nextMembers) next.members = nextMembers;
     putShared(next);
-    const tail = '　← これを相手にだけ送る（メッセージなど）。相手は「招かれる」に貼って「受け取る」。'
+    const tail = '　← これを相手にだけ送る（メッセージなど。このコードはあとから見直せないので、今コピーして送る）。相手は「招かれる」に貼って「受け取る」。'
       + (addr ? '' : '相手が記録を送ったら「みんなの変更を取り込む」でメンバーに足す。');
     let msg;
     try { await navigator.clipboard.writeText(code); msg = '招待コードをコピーした: ' + code + tail; } catch (e) {
