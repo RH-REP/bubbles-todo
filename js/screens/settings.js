@@ -62,8 +62,8 @@ const FIXED_LABEL = { up: '上', down: '下', left: '左', right: '右' };
    相手から受け取りIDをもらう往復が無くなった */
 const SHARE_FLOW = '2人とも先に「ブロックチェーンを準備する」で鍵を作り、同じネット（devnet など）にそろえる。<br>'
   + '0. （すぐメンバーにするなら）<b>招かれる人</b>: 「招かれる」の「自分のウォレットのアドレスをコピー」で、アドレスを招く人に送る。<br>'
-  + '1. <b>招く人</b>: 「招く」で共有する海をタップし、「共有中の海」のその海の欄で、もらったアドレスを入れて（無ければ空のまま）「招待コードを作る」。'
-  + 'アドレスを入れると、同じ押しでメンバーに足し、手数料も送れる。出た招待コード（BTI1-…）を相手に送る（メッセージなど）。<br>'
+  + '1. <b>招く人</b>: 「招く」の ① で海をタップし、② の欄に、もらったアドレスを入れて（無ければ空のまま）「招待コードを作る」。'
+  + 'アドレスを入れると、同じ押しでメンバーに足し、手数料も送れる（アドレスが無いと手数料は送れない）。出た招待コード（BTI1-…）を相手に送る（メッセージなど）。<br>'
   + '2. <b>招かれる人</b>: 「招かれる」の欄に招待コードを貼って「受け取る」。海がこの端末に足され、みんなの記録が読める。<br>'
   + '3. アドレスを入れなかったときは、<b>招かれる人</b>が「自分の変更を送る」と、<b>招く人</b>が次に「みんなの変更を取り込む」ときにメンバーに足される（それまでは読むだけ）。<br>'
   + '招待コードは合言葉と同じで、持っている人は誰でも受け取れる。相手にだけ送る。使えるのは ' + INVITE_DAYS + ' 日・最初の 1 人だけ。<br>'
@@ -2690,6 +2690,8 @@ function chainBox(opts = {}) {
   /* やりたいことが1つだけの欄（バックアップ・共有など）は、ボタンを並べずにその操作をいつも出す */
   const single = TASKS.length === 1 ? TASKS[0][0] : null;
   let task = single;
+  /* 「招く」で選んでいる共有中の海の ID（Issue #68 の返事「他の人と一緒に使うの設定の流れで出てきた方がわかりやすい？」）。paint をまたいで覚える */
+  let inviteSel = null;
   /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる。parent は畳む箱（fold）に入れるとき */
   function group(key, title, note, parent = row) {
     const g = el('div', null);
@@ -3053,11 +3055,22 @@ function chainBox(opts = {}) {
     /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
     group('share', '招く（自分の海に人を招く）',
-      '① どの海を共有するかをタップする（作った海の名前か、空の海から始めるなら「＋ 新しい海」、個人の海の中身から始めるなら「写して共有」）。'
-      + '押すと共有を始め、下の「共有中の海」に欄が出る。'
-      + '② その海の欄の「招待コードを作る」を押し、出た招待コード（BTI1-…）を相手に送る。'
+      '① どの海に招くかをタップする（共有中の海、まだ共有していない海の名前、空の海から始めるなら「＋ 新しい海」、個人の海の中身から始めるなら「写して共有」）。'
+      + 'まだ共有していない海は、押すと共有を始める。'
+      + '② 下に出る欄で、相手のアドレス（あれば）を入れて「招待コードを作る」を押し、出た招待コード（BTI1-…）を相手に送る。'
       + '中身はメンバーだけが読める。ただし、誰と誰が同じ海にいるかと、書いた時刻・大きさは、チェーンの上で誰でも見られる。書いたものは消せない。');
-    /* group・btn の字は HTML として入る。海の名前は必ず escapeHtml を通す */
+    /* 招待コードの欄は、共有中の海ごとの欄ではなく、この「招く」の流れの中に置く（Issue #68 の返事
+       「共有中の海に…招待コードを作るが表示されてる。他の人と一緒に使うの設定の流れで出てきた方がわかりやすい？」）。
+       ① で海を選び、② で招く。自分が持ち主の共有中の海も ① に並べる */
+    const ownedSeas = sharedFor(shared, cfg.address, net).filter(r => r.owner === cfg.address);
+    if (!ownedSeas.some(r => r.id === inviteSel)) inviteSel = ownedSeas.length === 1 ? ownedSeas[0].id : null;
+    ownedSeas.forEach(r => {
+      const ent = allEntries().find(e => e.id === r.id);
+      /* group・btn の字は HTML として入る。海の名前は必ず escapeHtml を通す */
+      const on = inviteSel === r.id;
+      const b = btn((on ? '✓ ' : '') + '「' + escapeHtml(ent ? ent.name : r.id) + '」（共有中）', async () => { inviteSel = r.id; paint(); curKey = 'share'; });
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
     cands.forEach(sea => btn('「' + escapeHtml(sea.name) + '」を共有', () => shareSea(sea)));
     /* 設定の画面で海の作り方を探していた（2026-11-11 Issue #37 の返事）。引き出しと同じ「海をつくる」板をここからも開き、
        作ったらそのまま共有へ進む（その海へは切り替えない） */
@@ -3068,6 +3081,51 @@ function chainBox(opts = {}) {
        「個人の海は新規と『写して共有』の2つに」（同日の返事）: 「＋ 新しい海」（空から）のすぐ後ろに並べ、2 つから選ぶ形にした */
     const copyFrom = allSeas().filter(s => s.personal || (s.id === 'share' && !shared.share));
     copyFrom.forEach(s => btn('「' + escapeHtml(s.name) + '」を写して共有', () => copyThenShare(s)));
+
+    /* ② 選んだ海に招く（招待コード。Issue #68 の返事「おすすめで」）。作って相手に送るだけ。相手の受け取りIDは要らない。
+       相手のウォレットのアドレスを先にもらっていれば、同じ押しで名簿に足し、手数料も送れる（同日の返事「送れるようにして」
+       「最初に招く相手のアドレスをもらっていれば、登録まで一回でいける？」）。空なら、相手が記録を送ってから足す */
+    const selRec = ownedSeas.find(r => r.id === inviteSel);
+    if (selRec) {
+      const ent = allEntries().find(e => e.id === selRec.id);
+      group('share-code', '②「' + escapeHtml(ent ? ent.name : selRec.id) + '」に招く', null);
+      const addrIn = document.createElement('input');
+      addrIn.type = 'text';
+      addrIn.autocomplete = 'off';
+      addrIn.spellcheck = false;
+      addrIn.placeholder = '相手のウォレットのアドレス（あれば。すぐメンバーにする）';
+      addrIn.setAttribute('aria-label', '招く相手のウォレットのアドレス');
+      addrIn.style.cssText = 'flex:1 1 16em;min-width:12em';
+      const nameIn = document.createElement('input');
+      nameIn.type = 'text';
+      nameIn.autocomplete = 'off';
+      nameIn.maxLength = 24;
+      nameIn.placeholder = '呼び名（空でもよい）';
+      nameIn.setAttribute('aria-label', '招く相手の呼び名');
+      nameIn.style.cssText = 'flex:0 1 9em;min-width:6em';
+      /* 手数料はアドレスがあるときだけ送れる。アドレスが空の間はチェックを押せなくする
+         （同日の返事「アドレス入れずに手数料送るチェック入れたままだとどうなる？」: 前は黙って送らなかった） */
+      const giftLab = el('label', 'note');
+      const giftChk = document.createElement('input');
+      giftChk.type = 'checkbox';
+      giftChk.checked = true;
+      giftLab.appendChild(giftChk);
+      giftLab.appendChild(document.createTextNode(' 手数料も送る（約' + GIFT_MESSAGES + '通ぶん）'));
+      const giftNow = () => {
+        const has = !!addrIn.value.trim();
+        giftChk.disabled = !has;
+        giftLab.style.opacity = has ? '' : '.5';
+        giftLab.title = has ? '' : '相手のアドレスを入れると選べる（アドレスが無いと送り先が分からない）';
+      };
+      addrIn.addEventListener('input', giftNow);
+      giftNow();
+      into.appendChild(addrIn);
+      into.appendChild(nameIn);
+      into.appendChild(giftLab);
+      btn('招待コードを作る', () => createInvite(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled));
+      const open = (selRec.invites || []).filter(i => !i.used && i.exp > Date.now()).length;
+      if (open) into.appendChild(el('span', 'note', '使われていない招待コード ' + open + ' 件'));
+    }
 
     const mine = sharedFor(shared, cfg.address, net);
     mine.forEach(rec => {
@@ -3084,43 +3142,8 @@ function chainBox(opts = {}) {
       btn('みんなの変更を取り込む', () => readShared1(rec.id));
       btn('チャット', () => openChat('sea:' + rec.id, rec));
       if (owner) {
-        /* 招待コード（Issue #68 の返事「おすすめで」）。作って相手に送るだけ。相手の受け取りIDは要らない。
-           相手のウォレットのアドレスを先にもらっていれば、同じ押しで名簿に足し、手数料も送れる（同日の返事「送れるようにして」
-           「最初に招く相手のアドレスをもらっていれば、登録まで一回でいける？」）。空なら前のとおり、相手が送ってから足す */
-        const addrIn = document.createElement('input');
-        addrIn.type = 'text';
-        addrIn.autocomplete = 'off';
-        addrIn.spellcheck = false;
-        addrIn.placeholder = '相手のウォレットのアドレス（あれば。すぐメンバーにする）';
-        addrIn.setAttribute('aria-label', '招く相手のウォレットのアドレス');
-        addrIn.style.cssText = 'flex:1 1 16em;min-width:12em';
-        const nameIn = document.createElement('input');
-        nameIn.type = 'text';
-        nameIn.autocomplete = 'off';
-        nameIn.maxLength = 24;
-        nameIn.placeholder = '呼び名（空でもよい）';
-        nameIn.setAttribute('aria-label', '招く相手の呼び名');
-        nameIn.style.cssText = 'flex:0 1 9em;min-width:6em';
-        const giftLab = el('label', 'note');
-        const giftChk = document.createElement('input');
-        giftChk.type = 'checkbox';
-        giftChk.checked = true;
-        giftLab.appendChild(giftChk);
-        giftLab.appendChild(document.createTextNode(' 手数料も送る（約' + GIFT_MESSAGES + '通ぶん。アドレスがあるとき）'));
-        const invForm = el('div', 'row');
-        invForm.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center;width:100%';
-        invForm.appendChild(addrIn);
-        invForm.appendChild(nameIn);
-        invForm.appendChild(giftLab);
-        into.appendChild(invForm);
-        const keepInv = into;
-        into = invForm;
-        btn('招待コードを作る', () => createInvite(rec.id, addrIn.value, nameIn.value, giftChk.checked));
-        into = keepInv;
-        const open = (rec.invites || []).filter(i => !i.used && i.exp > Date.now()).length;
-        if (open) into.appendChild(el('span', 'note', '使われていない招待コード ' + open + ' 件'));
-      }
-      if (owner) {
+        /* 招待コードの欄は上の「招く」の ② へ移した（Issue #68 の返事）。ここからはその海を選んで移る */
+        btn('この海に人を招く（上の「招く」へ）', async () => { inviteSel = rec.id; paint(); curKey = 'share-code'; });
         /* 前の形（受け取りIDで招く）は畳んで残す。招待コードを人に見られずに送れないときに使う */
         const old = document.createElement('details');
         old.style.cssText = 'margin-top:6px;width:100%';
@@ -3660,16 +3683,18 @@ function chainBox(opts = {}) {
     const need = await needFunds(net, 1 + roster.length);
     if (!window.confirm('「' + sea.name + '」を共有する？（' + NETWORKS[net].label + '）\n'
       + 'この海の鍵を作り、自分宛ての招待と名簿をチェーンに書く（取引 ' + (1 + roster.length) + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
-      + '続けて、招く人の受け取りIDを、この海の欄に貼って「招く」。')) { line.textContent = 'やめた'; return; }
+      + '続けて、「招く」の ② で招待コードを作る。')) { line.textContent = 'やめた'; return; }
     line.textContent = '書いている…';
     await writeEnvelope(net, keys.wallet, env, to.wallet);
     await writePost(net, keys.wallet, roster, board);
     putShared(rec);
     cfg = Object.assign(loadConfig(), { share: myShare });
     saveConfig(cfg);
+    /* 続けて招けるよう、「招く」の ② にこの海を選んで出す（Issue #68 の返事） */
+    inviteSel = rec.id;
     paint();
-    curKey = 'sea:' + rec.id;
-    line.textContent = '共有を始めた。招く人の受け取りIDを、この海の欄に貼って「招く」。自分の記録は「自分の変更を送る」で書く。';
+    curKey = 'share-code';
+    line.textContent = '共有を始めた。この欄で相手のアドレス（あれば）を入れて「招待コードを作る」。自分の記録は「共有中の海」の「自分の変更を送る」で書く。';
   }
 
   /* 招く（持ち主だけ）。海の欄に貼った受け取りIDの人へ、封筒と新しい名簿を書く */
@@ -3748,7 +3773,7 @@ function chainBox(opts = {}) {
     try { await navigator.clipboard.writeText(code); msg = '招待コードをコピーした: ' + code + tail; } catch (e) {
       msg = '招待コード: ' + code + tail;
     }
-    curKey = 'sea:' + id;
+    curKey = 'share-code';
     line.textContent = msg;
     /* 同じ押しの続きで手数料を送る（鍵は開けてある。パスキーを 2 度求めない） */
     if (addr && withGift) {
@@ -3756,8 +3781,9 @@ function chainBox(opts = {}) {
         msg += '　手数料は送れなかった（' + ((e && e.message) || String(e)) + '）。あとでこの海の「手数料を送る」から送れる。';
       }
     }
+    inviteSel = id;
     paint();
-    curKey = 'sea:' + id;
+    curKey = 'share-code';
     line.textContent = msg;
   }
 
