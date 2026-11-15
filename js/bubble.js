@@ -168,6 +168,22 @@ function localDay() {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 }
 
+/* 長い知らせ（2026-11-16 Issue #68 の返事「TODOの同期失敗時のメッセージが長すぎて表示しきれてない」）。
+   画面の下には最初の 1 文（括弧の前まで・長くても 40 字）だけを出し、残りは［詳しく］で全文を出す。長いときは少し長く出しておく */
+const TOAST_SHORT = 40;
+function shortLine(s) {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  const cut = t.search(/[（(。]/);
+  const head = cut > 0 ? t.slice(0, cut) : t;
+  return head.length > TOAST_SHORT ? head.slice(0, TOAST_SHORT - 1) + '…' : head;
+}
+function longToast(prefix, msg) {
+  const full = String(msg || '');
+  const head = shortLine(full);
+  if (head === full.replace(/\s+/g, ' ').trim()) { toast(prefix + full); return; }
+  toast(prefix + head, { label: '詳しく', undo: false, on: () => { window.alert(prefix + full); } }, 9000);
+}
+
 /* 預け先が壊れていても中央は閉じない（focus.js の ask() と同じ） */
 function ask(a, name, ...args) {
   try {
@@ -1001,14 +1017,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         p.then(() => {
           const stopped = /やめた/.test(lastMsg);
           qsync.textContent = stopped ? 'やめた' : '同期した';
-          if (lastMsg && !stopped) toast('同期: ' + lastMsg);
+          if (lastMsg && !stopped) longToast('同期: ', lastMsg);
           syncNotesBtn();
           if (notesPane && !notesPane.hidden) renderNotes();
         }, e => {
           qsync.textContent = /やめた/.test(String((e && e.message) || e)) ? 'やめた' : 'できない';
           qsync.title = String((e && e.message) || e);
           /* 何で止まったか（残高が足りない・まだメンバーでない など）を見えるように出す（Issue #68 の返事「反映されない」）。ボタンの説明だけでは気づけなかった */
-          if (!/やめた/.test(qsync.title)) toast('同期できなかった: ' + qsync.title);
+          if (!/やめた/.test(qsync.title)) longToast('同期できなかった: ', qsync.title);
         }).finally(() => {
           qsync.disabled = false;
           syncBack = setTimeout(() => { qsync.textContent = '同期'; }, 1800);
@@ -2562,7 +2578,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         r.then(() => { syncNotesBtn(); if (notesPane && !notesPane.hidden) renderNotes(); }, e => {
           /* 読めなくても、ひとことは積んである。止まった理由だけ出す（やめたときは出さない） */
           const m = String((e && e.message) || e || '');
-          if (m && !/やめた/.test(m)) toast('読み込めなかった: ' + m);
+          if (m && !/やめた/.test(m)) longToast('読み込めなかった: ', m);
         });
       }
     }

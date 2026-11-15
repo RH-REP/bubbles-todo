@@ -2676,10 +2676,13 @@ function pendingNotesIn(st) {
 /* チャットを最後に見た時刻（部屋ごと。端末にだけ置く） */
 const CHAT_SEEN_KEY = 'bubble_todo_chat_seen_v1';
 function chatSeen() { try { return JSON.parse(localStorage.getItem(CHAT_SEEN_KEY) || '{}') || {}; } catch (e) { return {}; } }
-function markChatSeen(room) {
+/* quiet: 知らせ（面の描き直し）を出さない。チャットを開く途中で呼ぶとき（2026-11-16 Issue #68 の返事「共有の海のチャットボタンを押しても
+   チャットメッセージを送る画面が表示されない」: 知らせはその場で面を描き直すので、組み立て中のチャットの欄が画面から外れていた） */
+function markChatSeen(room, quiet) {
   const all = chatSeen();
   all[room] = Date.now();
   try { localStorage.setItem(CHAT_SEEN_KEY, JSON.stringify(all)); } catch (e) { /* 覚えられなくても進む */ }
+  if (quiet) return;
   try { window.dispatchEvent(new CustomEvent('bubbles:chat-unread')); } catch (e) { /* 知らせなくても進む */ }
 }
 /* その共有の海のチャットの、まだ見ていないほかの人のメッセージの数（端末の履歴から数える） */
@@ -3745,33 +3748,45 @@ function chainBox(opts = {}) {
     /* 読むための鍵があれば、鍵を求めずにチェーンの新しいメッセージも読んで足す（Issue #68 の A 案） */
     const canRead = !!(rec && readBoardsOf(rec) && readBoardsOf(rec).chat);
     panel.appendChild(el('p', 'note', canRead
-      ? '新しいメッセージも、鍵なしで読んで出す。送るときは「開いて送る」（パスキーか合言葉を求める）。'
-      : 'この端末に届いている分だけを、鍵なしで表示している。新しいメッセージを読む・送るときは「開いて送る」（パスキーか合言葉を求める）。'));
-    if (rec) markChatSeen(room);
+      ? '新しいメッセージも、鍵なしで読んで出す。送るときはパスキーか合言葉を求める（ページを閉じるまで 1 度だけ）。'
+      : 'この端末に届いている分だけを、鍵なしで表示している。送ると、パスキーか合言葉を求め、新しいメッセージも読む。'));
+    if (rec) markChatSeen(room, true);
     if (canRead) {
-      watchOne(sharedRec(rec.id)).then(() => { if (chat && chat.panel === panel) { draw(); markChatSeen(room); } }, () => { /* 読めなくても履歴は出ている */ });
+      watchOne(sharedRec(rec.id)).then(() => { if (chat && chat.panel === panel) { draw(); markChatSeen(room, true); } }, () => { /* 読めなくても履歴は出ている */ });
     }
-    const row2 = el('div', null);
-    row2.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px';
-    const go = el('button', 'btn', '開いて送る（新しいものも読む）');
-    go.type = 'button';
-    /* 押した手の続きで openChat を呼ぶ（パスキーは押した手の続きでないと断る端末がある） */
-    go.addEventListener('click', () => {
-      curKey = gkey;
-      openChat(gkey, rec).catch(e => { curKey = gkey; line.textContent = (e && e.message) || String(e); });
-    });
+    /* 送る欄は最初から出す（Issue #68 の返事「チャットメッセージを送る画面が表示されない」）。
+       送るを押すと、その押しの続きで鍵を開け（🔑）、開いたチャットからそのまま送る */
+    const form2 = el('form', null);
+    form2.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
+    const input2 = document.createElement('input');
+    input2.type = 'text';
+    input2.maxLength = MSG_MAX;
+    input2.autocomplete = 'off';
+    input2.placeholder = rec ? 'メッセージ（メンバーだけが読める）' : 'メモ（自分の端末どうしだけが読める）';
+    input2.setAttribute('aria-label', rec ? 'メッセージ' : 'メモ');
+    input2.style.cssText = 'flex:1 1 14em;min-width:10em';
+    const send2 = el('button', 'btn', '🔑 送る');
+    send2.type = 'submit';
     const shut = el('button', 'btn', '閉じる');
     shut.type = 'button';
     shut.addEventListener('click', () => closeChat());
-    row2.appendChild(go);
-    row2.appendChild(shut);
-    panel.appendChild(row2);
+    form2.appendChild(input2);
+    form2.appendChild(send2);
+    form2.appendChild(shut);
+    /* 押した手の続きで openChat を呼ぶ（パスキーは押した手の続きでないと断る端末がある） */
+    form2.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      curKey = gkey;
+      openChat(gkey, rec, input2.value).catch(e => { curKey = gkey; line.textContent = (e && e.message) || String(e); });
+    });
+    panel.appendChild(form2);
     anchor.parentNode.insertBefore(panel, anchor.nextSibling);
     list.scrollTop = list.scrollHeight;
     chat = { panel, timer: null, mesh: null, gkey };
     /* watchOne の読み込みが返る前に chat を置いたので、上の then で同じ panel かを見られる */
   }
-  async function openChat(gkey, rec) {
+  /* firstText: 読むだけの欄で打ってから送ったメッセージ。開いたらそのまま送る（Issue #68） */
+  async function openChat(gkey, rec, firstText) {
     closeChat();
     const net = rec ? rec.net : netSel.value;
     const keys = await unlock();   /* パスキーは押した手の続きで呼ぶ。ここより前で await しない */
@@ -3856,7 +3871,7 @@ function chainBox(opts = {}) {
     anchor.parentNode.insertBefore(panel, anchor.nextSibling);
 
     const room = rec ? 'sea:' + rec.id + ':' + rec.gen : 'self:' + keys.wallet.address;
-    if (rec) markChatSeen(room);   /* 開いたら、新しいメッセージの数を 0 に（Issue #68 の B 案） */
+    if (rec) markChatSeen(room, true);   /* 開いたら、新しいメッセージの数を 0 に（Issue #68 の B 案。組み立て中なので面は描き直さない） */
     if (rec) {
       /* チャットを開いている間は、チャットの網で直につなぐ（裏の網 C1 は閉じる。同じ端末の印で 2 つの網がつなぎに行かないように） */
       chatOpenSea = rec.id;
@@ -3956,7 +3971,8 @@ function chainBox(opts = {}) {
         onSnap: rec ? (inner) => {
           /* 写しの中の海の ID は見ず、この海の箱にだけ重ねる（readWith と同じ。メンバーがほかの海を書き換えられないように）。
              設定の画面は描き直さない（描き直すとチャットが閉じる） */
-          const entry = inner.entry && inner.entry.id === rec.id ? inner.entry : null;
+          /* 名前・色・時刻だけを使う（消した印・同期の先は受け取らない。2026-11-16 の点検の直し漏れ） */
+          const entry = memberEntry(inner.entry, rec.id);
           mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [rec.id]: inner.box } });
           try { putShared(Object.assign(sharedRec(rec.id), { readAt: Date.now() })); } catch (e) { /* 共有をやめていれば印は付けない */ }
           status.textContent = nameOf(inner.by) + ' の記録を直に受け取って重ねた（' + new Date(Number(inner.at) || Date.now()).toLocaleString() + ' の写し・手数料なし）。';
@@ -4073,6 +4089,12 @@ function chainBox(opts = {}) {
     /* 開いただけでは何も書かない（手数料を掛けない）。相手の「ここにいる」（10 分以内のメッセージか呼び出し）があれば、ここで offer を書く */
     await refresh();
     input.focus();
+    /* 読むだけの欄で打ってあったメッセージは、開いたらそのまま送る（Issue #68） */
+    if (firstText && String(firstText).trim()) {
+      input.value = String(firstText);
+      if (typeof form.requestSubmit === 'function') form.requestSubmit(send);
+      else form.dispatchEvent(new Event('submit', { cancelable: true }));
+    }
   }
 
   /* メンバーのウォレットへ、メッセージ約 100 通ぶんの SOL を送る（額は js/board.js の giftPlan）。送り先は名簿のアドレスだけ（貼らせない） */
