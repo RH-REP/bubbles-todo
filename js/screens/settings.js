@@ -3001,12 +3001,12 @@ function chainBox(opts = {}) {
         /* 海の名前と呼び名はほかのメンバーが書くので、必ず escapeHtml を通す */
         group('sea:' + rec.id, '「' + escapeHtml(ent ? ent.name : rec.id) + '」のチャット',
           '相手: ' + (who ? escapeHtml(who) : '（まだ自分だけ。メンバーを招くと話せる）') + '。メンバーだけが読める。1 件ごとに手数料が掛かる。');
-        btn('チャットを開く', () => openChat('sea:' + rec.id, rec));
+        btn('チャットを開く', async () => peekChat('sea:' + rec.id, rec));
       });
       /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
       group('self-chat', '自分にメモを送る（端末どうし）',
         '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
-      btn('メモを開く', () => openChat('self-chat', null));
+      btn('メモを開く', async () => peekChat('self-chat', null));
     } else if (task === 'lost') paintLost();
   }
 
@@ -3307,7 +3307,7 @@ function chainBox(opts = {}) {
         + (rec.readAt ? '・最後に取り込んだ ' + new Date(rec.readAt).toLocaleString() : ''));
       btn('自分の変更を送る', () => saveShared1(rec.id));
       btn('みんなの変更を取り込む', () => readShared1(rec.id));
-      btn('チャット', () => openChat('sea:' + rec.id, rec));
+      btn('チャット', async () => peekChat('sea:' + rec.id, rec));
       if (owner && linkInvite) {
         /* 招待コードの欄は上の「招く」の ② へ移した（Issue #68 の返事）。ここからはその海を選んで移る */
         btn('この海に人を招く（上の「招く」へ）', async () => { inviteSel = rec.id; paint(); curKey = 'share-code'; });
@@ -3362,6 +3362,55 @@ function chainBox(opts = {}) {
     try { if (chat.mesh) chat.mesh.close(); } catch (e) { /* 閉じられなくても進む */ }
     if (chat.panel && chat.panel.parentNode) chat.panel.parentNode.removeChild(chat.panel);
     chat = null;
+  }
+  /* 鍵を開けずに、この端末に届いている履歴だけを読む（Issue #68 の返事「チャットを開く時に、合言葉とパスキーが求められるけど、送る時だけでいいのでは？
+     すでにあるやつはよめてもいいのでは？」）。履歴はもともと端末に置いている（js/p2p.js の loadHistory）ので、鍵の扱いは変わらない。
+     新しいもの（チェーンにあって、まだこの端末に無いもの）を読む・送る・直につなぐときだけ「開いて送る」で鍵を開ける（openChat） */
+  function peekChat(gkey, rec) {
+    closeChat();
+    const anchor = lines.get(gkey);
+    if (!anchor) throw new Error('チャットを開けなかった（画面を開き直す）');
+    const room = rec ? 'sea:' + rec.id + ':' + rec.gen : 'self:' + cfg.address;
+    const hist = loadHistory(room);
+    const members = rec ? ((loadShared()[rec.id] || rec).members || []) : [];
+    const nameOf = a => (a === cfg.address ? '自分' : ((members.find(m => m.a === a) || {}).n || shortAddr(a)));
+    const panel = el('div', null);
+    panel.style.cssText = 'margin-top:6px;padding:8px;border:1px solid rgba(127,127,127,.35);border-radius:8px';
+    const list = el('div', null);
+    list.setAttribute('role', 'log');
+    list.style.cssText = 'max-height:16em;overflow:auto;display:flex;flex-direction:column;gap:4px';
+    if (!hist.length) list.appendChild(el('p', 'note', 'この端末にはまだメッセージが無い。'));
+    hist.slice(-100).forEach(m => {
+      const item = el('div', null);
+      const head = el('span', 'note');
+      /* 呼び名・本文はほかの人が書くので文字として入れる */
+      head.textContent = nameOf(m.by) + '・' + new Date(m.at).toLocaleString() + (m.state === 'unsent' ? '（未送）' : '') + '　';
+      const body = el('span', null);
+      body.textContent = m.text;
+      item.appendChild(head);
+      item.appendChild(body);
+      list.appendChild(item);
+    });
+    panel.appendChild(list);
+    panel.appendChild(el('p', 'note', 'この端末に届いている分だけを、鍵なしで表示している。新しいメッセージを読む・送るときは「開いて送る」（パスキーか合言葉を求める）。'));
+    const row2 = el('div', null);
+    row2.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px';
+    const go = el('button', 'btn', '開いて送る（新しいものも読む）');
+    go.type = 'button';
+    /* 押した手の続きで openChat を呼ぶ（パスキーは押した手の続きでないと断る端末がある） */
+    go.addEventListener('click', () => {
+      curKey = gkey;
+      openChat(gkey, rec).catch(e => { curKey = gkey; line.textContent = (e && e.message) || String(e); });
+    });
+    const shut = el('button', 'btn', '閉じる');
+    shut.type = 'button';
+    shut.addEventListener('click', () => closeChat());
+    row2.appendChild(go);
+    row2.appendChild(shut);
+    panel.appendChild(row2);
+    anchor.parentNode.insertBefore(panel, anchor.nextSibling);
+    list.scrollTop = list.scrollHeight;
+    chat = { panel, timer: null, mesh: null, gkey };
   }
   async function openChat(gkey, rec) {
     closeChat();
