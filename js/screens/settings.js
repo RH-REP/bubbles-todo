@@ -3306,6 +3306,8 @@ function chainBox(opts = {}) {
         'メンバー ' + ((rec.members || []).length || '?') + ' 人' + (who ? '（' + escapeHtml(who) + '）' : '')
         + (rec.savedAt ? '・最後に送った ' + new Date(rec.savedAt).toLocaleString() : '')
         + (rec.readAt ? '・最後に取り込んだ ' + new Date(rec.readAt).toLocaleString() : ''));
+      /* 同期する（Issue #68 の返事「送るの近くに同期ボタン作れる？読み込みと新規書込みがあれば書込みも」）。取り込み＋新しい書き込みがあれば送る */
+      btn('同期する（取り込み・新しい書き込みがあれば送る）', () => syncShared1(rec.id));
       btn('自分の変更を送る', () => saveShared1(rec.id));
       btn('みんなの変更を取り込む', () => readShared1(rec.id));
       btn('チャット', async () => peekChat('sea:' + rec.id, rec));
@@ -4019,6 +4021,38 @@ function chainBox(opts = {}) {
       return;
     }
     const { keys, seaKey } = await openShared(rec);
+    await saveWith(rec, keys, seaKey);
+  }
+
+  /* 記録の中身の目印（同期で「この端末に新しい書き込みがあるか」を見るため。Issue #68）。中身を写さず、短い数字にする */
+  function boxSig(id) {
+    const b = seaBox(id);
+    if (!b || !b.doc) return '';
+    const s = JSON.stringify(b.doc);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return s.length.toString(36) + '.' + h.toString(36);
+  }
+  /* 同期する（Issue #68 の返事「送るの近くに同期ボタン作れる？読み込みと新規書込みがあれば書込みも」）。
+     鍵は 1 度だけ開け、みんなの変更を取り込み、この端末に前の同期（送った・取り込んだ）のあとの書き込みがあれば、続けて送る */
+  async function syncShared1(id) {
+    const rec = sharedRec(id);
+    const { keys, seaKey } = await openShared(rec);
+    const dirty = !rec.syncSig || boxSig(id) !== rec.syncSig;
+    await readWith(rec, seaKey, keys);
+    const readMsg = line.textContent;
+    if (!dirty) {
+      curKey = 'sea:' + id;
+      line.textContent = readMsg + '　この端末には新しい書き込みが無いので、送らなかった（手数料なし）。';
+      return;
+    }
+    const wrote = await saveWith(sharedRec(id), keys, seaKey);
+    if (wrote) { curKey = 'sea:' + id; line.textContent = readMsg + '　' + line.textContent; }
+  }
+  /* 鍵を開けたあとの「自分の変更を送る」。書いたら true */
+  async function saveWith(rec, keys, seaKey) {
+    const id = rec.id;
+    const net = netSel.value;
     const board = await boardOf(seaKey);
     /* この端末で書いた、まだ署名の無いひとことに、開けた鍵でまとめて署名してから写しを作る（Issue #68 の返事。書くときは鍵を求めない） */
     const signedN = await signPendingNotes(id, keys.wallet);
@@ -4039,13 +4073,15 @@ function chainBox(opts = {}) {
     const need = await needFunds(net, memos.length);
     const todos = Array.isArray(box.doc && box.doc.todos) ? box.doc.todos.filter(t => t && !t.trashed).length : 0;
     if (!window.confirm('「' + (sea ? sea.name : id) + '」の自分の記録を共有の掲示板に書く？\ntodo ' + todos + ' 件・取引 ' + memos.length
-      + ' 件・手数料の目安 ' + solText(need.fee) + '\n書いたものは消せない（メンバーだけが読める）。')) { line.textContent = 'やめた'; return; }
+      + ' 件・手数料の目安 ' + solText(need.fee) + '\n書いたものは消せない（メンバーだけが読める）。')) { line.textContent = 'やめた'; return false; }
     await writePost(net, keys.wallet, memos, board, { onStep: (i, n) => { line.textContent = '書いている… ' + i + '/' + n; } });
-    putShared(Object.assign(sharedRec(id), { savedAt: Date.now() }));
+    /* 送った中身の目印を残す（次の同期で、これより後の書き込みがあるかを見る） */
+    putShared(Object.assign(sharedRec(id), { savedAt: Date.now(), syncSig: boxSig(id) }));
     paint();
     curKey = 'sea:' + id;
     line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「みんなの変更を取り込む」で重ねる。'
       + (joining ? '招いた人が「みんなの変更を取り込む」を押すと、メンバーに足される。' : '');
+    return true;
   }
 
   /* この端末で書いた、まだ署名の無いひとこと（その海の分）に署名する（Issue #68 の返事「TODOのメッセージを送る時に…その場で同期しないのであれば不要なのでは？」）。
@@ -4119,6 +4155,8 @@ function chainBox(opts = {}) {
   }
   async function readWith(rec, seaKey, keys) {
     const id = rec.id;
+    /* 取り込む前に、前の同期のあとの書き込みが無かったか（無ければ、取り込んだあとの中身を新しい目印にする。Issue #68 の同期） */
+    const wasClean = !!rec.syncSig && boxSig(id) === rec.syncSig;
     line.textContent = '掲示板を読んでいる…';
     const got = await readBoard(rec.net, rec, seaKey);
     let next = sharedRec(id);
@@ -4148,7 +4186,7 @@ function chainBox(opts = {}) {
       const entry = s.entry && s.entry.id === id ? s.entry : null;
       mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [id]: s.box } });
     });
-    putShared(Object.assign(next, { readAt: Date.now() }));
+    putShared(Object.assign(next, { readAt: Date.now() }, wasClean ? { syncSig: boxSig(id) } : {}));
     paint();
     curKey = 'sea:' + id;
     line.textContent = snaps.length + ' 人ぶんの記録を重ねた。';
