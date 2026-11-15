@@ -4036,8 +4036,8 @@ function chainBox(opts = {}) {
   }
 
   /* 記録の中身の目印（同期で「この端末に新しい書き込みがあるか」を見るため。Issue #68）。中身を写さず、短い数字にする */
-  function boxSig(id) {
-    const b = seaBox(id);
+  function boxSig(id) { return sigOf(seaBox(id)); }
+  function sigOf(b) {
     if (!b || !b.doc) return '';
     const s = JSON.stringify(b.doc);
     let h = 0x811c9dc5;
@@ -4049,7 +4049,9 @@ function chainBox(opts = {}) {
   async function syncShared1(id) {
     const rec = sharedRec(id);
     const { keys, seaKey } = await openShared(rec);
-    const dirty = !rec.syncSig || boxSig(id) !== rec.syncSig;
+    /* まだ署名していない自分のひとことがあれば、送っていないもの（Issue #68） */
+    /* 目印の欄は syncMark（前の版の syncSig は、読んでいる間に書いたものまで含めてしまっていたので使わない。最初の同期は送る） */
+    const dirty = !rec.syncMark || hasPendingNotes(id) || boxSig(id) !== rec.syncMark;
     await readWith(rec, seaKey, keys);
     const readMsg = line.textContent;
     if (!dirty) {
@@ -4087,7 +4089,8 @@ function chainBox(opts = {}) {
       + ' 件・手数料の目安 ' + solText(need.fee) + '\n書いたものは消せない（メンバーだけが読める）。')) { line.textContent = 'やめた'; return false; }
     await writePost(net, keys.wallet, memos, board, { onStep: (i, n) => { line.textContent = '書いている… ' + i + '/' + n; } });
     /* 送った中身の目印を残す（次の同期で、これより後の書き込みがあるかを見る） */
-    putShared(Object.assign(sharedRec(id), { savedAt: Date.now(), syncSig: boxSig(id) }));
+    /* 目印は、送った写しの中身から作る（書いている間に足したひとことを「送った」ことにしない。Issue #68） */
+    putShared(Object.assign(sharedRec(id), { savedAt: Date.now(), syncMark: sigOf(box) }));
     paint();
     curKey = 'sea:' + id;
     line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「同期する」で重ねる。'
@@ -4097,12 +4100,19 @@ function chainBox(opts = {}) {
 
   /* この端末で書いた、まだ署名の無いひとこと（その海の分）に署名する（Issue #68 の返事「TODOのメッセージを送る時に…その場で同期しないのであれば不要なのでは？」）。
      開いている海は store.signedNotes で置き換え（記録の印も付く）、ほかの海は箱を直に書き換えて印を進める。署名した数 */
+  function seaStateOf(id) {
+    if (id === store.space()) { try { store.flush(); } catch (e) { /* 読むのは止めない */ } return store.exportState(); }
+    try { return boxToState(JSON.parse(localStorage.getItem(boxKey(id)) || 'null')); } catch (e) { return null; }
+  }
+  const pendingOf = (st, dev) => (st && st.doc && Array.isArray(st.doc.notes) ? st.doc.notes : [])
+    .filter(n => n && !n.gone && !n.sg && n.dev === dev && n.text);
+  /* この端末で書いて、まだ署名していない（送っていない）ひとことがあるか */
+  function hasPendingNotes(id) { return pendingOf(seaStateOf(id), noteDevice()).length > 0; }
   async function signPendingNotes(id, wallet) {
     const dev = noteDevice();
-    const st = id === store.space() ? (() => { try { store.flush(); } catch (e) { /* 読むのは止めない */ } return store.exportState(); })()
-      : (() => { try { return boxToState(JSON.parse(localStorage.getItem(boxKey(id)) || 'null')); } catch (e) { return null; } })();
+    const st = seaStateOf(id);
     const notes = st && st.doc && Array.isArray(st.doc.notes) ? st.doc.notes : [];
-    const todo = notes.filter(n => n && !n.gone && !n.sg && n.dev === dev && n.text);
+    const todo = pendingOf(st, dev);
     if (!todo.length) return 0;
     const signed = [];
     for (const n of todo) signed.push(await signNote(n, wallet));
@@ -4167,8 +4177,6 @@ function chainBox(opts = {}) {
   /* quiet: 重ねる確かめを出さない（盤のひとことを送ったときの読み込み。重ねるのは消さないので確かめなしでよい。Issue #68） */
   async function readWith(rec, seaKey, keys, quiet) {
     const id = rec.id;
-    /* 取り込む前に、前の同期のあとの書き込みが無かったか（無ければ、取り込んだあとの中身を新しい目印にする。Issue #68 の同期） */
-    const wasClean = !!rec.syncSig && boxSig(id) === rec.syncSig;
     line.textContent = '掲示板を読んでいる…';
     const got = await readBoard(rec.net, rec, seaKey);
     let next = sharedRec(id);
@@ -4193,12 +4201,17 @@ function chainBox(opts = {}) {
     const nameOf = a => (a === cfg.address ? '自分' : ((next.members || []).find(m => m.a === a) || {}).n || shortAddr(a));
     if (!quiet && !window.confirm('共有の記録を重ねる？\n' + snaps.map(s => nameOf(s.by) + '（' + new Date(s.at).toLocaleString() + '）').join('\n')
       + '\nいまの記録は消さずに重ねる（記録ごとに新しく書き換えたほうが残る）。')) { line.textContent = 'やめた'; return; }
+    /* 重ねる直前に、前の同期のあとの書き込みが無かったかを見る（無ければ、重ねたあとの中身を新しい目印にする。Issue #68 の同期）。
+       ここから目印を書くまで await しない。前は読み始めに見ていたので、読んでいる間に書いたひとことまで「送った」ことになり、
+       次の「同期」で送られなかった（2026-11-15 Issue #68 の返事「TODOの同期を押しても、招待された側に反映されない」） */
+    const fresh = sharedRec(id);
+    const wasClean = !!fresh.syncMark && !hasPendingNotes(id) && boxSig(id) === fresh.syncMark;
     /* 写しの中の海の ID は見ず、この海の箱にだけ重ねる（メンバーがほかの海を書き換えられないように） */
     snaps.forEach(s => {
       const entry = s.entry && s.entry.id === id ? s.entry : null;
       mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [id]: s.box } });
     });
-    putShared(Object.assign(next, { readAt: Date.now() }, wasClean ? { syncSig: boxSig(id) } : {}));
+    putShared(Object.assign(next, { readAt: Date.now() }, wasClean ? { syncMark: boxSig(id) } : {}));
     paint();
     curKey = 'sea:' + id;
     line.textContent = snaps.length + ' 人ぶんの記録を重ねた。';

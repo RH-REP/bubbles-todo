@@ -16,7 +16,7 @@
 
    中身のほとんどは js/screens/todo.js から持ち上げたもの。新しく発明していない。 */
 
-import { el, clamp, fromFeedback } from './ui.js';
+import { el, clamp, fromFeedback, toast } from './ui.js';
 import { playSfx } from './sound.js';
 import { QUADRANTS, quadrantFor } from './priority.js';
 import { askFull, askWithSearchFull, hasKey } from './ai.js';
@@ -1002,6 +1002,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         }, e => {
           qsync.textContent = /やめた/.test(String((e && e.message) || e)) ? 'やめた' : 'できない';
           qsync.title = String((e && e.message) || e);
+          /* 何で止まったか（残高が足りない・まだメンバーでない など）を見えるように出す（Issue #68 の返事「反映されない」）。ボタンの説明だけでは気づけなかった */
+          if (!/やめた/.test(qsync.title)) toast('同期できなかった: ' + qsync.title);
         }).finally(() => {
           qsync.disabled = false;
           syncBack = setTimeout(() => { qsync.textContent = '同期'; }, 1800);
@@ -2552,7 +2554,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (ask(a, 'shareSyncOn') === true) {
       const r = ask(a, 'readShared', null);
       if (r && typeof r.then === 'function') {
-        r.then(() => { syncNotesBtn(); if (notesPane && !notesPane.hidden) renderNotes(); }, () => { /* 読めなくても、ひとことは積んである */ });
+        r.then(() => { syncNotesBtn(); if (notesPane && !notesPane.hidden) renderNotes(); }, e => {
+          /* 読めなくても、ひとことは積んである。止まった理由だけ出す（やめたときは出さない） */
+          const m = String((e && e.message) || e || '');
+          if (m && !/やめた/.test(m)) toast('読み込めなかった: ' + m);
+        });
       }
     }
     if (ask(a, 'noteSigning') === true) {
