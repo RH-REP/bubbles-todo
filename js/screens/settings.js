@@ -2869,7 +2869,11 @@ function chainBox(opts = {}) {
         });
       }
       group('pass', '合言葉で始める',
-        (pk ? '' : 'この端末（ブラウザ）では、鍵を作れるパスキーが使えない。')
+        (pk ? '' : 'この端末（ブラウザ）では、鍵を作れるパスキーが使えない。'
+          /* Issue #68 の返事「合言葉のみ出てきてパスキーでアドレス作った場合はつかえない？」 */
+          + 'ほかの端末でパスキーで作ったウォレットは、ここでは開けない（パスキーが鍵の元なので）。'
+          + '同じウォレットを使うなら、パスキーの端末で「鍵を替える」→「新しい鍵へ移し替える」で合言葉へ移し、ここで「合言葉で開く」。'
+          + 'この端末だけで使うなら「合言葉で新しく作る」（別のウォレット・別のアドレスになる。共有の海には、この新しいアドレスで招いてもらう）。')
         + 'OS をまたいで複数の端末で使う（iPhone と Windows・Android など、パスキーが引き継がれない組み合わせ）なら、こちら。'
         + '合言葉（24 字）はパスキーの代わりで、ウォレットとバックアップの両方を開く。紙に書き留め、どの端末でも同じ合言葉を打つ。'
         + '漏れるとお金も記録も取られるので、パスキーより扱いに気をつける。'
@@ -3127,6 +3131,34 @@ function chainBox(opts = {}) {
       if (open) into.appendChild(el('span', 'note', '使われていない招待コード ' + open + ' 件'));
     }
 
+    /* 招かれる側。招く側のすぐ下に置く（Issue #68 の返事「招かれるが下の方にある。招く招かれるで近くにあった方がわかりやすくない？」。
+       前は共有中の海の欄のさらに下だった） */
+    group('share-in', '招かれる（招待を受ける）',
+      '届いた招待コード（BTI1-…）を貼って「受け取る」。海はこの端末に自動で足される（自分で作らなくてよい）。受け取るだけなら手数料は掛からない。'
+      + '先に自分のウォレットのアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる。'
+      + '送っていなければ、自分の変更を送ったときに招いた人の端末がメンバーに足す（送るには SOL が要る）。');
+    {
+      const codeIn = document.createElement('input');
+      codeIn.type = 'text';
+      codeIn.autocomplete = 'off';
+      codeIn.spellcheck = false;
+      codeIn.placeholder = '招待コード（BTI1-…）を貼る';
+      codeIn.setAttribute('aria-label', '招待コード');
+      codeIn.style.cssText = 'flex:1 1 16em;min-width:12em';
+      into.appendChild(codeIn);
+      btn('受け取る', () => acceptCode(codeIn.value));
+    }
+    /* 先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる（Issue #68 の返事） */
+    btn('自分のウォレットのアドレスをコピー（先に招く人へ）', async () => {
+      const tail = '　← 招く人に送ると、招待コードと同時にメンバーに足され、手数料も送ってもらえる（送らなくても受け取れる）。';
+      try { await navigator.clipboard.writeText(cfg.address); line.textContent = 'アドレスをコピーした: ' + cfg.address + tail; } catch (e) {
+        line.textContent = 'アドレス: ' + cfg.address + tail;
+      }
+    });
+    /* 鍵を作り替えたとき（人を外したとき）の新しい鍵は、前と同じく受け取りIDあての封筒で届くので、この受け取りは残す。
+       前の形の「受け取りIDをコピー」は外した（Issue #68 の返事「前の形 使わないので消せる？」） */
+    btn('届いた招待を受け取る（鍵が作り替えられたとき）', acceptInvites);
+
     const mine = sharedFor(shared, cfg.address, net);
     mine.forEach(rec => {
       const ent = allEntries().find(e => e.id === rec.id);
@@ -3144,39 +3176,7 @@ function chainBox(opts = {}) {
       if (owner) {
         /* 招待コードの欄は上の「招く」の ② へ移した（Issue #68 の返事）。ここからはその海を選んで移る */
         btn('この海に人を招く（上の「招く」へ）', async () => { inviteSel = rec.id; paint(); curKey = 'share-code'; });
-        /* 前の形（受け取りIDで招く）は畳んで残す。招待コードを人に見られずに送れないときに使う */
-        const old = document.createElement('details');
-        old.style.cssText = 'margin-top:6px;width:100%';
-        old.appendChild(el('summary', null, '受け取りIDで招く（前の形）'));
-        into.appendChild(old);
-        const keepOld = into;
-        into = old;
-        /* 招く相手の受け取りIDは、この海の欄に貼る（前は押してから文字の窓に貼っていた） */
-        const idIn = document.createElement('input');
-        idIn.type = 'text';
-        idIn.autocomplete = 'off';
-        idIn.spellcheck = false;
-        idIn.placeholder = '招く人の受け取りID（BTA1-…）を貼る';
-        idIn.setAttribute('aria-label', '招く人の受け取りID');
-        idIn.style.cssText = 'flex:1 1 16em;min-width:12em';
-        const nickIn = document.createElement('input');
-        nickIn.type = 'text';
-        nickIn.autocomplete = 'off';
-        nickIn.maxLength = 24;
-        nickIn.placeholder = '呼び名（空でもよい）';
-        nickIn.setAttribute('aria-label', '招く人の呼び名');
-        nickIn.style.cssText = 'flex:0 1 9em;min-width:6em';
-        const form = el('div', 'row');
-        form.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center;width:100%';
-        form.appendChild(idIn);
-        form.appendChild(nickIn);
-        into.appendChild(form);
-        const keep = into;
-        into = form;
-        btn('招く', async () => {
-          await inviteTo(rec.id, idIn.value, nickIn.value);
-        });
-        into = keepOld;
+        /* 前の形（受け取りIDで招く）は外した（Issue #68 の返事「前の形 使わないので消せる？」） */
       }
       /* 新しいメンバーへ手数料を送る（2026-11-11 Issue #37 の返事）。招かれた人は、受け取る（招待を探す・取り込む）だけなら手数料は要らないが、
          自分の変更を送る・チャットには SOL が要る。始めの一歩を持ち主などが肩代わりできるように */
@@ -3209,49 +3209,6 @@ function chainBox(opts = {}) {
         line.textContent = '「' + name + '」の共有をやめた（この端末だけ）。';
       });
       into = keep;
-    });
-
-    /* 招かれる側（Issue #68 で招く側の下へ移した） */
-    group('share-in', '招かれる（招待を受ける）',
-      '届いた招待コード（BTI1-…）を貼って「受け取る」。海はこの端末に自動で足される（自分で作らなくてよい）。受け取るだけなら手数料は掛からない。'
-      + '先に自分のウォレットのアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる。'
-      + '送っていなければ、自分の変更を送ったときに招いた人の端末がメンバーに足す（送るには SOL が要る）。');
-    {
-      const codeIn = document.createElement('input');
-      codeIn.type = 'text';
-      codeIn.autocomplete = 'off';
-      codeIn.spellcheck = false;
-      codeIn.placeholder = '招待コード（BTI1-…）を貼る';
-      codeIn.setAttribute('aria-label', '招待コード');
-      codeIn.style.cssText = 'flex:1 1 16em;min-width:12em';
-      into.appendChild(codeIn);
-      btn('受け取る', () => acceptCode(codeIn.value));
-    }
-    /* 先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる（Issue #68 の返事） */
-    btn('自分のウォレットのアドレスをコピー（先に招く人へ）', async () => {
-      const tail = '　← 招く人に送ると、招待コードと同時にメンバーに足され、手数料も送ってもらえる（送らなくても受け取れる）。';
-      try { await navigator.clipboard.writeText(cfg.address); line.textContent = 'アドレスをコピーした: ' + cfg.address + tail; } catch (e) {
-        line.textContent = 'アドレス: ' + cfg.address + tail;
-      }
-    });
-    btn('届いた招待を受け取る（鍵が作り替えられたとき）', acceptInvites);
-    /* 前の形（受け取りIDを送って招いてもらう）は畳んで残す */
-    const oldIn = document.createElement('details');
-    oldIn.style.cssText = 'margin-top:6px;width:100%';
-    oldIn.appendChild(el('summary', null, '受け取りIDで招いてもらう（前の形）'));
-    into.appendChild(oldIn);
-    into = oldIn;
-    into.appendChild(el('span', 'note', '「受け取りIDをコピー」を押して招く人に送り、招かれたら上の「届いた招待を受け取る」を押す。'));
-    btn('受け取りIDをコピー', async () => {
-      const keys = await unlock();
-      await checkSame(keys);
-      const addr = await makeShareAddress(keys, net);
-      cfg = Object.assign(loadConfig(), { share: addr });
-      saveConfig(cfg);
-      const tail = '　← これを招いてくれる人に送る。招かれたら「届いた招待を受け取る」を押す。';
-      try { await navigator.clipboard.writeText(addr); line.textContent = '受け取りIDをコピーした: ' + addr + tail; } catch (e) {
-        line.textContent = '受け取りID: ' + addr + tail;
-      }
     });
   }
 
@@ -3697,36 +3654,7 @@ function chainBox(opts = {}) {
     line.textContent = '共有を始めた。この欄で相手のアドレス（あれば）を入れて「招待コードを作る」。自分の記録は「共有中の海」の「自分の変更を送る」で書く。';
   }
 
-  /* 招く（持ち主だけ）。海の欄に貼った受け取りIDの人へ、封筒と新しい名簿を書く */
-  async function inviteTo(id, text, nickRaw) {
-    const net = netSel.value;
-    const rec = sharedRec(id);
-    if (!String(text || '').trim()) throw new Error('招く人の受け取りID（BTA1-…）を欄に貼ってから「招く」を押す');
-    const nick = String(nickRaw || '').trim().slice(0, 24);
-    /* パスキーは押した手の続きで呼ぶ（iPhone）。受け取りIDの確かめ（sha256 を待つ）は鍵を開けたあと */
-    const { keys, seaKey } = await openShared(rec);
-    const to = await readShareAddress(text);
-    if (to.network !== net) throw new Error('相手の受け取りIDは ' + NETWORKS[to.network].label + ' のもの。ネットをそろえる');
-    if ((rec.members || []).some(m => m.a === to.wallet)) throw new Error('この人はもうメンバー');
-    if (rec.owner !== keys.wallet.address) throw new Error('招けるのは海の持ち主だけ');
-    const board = await boardOf(seaKey);
-    const next = Object.assign({}, rec, { members: cleanMembers((rec.members || []).concat([{ a: to.wallet, x: to.text, n: nick }])) });
-    const sea = allEntries().find(e => e.id === id) || { id, name: id, color: 'magma', at: 0 };
-    const env = await sealEnvelope({ network: net, sea, key: seaKey, gen: rec.gen, owner: keys.wallet }, to);
-    const roster = await postMemos(keys.wallet, rosterInner(next), board);
-    const need = await needFunds(net, 1 + roster.length);
-    if (!window.confirm('「' + sea.name + '」に招く？\n相手のウォレット: ' + to.wallet + (nick ? '（' + nick + '）' : '')
-      + '\n招待と新しい名簿をチェーンに書く（取引 ' + (1 + roster.length) + ' 件・手数料の目安 ' + solText(need.fee) + '）。'
-      + '\n招いたことは取り消せない（外すときは「人を外す」で鍵を作り替える）。'
-      + '\n相手のアドレスとこのウォレットのアドレスが、同じ海にいることはチェーンの上で見える。')) { line.textContent = 'やめた'; return; }
-    line.textContent = '書いている…';
-    await writeEnvelope(net, keys.wallet, env, to.wallet);
-    await writePost(net, keys.wallet, roster, board);
-    putShared(next);
-    paint();
-    curKey = 'sea:' + id;
-    line.textContent = '招いた。相手に「届いた招待を受け取る」を押してもらう。自分の記録がまだなら「自分の変更を送る」。';
-  }
+  /* 受け取りIDで招く inviteTo は外した（Issue #68 の返事「前の形 使わないので消せる？」）。招くのは招待コード（createInvite）だけ */
 
   /* 招待コードを作る（持ち主だけ。Issue #68 の返事「おすすめで」= A 案）。
      コードの受け口に招待を 1 件書き（取引 1 件）、コードを見せてコピーする。コードは端末に残さない（受け口だけを控える） */
@@ -3736,7 +3664,7 @@ function chainBox(opts = {}) {
     const addr = String(addrRaw || '').trim();
     const nick = String(nickRaw || '').trim().slice(0, 24);
     /* アドレスの形は鍵を開ける前に確かめてよい（await しないので、押した手の続きのまま） */
-    if (addr && !isAddress(addr)) throw new Error('相手のウォレットのアドレスの形が違う（Solana のアドレスを貼る。BTA1- の受け取りIDなら下の「受け取りIDで招く」へ）');
+    if (addr && !isAddress(addr)) throw new Error('相手のウォレットのアドレスの形が違う（Solana のアドレスを貼る。BTA1- で始まる受け取りIDではない）');
     const { keys, seaKey } = await openShared(rec);
     if (rec.owner !== keys.wallet.address) throw new Error('招待コードを作れるのは海の持ち主だけ');
     if (addr === keys.wallet.address) throw new Error('自分のアドレスが入っている（相手のアドレスを入れる）');
