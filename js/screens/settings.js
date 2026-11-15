@@ -2692,6 +2692,8 @@ function chainBox(opts = {}) {
   let task = single;
   /* 「招く」で選んでいる共有中の海の ID（Issue #68 の返事「他の人と一緒に使うの設定の流れで出てきた方がわかりやすい？」）。paint をまたいで覚える */
   let inviteSel = null;
+  /* いちばん最近作った招待コード（{ id, code }）。この画面を開いている間だけ。端末には残さない（Issue #68） */
+  let lastCode = null;
   /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる。parent は畳む箱（fold）に入れるとき */
   function group(key, title, note, parent = row) {
     const g = el('div', null);
@@ -2708,6 +2710,23 @@ function chainBox(opts = {}) {
     parent.appendChild(g);
     into = r;
     groupKey = key;
+  }
+  /* 共有の流れ（読むだけの説明）。見出し（h4）とボタンの並びと同じ形だと、押せる所と見分けにくかった（Issue #68 の返事
+     「共有の流れの項目 ボタンとかないけど同じ太白文字なので、見え方など工夫できる？」）。
+     畳んだ説明の箱にし、細い字・左の線・薄い地で、操作のまとまりと見分ける。初めて開いたとき（共有中の海が無い）だけ開いた姿で始める */
+  function flowBox(open) {
+    const d = document.createElement('details');
+    d.className = 'share-flow';
+    d.style.cssText = 'margin-top:10px;padding:6px 10px;border-left:3px solid rgba(127,127,127,.5);'
+      + 'background:rgba(127,127,127,.08);border-radius:4px;font-weight:normal';
+    if (open) d.open = true;
+    const s = el('summary', null, 'ⓘ 共有の流れ（招く人と招かれる人の2人で）');
+    s.style.cssText = 'cursor:pointer;font-weight:normal;opacity:.85';
+    d.appendChild(s);
+    const body = el('div', null, SHARE_FLOW);
+    body.style.cssText = 'margin-top:6px;font-size:.92em;font-weight:normal;line-height:1.6;opacity:.9';
+    d.appendChild(body);
+    row.appendChild(d);
   }
   /* ふだんは畳んでおく箱（パスキーが使えない端末・パスキーを失ったとき用） */
   function fold(summary, open) {
@@ -2843,7 +2862,7 @@ function chainBox(opts = {}) {
       /* 始め方は準備の箱にだけ置く（Issue #45）。ここでは、そこへ移るボタンだけ */
       info.textContent = 'ブロックチェーンをまだ始めていない。先に「ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
       /* 始める前でも、海の共有の流れは見せる（Issue #68「どうやって操作したらいいのかわからない」） */
-      if (ALLOWED.includes('share')) group('share-flow', '共有の流れ（招く人と招かれる人の2人で）', SHARE_FLOW);
+      if (ALLOWED.includes('share')) flowBox(true);
       if (opts.goSetup) {
         group('go-setup', '始める', null);
         btn('ブロックチェーンを準備する', async () => opts.goSetup(null));
@@ -3062,8 +3081,8 @@ function chainBox(opts = {}) {
        - 「保存／読み込む」→「自分の変更を送る／みんなの変更を取り込む」。外す・やめるは畳んでおく */
     /* 2026-11-15 Issue #68「招くが先じゃない？」「相手の公開アドレス入れるの？」: 流れを先に1か所で示し、
        招く側（海を選ぶ・新しく作る）を上、招かれる側を下に並べ替えた。相手に入れてもらうのはウォレットのアドレスではなく受け取りID */
-    group('share-flow', '共有の流れ（招く人と招かれる人の2人で）', SHARE_FLOW);
     const shared = loadShared();
+    flowBox(!sharedFor(shared, cfg.address, net).length);
     /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
     group('share', '招く（自分の海に人を招く）',
@@ -3135,11 +3154,31 @@ function chainBox(opts = {}) {
       into.appendChild(nameIn);
       into.appendChild(giftLab);
       btn('招待コードを作る', () => createInvite(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled));
-      const open = (selRec.invites || []).filter(i => !i.used && i.exp > Date.now()).length;
+      /* 作ったコードは、説明の文に埋めず、ここに字とコピーのボタンで出す（Issue #68 の返事「コードコピーできるボタンあれば便利？」） */
+      if (lastCode && lastCode.id === selRec.id) {
+        const codeRow = el('div', 'row');
+        codeRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center;width:100%';
+        const codeTx = el('code', null, lastCode.code);
+        codeTx.style.cssText = 'font-size:1.05em;padding:4px 8px;border:1px solid rgba(127,127,127,.45);border-radius:6px;user-select:all;word-break:break-all';
+        codeTx.setAttribute('aria-label', '作った招待コード');
+        codeRow.appendChild(el('span', 'note', '作った招待コード:'));
+        codeRow.appendChild(codeTx);
+        into.appendChild(codeRow);
+        const keepCode = into;
+        into = codeRow;
+        const code = lastCode.code;
+        btn('招待コードをコピー', async () => {
+          try { await navigator.clipboard.writeText(code); line.textContent = '招待コードをコピーした。相手にだけ送る。'; } catch (e) {
+            line.textContent = 'コピーできなかった。コードの字を長押しして選んで写す。';
+          }
+        });
+        into = keepCode;
+      }
+      const open =(selRec.invites || []).filter(i => !i.used && i.exp > Date.now()).length;
       /* コードそのものは端末に残さない（合言葉と同じ秘密なので）。画面を閉じると見直せないことを添える（Issue #68 の返事
          「使われていない招待コード 1 件となり、タブを閉じると招待コードは読めなくなる？」） */
       if (open) into.appendChild(el('span', 'note', 'まだ誰も使っていない招待コード ' + open + ' 件（' + INVITE_DAYS + ' 日のうちは、送ったコードで受け取れる。'
-        + 'コードは作ったときに出た 1 度だけで、あとから見直せない。送り忘れたら作り直す）'));
+        + 'コードはこの画面を開いている間だけ上に出る。閉じたあとは見直せないので、送り忘れたら作り直す）'));
     }
 
     /* 招かれる側。招く側のすぐ下に置く（Issue #68 の返事「招かれるが下の方にある。招く招かれるで近くにあった方がわかりやすくない？」。
@@ -3706,12 +3745,13 @@ function chainBox(opts = {}) {
       .concat([{ inv: box.address, at: now, exp: now + INVITE_DAYS * 86400000, used: addr ? now : null }]);
     if (nextMembers) next.members = nextMembers;
     putShared(next);
-    const tail = '　← これを相手にだけ送る（メッセージなど。このコードはあとから見直せないので、今コピーして送る）。相手は「招かれる」に貼って「受け取る」。'
-      + (addr ? '' : '相手が記録を送ったら「みんなの変更を取り込む」でメンバーに足す。');
-    let msg;
-    try { await navigator.clipboard.writeText(code); msg = '招待コードをコピーした: ' + code + tail; } catch (e) {
-      msg = '招待コード: ' + code + tail;
-    }
+    /* コードは知らせの文に埋めず、② の欄の「招待コードをコピー」の横に出す（Issue #68 の返事「コードコピーできるボタンあれば便利？
+       いま、説明文に埋もれて見えにくい」）。この画面を開いている間だけメモリに置く（端末には残さない） */
+    lastCode = { id, code };
+    let copied = false;
+    try { await navigator.clipboard.writeText(code); copied = true; } catch (e) { /* ボタンで写す */ }
+    let msg = (copied ? '招待コードを作ってコピーした。' : '招待コードを作った。下の「招待コードをコピー」で写す。')
+      + '相手にだけ送る（メッセージなど）。' + (addr ? '' : '相手が記録を送ったら「みんなの変更を取り込む」でメンバーに足す。');
     curKey = 'share-code';
     line.textContent = msg;
     /* 同じ押しの続きで手数料を送る（鍵は開けてある。パスキーを 2 度求めない） */
