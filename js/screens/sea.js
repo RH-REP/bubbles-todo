@@ -215,6 +215,11 @@ const EDGE_SPAN = 1;
 
 let root, stage, view, world, hint, grid, gridCap, gridEmpty, vent;
 let gridSortBtn = null;   /* 一覧の並びを入れ替える「⇅」（Issue #69） */
+/* 選んでまとめて完了（Issue #72）。pickMode の間、行を押すと選ぶ／外す */
+let gridPickBtn = null;
+let pickMode = false;
+const picked = new Set();
+let pickBar = null;       /* { count, go } 描くたびに作り直す（gridNodes に入る） */
 let faceName, faceDot, faceLabel;
 let gatherBtn, gatherLabel, gatherIc;
 let narrowBtn, narrowLabel, centerEmpty;
@@ -2358,6 +2363,7 @@ function setGathering(on) {
   /* 整列を畳んだら、さがした文字も片づける。
      次に開いたときに前の結果が残っていると、「全部あるはず」が裏切られる */
   if (!on && gridQ) { gridQ = ''; if (gridFind) gridFind.value = ''; }
+  if (!on) { pickMode = false; picked.clear(); }    /* 選びかけ（Issue #72）も畳む */
   if (gathering === on) return;
   cancelShuffle();          /* 整列に入る／戻るときは、混ぜかけを畳む */
   gathering = on;
@@ -3025,6 +3031,69 @@ function onRowDown(ev, row, id) {
   window.addEventListener('pointercancel', onRowUp, true);
 }
 
+/* ---------------- 選んでまとめて完了（Issue #72）----------------
+
+   > リストから終わったTODOまとめて完了にできない？
+
+   一覧の見出しの「✓ 選んで完了」を押すと、行の頭に □ が出る。押した行を選び（☑）、
+   一覧の下に留まる帯の［完了にする（N件）］で、選んだものをまとめて完了にする。
+   音は1回、知らせは1つ、［取り消す］で全部を戻す。
+   選んでいる間は、行を押しても盤は開かず、つまんで運ぶこともしない（押す＝選ぶ、に絞る）。
+   完了の海（もう完了している）・日付で見る・四つ では出さない。
+   さがした結果に混ざる完了したもの・消したものは選べない。 */
+function canPickItem(t) {
+  return !!t && !t.trashed && !isDoneItem(t);
+}
+
+function setPickMode(on) {
+  pickMode = !!on;
+  picked.clear();
+  if (gathering && gridMode === 'list') renderGrid();
+}
+
+function syncPickBar() {
+  if (!pickBar) return;
+  const n = picked.size;
+  pickBar.count.textContent = n ? n + '件を選んでいる' : '完了にするものを押して選ぶ';
+  pickBar.go.disabled = n === 0;
+  pickBar.go.textContent = n ? '完了にする（' + n + '件）' : '完了にする';
+}
+
+function togglePick(id, row) {
+  if (picked.has(id)) picked.delete(id); else picked.add(id);
+  const on = picked.has(id);
+  row.classList.toggle('is-picked', on);
+  row.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const box = row.querySelector('.sea-row-pick');
+  if (box) box.textContent = on ? '☑' : '☐';
+  syncPickBar();
+}
+
+function completePicked() {
+  if (!has('complete')) return;
+  const ids = [...picked].filter(id => canPickItem(store.get(id)));
+  /* 先に選ぶ形を閉じる。complete のたびに描き直しが走るので、その時にはもう普通の一覧 */
+  pickMode = false;
+  picked.clear();
+  const doneIds = [];
+  let firstText = '';
+  ids.forEach(id => {
+    const before = store.get(id);
+    const r = store.complete(id);
+    if (!r) return;
+    doneIds.push(id);
+    if (!firstText) firstText = (r && r.text) || (before && before.text) || '';
+  });
+  if (gathering && gridMode === 'list') renderGrid();
+  if (!doneIds.length) return;
+  try { playComplete(); } catch (err) { console.error(err); }   /* 音は1回だけ */
+  const msg = doneIds.length === 1 ? '「' + trim(firstText) + '」を完了' : doneIds.length + '件を完了';
+  toast(msg, {
+    label: '取り消す',
+    on: () => { if (has('uncomplete')) doneIds.forEach(id => store.uncomplete(id)); },
+  });
+}
+
 function renderGrid() {
   if (gridMode === 'quad') { renderQuad(); return; }
   if (gridMode === 'days') { renderDays(); return; }
@@ -3052,6 +3121,22 @@ function renderGrid() {
   }
   /* 完了の海は「完了した日の新しい順」で決まっているので、入れ替えのボタンは出さない */
   syncSortBtn(!doneView);
+  /* 選んでまとめて完了（Issue #72）。完了の海では出さない（もう完了している） */
+  const canPick = !isDoneFace();
+  if (!canPick && pickMode) { pickMode = false; picked.clear(); }
+  if (gridPickBtn) {
+    gridPickBtn.hidden = !canPick;
+    gridPickBtn.textContent = pickMode ? 'やめる' : '✓ 選んで完了';
+    gridPickBtn.setAttribute('aria-pressed', pickMode ? 'true' : 'false');
+    gridPickBtn.setAttribute('aria-label', pickMode ? '選ぶのをやめる' : '選んでまとめて完了にする');
+  }
+  /* 選んだもののうち、いま一覧に居ない・もう選べないものは外す（同期・ほかの画面で変わったとき） */
+  if (pickMode) {
+    const here = new Set(list.filter(canPickItem).map(t => t.id));
+    [...picked].forEach(id => { if (!here.has(id)) picked.delete(id); });
+  }
+  grid.classList.toggle('is-picking', pickMode);
+  pickBar = null;
   let lastDay = null;
 
   /* 行はバブルを組まずに作り直す。**海が新しいほうしか出さなくなったので、
@@ -3082,6 +3167,19 @@ function renderGrid() {
     const row = el('button', 'sea-row');
     row.type = 'button';
     row.dataset.id = t.id;
+
+    /* 選んでいる間は、行の頭に □／☑（Issue #72）。選べないもの（完了・消した）は印を出さない */
+    const pickable = pickMode && canPickItem(t);
+    if (pickable) {
+      const on = picked.has(t.id);
+      const box = el('span', 'sea-row-pick', on ? '☑' : '☐');
+      box.setAttribute('aria-hidden', 'true');
+      row.appendChild(box);
+      row.classList.toggle('is-picked', on);
+      row.setAttribute('aria-pressed', on ? 'true' : 'false');
+    } else if (pickMode) {
+      row.classList.add('is-unpickable');
+    }
 
     /* 色の点。付いているタグのぶんだけ、最大3つ（それ以上は行が点で埋まる）。
        色だけを手がかりにしないので、読み上げ文にはタグの名前を入れる（1.4.1） */
@@ -3138,6 +3236,15 @@ function renderGrid() {
     const names = namesOf(t);
     row.setAttribute('aria-label', t.text + (names.length ? '（' + names.join('、') + '）' : '')
       + (gone ? '（' + goneLabel(t) + '）' : ''));
+    if (pickMode) {
+      /* 選んでいる間は、押す＝選ぶ／外すだけ。盤・メニュー・つまむは出さない（Issue #72） */
+      if (!pickable) row.setAttribute('aria-disabled', 'true');
+      row.addEventListener('click', ev => { ev.preventDefault(); if (pickable) togglePick(t.id, row); });
+      row.addEventListener('contextmenu', ev => ev.preventDefault());
+      gridNodes.set(t.id, { node: row, detach: null });
+      grid.appendChild(row);
+      return;
+    }
     if (gone) {
       /* 消したものは盤もメニューもつまむのも無し。押すと「戻す」を聞く（Issue #58） */
       row.classList.add('is-gone');
@@ -3160,6 +3267,26 @@ function renderGrid() {
     gridNodes.set(t.id, { node: row, detach: null });
     grid.appendChild(row);
   });
+
+  /* 選んでいる間は、一覧の下に留まる帯（Issue #72）。件数と［完了にする］［やめる］ */
+  if (pickMode) {
+    const bar = el('div', 'sea-pick-bar');
+    const count = el('span', 'sea-pick-count');
+    count.setAttribute('aria-live', 'polite');
+    const go = el('button', 'sea-pick-go');
+    go.type = 'button';
+    go.addEventListener('click', ev => { ev.preventDefault(); completePicked(); });
+    const quit = el('button', 'sea-grid-sort sea-pick-quit', 'やめる');
+    quit.type = 'button';
+    quit.addEventListener('click', ev => { ev.preventDefault(); setPickMode(false); });
+    bar.appendChild(count);
+    bar.appendChild(quit);
+    bar.appendChild(go);
+    gridNodes.set('pick:bar', { node: bar, detach: null });
+    grid.appendChild(bar);
+    pickBar = { count, go };
+    syncPickBar();
+  }
 }
 
 /* ---------------- 画面まわりの表示 ---------------- */
@@ -3178,6 +3305,7 @@ function setGridMode(mode) {
      終えたものの急ぐ・大事は、もう分ける意味が無い。開く形が四つでも一覧で開く */
   if (mode === 'quad' && isDoneFace()) mode = 'list';
   gridMode = mode;
+  if (mode !== 'list') { pickMode = false; picked.clear(); }   /* 選ぶのは一覧だけ（Issue #72） */
   if (gridQ) { gridQ = ''; if (gridFind) gridFind.value = ''; }
   if (!gathering) { setGathering(true); return; }
   clearGrid();
@@ -3784,6 +3912,11 @@ export default {
     gridSortBtn.type = 'button';
     gridSortBtn.addEventListener('click', ev => { ev.preventDefault(); toggleListOrder(); });
     capRow.appendChild(gridSortBtn);
+    /* 選んでまとめて完了（Issue #72）。押すと行に □ が出て、押した行を選ぶ */
+    gridPickBtn = el('button', 'sea-grid-sort sea-grid-pick');
+    gridPickBtn.type = 'button';
+    gridPickBtn.addEventListener('click', ev => { ev.preventDefault(); setPickMode(!pickMode); });
+    capRow.appendChild(gridPickBtn);
     grid.appendChild(capRow);
     syncSortBtn(true);
     /* 設定の「この端末の表示」で並びを変えたときも、開いている一覧を描き直す */

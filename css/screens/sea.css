@@ -575,6 +575,33 @@
   background: var(--surface, rgba(255, 255, 255, .7)); color: var(--text-2);
 }
 .sea-grid-sort[hidden] { display: none; }
+
+/* 選んでまとめて完了（Issue #72）。行の頭の □／☑ と、一覧の下に留まる帯 */
+.sea-row-pick {
+  flex: none; width: 1.4em; text-align: center;
+  font-size: 18px; line-height: 1; color: var(--text-2);
+}
+.sea-row.is-picked { background: color-mix(in srgb, var(--bub-edge) 22%, var(--surface)); }
+.sea-row.is-picked .sea-row-pick { color: var(--text); }
+.sea-row.is-unpickable { opacity: .45; cursor: default; }
+.sea-pick-bar {
+  position: sticky; bottom: 0; z-index: 1;
+  margin-top: 10px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; border-radius: 14px;
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 8px 22px -12px var(--bub-shadow), 0 0 0 1px var(--line);
+}
+.sea-pick-count { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text-2); }
+.sea-pick-go {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  min-height: 44px; padding: 0 16px; border-radius: 22px;   /* タップ目標は 44 を下回らない */
+  border: 1.5px solid var(--bub-edge);
+  background: color-mix(in srgb, var(--bub-edge) 28%, var(--surface)); color: var(--text);
+}
+.sea-pick-go:disabled { opacity: .45; cursor: default; }
+.sea-pick-go:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
 .sea-grid-sort:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
 
 .sea-row {
