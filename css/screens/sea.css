@@ -530,7 +530,7 @@
    海は新しいほうから 50 までしか出さなくなったので、**ここが「ぜんぶ読む場所」**。
    読む場所は絵ではなく文字のほうが速いので、バブルは組まずに行にした
    （バブル1個は DOM 5ノード＋グラデーション7層。行は3ノード）。
-   並びは古い順のまま＝海から隠れたものが先頭に来る。 */
+   並びは既定で新しい順（Issue #69。前は古い順）。見出しの横の「⇅」で古い順に入れ替えられる。 */
 .sea-grid {
   position: absolute; inset: 0; z-index: 6;
   overflow-y: auto; overscroll-behavior: contain;
@@ -560,6 +560,22 @@
   color: var(--text-2);
 }
 .sea-grid-empty { line-height: 1.8; }
+
+/* 見出し（いまの並び）と、並びを入れ替える「⇅」（Issue #69。既定は新しい順） */
+.sea-grid-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap;
+}
+.sea-grid-head > .sea-grid-cap { margin: 0; flex: 1 1 auto; min-width: 0; }
+.sea-grid-sort {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font: inherit; font-size: 12.5px; letter-spacing: .04em;
+  min-height: 44px; padding: 0 12px;          /* タップ目標は 44 を下回らない */
+  border: 1px solid var(--line, rgba(0, 0, 0, .14)); border-radius: 22px;
+  background: var(--surface, rgba(255, 255, 255, .7)); color: var(--text-2);
+}
+.sea-grid-sort[hidden] { display: none; }
+.sea-grid-sort:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
 
 .sea-row {
   appearance: none; -webkit-appearance: none; cursor: pointer;

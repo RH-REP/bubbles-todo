@@ -68,7 +68,15 @@ export const ITEMS = [
     /* Issue #40 の返事。海の「リスト表示」を押したときに、はじめに出す形（js/screens/sea.js の gatherBtn） */
     id: 'listStart', type: 'choice', def: 'list', pages: ['list'],
     label: 'リスト表示を開いたときの形',
-    choices: [['list', '一覧（古い順）'], ['days', '日付（終了日の近い順と天気）'], ['quad', '四つ（急ぐ・大事）']],
+    choices: [['list', '一覧（書いた順）'], ['days', '日付（終了日の近い順と天気）'], ['quad', '四つ（急ぐ・大事）']],
+  },
+  {
+    /* Issue #69「デフォルトは新しい順で並びを入れ替えられるようにできる？」。
+       リスト表示の一覧（とさがした結果・四つの中）の並び。一覧の見出しの横の「⇅」でも切り替わる（js/screens/sea.js の gridSortBtn）。
+       完了の海の一覧は、完了した時刻の新しい順のまま（Issue #57） */
+    id: 'listOrder', type: 'choice', def: 'new', pages: ['list'],
+    label: 'リスト表示の一覧の並び',
+    choices: [['new', '新しい順'], ['old', '古い順']],
   },
   {
     id: 'wind', type: 'bool', def: false, pages: ['list'],

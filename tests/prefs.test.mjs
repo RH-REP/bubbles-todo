@@ -65,6 +65,19 @@ test('既定: 起動は海・風は出さない・タグは出す・タブはい
   assert.equal(PREFS_KEY.startsWith('bubble_todo'), true);
 });
 
+test('リスト表示の一覧の並び: 既定は新しい順、古い順に切り替えて端末に残る（Issue #69）', () => {
+  assert.equal(defaults().listOrder, 'new');
+  assert.equal(checkValue('listOrder', 'old'), 'old');
+  assert.equal(checkValue('listOrder', 'random'), undefined);
+  const m = mem();
+  savePrefs(applyChanges(loadPrefs(m), { listOrder: 'old' }).next, m);
+  assert.equal(loadPrefs(m).listOrder, 'old');
+  assert.deepEqual(JSON.parse(m.getItem(PREFS_KEY)), { listOrder: 'old' });
+  /* 新しい順（既定）に戻せば、箱ごと消える */
+  savePrefs(applyChanges(loadPrefs(m), { listOrder: 'new' }).next, m);
+  assert.equal(m.getItem(PREFS_KEY), null);
+});
+
 test('読めない値は既定で埋める', () => {
   const n = normalize({ start: 'settings', wind: 'yes', hideTags: 1, tabOrder: ['sea', 'sea', 'plan', 'gap'], other: 1 });
   assert.deepEqual(n, defaults());

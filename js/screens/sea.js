@@ -34,7 +34,7 @@ import { playComplete, playSfx } from '../sound.js';
 import { dropDay } from './today.js';
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { createDeadlineView, deadlineButton, syncDeadlineButton } from '../deadlineview.js';
-import { loadPrefs } from '../prefs.js';     /* リスト表示を開いたときの形（Issue #40） */
+import { loadPrefs, savePrefs, applyChanges, PREFS_EVENT } from '../prefs.js';     /* リスト表示を開いたときの形（Issue #40）・一覧の並び（Issue #69） */
 
 /* --- 海に出すバブルの上限（利用者の指示）---
 
@@ -214,6 +214,7 @@ const EDGE_BAND = 21;   /* 帯の厚み px。利用者の指示で 64 の 1/3。
 const EDGE_SPAN = 1;
 
 let root, stage, view, world, hint, grid, gridCap, gridEmpty, vent;
+let gridSortBtn = null;   /* 一覧の並びを入れ替える「⇅」（Issue #69） */
 let faceName, faceDot, faceLabel;
 let gatherBtn, gatherLabel, gatherIc;
 let narrowBtn, narrowLabel, centerEmpty;
@@ -2773,10 +2774,41 @@ function askUntrash(t) {
 
    **さがす（文字検索）だけは全件のまま。**あれは「どこへ行ったか分からないものを
    見つける」ための道で、海を跨いで探せないと役に立たない。
-   一覧が海に閉じたぶん、全件へ届く道はここ1本になった。 */
+   一覧が海に閉じたぶん、全件へ届く道はここ1本になった。
+   （並びの決まりは下の listOrder。listItems はその下） */
+/* 一覧の並び（Issue #69）。'new'＝新しい順（既定）、'old'＝古い順。
+   この端末の表示（js/prefs.js の listOrder）に置き、見出しの横の「⇅」と設定の両方から変わる */
+function listOrder() {
+  try { return loadPrefs().listOrder === 'old' ? 'old' : 'new'; } catch (e) { return 'new'; }
+}
+
+function toggleListOrder() {
+  const next = listOrder() === 'old' ? 'new' : 'old';
+  try {
+    const r = applyChanges(loadPrefs(), { listOrder: next });
+    savePrefs(r.next);
+  } catch (e) { /* 置けなくても、この場の並びは下で描き直す */ }
+  /* 設定の画面などにも知らせる（js/app.js・settings.js が当て直す。ここの描き直しは下でする） */
+  try { window.dispatchEvent(new CustomEvent(PREFS_EVENT)); } catch (e) { /* 無くてよい */ }
+  renderGrid();
+  if (grid) grid.scrollTop = 0;     /* 並びが逆になったので、先頭（いま上に来たもの）から見せる */
+}
+
+function syncSortBtn(show) {
+  if (!gridSortBtn) return;
+  gridSortBtn.hidden = !show;
+  const isOld = listOrder() === 'old';
+  const other = isOld ? '新しい順' : '古い順';
+  gridSortBtn.textContent = '⇅ ' + other + 'にする';
+  gridSortBtn.setAttribute('aria-label', '並びを' + other + 'にする');
+}
+
+/* 一覧に出すもの（上の長い説明のとおり）。並びは listOrder() */
 function listItems() {
   const q = normQ(gridQ);
-  const byAge = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
+  /* 並びは「この端末の表示」の listOrder（Issue #69。既定は新しい順） */
+  const sgn = listOrder() === 'old' ? 1 : -1;
+  const byAge = (a, b) => sgn * ((a.createdAt || 0) - (b.createdAt || 0));
   if (q) {
     const live = store.all().filter(t => hay(t).indexOf(q) >= 0).sort(byAge);
     /* 消したもの（墓石）も、さがしている間だけ後ろに足す（Issue #58 の返事「おすすめで」）。
@@ -3013,10 +3045,13 @@ function renderGrid() {
     : (what ? '「' + what + '」には何も無い。' : 'まだ何も無い。下に書くと、ここに並ぶ。');
   const doneView = !q && isDoneFace();
   if (gridCap) {
+    const ord = listOrder() === 'old' ? '古い順' : '新しい順';   /* Issue #69 */
     gridCap.textContent = doneView
       ? '「' + what + '」（完了した日の新しい順。下へ行くほど前の日）'
-      : (q ? 'さがした結果' : (what ? '「' + what + '」' : '')) + (q || what ? '（古い順）' : '古い順');
+      : (q ? 'さがした結果' : (what ? '「' + what + '」' : '')) + (q || what ? '（' + ord + '）' : ord);
   }
+  /* 完了の海は「完了した日の新しい順」で決まっているので、入れ替えのボタンは出さない */
+  syncSortBtn(!doneView);
   let lastDay = null;
 
   /* 行はバブルを組まずに作り直す。**海が新しいほうしか出さなくなったので、
@@ -3741,8 +3776,18 @@ export default {
     findBox.appendChild(gridFind);
     grid.appendChild(findBox);
 
-    gridCap = el('p', 'sea-grid-cap', '古い順');
-    grid.appendChild(gridCap);
+    /* 見出し（いまの並び）と、並びを入れ替える「⇅」を1行に（Issue #69。既定は新しい順） */
+    const capRow = el('div', 'sea-grid-head');
+    gridCap = el('p', 'sea-grid-cap', '新しい順');
+    capRow.appendChild(gridCap);
+    gridSortBtn = el('button', 'sea-grid-sort');
+    gridSortBtn.type = 'button';
+    gridSortBtn.addEventListener('click', ev => { ev.preventDefault(); toggleListOrder(); });
+    capRow.appendChild(gridSortBtn);
+    grid.appendChild(capRow);
+    syncSortBtn(true);
+    /* 設定の「この端末の表示」で並びを変えたときも、開いている一覧を描き直す */
+    window.addEventListener(PREFS_EVENT, () => { if (gathering && gridMode === 'list') renderGrid(); });
     gridEmpty = el('p', 'sea-grid-empty', 'まだ何も無い。下に書くと、ここに並ぶ。');
     gridEmpty.hidden = true;
     grid.appendChild(gridEmpty);
