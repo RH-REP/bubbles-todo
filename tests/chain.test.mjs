@@ -13,6 +13,7 @@ import {
   requestAirdrop, AIRDROP_LAMPORTS, FAUCET_URL, COMPUTE_BUDGET_PROGRAM, COMPUTE_UNITS, memoFromMessage,
   isAddress, transferMessage, planSweep, SYSTEM_PROGRAM, passkeyLabel,
   MOVE_KEY, loadMove, saveMove, clearMove, moveStep, moveSteps, inNativeApp,
+  MAX_TX, MAX_TX_FORCE, READ_TX, backupSize,
 } from '../js/chain.js';
 import { PROVIDERS } from '../js/ai.js';
 
@@ -328,6 +329,21 @@ await test('Android の app（Capacitor）ではパスキーを使わない・�
   const syncSrc = readFileSync(new URL('../js/sync.js', import.meta.url), 'utf8');
   assert.ok(boot.includes("'bubble_todo_edition_stay'") && settings.includes("'bubble_todo_edition_stay'"));
   assert.ok(boot.includes("'bubble_todo_sync'") && syncSrc.includes("CONF_KEY = 'bubble_todo_sync'"));
+});
+
+await test('控えの大きさ: 上限を超えても「それでも書く」で書け、読めなくなる大きさは書かない（Issue #67）', async () => {
+  assert.equal(backupSize(1), 'ok');
+  assert.equal(backupSize(MAX_TX), 'ok');
+  assert.equal(backupSize(MAX_TX + 1), 'over');
+  assert.equal(backupSize(81), 'over');
+  assert.equal(backupSize(MAX_TX_FORCE), 'over');
+  assert.equal(backupSize(MAX_TX_FORCE + 1), 'too-big');
+  /* 書ける上限は、読むときに見る取引の数の内に余裕を残す */
+  assert.ok(MAX_TX < MAX_TX_FORCE && MAX_TX_FORCE < READ_TX);
+  /* 画面は上限を超えたら確かめの文に手数料と「それでも書く」を出し、止めるのは too-big のときだけ */
+  const settings = readFileSync(new URL('../js/screens/settings.js', import.meta.url), 'utf8');
+  assert.ok(settings.includes("size === 'too-big'") && settings.includes('それでも書くなら OK'));
+  assert.ok(!settings.includes('件に分かれる）。引っ越しのファイルを使う'));
 });
 
 void toB64;

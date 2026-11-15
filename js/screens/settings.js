@@ -20,7 +20,7 @@ import { isPersonal, PERSONAL_RE, allSpaceIds, regionList, findRegion, personalI
   regionsPayload, pickForPayload, importRegions, remapPayload } from '../regions.js';
 import { makePassphrase, buildPayload, encryptMove, decryptMove, readMoveHead, moveSummary, moveFileName,
   boxToState, stateToBox, mergeBox } from '../movefile.js';
-import { NETWORKS, MAX_TX, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
+import { NETWORKS, MAX_TX, MAX_TX_FORCE, backupSize, CONFIG_KEY, loadConfig, saveConfig, rootFromPassphrase, keysFromRoot, makeRecoveryCode,
   readRecoveryCode, sealToMemos, openMemos, readLatestMemos, writeMemos, getBalance, requestAirdrop, needLamports, rpc,
   prfSupported, createPasskey, passkeyRoot, solText, FAUCET_URL, planSweep, sweep,
   loadMove, saveMove, clearMove, moveStep, moveSteps } from '../chain.js';
@@ -3781,8 +3781,11 @@ function chainBox(opts = {}) {
       regions: regionsPayload(chosen) });
     const sum = moveSummary(payload);
     const memos = await sealToMemos(payload, keys.recordKey);
-    if (memos.length > MAX_TX) {
-      throw new Error('記録が大きすぎる（取引 ' + memos.length + ' 件に分かれる）。引っ越しのファイルを使う');
+    /* MAX_TX を超えても、手数料の目安を見せて「それでも書く」を選べる（2026-11-15 Issue #67）。読めなくなる大きさ（MAX_TX_FORCE 超）は書かない */
+    const size = backupSize(memos.length);
+    if (size === 'too-big') {
+      throw new Error('記録が大きすぎる（取引 ' + memos.length + ' 件に分かれる。書けるのは ' + MAX_TX_FORCE
+        + ' 件まで）。入れる海を減らすか、引っ越しのファイルを使う');
     }
     const [bal, need] = await Promise.all([getBalance(net, keys.wallet.address), needLamports(net, memos.length)]);
     if (bal < need.fee + need.rent) {
@@ -3793,11 +3796,16 @@ function chainBox(opts = {}) {
     const rawBytes = new TextEncoder().encode(JSON.stringify(payload)).length;
     const sealedBytes = Math.round(memos.reduce((n, m) => n + m.slice(m.lastIndexOf(' ') + 1).length, 0) * 3 / 4);
     const kb = b => (b / 1024).toFixed(1) + ' KB';
+    const over = size === 'over'
+      ? '\n\n【ふだんの上限 ' + MAX_TX + ' 件を超える】取引 ' + memos.length + ' 件・手数料の目安 ' + solText(need.fee)
+        + '\n書き終わるまで時間が掛かり、途中で止まると、その控えは戻せない（手数料は戻らない）。'
+        + '引っ越しのファイルなら手数料は掛からない。\nそれでも書くなら OK、やめるならキャンセル。'
+      : '';
     if (!window.confirm(NETWORKS[net].label + ' にバックアップを保存する？\n海 ' + sum.seas + ' つ・todo ' + sum.todos + ' 件'
       + '\n大きさ ' + kb(rawBytes) + ' → 縮めて暗号化 ' + kb(sealedBytes)
       + '（' + Math.round(sealedBytes / Math.max(1, rawBytes) * 100) + '%）'
       + '\n取引 ' + memos.length + ' 件・手数料の目安 ' + solText(need.fee)
-      + '\n書いたものは消せない（暗号化してある）。')) { line.textContent = 'やめた'; return null; }
+      + '\n書いたものは消せない（暗号化してある）。' + over)) { line.textContent = 'やめた'; return null; }
     const sigs = await writeMemos(net, keys.wallet, memos, {
       onStep: (i, n) => { line.textContent = '書いている… ' + i + '/' + n; },
     });

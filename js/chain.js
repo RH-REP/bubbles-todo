@@ -39,7 +39,16 @@ export const TAG = 'bt1';
 export const BOARD_TAG = 'bt2';
 const BOARD_SALT = 'bubbles-board-v1';
 export const CHUNK = 500;          /* 1 つのメモに入れる base64 の字数（取引 1 件 1232 バイトの内に余裕を持って収め、計算も軽くする） */
-export const MAX_TX = 60;          /* これより多くの取引に分かれるなら書かない（ファイルの引っ越しを使ってもらう） */
+export const MAX_TX = 60;          /* これより多くの取引に分かれるなら、ふつうは書かない（ファイルの引っ越しを勧める） */
+/* 読むときに見る新しい取引の数（readLatestMemos・latestBackupId）。控えの切れ端はこの中に全部そろっていないと戻せない */
+export const READ_TX = 200;
+/* MAX_TX を超えても「それでも書く」で書ける上限（2026-11-15 Issue #67）。READ_TX の内に、ほかの取引（掲示板・入金など）の余裕を残す */
+export const MAX_TX_FORCE = 180;
+/* 控えが取引 count 件に分かれるとき、書いてよいか → 'ok'（ふつうに書く）／'over'（MAX_TX を超える。確かめて「それでも書く」なら書く）／'too-big'（読めなくなるので書かない） */
+export function backupSize(count) {
+  if (count > MAX_TX_FORCE) return 'too-big';
+  return count > MAX_TX ? 'over' : 'ok';
+}
 export const FEE_LAMPORTS = 5000;  /* 署名 1 つの手数料（目安） */
 export const LAMPORTS = 1e9;       /* 1 SOL */
 export const PBKDF_ITER = 600000;
@@ -535,7 +544,7 @@ async function memoOfTx(network, sig, opt) {
 }
 
 /* 住所のいちばん新しく全部そろった控えの切れ端。無ければ null */
-export async function readLatestMemos(network, address, { limit = 200, opt } = {}) {
+export async function readLatestMemos(network, address, { limit = READ_TX, opt } = {}) {
   const list = await rpc(network, 'getSignaturesForAddress', [address, { limit, commitment: 'confirmed' }], opt) || [];
   const memos = [];
   for (const it of list) {
@@ -553,8 +562,9 @@ export async function readLatestMemos(network, address, { limit = 200, opt } = {
 }
 
 /* いちばん新しく全部そろった控えの ID だけ（鍵は要らない。取引の一覧を 1 回尋ねるだけで、1 件ずつの取引は読まない）。
-   無ければ null。ほかの端末が新しく書いたかを見るため（2026-11-13 Issue #52 の R1。js/chainwatch.js） */
-export async function latestBackupId(network, address, { limit = 60, opt } = {}) {
+   無ければ null。ほかの端末が新しく書いたかを見るため（2026-11-13 Issue #52 の R1。js/chainwatch.js）。
+   MAX_TX を超えて書いた控え（Issue #67）もそろって見えるよう、読む数は READ_TX にそろえる（一覧を 1 回尋ねるのは変わらない） */
+export async function latestBackupId(network, address, { limit = READ_TX, opt } = {}) {
   const list = await rpc(network, 'getSignaturesForAddress', [address, { limit, commitment: 'confirmed' }], opt) || [];
   const memos = [];
   list.forEach(it => {
