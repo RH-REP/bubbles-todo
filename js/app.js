@@ -48,7 +48,7 @@ import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
-import settings from './screens/settings.js';
+import settings, { syncSharedSea } from './screens/settings.js';
 
 const SCREENS = [sea, today, plan, gap, review, settings];
 
@@ -795,6 +795,10 @@ setCenterHandler({
     return store.putNote(await signNote(n, w));
   },
   checkNote:     (n) => checkNote(n, sharedSeaOf(store.space())),
+  /* 盤のひとことの横の「同期」（2026-11-15 Issue #68 の返事）。ブロックチェーンで共有している海で、この端末がブロックチェーンを始めているときだけ。
+     設定の「同期する」と同じ（取り込み・新しい書き込みがあれば送る）。押した手の続きで呼ぶ */
+  shareSyncOn:   () => signingOn(store.space()),
+  syncShared:    (say) => syncSharedSea(store.space(), say),
   noteName:      () => noteName(),
   setNoteName:   (v) => setNoteName(v),
   hasNewNote:    (id) => has('notesOf')

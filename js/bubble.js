@@ -979,6 +979,36 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     });
     qrow.appendChild(chatIn);
     qrow.appendChild(qsend);
+    /* 同期（2026-11-15 Issue #68 の返事「同期ボタンは、盤（TODO）のひとことの『送る』の横にも」→「こっちにも」）。
+       ブロックチェーンで共有している海だけ。設定の「同期する」と同じ（取り込み・新しい書き込みがあれば送る）。
+       押した手の続きで鍵を開ける（パスキー）ので、呼ぶ前に await しない */
+    if (ask(a, 'shareSyncOn') === true) {
+      const qsync = el('button', 'bn-quick-send bn-quick-sync', '同期');
+      qsync.type = 'button';
+      qsync.title = 'みんなの変更を取り込み、この端末に新しい書き込みがあれば送る（送るときは手数料が掛かる）';
+      let syncBack = 0;
+      qsync.addEventListener('click', ev => {
+        ev.preventDefault();
+        if (qsync.disabled) return;
+        clearTimeout(syncBack);
+        const p = ask(a, 'syncShared', (msg) => { if (msg) qsync.title = String(msg); });
+        if (!p || typeof p.then !== 'function') { qsync.textContent = 'できない'; syncBack = setTimeout(() => { qsync.textContent = '同期'; }, 1400); return; }
+        qsync.disabled = true;
+        qsync.textContent = '同期中…';
+        p.then(() => {
+          qsync.textContent = '同期した';
+          syncNotesBtn();
+          if (notesPane && !notesPane.hidden) renderNotes();
+        }, e => {
+          qsync.textContent = /やめた/.test(String((e && e.message) || e)) ? 'やめた' : 'できない';
+          qsync.title = String((e && e.message) || e);
+        }).finally(() => {
+          qsync.disabled = false;
+          syncBack = setTimeout(() => { qsync.textContent = '同期'; }, 1800);
+        });
+      });
+      qrow.appendChild(qsync);
+    }
     nwrap.appendChild(qrow);
     fields.appendChild(nwrap);
     syncNotesBtn();
@@ -2506,8 +2536,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (!p || typeof p.then !== 'function') return;
     p.then(r => {
       if (r && r.ok) { mk.textContent = '✓ ' + r.name; mk.classList.add('is-ok'); mk.title = 'ウォレットの署名で確かめた書き手'; }
-      /* この端末で書いて、まだ署名していないもの（書くときは鍵を求めず、「自分の変更を送る」で署名する。Issue #68） */
-      else if (!n.sg && ask(a, 'isMyNote', n) === true) { mk.textContent = '（送るときに署名する）'; mk.title = '共有の海で「自分の変更を送る」を押すと、ウォレットで署名して届ける'; }
+      /* この端末で書いて、まだ署名していないもの（書くときは鍵を求めず、「同期」で送るときに署名する。Issue #68） */
+      else if (!n.sg && ask(a, 'isMyNote', n) === true) { mk.textContent = '（同期で送るときに署名する）'; mk.title = '「同期」を押すと、ウォレットで署名して届ける'; }
       else { mk.textContent = '（確かめられない）'; mk.title = '書き手の署名が無いか、名簿に無い'; }
     }, () => { mk.textContent = '（確かめられない）'; });
   }

@@ -66,9 +66,9 @@ const SHARE_FLOW = '2人とも先に「ブロックチェーンを準備する�
   + '1. <b>招く人</b>: 「招く」の ① で海をタップし、② の欄に、もらったアドレスを入れて（無ければ空のまま）「招待コードを作る」。'
   + 'アドレスを入れると、同じ押しでメンバーに足し、手数料も送れる（アドレスが無いと手数料は送れない）。出た招待コード（BTI1-…）を相手に送る（メッセージなど）。<br>'
   + '2. <b>招かれる人</b>: 「招かれる」の欄に招待コードを貼って「受け取る」。海がこの端末に足され、みんなの記録が読める。<br>'
-  + '3. アドレスを入れなかったときは、<b>招かれる人</b>が「自分の変更を送る」と、<b>招く人</b>が次に「みんなの変更を取り込む」ときにメンバーに足される（それまでは読むだけ）。<br>'
+  + '3. アドレスを入れなかったときは、<b>招かれる人</b>が「同期する」で記録を送ると、<b>招く人</b>が次に「同期する」ときにメンバーに足される（それまでは読むだけ）。<br>'
   + '招待コードは合言葉と同じで、持っている人は誰でも受け取れる。相手にだけ送る。使えるのは ' + INVITE_DAYS + ' 日・最初の 1 人だけ。<br>'
-  + 'そのあとは、「共有中の海を同期する」で、それぞれが「自分の変更を送る」で書き、「みんなの変更を取り込む」で読む（自動では合わない。送るたびに手数料が掛かる）。';
+  + 'そのあとは、それぞれが「共有中の海を同期する」か、盤のひとことの横の「同期」を押して合わせる（取り込み、新しい書き込みがあれば送る。自動では合わない。送るたびに手数料が掛かる）。';
 
 /* そのタグの向きが固定されているか。store がまだ答えられない版では null */
 function fixedDirOf(id) {
@@ -420,7 +420,7 @@ export default {
         'サーバーで共有した海は、サーバーに繋いでいる間は自動で合う（押すボタンは無い）。',
         'サーバーの設定を開く', goServer)]);
       const syncChain = chainBox({ tasks: ['share'], part: 'sync', title: 'ブロックチェーンで共有中の海を同期する', goSetup });
-      syncChain.appendChild(el('p', 'note', 'ブロックチェーンで共有した海は自動では合わない。自分の変更を送る・みんなの変更を取り込むを押すたびに合わせる（送るたびに手数料が掛かる）。'));
+      syncChain.appendChild(el('p', 'note', 'ブロックチェーンで共有した海は自動では合わない。「同期する」（ここか、盤のひとことの横）を押すたびに合わせる（送るときに手数料が掛かる）。'));
       sub.add('chain', 'ブロックチェーンで', [syncChain]);
       /* 「海を共有する」で共有を始めた・受け取ったあとに開いても映るよう、選んだときに読み直す */
       pane.refresh = () => { if (!syncChain.hidden && typeof syncChain.refresh === 'function') syncChain.refresh(); };
@@ -2695,7 +2695,8 @@ function chainBox(opts = {}) {
   const target = () => (curKey && lines.get(curKey)) || mainLine;
   const line = {
     get textContent() { return target().textContent; },
-    set textContent(v) { target().textContent = v; },
+    /* opts.say: 設定の画面の外（盤）から使うときに、知らせを呼んだ側へも渡す（Issue #68。syncSharedSea） */
+    set textContent(v) { target().textContent = v; if (typeof opts.say === 'function') { try { opts.say(v); } catch (e) { /* 知らせで止めない */ } } },
   };
 
   let into = row;
@@ -3307,9 +3308,8 @@ function chainBox(opts = {}) {
         + (rec.savedAt ? '・最後に送った ' + new Date(rec.savedAt).toLocaleString() : '')
         + (rec.readAt ? '・最後に取り込んだ ' + new Date(rec.readAt).toLocaleString() : ''));
       /* 同期する（Issue #68 の返事「送るの近くに同期ボタン作れる？読み込みと新規書込みがあれば書込みも」）。取り込み＋新しい書き込みがあれば送る */
+      /* 「自分の変更を送る」「みんなの変更を取り込む」は外し、同期だけにした（同日の返事「設定の所も同期でまとめて自分の書き込みと読み込みの2つ消した方がわかりやすい？」） */
       btn('同期する（取り込み・新しい書き込みがあれば送る）', () => syncShared1(rec.id));
-      btn('自分の変更を送る', () => saveShared1(rec.id));
-      btn('みんなの変更を取り込む', () => readShared1(rec.id));
       btn('チャット', async () => peekChat('sea:' + rec.id, rec));
       if (owner && linkInvite) {
         /* 招待コードの欄は上の「招く」の ② へ移した（Issue #68 の返事）。ここからはその海を選んで移る */
@@ -3838,7 +3838,7 @@ function chainBox(opts = {}) {
     inviteSel = rec.id;
     paint();
     curKey = 'share-code';
-    line.textContent = '共有を始めた。この欄で相手のアドレス（あれば）を入れて「招待コードを作る」。招待コードを作るときに今の記録も送れる（あとからは「共有中の海を同期する」の「自分の変更を送る」）。';
+    line.textContent = '共有を始めた。この欄で相手のアドレス（あれば）を入れて「招待コードを作る」。招待コードを作るときに今の記録も送れる（あとからは「共有中の海を同期する」の「同期する」）。';
   }
 
   /* 受け取りIDで招く inviteTo は外した（Issue #68 の返事「前の形 使わないので消せる？」）。招くのは招待コード（createInvite）だけ */
@@ -3896,7 +3896,7 @@ function chainBox(opts = {}) {
     let copied = false;
     try { await navigator.clipboard.writeText(code); copied = true; } catch (e) { /* ボタンで写す */ }
     let msg = (copied ? '招待コードを作ってコピーした。' : '招待コードを作った。下の「招待コードをコピー」で写す。')
-      + '相手にだけ送る（メッセージなど）。' + (addr ? '' : '相手が記録を送ったら「みんなの変更を取り込む」でメンバーに足す。');
+      + '相手にだけ送る（メッセージなど）。' + (addr ? '' : '相手が記録を送ったら、次に「同期する」ときにメンバーに足す。');
     curKey = 'share-code';
     line.textContent = msg;
     /* 同じ押しの続きで手数料を送る（鍵は開けてある。パスキーを 2 度求めない） */
@@ -3965,7 +3965,7 @@ function chainBox(opts = {}) {
     if (rec.owner !== keys.wallet.address) throw new Error('外せるのは海の持ち主だけ');
     const stay = (rec.members || []).filter(m => m.a !== gone.a);
     const lost = stay.filter(m => !m.x);
-    if (lost.length) throw new Error('受け取りIDが分からないメンバーがいる（' + lost.map(m => m.n || shortAddr(m.a)).join('・') + '）。先に「みんなの変更を取り込む」で名簿を読む');
+    if (lost.length) throw new Error('受け取りIDが分からないメンバーがいる（' + lost.map(m => m.n || shortAddr(m.a)).join('・') + '）。先に「同期する」で名簿を読む');
     const tos = await Promise.all(stay.map(m => readShareAddress(m.x)));
     const seaKey = newSeaKey();
     const gen = rec.gen + 1;
@@ -4079,8 +4079,8 @@ function chainBox(opts = {}) {
     putShared(Object.assign(sharedRec(id), { savedAt: Date.now(), syncSig: boxSig(id) }));
     paint();
     curKey = 'sea:' + id;
-    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「みんなの変更を取り込む」で重ねる。'
-      + (joining ? '招いた人が「みんなの変更を取り込む」を押すと、メンバーに足される。' : '');
+    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「同期する」で重ねる。'
+      + (joining ? '招いた人が「同期する」を押すと、メンバーに足される。' : '');
     return true;
   }
 
@@ -4256,7 +4256,7 @@ function chainBox(opts = {}) {
     if (local && !prev) throw new Error('「' + f.sea.name + '」の招待は受け取れない（この端末に同じ ID の別の海がある）');
     if (!window.confirm('海「' + f.sea.name + '」に招かれている。受け取る？\n招いた人のウォレット: ' + f.owner
       + '\n受け取ると、この海がこの端末に足され、メンバーの記録を読み込む（手数料は掛からない）。'
-      + '\n自分の変更を送ると、招いた人の端末があなたをメンバーに足す。')) { line.textContent = 'やめた'; return; }
+      + '\n「同期する」で自分の記録を送ると、招いた人の端末があなたをメンバーに足す。')) { line.textContent = 'やめた'; return; }
     const board = await boardOf(f.key);
     const rec = { id: f.sea.id, net, gen: f.gen, owner: f.owner, me: keys.wallet.address,
       wrapped: await wrapSeaKey(f.key, keys.recordKey, f.sea.id, f.gen, keys.wallet.address), board: board.address,
@@ -4268,8 +4268,8 @@ function chainBox(opts = {}) {
     paint();
     curKey = 'share-in';
     const member = ((loadShared()[f.sea.id] || {}).members || []).some(m => m.a === keys.wallet.address);
-    line.textContent = '「' + f.sea.name + '」を受け取った。' + (member ? 'もうメンバーなので、「共有中の海を同期する」の「自分の変更を送る」・チャットが使える。'
-      : '「共有中の海を同期する」で自分の変更を送ると、招いた人がメンバーに足す（それまでは読むだけ）。');
+    line.textContent = '「' + f.sea.name + '」を受け取った。' + (member ? 'もうメンバーなので、「同期する」で自分の記録を送れ、チャットも使える。'
+      : '「同期する」で自分の記録を送ると、招いた人がメンバーに足す（それまでは読むだけ）。');
   }
 
   async function writeBackup() {
@@ -4610,9 +4610,19 @@ function chainBox(opts = {}) {
     netSel.value = cfg.network in NETWORKS ? cfg.network : 'devnet';
     paint();
   };
+  /* 共有中の海を同期する（盤のひとことの「同期」から。Issue #68） */
+  wrap.syncSea = id => syncShared1(id);
 
   paint();
   return wrap;
+}
+
+/* 盤（泡の詳しい欄）のひとことの「同期」から呼ぶ（2026-11-15 Issue #68 の返事「同期ボタンは、盤（TODO）のひとことの『送る』の横にも」→「こっちにも」）。
+   設定の画面と同じ同期（取り込み・新しい書き込みがあれば送る）を、画面に出さない欄で行い、知らせは say へ渡す。
+   パスキーは押した手の続きで呼ぶので、この中で鍵を開けるまで await しない */
+export function syncSharedSea(id, say) {
+  const box = chainBox({ tasks: ['share'], part: 'sync', say });
+  return box.syncSea(id);
 }
 
 /* 指で触る端末か（iPhone・iPad・Android）。パソコンでは共有シートより、ふつうのダウンロードがよい */
