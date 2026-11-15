@@ -48,7 +48,7 @@ import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
-import settings, { syncSharedSea, readSharedSea, pushSeaDirect } from './screens/settings.js';
+import settings, { syncSharedSea, readSharedSea, pushSeaDirect, directCount } from './screens/settings.js';
 
 const SCREENS = [sea, today, plan, gap, review, settings];
 
@@ -803,6 +803,8 @@ setCenterHandler({
   readShared:    (say) => readSharedSea(store.space(), say),
   /* 直につながっている相手へ、いまの海の記録をすぐ送る（ひとことを積んだあと。手数料なし。2026-11-16 Issue #68 の C1） */
   pushShared:    () => pushSeaDirect(store.space()),
+  /* 盤のひとことの欄に出す、直につながっている台数（Issue #68 の返事「動いてないように見える」: 盤で様子が見えなかった） */
+  directCount:   () => directCount(store.space()),
   noteName:      () => noteName(),
   setNoteName:   (v) => setNoteName(v),
   hasNewNote:    (id) => has('notesOf')

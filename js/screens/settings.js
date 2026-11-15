@@ -2734,6 +2734,8 @@ const SESSION_HOLD_MS = 12 * 60 * 60 * 1000;   /* ひとことの署名の鍵も
 const meshes = new Map();   /* 海の ID → { mesh, gen } */
 const offered = new Map();  /* 海|相手の端末 → 「つなぎたい」を書いた時刻（同じ相手へ 10 分に 1 度まで。手数料の無駄を防ぐ） */
 let chatOpenSea = null;
+/* 設定のチャットの網（{ id, send()（記録を直に送る。届けた台数）, count()（つながっている台数） }）。チャットを開いている間だけ */
+let chatLink = null;
 let fastTimer = 0;
 function holdSessionKeys(keys) {
   if (keys && keys.wallet) sessionKeys = keys;
@@ -2802,10 +2804,20 @@ async function fastPoll() {
 }
 /* 直につながっている相手へ、その海の記録をすぐ送る（盤のひとことを積んだあと。手数料なし）。送った相手の数 */
 export async function pushSeaDirect(id) {
+  /* 設定のチャットを開いている海は、裏の網を閉じてチャットの網に任せている。そのときはチャットの線で送る
+     （2026-11-16 Issue #68 の返事「設定のチャットはwebRTC動いてるように見える。TODOのひとことを…送るをした後、同期するボタンを押したけど動いてないように見える」:
+     前は裏の網しか見ていなかったので、チャットで直につながっていても、ひとことは直に送られなかった） */
+  if (chatLink && chatLink.id === id && chatLink.count() > 0) return chatLink.send();
   const m = meshes.get(id);
   if (!m || !m.mesh.openCount() || !m.mesh.snapshot) return 0;
   const env = await m.mesh.snapshot();
   return env ? m.mesh.broadcastSnap(env) : 0;
+}
+/* 直につながっている台数（裏の網とチャットの網の両方から。盤とカードの様子に使う） */
+export function directCount(id) {
+  if (chatLink && chatLink.id === id) return chatLink.count();
+  const m = meshes.get(id);
+  return m ? m.mesh.openCount() : 0;
 }
 
 async function watchOne(rec) {
@@ -3610,7 +3622,7 @@ function chainBox(opts = {}) {
       const who = (rec.members || []).map(m => (m.a === cfg.address ? '自分' : (m.n || shortAddr(m.a)))).join('・');
       const last = Math.max(Number(rec.savedAt) || 0, Number(rec.readAt) || 0);
       const m0 = meshes.get(rec.id);
-      const direct = m0 ? m0.mesh.openCount() : 0;
+      const direct = directCount(rec.id);   /* チャットの線でつながっているときも数える（Issue #68） */
       const unread = chatUnread(rec);
       /* group の見出しと説明は HTML として入る。海の名前と呼び名はほかのメンバーが書くので、必ず escapeHtml を通す */
       const desc = card
@@ -3708,7 +3720,12 @@ function chainBox(opts = {}) {
     clearInterval(chat.timer);
     try { if (chat.mesh) chat.mesh.close(); } catch (e) { /* 閉じられなくても進む */ }
     if (chat.panel && chat.panel.parentNode) chat.panel.parentNode.removeChild(chat.panel);
-    if (chat.mesh) chatOpenSea = null;   /* 直の通信（C1）を、裏の網へ戻す */
+    if (chat.mesh) {
+      chatOpenSea = null;   /* 直の通信（C1）を、裏の網へ戻す */
+      chatLink = null;
+      /* 裏の網ですぐつなぎ直しに行く（チャットの「ここにいる」は 10 分有効なので、相手もまだ開いていれば見つかる） */
+      setTimeout(() => { watchAll(); }, 1000);
+    }
     chat = null;
   }
   /* 鍵を開けずに、この端末に届いている履歴だけを読む（Issue #68 の返事「チャットを開く時に、合言葉とパスキーが求められるけど、送る時だけでいいのでは？
@@ -3952,7 +3969,8 @@ function chainBox(opts = {}) {
         /* 裏の網と同じく、「つなぎたい」「つなぐ」は同じ相手へ 10 分に 1 度まで（手数料を減らされないように。2026-11-16 の点検） */
         post: (inner) => {
           if (inner.kind === 'offer' || inner.kind === 'answer') {
-            const k = sea + '|' + inner.kind + '|' + inner.to;
+            /* 裏の網と鍵を分ける（チャットで使った回数で、チャットを閉じたあとの裏の網のつなぎ直しを 10 分止めないように） */
+            const k = 'chat|' + sea + '|' + inner.kind + '|' + inner.to;
             if (Date.now() - (offered.get(k) || 0) < HELLO_MS) return Promise.reject(new Error('この相手へは、少し前につなぎに行った'));
             offered.set(k, Date.now());
           }
@@ -4081,6 +4099,8 @@ function chainBox(opts = {}) {
       return mesh.broadcastSnap(env);
     } : null;
     chat = { panel, mesh, gkey, sendSnap, timer: setInterval(refresh, 15000) };
+    /* 盤のひとことも、このチャットの線で直に送れるようにする（Issue #68） */
+    if (rec && mesh && sendSnap) chatLink = { id: rec.id, send: sendSnap, count: () => mesh.openCount() };
     curKey = gkey;
     line.textContent = '';
     render();

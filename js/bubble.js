@@ -999,9 +999,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        ブロックチェーンで共有している海だけ。設定の「同期する」と同じ（取り込み・新しい書き込みがあれば送る）。
        押した手の続きで鍵を開ける（パスキー）ので、呼ぶ前に await しない */
     if (ask(a, 'shareSyncOn') === true) {
-      const qsync = el('button', 'bn-quick-send bn-quick-sync', '同期');
+      /* 直につながっていれば、ボタンに印（⇄）を付ける（Issue #68 の返事「動いてないように見える」） */
+      const dc = Number(ask(a, 'directCount')) || 0;
+      const qsync = el('button', 'bn-quick-send bn-quick-sync', dc ? '同期 ⇄' + dc : '同期');
       qsync.type = 'button';
-      qsync.title = 'みんなの変更を取り込み、この端末に新しい書き込みがあれば送る（送るときは手数料が掛かる）';
+      qsync.title = 'みんなの変更を取り込み、この端末に新しい書き込みがあれば送る（送るときは手数料が掛かる）'
+        + (dc ? '。いま ' + dc + ' 台と直につながっていて、ひとことは送るとすぐ届く' : '。直につながっている相手はいない');
       let syncBack = 0;
       qsync.addEventListener('click', ev => {
         ev.preventDefault();
@@ -1027,7 +1030,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           if (!/やめた/.test(qsync.title)) longToast('同期できなかった: ', qsync.title);
         }).finally(() => {
           qsync.disabled = false;
-          syncBack = setTimeout(() => { qsync.textContent = '同期'; }, 1800);
+          syncBack = setTimeout(() => { const n = Number(ask(a, 'directCount')) || 0; qsync.textContent = n ? '同期 ⇄' + n : '同期'; }, 1800);
         });
       });
       qrow.appendChild(qsync);
@@ -2599,7 +2602,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function pushDirect() {
     const p = ask(a, 'pushShared');
     if (p && typeof p.then === 'function') {
-      p.then(n => { if (n > 0) toast('直につながっている ' + n + ' 台に送った（手数料なし）'); }, () => { /* 届かなくても同期で届く */ });
+      /* 直につながっていないときも、そう知らせる（Issue #68 の返事「動いてないように見える」: 送れたかどうかが盤で分からなかった） */
+      p.then(n => {
+        if (n > 0) toast('直につながっている ' + n + ' 台に送った（手数料なし）');
+        else if (ask(a, 'shareSyncOn') === true) toast('直につながっている相手がいないので、ひとことは「同期」で届ける');
+      }, () => { /* 届かなくても同期で届く */ });
     }
   }
 
