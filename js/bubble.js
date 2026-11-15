@@ -184,6 +184,16 @@ function longToast(prefix, msg) {
   toast(prefix + head, { label: '詳しく', undo: false, on: () => { window.alert(prefix + full); } }, 9000);
 }
 
+/* 同期・読み込みが走っている数。0 より大きい間は、外を押した・画面の大きさが変わった、で盤を閉じない（Issue #68） */
+let holdOpen = 0;
+function holdWhile(p) {
+  if (!p || typeof p.then !== 'function') return p;
+  holdOpen++;
+  const done = () => { setTimeout(() => { holdOpen = Math.max(0, holdOpen - 1); }, 600); };
+  p.then(done, done);
+  return p;
+}
+
 /* 預け先が壊れていても中央は閉じない（focus.js の ask() と同じ） */
 function ask(a, name, ...args) {
   try {
@@ -1013,7 +1023,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         /* 途中の知らせのいちばん後ろを覚え、終わったら画面の下に出す（2026-11-16 Issue #68 の返事「TODOの同期が失敗した時にエラーメッセでる？」:
            前は失敗（例外）のときだけ知らせ、やめた・届かなかった・送らなかったなどは、ボタンの説明にしか出なかった） */
         let lastMsg = '';
-        const p = ask(a, 'syncShared', (msg) => { if (msg) { lastMsg = String(msg); qsync.title = lastMsg; } });
+        const p = holdWhile(ask(a, 'syncShared', (msg) => { if (msg) { lastMsg = String(msg); qsync.title = lastMsg; } }));
         if (!p || typeof p.then !== 'function') { qsync.textContent = 'できない'; toast('同期できなかった（この海はブロックチェーンで共有していないか、まだ始めていない）'); syncBack = setTimeout(() => { qsync.textContent = '同期'; }, 1400); return; }
         qsync.disabled = true;
         qsync.textContent = '同期中…';
@@ -2576,7 +2586,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        ブロックチェーンで共有している海だけ。書き込み（手数料）はしない（それは「同期」）。鍵は 10 分だけメモリに置くので、続けて送るときは求めない。
        押した手の続きでパスキーを呼ぶため、ひとことを積むより先に、await せずに始める */
     if (ask(a, 'shareSyncOn') === true) {
-      const r = ask(a, 'readShared', null);
+      const r = holdWhile(ask(a, 'readShared', null));
       if (r && typeof r.then === 'function') {
         r.then(() => { syncNotesBtn(); if (notesPane && !notesPane.hidden) renderNotes(); }, e => {
           /* 読めなくても、ひとことは積んである。止まった理由だけ出す（やめたときは出さない） */
@@ -3298,6 +3308,9 @@ export function attachGestures(node, handlers = {}) {
     const onOutside = ev => {
       const t = ev.target;
       if (fromFeedback(ev)) return;        /* 右上の !。盤を開いたままコメントを書ける */
+      /* 同期・読み込みの途中（パスキー・合言葉の欄や確かめの窓を触る）は閉じない（2026-11-16 Issue #68 の返事
+         「TODO画面で同期ボタンを押すと画面が小さいからかTODO画面が閉じる」） */
+      if (holdOpen > 0) return;
       if (!center || !t || !t.nodeType) { cancelCenter(); return; }
       if (center.veil && center.veil.contains(t)) return;
       if (center.hit && center.hit.contains(t)) return;
@@ -3328,6 +3341,8 @@ export function attachGestures(node, handlers = {}) {
        （端末のキーボードが出るときに resize が飛ぶ。打っている途中で閉じたら事故） */
     const onAway = () => {
       if (center && center.panel && center.panel.isTyping()) return;
+      /* 同期・読み込みの途中は閉じない（パスキーの画面・合言葉の欄・確かめの窓で、スマホは画面の大きさが変わる。Issue #68） */
+      if (holdOpen > 0) return;
       cancelCenter();
     };
     /* スクロールも同じ扱い。ただし盤の中のスクロール（履歴の面）は別物で、

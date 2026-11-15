@@ -398,6 +398,8 @@ export default {
     };
     /* 自動の読み込みで新しいチャットが来たら、カードの件数を描き直す（開いているときだけ） */
     window.addEventListener('bubbles:chat-unread', shareRefresh);
+    /* 直につながった・切れたら、カードの「⇄台数」と「直の通信: …」を描き直す（Issue #68） */
+    window.addEventListener('bubbles:p2p-state', shareRefresh);
     const pointer = (title, text, label, on) => {
       const w = el('div', 'tags');
       w.appendChild(el('h3', null, title));
@@ -3658,7 +3660,8 @@ function chainBox(opts = {}) {
       }
       /* 同期する（Issue #68 の返事「送るの近くに同期ボタン作れる？読み込みと新規書込みがあれば書込みも」）。取り込み＋新しい書き込みがあれば送る */
       /* 「自分の変更を送る」「みんなの変更を取り込む」は外し、同期だけにした（同日の返事「設定の所も同期でまとめて自分の書き込みと読み込みの2つ消した方がわかりやすい？」） */
-      btn(card ? '🔑 同期' : '同期する（取り込み・新しい書き込みがあれば送る）', () => syncShared1(rec.id));
+      /* 直につながっていれば、盤と同じく「⇄台数」を付ける（Issue #68 の返事「設定画面でも同期1みたいな表示でる？」） */
+      btn(card ? '🔑 同期' + (direct ? ' ⇄' + direct : '') : '同期する（取り込み・新しい書き込みがあれば送る）', () => syncShared1(rec.id));
       btn('チャット' + (card && unread ? '（新しい ' + unread + ' 件）' : ''), async () => peekChat('sea:' + rec.id, rec));
       if (owner && linkInvite) {
         /* 招待コードの欄は上の「招く」の ② へ移した（Issue #68 の返事）。ここからはその海を選んで移る */
@@ -4503,10 +4506,22 @@ function chainBox(opts = {}) {
     if (joining || (myEntry && !myEntry.x && rec.owner !== keys.wallet.address)) inner.x = await makeShareAddress(keys, net);
     const memos = await postMemos(keys.wallet, inner, board);
     if (memos.length > MAX_TX) throw new Error('記録が大きすぎる（取引 ' + memos.length + ' 件に分かれる）');
-    const need = await needFunds(net, memos.length);
+    /* 「ここにいる」を、写しとは別の小さな書き込み（チャットの掲示板の hello。取引 1 件）として先に書く（2026-11-16 Issue #68 の返事
+       「送るTODOの数が多くなったから、トランザクションが別れて開始の合図がみえないのでは？」）。
+       写しに入れた「ここにいる」は、写しの切れ端が全部そろって開けないと読めず、TODO が多いと見つけてもらいにくかった。
+       直の通信を切っている・使えないときは書かない */
+    const p2pOn = loadP2pPrefs().on && p2pSupported();
+    const chatB = p2pOn ? await chatBoardOf(seaKey) : null;
+    const hello = chatB ? await postMemos(keys.wallet, { kind: 'hello', sea: id, g: rec.gen, dev: deviceId(), at: Date.now() }, chatB) : [];
+    const need = await needFunds(net, memos.length + hello.length);
     const todos = Array.isArray(box.doc && box.doc.todos) ? box.doc.todos.filter(t => t && !t.trashed).length : 0;
-    if (!window.confirm('「' + (sea ? sea.name : id) + '」の自分の記録を共有の掲示板に書く？\ntodo ' + todos + ' 件・取引 ' + memos.length
-      + ' 件・手数料の目安 ' + solText(need.fee) + '\n書いたものは消せない（メンバーだけが読める）。')) { line.textContent = 'やめた'; return false; }
+    if (!window.confirm('「' + (sea ? sea.name : id) + '」の自分の記録を共有の掲示板に書く？\ntodo ' + todos + ' 件・取引 ' + (memos.length + hello.length)
+      + ' 件' + (hello.length ? '（うち 1 件は直の通信の「ここにいる」）' : '') + '・手数料の目安 ' + solText(need.fee)
+      + '\n書いたものは消せない（メンバーだけが読める）。')) { line.textContent = 'やめた'; return false; }
+    if (hello.length) {
+      line.textContent = '「ここにいる」を書いている…';
+      try { await writePost(net, keys.wallet, hello, chatB); } catch (e) { /* 書けなくても記録は送る */ }
+    }
     await writePost(net, keys.wallet, memos, board, { onStep: (i, n) => { line.textContent = '書いている… ' + i + '/' + n; } });
     /* 送った中身の目印を残す（次の同期で、これより後の書き込みがあるかを見る） */
     /* 目印は、送った写しの中身から作る（書いている間に足したひとことを「送った」ことにしない。Issue #68） */
