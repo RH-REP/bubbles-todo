@@ -258,8 +258,15 @@ export class Mesh {
     const peer = this.newPeer(dev, addr);
     peer.sid = hex(8);
     this.wire(peer, peer.pc.createDataChannel('chat'));
-    const sdp = await this.localSdp(peer.pc, 'offer');
-    await this.post({ kind: 'offer', sea: this.sea, g: this.g, dev: this.dev, to: dev, sid: peer.sid, sdp, at: Date.now() });
+    /* つなぎかけのまま残さない（2026-11-16 Issue #68 の返事「TODOの方は繋がらない」）。
+       前は「つなぎたい」を書けなかった（回数の制限・残高）・相手が 3 分のうちに答えなかったときも、相手の印が網に残り、
+       「まだつないでいない相手」として扱われず、ページを閉じるまで二度とつなぎに行かなかった */
+    const giveUp = () => { const p = this.peers.get(dev); if (p === peer && !(peer.ch && peer.ch.readyState === 'open')) this.drop(dev); };
+    try {
+      const sdp = await this.localSdp(peer.pc, 'offer');
+      await this.post({ kind: 'offer', sea: this.sea, g: this.g, dev: this.dev, to: dev, sid: peer.sid, sdp, at: Date.now() });
+    } catch (e) { giveUp(); throw e; }
+    setTimeout(giveUp, SIG_MS + 30000);
   }
   async answer(p) {
     const cur = this.peers.get(p.dev);
@@ -270,9 +277,13 @@ export class Mesh {
     const peer = this.newPeer(p.dev, p.by);
     peer.sid = p.sid;
     peer.pc.ondatachannel = ev => this.wire(peer, ev.channel);
-    await peer.pc.setRemoteDescription({ type: 'offer', sdp: p.sdp });
-    const sdp = await this.localSdp(peer.pc, 'answer');
-    await this.post({ kind: 'answer', sea: this.sea, g: this.g, dev: this.dev, to: p.dev, sid: p.sid, sdp, at: Date.now() });
+    const giveUp = () => { const q = this.peers.get(p.dev); if (q === peer && !(peer.ch && peer.ch.readyState === 'open')) this.drop(p.dev); };
+    try {
+      await peer.pc.setRemoteDescription({ type: 'offer', sdp: p.sdp });
+      const sdp = await this.localSdp(peer.pc, 'answer');
+      await this.post({ kind: 'answer', sea: this.sea, g: this.g, dev: this.dev, to: p.dev, sid: p.sid, sdp, at: Date.now() });
+    } catch (e) { giveUp(); throw e; }
+    setTimeout(giveUp, SIG_MS + 30000);
   }
   async accept(p) {
     const peer = this.peers.get(p.dev);

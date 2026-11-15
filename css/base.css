@@ -515,3 +515,10 @@ body.is-dragging .tabbar button.is-over {
    !important なのは、ボタンごとの display（inline-flex など）より強くするため。
    出すときはこの規則が外れるだけなので、元の display に戻る */
 body:not(.pref-all-tools) .is-extra:not(.show-extra .is-extra) { display: none !important; }
+
+/* iPhone の Safari は、字が 16px より小さい入力欄を触ると画面を拡大し、抜けても戻さない
+   （2026-11-16 Issue #68 の返事「設定画面でiPhoneから文字入力のために画面が拡大するけど、抜けた後も拡大のままになる。他の画面でも同じ」）。
+   指で操作する端末では、入力欄の字を 16px にして拡大させない。拡大そのもの（ピンチ）は止めない */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
+}

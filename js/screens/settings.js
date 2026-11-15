@@ -3884,7 +3884,8 @@ function chainBox(opts = {}) {
     status.setAttribute('aria-live', 'polite');
     /* 使い分け（2026-11-11 返事「おすすめで」）: 直につながっていれば直に（手数料なし）、いなければチェーンに書く（手数料あり。相手が後で開いても届く）。
        チェーンに書いたメッセージが「ここにいる」の知らせを兼ねるので、開いただけでは何も書かない */
-    status.textContent = '直につながっている相手がいれば直に送る（手数料なし・チェーンに残らない）。いなければブロックチェーンに書く（手数料あり・相手が後で開いても届く）。'
+    status.textContent = '直につながっている相手がいれば直に送る（手数料なし・チェーンに残らない）。いなければ、聞いてからブロックチェーンに書く（手数料あり・相手が後で開いても届く）。'
+      + 'メッセージの横の（直）（チェーン）（未送）が、どの道で届いたかを表す。'
       + '直に送ったものの履歴はこの端末にだけ置く（残したいときは「ブロックチェーンにも残す」）。'
       + (rec ? '直につながると、この海の記録も互いに直に送り合って重ねる（手数料なし）。' : '');
     panel.appendChild(status);
@@ -3919,7 +3920,8 @@ function chainBox(opts = {}) {
       const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
       list.textContent = '';
       if (!hist.length) list.appendChild(el('p', 'note', 'まだメッセージは無い。'));
-      const mark = { unsent: '（未送）', p2p: '', chain: '' };
+      /* どの道で届いたかを 1 件ずつ出す（Issue #68 の返事「送れているようにみえる。許可なくブロックチェーンに書き込んでる？」） */
+      const mark = { unsent: '（未送）', p2p: '（直）', chain: '（チェーン）' };
       hist.slice(-100).forEach(m => {
         const item = el('div', null);
         const head = el('span', 'note');
@@ -4006,6 +4008,7 @@ function chainBox(opts = {}) {
 
     const until = Date.now() + 10 * 60 * 1000;
     let busy = false;
+    let chainOk = false;   /* つながっていないときにチェーンに書いてよいと聞いたか（開いている間だけ） */
     async function refresh() {
       if (!chat || chat.panel !== panel) return;
       if (!panel.isConnected || Date.now() > until) {
@@ -4049,6 +4052,17 @@ function chainBox(opts = {}) {
            残高が足りないなどで書けなければ、未送として貯める（相手とつながったら届く。あとで「ブロックチェーンにも残す」で書ける） */
         putHist(mergeHistory(hist, [m], 'unsent').list);
         render();
+        /* 書く前に、この開いている間に 1 度だけ聞く（2026-11-16 Issue #68 の返事「許可なくブロックチェーンに書き込んでる？」:
+           前は知らせの行に書くだけで聞かなかったので、直に送れたように見えた） */
+        if (!chainOk) {
+          if (!window.confirm('直につながっている相手がいない。このメッセージをブロックチェーンに書く？（1 件ごとに手数料が掛かる）\n'
+            + 'OK にすると、このチャットを開いている間は、つながっていないときに聞かずに書く。\n'
+            + 'キャンセルなら未送として端末に残す（相手と直につながったら届く）。')) {
+            status.textContent = '書かずに未送として残した（相手と直につながったら届く）。';
+            return;
+          }
+          chainOk = true;
+        }
         status.textContent = 'ブロックチェーンに書いている…';
         try {
           await writeToChain(unsentList(), '直につながっている相手がいないので、ブロックチェーンに書いた');
