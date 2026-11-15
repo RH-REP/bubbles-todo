@@ -3050,11 +3050,17 @@ function chainBox(opts = {}) {
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
     group('share', '招く（自分の海に人を招く）',
       '① どの海を共有するかをタップする（今ある海の名前か、新しく作るなら「＋ 新しい海」）。押すと共有を始め、下の「共有中の海」に欄が出る。'
+      + '個人の海と前の版の「共有」は、そのままでは共有できないので「写して共有」（中身を写した新しい海を共有する。元の海は残る）。'
       + '② 招く相手に、下の「招かれる」の「受け取りIDをコピー」で受け取りID（BTA1-…）を送ってもらう。ウォレットのアドレスではない。'
       + '③ 共有中の海の欄に、届いた受け取りIDを貼って「招く」。'
       + '中身はメンバーだけが読める。ただし、誰と誰が同じ海にいるかと、書いた時刻・大きさは、チェーンの上で誰でも見られる。書いたものは消せない。');
     /* group・btn の字は HTML として入る。海の名前は必ず escapeHtml を通す */
     cands.forEach(sea => btn('「' + escapeHtml(sea.name) + '」を共有', () => shareSea(sea)));
+    /* 個人の海と前の版の「共有」は、そのままでは共有できない（個人は自分の端末どうしの海、「共有」はどの端末でも同じ ID）。
+       前は黙って外していたので「新しい海しか出てこない」と見えた（2026-11-15 Issue #68 の返事）。
+       中身を新しい海へ写してから、その新しい海を共有する選択肢として出す（元の海はそのまま残る） */
+    const copyFrom = allSeas().filter(s => s.personal || (s.id === 'share' && !shared.share));
+    copyFrom.forEach(s => btn('「' + escapeHtml(s.name) + '」を写して共有', () => copyThenShare(s)));
     /* 設定の画面で海の作り方を探していた（2026-11-11 Issue #37 の返事）。引き出しと同じ「海をつくる」板をここからも開き、
        作ったらそのまま共有へ進む（その海へは切り替えない） */
     btn('＋ 新しい海', async () => { makeSeaThenShare(); });
@@ -3526,6 +3532,37 @@ function chainBox(opts = {}) {
         }
       },
     });
+  }
+
+  /* 個人の海・前の版の「共有」の中身を新しい海へ写し、その海の共有を始める（2026-11-15 Issue #68 の返事
+     「新しい海だけでてきて既存の海を選べない」）。元の海は消さない。
+     パスキーは押した手の続きで呼ぶ（iPhone）ので、shareSea の鍵を開けるまで await しない */
+  function copyThenShare(s) {
+    if (!window.confirm('「' + s.name + '」の記録をすべて写した新しい海を作り、その海を共有する？\n'
+      + '「' + s.name + '」はそのまま残る（このあと「' + s.name + '」に足したものは、共有した海には入らない）。\n'
+      + '写した記録はすべて、招いた人に見える。')) return;
+    let src = null;
+    if (s.id === store.space()) { try { store.flush(); } catch (e) { /* 読むのは止めない */ } src = store.exportState(); }
+    else { try { src = boxToState(JSON.parse(localStorage.getItem(boxKey(s.id)) || 'null')); } catch (e) { src = null; } }
+    if (!src) throw new Error('「' + s.name + '」の記録が読めなかった');
+    const name = String(s.name || '').replace(/（.*）$/, '') || '共有';
+    const sea = addSea(name, s.color || 'magma', Date.now(), s.rid || undefined);
+    if (!sea) throw new Error('海を作れなかった（端末の空きが足りない）');
+    try { localStorage.setItem(boxKey(sea.id), JSON.stringify(stateToBox(src))); } catch (e) {
+      removeSea(sea.id);
+      throw new Error('写せなかった（端末の空きが足りない）');
+    }
+    window.dispatchEvent(new CustomEvent('bubbles:seas'));
+    if (!isSolo()) { try { sync.syncSeas(); } catch (e) { /* 一覧はあとで合わせる */ } }
+    curKey = 'share';
+    line.textContent = '「' + s.name + '」を写した海「' + sea.name + '」を作った。共有を始める…';
+    const left = msg => {
+      paint();
+      curKey = 'share';
+      line.textContent = msg + '（写した海「' + sea.name + '」はこの端末に残っている。上の海の名前をタップすると共有をやり直せる）';
+    };
+    return shareSea(sea).then(() => { if (!loadShared()[sea.id]) left('やめた'); },
+      e => left((e && e.message) || String(e)));
   }
 
   /* 共有を始める（持ち主になる）。自分宛ての招待も書く（自分のほかの端末が「届いた招待を受け取る」で受け取れるように） */
