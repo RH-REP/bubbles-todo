@@ -3879,6 +3879,14 @@ export default {
     grid.dataset.screen = 'sea.list';       /* リスト表示。海の pane より深いので、出ている間はこちら */
     grid.setAttribute('role', 'group');
     grid.setAttribute('aria-label', 'すべてのバブル');
+    /* 行をつまんでいる間は、指の縦の動きを一覧のスクロールに取られないようにする（Issue #71 の返事
+       「左右には動けるけど上下にはうごかせない」）。行は縦をスクロールに回す pan-y なので、
+       掴んだあとに真下（下タブ）へ動かすと、ブラウザがスクロールを始めて pointercancel を出し、
+       幽霊が縦に付いてこなかった。pointermove の preventDefault ではスクロールは止まらない。
+       止められるのは passive でない touchmove だけなので、ここで掴んでいる間だけ止める。 */
+    grid.addEventListener('touchmove', ev => {
+      if (rowDrag && ev.cancelable) ev.preventDefault();
+    }, { passive: false });
     /* 並びは古い順のまま。海が新しいほうしか出さなくなったので、
        **ここの先頭が「海から隠れたもの」**になる＝探しに来た人が最初に見る場所。
        ただし「放置しているものが先頭」という言い方はやめた——
