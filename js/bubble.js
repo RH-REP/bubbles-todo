@@ -831,7 +831,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let detailBase = '';          /* 書く面に入った時点の本文。[キャンセル] でここへ戻す */
   let syncSpanRow = null;       /* 盤の「期間」（Issue #34）。本文が変わったら読み直す */
   /* ひとこと（Issue #25）。入口と別の面。[書く] で1件ずつ積む（書き換えない） */
-  let notesBtn = null, notesPane = null, notesList = null, notesArea = null, notesSaid = null, notesName = null;
+  let notesBtn = null, notesPane = null, notesList = null, notesName = null;   /* 面は読むのと名前だけ（Issue #70 の返事） */
   let chatList = null, chatIn = null;   /* 本文の下のチャットの形（Issue #61） */
   let draft0 = null;            /* 開いた時点の入力欄の中身（触ったかを見るため） */
   let urlLink = null, urlLinkTx = null, urlEdit = null;
@@ -959,7 +959,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     chatIn.type = 'text';
     chatIn.autocomplete = 'off';
     chatIn.maxLength = 280;
-    chatIn.placeholder = 'メッセージを残す（あとから変えられない）';
+    chatIn.placeholder = 'ひとことを残す（あとから変えられない）';   /* 見出しの「ひとこと」と同じ言葉に（Issue #70 の返事） */
     chatIn.setAttribute('aria-label', 'ひとことを書く（あとから変えられない・消せない）');
     chatIn.value = noteDrafts.get(id) || '';
     chatIn.addEventListener('input', () => { noteDrafts.set(id, chatIn.value); });
@@ -2467,10 +2467,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const rows = notesNow();
     const live = rows.filter(n => !n.gone);
     const fresh = ask(a, 'hasNewNote', id) === true;
-    notesBtn.textContent = rows.length > CHAT_SHOW ? '前のものも見る' : (live.length ? 'すべて・名前' : '名前');
+    /* 面は前のものを読むのと名前だけになった（Issue #70 の返事）。盤に出ていない古いものが無ければ「名前」 */
+    notesBtn.textContent = rows.length > CHAT_SHOW ? '前のものも見る' : '名前';
     notesBtn.classList.toggle('is-empty', !live.length);
     notesBtn.classList.toggle('is-fresh', fresh);
-    notesBtn.setAttribute('aria-label', fresh ? 'ひとことをすべて見る（新しいものあり）' : 'ひとことをすべて見る・名前を決める');
+    notesBtn.setAttribute('aria-label', fresh ? 'ひとことの前のものも見る（新しいものあり）' : 'ひとことの前のもの・名前');
     renderChat(rows);
   }
 
@@ -2586,6 +2587,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     notesList.setAttribute('aria-label', 'ひとことの一覧（古い順）');
     notesPane.appendChild(notesList);
 
+    /* 2026-11-15 Issue #70 の返事「メッセージを残すがあるからひとこといらないのでは？」:
+       前はこの面にも名前の欄・書く欄・[書く] があり、盤の 1 行の欄（ひとことを残す）と書く所が 2 つあった。
+       書くのは盤の 1 行の欄だけにし、この面は前のものを読むのと、名前を決めるだけにする
+       （名前の欄は残す。設定の画面の名前の欄はサーバーあり版の海のチャットにしか無く、サーバーなし版で変えられなくなるため） */
+    notesPane.appendChild(el('p', 'bm-ctx', '書くのは盤の「ひとことを残す」の欄から'));
+
     /* 書いた人の名前。この端末だけの設定（初めはパスキーの名前） */
     const nameRow = el('label', 'bn-name');
     nameRow.appendChild(el('span', 'bn-name-lb', '名前'));
@@ -2599,52 +2606,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     nameRow.appendChild(notesName);
     notesPane.appendChild(nameRow);
 
-    notesArea = document.createElement('textarea');
-    notesArea.className = 'bm-in bn-in';
-    notesArea.rows = 3;
-    notesArea.maxLength = 280;
-    notesArea.placeholder = 'ここまでやった・詰まっている など（280字まで）';
-    notesArea.setAttribute('aria-label', 'ひとことを書く');
-    notesArea.addEventListener('input', () => { noteDrafts.set(id, notesArea.value); });
-    notesPane.appendChild(notesArea);
-
-    const send = el('button', 'bm-save', '書く');
-    send.type = 'button';
-    let back = 0;
-    const showSaid = (said) => {
-      clearTimeout(back);
-      send.textContent = said;
-      send.classList.toggle('is-nope', said !== '書いた' && said !== '署名中…');
-      if (said !== '署名中…') back = setTimeout(() => { send.textContent = '書く'; send.classList.remove('is-nope'); }, 1400);
-    };
-    send.addEventListener('click', ev => {
-      ev.preventDefault();
-      showSaid(sendNote(showSaid));
-    });
-    notesPane.appendChild(send);
-
-    notesSaid = el('p', 'bm-said');
-    notesSaid.setAttribute('role', 'status');
-    notesPane.appendChild(notesSaid);
-
     root.appendChild(notesPane);
-  }
-
-  /* -> ボタンに出す言葉 */
-  function sendNote(done) {
-    const t = notesArea ? notesArea.value.trim() : '';
-    if (!t) return '書いてから';
-    if (notesName) ask(a, 'setNoteName', notesName.value);
-    const said = postNote(t, () => {
-      if (notesArea && notesArea.value.trim() === t) notesArea.value = '';
-      noteDrafts.delete(id);
-      if (chatIn) chatIn.value = '';
-      ask(a, 'markNotesSeen', id);
-      renderNotes(); syncNotesBtn();
-      notesList.scrollTop = notesList.scrollHeight;
-      if (notesSaid) notesSaid.textContent = '残した（あとから変えられない・消せない）';
-    }, (w) => { if (typeof done === 'function') done(w === '送った' ? '書いた' : w); });
-    return said === '送った' ? '書いた' : said;
   }
 
   function openNotes() {
@@ -2652,8 +2614,6 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const nm = nameIn ? nameIn.value.trim() : String(ask(a, 'text', id) || '');
     notesPane._ctx.textContent = nm ? '泡：' + nm : '';
     notesName.value = String(ask(a, 'noteName') || '');
-    notesArea.value = noteDrafts.get(id) || '';
-    if (notesSaid) notesSaid.textContent = '';
     renderNotes();
     ask(a, 'markNotesSeen', id);                  /* 開いた＝ここまで読んだ */
     document.querySelectorAll('.bub[data-id="' + String(id).replace(/["\\]/g, '') + '"] .ndot')
@@ -2668,11 +2628,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   /* 戻り値：閉じたかどうか（Escape の受け手が「自分で処理した」を知るため） */
   function closeNotes(restoreFocus) {
     if (!notesPane || notesPane.hidden) return false;
-    if (notesArea) noteDrafts.set(id, notesArea.value);
     if (notesName) ask(a, 'setNoteName', notesName.value);
     notesPane.hidden = true;
     if (fields) fields.hidden = false;
-    if (chatIn) chatIn.value = noteDrafts.get(id) || '';   /* 面で書きかけたものを本文の下の欄にも */
     syncNotesBtn();
     relayout();
     if (restoreFocus && notesBtn && notesBtn.isConnected) notesBtn.focus({ preventScroll: true });
@@ -2800,7 +2758,6 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        （外れているものに日は付かない＝ store が弾く） */
     flush() {
       if (memoPane && !memoPane.hidden && memoArea) memoDraft = memoArea.value;
-      if (notesPane && !notesPane.hidden && notesArea) noteDrafts.set(id, notesArea.value);
       saveStep(); saveUrl(); saveName(); saveDetail();
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
@@ -2817,13 +2774,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     },
     /* 画面の揺れ（resize・ページの scroll）で盤を閉じてはいけない間か。
        2026-11-15 Issue #70: 前は焦点のある欄が .bc-in（名前・次の一手・リンク）のときだけ真で、
-       ひとことの欄（本文の下の 1 行 .bn-quick-in・ひとことの面の .bn-in と名前 .bn-name-in）や日の欄が入っていなかった。
+       ひとことの欄（本文の下の 1 行 .bn-quick-in。当時はひとことの面の書く欄・名前の欄も）や日の欄が入っていなかった。
        画面の小さい端末（iPhone SE など）では、下のほうの欄に触るとキーボードの分だけページが動き（scroll）、
        盤が閉じて、書けなかった（大きい画面では欄がキーボードより上にあり、ページが動かないので起きない）。
-       盤の中のどの「字を打つ欄」に焦点があっても真にし、ひとことの面が開いている間・焦点が外れた直後も真にする */
+       盤の中のどの「字を打つ欄」に焦点があっても真にし、焦点が外れた直後も真にする */
     isTyping() {
       if (this.isWriting()) return true;
-      if (notesPane && !notesPane.hidden) return true;
       if (Date.now() - typedAt < TYPED_GRACE_MS) return true;
       if (document.documentElement.classList.contains('kb-open')) return true;   /* js/boot-dvh.js */
       const el2 = document.activeElement;
