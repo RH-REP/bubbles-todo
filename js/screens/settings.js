@@ -27,7 +27,8 @@ import { NETWORKS, MAX_TX, MAX_PARTS, backupSize, CONFIG_KEY, loadConfig, saveCo
 import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, writeEnvelope,
   findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr,
   chatBoardOf, readChatPosts, MSG_MAX, SELF_SEA, GIFT_MESSAGES, giftPlan,
-  makeInviteCode, readInviteCode, inviteBoxOf, sealInvite, writeInvite, findInviteByCode, joinsOf, acceptedSnaps, INVITE_DAYS } from '../board.js';
+  makeInviteCode, readInviteCode, inviteBoxOf, sealInvite, writeInvite, findInviteByCode, joinsOf, acceptedSnaps, INVITE_DAYS,
+  readBoardWith, readKeysOf, readBoardsOf } from '../board.js';
 import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, loadHistory, saveHistory, mergeHistory, markState,
   signMsg, messagesFromPosts, signSnap } from '../p2p.js';
 /* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
@@ -444,7 +445,15 @@ export default {
       sub.add('chain', 'ブロックチェーンで', [chatChain]);
       /* 共有を始めた・受け取ったあとに開いても、その海のチャットが出るよう、選んだときに読み直す（Issue #68） */
       pane.refresh = () => { if (!chatChain.hidden && typeof chatChain.refresh === 'function') chatChain.refresh(); };
-      shareChoice.add('chat', 'チャットする', [pane]);
+      const chatBtn = shareChoice.add('chat', 'チャットする', [pane]);
+      /* 共有の海のチャットに新しいメッセージがあれば、数を出す（Issue #68 の B 案。開いている間の自動の読み込みで数える） */
+      const chatCount = () => {
+        const me = loadConfig().address;
+        const n = Object.values(loadShared()).filter(r => r && r.me === me).reduce((s, r) => s + chatUnread(r), 0);
+        if (chatBtn) chatBtn.textContent = 'チャットする' + (n ? '（新しい ' + n + ' 件）' : '');
+      };
+      chatCount();
+      window.addEventListener('bubbles:chat-unread', chatCount);
       /* サーバーなし版はサーバーでチャットできないので、ブロックチェーンを選んだ姿で始める */
       if (isSolo()) sub.pick('chain');
       else if (sync.config().url) sub.pick('server');
@@ -689,6 +698,7 @@ function choiceRow(parent, label) {
       bar.appendChild(b);
       els.forEach(e => { e.classList.add('choice-pane'); e.hidden = true; parent.appendChild(e); });
       items.set(k, { btn: b, els });
+      return b;
     },
     pick,
   };
@@ -2648,6 +2658,123 @@ function resetAllBox() {
    ひとことの署名の鍵（js/notesign.js）と同じ置き方。ページを閉じると消える */
 const READ_HOLD_MS = 10 * 60 * 1000;
 let readHold = null;
+
+/* ---- 読むための鍵と、開いている間の読み込み（2026-11-15 Issue #68 の返事「おすすめで」= A 案・B 案） ----
+   A: 海の鍵を開けたときに、読むための鍵（js/board.js の readKeysOf）を共有の海の控えに置く。以後、読むだけならパスキー・合言葉は要らない。
+   B: アプリを開いている間（画面が見えている間）、開いたときと 5 分ごとに共有の海を読み、
+      記録（盤のひとことを含む）は確かめずに重ね（消さないので）、チャットの新しいメッセージは端末の履歴に足して「新しい件数」を出す。
+      読むだけなので手数料は掛からない。アプリを閉じている間は読まない */
+async function keepReadKeys(id, seaKey, gen) {
+  try {
+    const rk = await readKeysOf(seaKey, gen);
+    const all = loadShared();
+    if (!all[id]) return;
+    all[id] = Object.assign({}, all[id], { rk });
+    saveShared(all);
+  } catch (e) { /* 置けなくても、鍵を開ければ読める */ }
+}
+/* 記録の中身の目印（同期で「新しい書き込みがあるか」を見る。中身を写さず短い数字にする） */
+function sigOfBox(b) {
+  if (!b || !b.doc) return '';
+  const s = JSON.stringify(b.doc);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return s.length.toString(36) + '.' + h.toString(36);
+}
+function seaStateById(id) {
+  if (id === store.space()) { try { store.flush(); } catch (e) { /* 読むのは止めない */ } return store.exportState(); }
+  try { return boxToState(JSON.parse(localStorage.getItem(boxKey(id)) || 'null')); } catch (e) { return null; }
+}
+function pendingNotesIn(st) {
+  const dev = noteDevice();
+  return (st && st.doc && Array.isArray(st.doc.notes) ? st.doc.notes : []).filter(n => n && !n.gone && !n.sg && n.dev === dev && n.text);
+}
+/* チャットを最後に見た時刻（部屋ごと。端末にだけ置く） */
+const CHAT_SEEN_KEY = 'bubble_todo_chat_seen_v1';
+function chatSeen() { try { return JSON.parse(localStorage.getItem(CHAT_SEEN_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function markChatSeen(room) {
+  const all = chatSeen();
+  all[room] = Date.now();
+  try { localStorage.setItem(CHAT_SEEN_KEY, JSON.stringify(all)); } catch (e) { /* 覚えられなくても進む */ }
+  try { window.dispatchEvent(new CustomEvent('bubbles:chat-unread')); } catch (e) { /* 知らせなくても進む */ }
+}
+/* その共有の海のチャットの、まだ見ていないほかの人のメッセージの数（端末の履歴から数える） */
+function chatUnread(rec) {
+  if (!rec) return 0;
+  const room = 'sea:' + rec.id + ':' + rec.gen;
+  const seen = Number(chatSeen()[room]) || 0;
+  return loadHistory(room).filter(m => m.by !== rec.me && Number(m.at) > seen).length;
+}
+/* 共有の海 1 つを、読むための鍵で読む（鍵を求めない）。記録は確かめずに重ね、チャットは履歴に足す。新しく足したチャットの数 */
+async function watchOne(rec) {
+  const rb = readBoardsOf(rec);
+  if (!rb) return 0;
+  const id = rec.id;
+  const got = await readBoardWith(rec.net, rec, rb.board);
+  const all = loadShared();
+  const cur = all[id];
+  if (!cur || cur.gen !== rec.gen) return 0;
+  if (got.members) {
+    cur.members = got.members.map(m => {
+      const old = (cur.members || []).find(x => x.a === m.a && x.x);
+      return m.x || !old ? m : Object.assign({}, m, { x: old.x });
+    });
+  }
+  if (got.snaps.length) {
+    /* 重ねる直前に「前の同期のあとの書き込みが無いか」を見て、無ければ重ねたあとの中身を目印にする（ここから書くまで await しない） */
+    const before = seaStateById(id);
+    const clean = !!cur.syncMark && !pendingNotesIn(before).length && sigOfBox(before) === cur.syncMark;
+    got.snaps.forEach(s => {
+      const entry = s.entry && s.entry.id === id ? s.entry : null;
+      mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [id]: s.box } });
+    });
+    cur.readAt = Date.now();
+    if (clean) cur.syncMark = sigOfBox(seaStateById(id));
+  }
+  all[id] = cur;
+  saveShared(all);
+  /* チャット */
+  if (!rb.chat) return 0;
+  const room = 'sea:' + id + ':' + cur.gen;
+  const allowed = [cur.owner].concat((cur.members || []).map(m => m.a));
+  const posts = await readChatPosts(cur.net, rb.chat);
+  const msgs = await messagesFromPosts(posts, { sea: id, g: cur.gen, allowed });
+  const old = loadHistory(room);
+  const oldIds = new Set(old.map(m => m.id));
+  const r = mergeHistory(old, msgs, 'chain');
+  if (r.added) saveHistory(room, r.list);
+  /* 新しく足した、ほかの人のメッセージの数 */
+  return msgs.filter(m => !oldIds.has(m.id) && m.by !== cur.me).length;
+}
+const WATCH_MS = 5 * 60 * 1000;
+let watchTimer = 0;
+let watching = false;
+async function watchAll() {
+  if (watching || (typeof document !== 'undefined' && document.hidden)) return;
+  watching = true;
+  try {
+    const me = loadConfig().address;
+    const recs = Object.values(loadShared()).filter(r => r && r.me === me && readBoardsOf(r));
+    for (const rec of recs) {
+      try {
+        const n = await watchOne(rec);
+        if (n > 0) {
+          const ent = allEntries().find(e => e.id === rec.id);
+          toast('「' + (ent ? ent.name : rec.id) + '」のチャットに新しいメッセージ（設定の「チャットする」で見る）');
+          try { window.dispatchEvent(new CustomEvent('bubbles:chat-unread')); } catch (e) { /* 知らせなくても進む */ }
+        }
+      } catch (e) { /* 1 つ読めなくても、ほかは読む */ }
+    }
+  } finally { watching = false; }
+}
+/* アプリを開いたときに 1 度呼ぶ（js/app.js）。開いたとき・画面に戻ったとき・5 分ごとに読む */
+export function startSharedWatch() {
+  if (watchTimer || typeof window === 'undefined') return;
+  setTimeout(() => { watchAll(); }, 3000);
+  watchTimer = setInterval(() => { watchAll(); }, WATCH_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) watchAll(); });
+}
+
 function chainBox(opts = {}) {
   const setup = !!opts.setup;
   const ALLOWED = opts.tasks || ['backup', 'wallet', 'key', 'share', 'memo', 'lost'];
@@ -3015,7 +3142,9 @@ function chainBox(opts = {}) {
         const ent = allEntries().find(e => e.id === rec.id);
         const who = (rec.members || []).filter(m => m.a !== cfg.address).map(m => m.n || shortAddr(m.a)).join('・');
         /* 海の名前と呼び名はほかのメンバーが書くので、必ず escapeHtml を通す */
-        group('sea:' + rec.id, '「' + escapeHtml(ent ? ent.name : rec.id) + '」のチャット',
+        /* 新しいメッセージの数（開いている間の自動の読み込みで履歴に足したもの。Issue #68 の B 案） */
+        const unread = chatUnread(rec);
+        group('sea:' + rec.id, '「' + escapeHtml(ent ? ent.name : rec.id) + '」のチャット' + (unread ? '（新しい ' + unread + ' 件）' : ''),
           '相手: ' + (who ? escapeHtml(who) : '（まだ自分だけ。メンバーを招くと話せる）') + '。メンバーだけが読める。1 件ごとに手数料が掛かる。');
         btn('チャットを開く', async () => peekChat('sea:' + rec.id, rec));
       });
@@ -3388,7 +3517,6 @@ function chainBox(opts = {}) {
     const anchor = lines.get(gkey);
     if (!anchor) throw new Error('チャットを開けなかった（画面を開き直す）');
     const room = rec ? 'sea:' + rec.id + ':' + rec.gen : 'self:' + cfg.address;
-    const hist = loadHistory(room);
     const members = rec ? ((loadShared()[rec.id] || rec).members || []) : [];
     const nameOf = a => (a === cfg.address ? '自分' : ((members.find(m => m.a === a) || {}).n || shortAddr(a)));
     const panel = el('div', null);
@@ -3396,20 +3524,34 @@ function chainBox(opts = {}) {
     const list = el('div', null);
     list.setAttribute('role', 'log');
     list.style.cssText = 'max-height:16em;overflow:auto;display:flex;flex-direction:column;gap:4px';
-    if (!hist.length) list.appendChild(el('p', 'note', 'この端末にはまだメッセージが無い。'));
-    hist.slice(-100).forEach(m => {
-      const item = el('div', null);
-      const head = el('span', 'note');
-      /* 呼び名・本文はほかの人が書くので文字として入れる */
-      head.textContent = nameOf(m.by) + '・' + new Date(m.at).toLocaleString() + (m.state === 'unsent' ? '（未送）' : '') + '　';
-      const body = el('span', null);
-      body.textContent = m.text;
-      item.appendChild(head);
-      item.appendChild(body);
-      list.appendChild(item);
-    });
+    const draw = () => {
+      const hist = loadHistory(room);
+      list.textContent = '';
+      if (!hist.length) list.appendChild(el('p', 'note', 'まだメッセージが無い。'));
+      hist.slice(-100).forEach(m => {
+        const item = el('div', null);
+        const head = el('span', 'note');
+        /* 呼び名・本文はほかの人が書くので文字として入れる */
+        head.textContent = nameOf(m.by) + '・' + new Date(m.at).toLocaleString() + (m.state === 'unsent' ? '（未送）' : '') + '　';
+        const body = el('span', null);
+        body.textContent = m.text;
+        item.appendChild(head);
+        item.appendChild(body);
+        list.appendChild(item);
+      });
+      list.scrollTop = list.scrollHeight;
+    };
+    draw();
     panel.appendChild(list);
-    panel.appendChild(el('p', 'note', 'この端末に届いている分だけを、鍵なしで表示している。新しいメッセージを読む・送るときは「開いて送る」（パスキーか合言葉を求める）。'));
+    /* 読むための鍵があれば、鍵を求めずにチェーンの新しいメッセージも読んで足す（Issue #68 の A 案） */
+    const canRead = !!(rec && readBoardsOf(rec) && readBoardsOf(rec).chat);
+    panel.appendChild(el('p', 'note', canRead
+      ? '新しいメッセージも、鍵なしで読んで出す。送るときは「開いて送る」（パスキーか合言葉を求める）。'
+      : 'この端末に届いている分だけを、鍵なしで表示している。新しいメッセージを読む・送るときは「開いて送る」（パスキーか合言葉を求める）。'));
+    if (rec) markChatSeen(room);
+    if (canRead) {
+      watchOne(sharedRec(rec.id)).then(() => { if (chat && chat.panel === panel) { draw(); markChatSeen(room); } }, () => { /* 読めなくても履歴は出ている */ });
+    }
     const row2 = el('div', null);
     row2.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px';
     const go = el('button', 'btn', '開いて送る（新しいものも読む）');
@@ -3428,6 +3570,7 @@ function chainBox(opts = {}) {
     anchor.parentNode.insertBefore(panel, anchor.nextSibling);
     list.scrollTop = list.scrollHeight;
     chat = { panel, timer: null, mesh: null, gkey };
+    /* watchOne の読み込みが返る前に chat を置いたので、上の then で同じ panel かを見られる */
   }
   async function openChat(gkey, rec) {
     closeChat();
@@ -3514,6 +3657,7 @@ function chainBox(opts = {}) {
     anchor.parentNode.insertBefore(panel, anchor.nextSibling);
 
     const room = rec ? 'sea:' + rec.id + ':' + rec.gen : 'self:' + keys.wallet.address;
+    if (rec) markChatSeen(room);   /* 開いたら、新しいメッセージの数を 0 に（Issue #68 の B 案） */
     let hist = loadHistory(room);
     /* サーバーへの写し（2026-11-11 Issue #42 の返事「おすすめで」= A 案・写す）。
        サーバーに繋いでいるページなら、履歴の新しい分を海の記録のチャット（js/notes.js の CHAT_TODO）にも重ねる。
@@ -3749,6 +3893,9 @@ function chainBox(opts = {}) {
   }
   function putShared(rec) {
     const all = loadShared();
+    /* 読むための鍵（rk。Issue #68 の A 案）は別に書くので、読み直す前の写しで上書きしても落とさない（同じ代のときだけ） */
+    const old = all[rec.id];
+    if (old && old.rk && !rec.rk && old.gen === rec.gen) rec = Object.assign({}, rec, { rk: old.rk });
     all[rec.id] = rec;
     saveShared(all);
   }
@@ -3757,6 +3904,8 @@ function chainBox(opts = {}) {
     const keys = await unlock();
     await checkSame(keys);
     const seaKey = await unwrapSeaKey(rec, keys.recordKey);
+    /* 開けたついでに、読むための鍵を置く（次からは読むだけなら鍵を求めない。Issue #68 の A 案） */
+    if (!readBoardsOf(rec)) await keepReadKeys(rec.id, seaKey, rec.gen);
     return { keys, seaKey };
   }
   async function needFunds(net, count) {
@@ -3846,6 +3995,7 @@ function chainBox(opts = {}) {
     await writeEnvelope(net, keys.wallet, env, to.wallet);
     await writePost(net, keys.wallet, roster, board);
     putShared(rec);
+    await keepReadKeys(rec.id, seaKey, rec.gen);
     cfg = Object.assign(loadConfig(), { share: myShare });
     saveConfig(cfg);
     /* 続けて招けるよう、「招く」の ② にこの海を選んで出す（Issue #68 の返事） */
@@ -4009,7 +4159,9 @@ function chainBox(opts = {}) {
       onStep: (i) => { line.textContent = '書いている… ' + (done + i) + '/' + count; },
     });
     if (snap.length) next.savedAt = Date.now();
+    delete next.rk;   /* 代が変わったので、前の代の読むための鍵は捨てて作り直す */
     putShared(next);
+    await keepReadKeys(id, seaKey, gen);
     paint();
     curKey = 'sea:' + id;
     line.textContent = '外した（鍵の代 ' + gen + '）。残るメンバーに「届いた招待を受け取る」を押してもらう。';
@@ -4178,10 +4330,11 @@ function chainBox(opts = {}) {
     return members;
   }
   /* quiet: 重ねる確かめを出さない（盤のひとことを送ったときの読み込み。重ねるのは消さないので確かめなしでよい。Issue #68） */
-  async function readWith(rec, seaKey, keys, quiet) {
+  /* board: 海の鍵の代わりに読むための鍵（Issue #68 の A 案）で読むとき。そのときは鍵を開けていないので、名簿に人を足さない */
+  async function readWith(rec, seaKey, keys, quiet, board) {
     const id = rec.id;
     line.textContent = '掲示板を読んでいる…';
-    const got = await readBoard(rec.net, rec, seaKey);
+    const got = board ? await readBoardWith(rec.net, rec, board) : await readBoard(rec.net, rec, seaKey);
     let next = sharedRec(id);
     if (got.members) next = Object.assign(next, { members: await fillShareIds(got.members, got.posts, next.members, next.net) });
     let snaps = got.snaps;
@@ -4253,7 +4406,11 @@ function chainBox(opts = {}) {
       const rec = { id: f.sea.id, net, gen: f.gen, owner: f.owner, me: keys.wallet.address,
         wrapped: await wrapSeaKey(f.key, keys.recordKey, f.sea.id, f.gen, keys.wallet.address), board: board.address,
         members: (prev && prev.me === keys.wallet.address && prev.members) || [], savedAt: null, readAt: null };
+      /* 代が変わったときは前の代の読むための鍵を捨て、受け取った鍵で作り直す（Issue #68 の A 案） */
+      const allNow = loadShared();
+      if (allNow[f.sea.id]) { delete allNow[f.sea.id].rk; saveShared(allNow); }
       putShared(rec);
+      await keepReadKeys(rec.id, f.key, f.gen);
       all[f.sea.id] = rec;
       if (!local) addInvitedSea(f.sea);
       took++;
@@ -4290,6 +4447,7 @@ function chainBox(opts = {}) {
       wrapped: await wrapSeaKey(f.key, keys.recordKey, f.sea.id, f.gen, keys.wallet.address), board: board.address,
       members: [], inv: f.inv, savedAt: null, readAt: null };
     putShared(rec);
+    await keepReadKeys(rec.id, f.key, f.gen);
     if (!local) addInvitedSea(f.sea);
     curKey = 'share-in';
     await readWith(rec, f.key);
@@ -4644,6 +4802,9 @@ function chainBox(opts = {}) {
      開けた鍵と海の鍵は 10 分だけメモリに置き（readHold）、そのあいだはパスキー・合言葉を求めない。端末には置かない */
   wrap.readSea = async id => {
     const rec = sharedRec(id);
+    /* 読むための鍵があれば、鍵を求めずに読む（Issue #68 の A 案） */
+    const rb = readBoardsOf(rec);
+    if (rb) { await readWith(rec, null, null, true, rb.board); return; }
     const h = readHold && readHold.id === id && readHold.gen === rec.gen && Date.now() < readHold.until ? readHold : null;
     let keys, seaKey;
     if (h) ({ keys, seaKey } = h);
@@ -5423,3 +5584,7 @@ if (typeof document !== 'undefined' && isSolo()) {
     },
   });
 }
+
+/* ブロックチェーンで共有している海を、アプリを開いている間に読む（2026-11-15 Issue #68 の B 案）。
+   読むための鍵（rk）がある海だけ。ファイルの下で始める（上の定数を先に作ってから） */
+if (typeof document !== 'undefined') startSharedWatch();

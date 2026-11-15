@@ -16,7 +16,7 @@ import {
   acceptedSnaps, rosterOf, cleanMembers, loadShared, saveShared, sharedFor, STORE_KEY, ENV_TAG,
   chatBoardOf, chatMessages, readChat, MSG_MAX, SELF_SEA, GIFT_LAMPORTS, giftPlan,
   makeInviteCode, readInviteCode, inviteBoxOf, sealInvite, parseInvite, openInvite, findInviteByCode, writeInvite, joinsOf,
-  INVITE_TAG, INVITE_DAYS,
+  INVITE_TAG, INVITE_DAYS, readKeysOf, readBoardsOf, readBoardWith,
 } from '../js/board.js';
 
 let n = 0;
@@ -357,6 +357,29 @@ await test('招待コードで入ってきた人: 1 つのコードで最初の 
   assert.deepEqual(got.map(j => j.a), ['C']);
   assert.equal(got[0].x, 'BTA1-C');
   assert.deepEqual(joinsOf([post('B', 'BOX1', 101)], { sea: 's1', gen: 1, owner: 'O', members: [], invites }), [], '期限を過ぎてから');
+});
+
+await test('読むための鍵: 海の鍵から作り、同じ代だけ使う。それで掲示板を読める（Issue #68 の A 案）', async () => {
+  const { opt } = fakeChain();
+  const owner = await keysOf(50);
+  const seaKey = newSeaKey();
+  const rk = await readKeysOf(seaKey, 3);
+  const board = await boardOf(seaKey);
+  const chat = await chatBoardOf(seaKey);
+  assert.equal(rk.ba, board.address);
+  assert.equal(rk.ca, chat.address);
+  assert.equal(JSON.stringify(rk).includes(Buffer.from(seaKey).toString('base64')), false, '海の鍵そのものは置かない');
+  const rec = { id: 'srk1', gen: 3, owner: owner.wallet.address, members: [], rk };
+  const rb = readBoardsOf(rec);
+  assert.deepEqual(rb.board.recordKey, board.recordKey);
+  assert.deepEqual(rb.chat.recordKey, chat.recordKey);
+  assert.equal(readBoardsOf(Object.assign({}, rec, { gen: 4 })), null, '代が違えば使わない');
+  assert.equal(readBoardsOf({ id: 'x', gen: 1 }), null);
+  const box = { doc: { todos: [] }, stamps: {} };
+  await writePost('devnet', owner.wallet, await postMemos(owner.wallet, { kind: 'snap', sea: 'srk1', g: 3, at: 1, entry: null, box }, board), board, { opt });
+  const got = await readBoardWith('devnet', rec, rb.board, { opt });
+  assert.equal(got.snaps.length, 1);
+  assert.equal(got.snaps[0].by, owner.wallet.address);
 });
 
 console.log(n + ' tests passed');

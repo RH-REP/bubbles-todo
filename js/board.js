@@ -481,12 +481,37 @@ export function acceptedSnaps(posts, { owner, members, sea, gen }) {
 
 /* 掲示板を読む → { posts, members（名簿が見つかれば）, snaps } */
 export async function readBoard(network, rec, seaKey, { limit = 300, opt } = {}) {
-  const board = await boardOf(seaKey);
+  return readBoardWith(network, rec, await boardOf(seaKey), { limit, opt });
+}
+/* 掲示板（{ address, recordKey }）で読む。海の鍵が無くても、読むための鍵（readKeysOf）があれば読める（2026-11-15 Issue #68 の A 案） */
+export async function readBoardWith(network, rec, board, { limit = 300, opt } = {}) {
   const list = await readMemos(network, board.address, { limit, opt });
   const posts = await collectPosts(list.map(x => x.text), board.recordKey);
   const members = rosterOf(posts, { owner: rec.owner, sea: rec.id, gen: rec.gen });
   const snaps = acceptedSnaps(posts, { owner: rec.owner, members: members || rec.members, sea: rec.id, gen: rec.gen });
   return { posts, members, snaps };
+}
+
+/* ---- 読むための鍵（2026-11-15 Issue #68 の返事「読み込みのみの場合はなにを使ってる？…置いておくことはできる？」→ A 案「おすすめで」） ----
+   海の鍵から作る、記録の掲示板とチャットの掲示板の「アドレスとカギ」だけを、共有の海の控えにそのまま置く（rk）。
+   これで、パスキー・合言葉なしで中身を読める。海の鍵そのもの（招待を作る・鍵を作り替えるのに使う）とウォレットの鍵は置かない。
+   書くときはウォレットの署名が要り、名簿のアドレスの書き込みだけが使われるので、このカギだけでは人の名をかたれない。
+   人を外して鍵を作り替えると代（g）が変わり、前の代の rk は使わない */
+export async function readKeysOf(seaKey, gen) {
+  const b = await boardOf(seaKey);
+  const c = await chatBoardOf(seaKey);
+  return { g: gen, ba: b.address, bk: toB64(b.recordKey), ca: c.address, ck: toB64(c.recordKey) };
+}
+/* 控えの rk → { board, chat }（その代のものでなければ null） */
+export function readBoardsOf(rec) {
+  const rk = rec && rec.rk;
+  if (!rk || Number(rk.g) !== Number(rec.gen) || typeof rk.ba !== 'string' || typeof rk.bk !== 'string') return null;
+  try {
+    return {
+      board: { address: rk.ba, recordKey: fromB64(rk.bk) },
+      chat: typeof rk.ca === 'string' && typeof rk.ck === 'string' ? { address: rk.ca, recordKey: fromB64(rk.ck) } : null,
+    };
+  } catch (e) { return null; }
 }
 
 /* ---- この端末に置く共有の海の一覧（秘密は包んだ海の鍵だけ。包むのは自分の記録のカギ） ----
