@@ -437,7 +437,10 @@ export default {
       sub.add('server', 'サーバーで', [!isSolo() ? serverChatBox(this)
         : pointer('サーバーでチャットする', 'サーバーに繋いだときに使える。先にサーバーに繋ぐ。', 'サーバーの設定を開く', goServer)]);
       const chatChain = chainBox({ tasks: ['memo'], title: 'ブロックチェーンでチャットする', goSetup });
-      chatChain.appendChild(el('p', 'note', 'チャットの相手は、アドレスではなく共有の海で選ぶ（その海のメンバー全員と話す）。共有中の海ごとに「チャットを開く」が出る。'));
+      chatChain.appendChild(el('p', 'note', 'チャットの相手は、アドレスではなく共有の海で選ぶ（その海のメンバー全員と話す）。共有中の海ごとに「チャットを開く」が出る。'
+        /* 盤のひとこととの違い（2026-11-15 Issue #68 の返事「TODOのひとことを送ると設定のチャットは同じ？」） */
+        + '盤（TODO）のひとこととは別のもの: ひとことは泡に付いて、海の記録と一緒に「同期」で届く（何件書いても、同期 1 回ぶんの手数料）。'
+        + 'チャットは泡に付かず、1 件ずつ届ける（直につながっていれば手数料なし、いなければ 1 件ごとにチェーンに書く）。'));
       sub.add('chain', 'ブロックチェーンで', [chatChain]);
       /* 共有を始めた・受け取ったあとに開いても、その海のチャットが出るよう、選んだときに読み直す（Issue #68） */
       pane.refresh = () => { if (!chatChain.hidden && typeof chatChain.refresh === 'function') chatChain.refresh(); };
