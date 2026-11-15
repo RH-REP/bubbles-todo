@@ -831,7 +831,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let detailBase = '';          /* 書く面に入った時点の本文。[キャンセル] でここへ戻す */
   let syncSpanRow = null;       /* 盤の「期間」（Issue #34）。本文が変わったら読み直す */
   /* ひとこと（Issue #25）。入口と別の面。[書く] で1件ずつ積む（書き換えない） */
-  let notesBtn = null, notesPane = null, notesList = null, notesName = null;   /* 面は読むのと名前だけ（Issue #70 の返事） */
+  let notesBtn = null, notesPane = null, notesList = null;   /* 面は前のものを読むだけ（Issue #70 の返事） */
   let chatList = null, chatIn = null;   /* 本文の下のチャットの形（Issue #61） */
   let draft0 = null;            /* 開いた時点の入力欄の中身（触ったかを見るため） */
   let urlLink = null, urlLinkTx = null, urlEdit = null;
@@ -2467,11 +2467,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const rows = notesNow();
     const live = rows.filter(n => !n.gone);
     const fresh = ask(a, 'hasNewNote', id) === true;
-    /* 面は前のものを読むのと名前だけになった（Issue #70 の返事）。盤に出ていない古いものが無ければ「名前」 */
-    notesBtn.textContent = rows.length > CHAT_SHOW ? '前のものも見る' : '名前';
+    /* 面は前のものを読むだけになった（Issue #70 の返事）。盤に出ていない古いもの（3 件より前）があるときだけ出す */
+    notesBtn.textContent = '前のものも見る';
+    notesBtn.hidden = rows.length <= CHAT_SHOW;
     notesBtn.classList.toggle('is-empty', !live.length);
     notesBtn.classList.toggle('is-fresh', fresh);
-    notesBtn.setAttribute('aria-label', fresh ? 'ひとことの前のものも見る（新しいものあり）' : 'ひとことの前のもの・名前');
+    notesBtn.setAttribute('aria-label', fresh ? 'ひとことの前のものも見る（新しいものあり）' : 'ひとことの前のものも見る');
     renderChat(rows);
   }
 
@@ -2591,22 +2592,10 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
     /* 2026-11-15 Issue #70 の返事「メッセージを残すがあるからひとこといらないのでは？」:
        前はこの面にも名前の欄・書く欄・[書く] があり、盤の 1 行の欄（ひとことを残す）と書く所が 2 つあった。
-       書くのは盤の 1 行の欄だけにし、この面は前のものを読むのと、名前を決めるだけにする
-       （名前の欄は残す。設定の画面の名前の欄はサーバーあり版の海のチャットにしか無く、サーバーなし版で変えられなくなるため） */
+       書くのは盤の 1 行の欄だけにし、この面は前のものを読むだけにする。
+       続く返事「ひとことの名前を入れる場所はいらないのでは？」で名前の欄も外した。書き手の名前は、
+       前に決めた名前か、パスキー・招待で付いた名前のまま（js/notes.js の noteName）。サーバーあり版は設定の海のチャットの欄でも変えられる */
     notesPane.appendChild(el('p', 'bm-ctx', '書くのは盤の「ひとことを残す」の欄から'));
-
-    /* 書いた人の名前。この端末だけの設定（初めはパスキーの名前） */
-    const nameRow = el('label', 'bn-name');
-    nameRow.appendChild(el('span', 'bn-name-lb', '名前'));
-    notesName = el('input', 'bn-name-in');
-    notesName.type = 'text';
-    notesName.autocomplete = 'off';
-    notesName.maxLength = 20;
-    notesName.placeholder = '海の中で見せる名前';
-    notesName.setAttribute('aria-label', 'ひとことに付ける名前');
-    notesName.addEventListener('change', () => { notesName.value = String(ask(a, 'setNoteName', notesName.value) || ''); });
-    nameRow.appendChild(notesName);
-    notesPane.appendChild(nameRow);
 
     root.appendChild(notesPane);
   }
@@ -2615,7 +2604,6 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (!notesPane) buildNotes();
     const nm = nameIn ? nameIn.value.trim() : String(ask(a, 'text', id) || '');
     notesPane._ctx.textContent = nm ? '泡：' + nm : '';
-    notesName.value = String(ask(a, 'noteName') || '');
     renderNotes();
     ask(a, 'markNotesSeen', id);                  /* 開いた＝ここまで読んだ */
     document.querySelectorAll('.bub[data-id="' + String(id).replace(/["\\]/g, '') + '"] .ndot')
@@ -2630,7 +2618,6 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   /* 戻り値：閉じたかどうか（Escape の受け手が「自分で処理した」を知るため） */
   function closeNotes(restoreFocus) {
     if (!notesPane || notesPane.hidden) return false;
-    if (notesName) ask(a, 'setNoteName', notesName.value);
     notesPane.hidden = true;
     if (fields) fields.hidden = false;
     syncNotesBtn();

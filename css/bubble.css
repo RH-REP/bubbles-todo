@@ -1158,17 +1158,7 @@ body.pref-all-tools .bub-center .bc-more { display: none; }
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .bub-center .bn-item.is-gone .bn-tx { color: var(--text-2); }
-.bub-center .bn-name {
-  flex: none; display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px 0; font-size: 12.5px; color: var(--text-2);
-  border-top: 1px solid var(--line);
-}
-.bub-center .bn-name-in {
-  flex: 1; min-width: 0; min-height: 36px; padding: 4px 10px;
-  font: inherit; font-size: 14px; color: var(--text);
-  border: 1px solid var(--line-strong); border-radius: 8px; background: var(--cell);
-}
-.bub-center .bn-in { flex: none; min-height: 72px; }
+/* ひとことの面の名前の欄・書く欄（.bn-name・.bn-name-in・.bn-in）は 2026-11-15 Issue #70 の返事で外した */
 
 /* ---------- 本文の下のチャットの形（2026-11-14 Issue #61）----------
    新しい 3 件を吹き出しで。自分の端末で書いたものは右、ほかは左。下に 1 行の欄と [送る] */
