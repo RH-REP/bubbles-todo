@@ -2546,6 +2546,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      done(言葉) で結果を返す。署名のときは非同期なので、先に '署名中…' を返す。
      押した手の続きでパスキーを呼ぶため、ここより前で await しない */
   function postNote(t, after, done) {
+    /* 送るときに読み込みだけもする（2026-11-15 Issue #68 の返事「TODOのメッセージを送る時に読み込みだけは行った方がいいのでは？」）。
+       ブロックチェーンで共有している海だけ。書き込み（手数料）はしない（それは「同期」）。鍵は 10 分だけメモリに置くので、続けて送るときは求めない。
+       押した手の続きでパスキーを呼ぶため、ひとことを積むより先に、await せずに始める */
+    if (ask(a, 'shareSyncOn') === true) {
+      const r = ask(a, 'readShared', null);
+      if (r && typeof r.then === 'function') {
+        r.then(() => { syncNotesBtn(); if (notesPane && !notesPane.hidden) renderNotes(); }, () => { /* 読めなくても、ひとことは積んである */ });
+      }
+    }
     if (ask(a, 'noteSigning') === true) {
       const p = ask(a, 'addNoteSigned', id, t);
       if (!p || typeof p.then !== 'function') return done('まだ書けない');

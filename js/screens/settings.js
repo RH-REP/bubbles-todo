@@ -2641,6 +2641,10 @@ function resetAllBox() {
      opts.title  … 見出し
      opts.goSetup(k) … この欄に無いやりたいこと（ウォレット・始め方）へ移るとき。準備の箱を開く
    どの欄も鍵と設定は同じもの（localStorage の CONFIG_KEY）を読む。別の欄で変えたら refresh() で読み直す */
+/* 盤のひとことを送ったときの読み込みで使う鍵（{ id, gen, keys, seaKey, until }）。メモリにだけ 10 分置く（Issue #68）。
+   ひとことの署名の鍵（js/notesign.js）と同じ置き方。ページを閉じると消える */
+const READ_HOLD_MS = 10 * 60 * 1000;
+let readHold = null;
 function chainBox(opts = {}) {
   const setup = !!opts.setup;
   const ALLOWED = opts.tasks || ['backup', 'wallet', 'key', 'share', 'memo', 'lost'];
@@ -4160,7 +4164,8 @@ function chainBox(opts = {}) {
     next.members = members;
     return members;
   }
-  async function readWith(rec, seaKey, keys) {
+  /* quiet: 重ねる確かめを出さない（盤のひとことを送ったときの読み込み。重ねるのは消さないので確かめなしでよい。Issue #68） */
+  async function readWith(rec, seaKey, keys, quiet) {
     const id = rec.id;
     /* 取り込む前に、前の同期のあとの書き込みが無かったか（無ければ、取り込んだあとの中身を新しい目印にする。Issue #68 の同期） */
     const wasClean = !!rec.syncSig && boxSig(id) === rec.syncSig;
@@ -4186,7 +4191,7 @@ function chainBox(opts = {}) {
       return;
     }
     const nameOf = a => (a === cfg.address ? '自分' : ((next.members || []).find(m => m.a === a) || {}).n || shortAddr(a));
-    if (!window.confirm('共有の記録を重ねる？\n' + snaps.map(s => nameOf(s.by) + '（' + new Date(s.at).toLocaleString() + '）').join('\n')
+    if (!quiet && !window.confirm('共有の記録を重ねる？\n' + snaps.map(s => nameOf(s.by) + '（' + new Date(s.at).toLocaleString() + '）').join('\n')
       + '\nいまの記録は消さずに重ねる（記録ごとに新しく書き換えたほうが残る）。')) { line.textContent = 'やめた'; return; }
     /* 写しの中の海の ID は見ず、この海の箱にだけ重ねる（メンバーがほかの海を書き換えられないように） */
     snaps.forEach(s => {
@@ -4619,6 +4624,20 @@ function chainBox(opts = {}) {
   };
   /* 共有中の海を同期する（盤のひとことの「同期」から。Issue #68） */
   wrap.syncSea = id => syncShared1(id);
+  /* 読み込みだけ（盤のひとことを送ったとき。Issue #68 の返事「TODOのメッセージを送る時に読み込みだけは行った方がいいのでは？」）。
+     開けた鍵と海の鍵は 10 分だけメモリに置き（readHold）、そのあいだはパスキー・合言葉を求めない。端末には置かない */
+  wrap.readSea = async id => {
+    const rec = sharedRec(id);
+    const h = readHold && readHold.id === id && readHold.gen === rec.gen && Date.now() < readHold.until ? readHold : null;
+    let keys, seaKey;
+    if (h) ({ keys, seaKey } = h);
+    else {
+      ({ keys, seaKey } = await openShared(rec));
+      readHold = { id, gen: rec.gen, keys, seaKey, until: Date.now() + READ_HOLD_MS };
+      holdWallet(keys.wallet);
+    }
+    await readWith(rec, seaKey, keys, true);
+  };
 
   paint();
   return wrap;
@@ -4630,6 +4649,11 @@ function chainBox(opts = {}) {
 export function syncSharedSea(id, say) {
   const box = chainBox({ tasks: ['share'], part: 'sync', say });
   return box.syncSea(id);
+}
+/* 盤のひとことの「送る」のあとに、読み込みだけをする（Issue #68）。書かないので手数料は掛からない */
+export function readSharedSea(id, say) {
+  const box = chainBox({ tasks: ['share'], part: 'sync', say });
+  return box.readSea(id);
 }
 
 /* 指で触る端末か（iPhone・iPad・Android）。パソコンでは共有シートより、ふつうのダウンロードがよい */
