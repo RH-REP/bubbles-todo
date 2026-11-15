@@ -199,6 +199,16 @@ function fmtAt(at) {
    ReferenceError になり、盤が組めずに画面が固まった（Issue #63）。だから外に置く */
 const CHAT_SHOW = 3;
 
+/* 字を打つ欄か（Issue #70。js/boot-dvh.js の isEditable と同じ線引き）。盤の isTyping が使う */
+function isEditableEl(t) {
+  if (!t || !t.tagName) return false;
+  if (t.tagName === 'TEXTAREA' || t.isContentEditable) return true;
+  if (t.tagName !== 'INPUT') return false;
+  return !/^(button|submit|reset|checkbox|radio|range|color|file|image|hidden)$/i.test(t.type || '');
+}
+/* 欄から焦点が外れたあと、画面の揺れで盤を閉じない間（キーボードが引っ込み、ページが戻るまで） */
+const TYPED_GRACE_MS = 1500;
+
 /* ---------------- 大きさ ---------------- */
 
 /* 文字数から直径を決める。面積が文字数に比例するよう sqrt を使う。
@@ -800,6 +810,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   root.setAttribute('role', 'group');
   root.dataset.screen = 'board'; root.dataset.screenLayer = '4';   /* 中央の盤 */
   root.setAttribute('aria-label', (ariaLabel.split('（')[0] || '') + ' の操作');
+  /* 盤の中の字を打つ欄から焦点が外れた時刻（Issue #70）。
+     キーボードが引っ込むときも、見えている所の大きさが変わり、ページが元の位置へ戻る（scroll が飛ぶ）。
+     焦点が外れた直後のそれで盤を閉じないよう、少しの間は「打っている最中」とみなす */
+  let typedAt = 0;
+  root.addEventListener('focusout', ev => { if (isEditableEl(ev.target)) typedAt = Date.now(); });
 
 
   const a = centerAdapter;
@@ -2800,10 +2815,19 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         || root.querySelector('button:not([hidden])');
       if (first) first.focus({ preventScroll: true });
     },
+    /* 画面の揺れ（resize・ページの scroll）で盤を閉じてはいけない間か。
+       2026-11-15 Issue #70: 前は焦点のある欄が .bc-in（名前・次の一手・リンク）のときだけ真で、
+       ひとことの欄（本文の下の 1 行 .bn-quick-in・ひとことの面の .bn-in と名前 .bn-name-in）や日の欄が入っていなかった。
+       画面の小さい端末（iPhone SE など）では、下のほうの欄に触るとキーボードの分だけページが動き（scroll）、
+       盤が閉じて、書けなかった（大きい画面では欄がキーボードより上にあり、ページが動かないので起きない）。
+       盤の中のどの「字を打つ欄」に焦点があっても真にし、ひとことの面が開いている間・焦点が外れた直後も真にする */
     isTyping() {
       if (this.isWriting()) return true;
+      if (notesPane && !notesPane.hidden) return true;
+      if (Date.now() - typedAt < TYPED_GRACE_MS) return true;
+      if (document.documentElement.classList.contains('kb-open')) return true;   /* js/boot-dvh.js */
       const el2 = document.activeElement;
-      return !!(el2 && root.contains(el2) && el2.classList.contains('bc-in'));
+      return !!(el2 && root.contains(el2) && isEditableEl(el2));
     },
     /* 書く面（本文の [編集] のあと・作業メモ）が開いているか（Issue #55）。
        開いている間は、覆い・下タブ・画面の揺れ（キーボードの出入り）で盤を閉じない。
