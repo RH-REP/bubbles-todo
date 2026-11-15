@@ -3091,6 +3091,26 @@ function chainBox(opts = {}) {
      名前を付けた海を1つずつ、特定の人と共有する。渡すのは受け取りID（BTA1-…。js/board.js の「共有用のアドレス」。人に見られてよい）だけ。
      招く・外すのは海の持ち主（共有を始めた人）だけ。保存・読み込みはボタンで（押したときだけ手数料が掛かる）。
      海の鍵は自分の記録のカギで包んで端末に置くので、どの操作でもパスキーか合言葉で開く */
+  /* 消した海の共有の控えを、この端末から外す（Issue #68 の返事「海を消しても共有中の海が消えない」）。
+     海の一覧に消した印（alive 0）が残っている海だけを外す（一覧にまだ無い海は、受け取りの途中かもしれないので残す）。
+     チェーンの上の記録とほかのメンバーには触らない（「この端末で共有をやめる」と同じ） */
+  /* 招かれた海をこの端末の一覧に足す。前に消した海（消した印が残る）は、印のほうが新しいので重ねるだけでは戻らない。
+     そのときは同じ ID で作り直す（Issue #68。消した海の招待を受け取り直したとき） */
+  function addInvitedSea(sea) {
+    const e = allEntries().find(x => x.id === sea.id);
+    if (e && !e.alive) { addSea(sea.name, sea.color, Date.now(), undefined, sea.id); return; }
+    mergeSeas([sea]);
+  }
+  function dropGoneShared(shared) {
+    const entries = allEntries();
+    let changed = false;
+    Object.keys(shared).forEach(id => {
+      const e = entries.find(x => x.id === id);
+      if (e && !e.alive) { delete shared[id]; changed = true; }
+    });
+    if (changed) { try { saveShared(shared); } catch (e) { /* 書けなくても画面からは外す */ } }
+    return shared;
+  }
   function paintShare(net) {
     /* 招く側と招かれる側でまとまりを分け、番号の順に押せばよいようにした（2026-11-11 Issue #37 の返事:
        「このアドレスを相手に渡せばいい？」「相手はどのボタンで取り込むの？」。アドレスが向かう向き＝招かれる人 → 招く人、が分かりにくかった） */
@@ -3100,7 +3120,7 @@ function chainBox(opts = {}) {
        - 「保存／読み込む」→「自分の変更を送る／みんなの変更を取り込む」。外す・やめるは畳んでおく */
     /* 2026-11-15 Issue #68「招くが先じゃない？」「相手の公開アドレス入れるの？」: 流れを先に1か所で示し、
        招く側（海を選ぶ・新しく作る）を上、招かれる側を下に並べ替えた。相手に入れてもらうのはウォレットのアドレスではなく受け取りID */
-    const shared = loadShared();
+    const shared = dropGoneShared(loadShared());
     /* opts.part（Issue #68 の返事「他の人と一緒に使うに、新規で海を共有する、チャットする、同期するって並べるのは不自然？」）:
        'invite' = 共有の流れ・招く・招かれる、'sync' = 共有中の海（送る・取り込む・チャット・人を外す）。無ければ両方 */
     const part = opts.part || '';
@@ -4076,7 +4096,7 @@ function chainBox(opts = {}) {
         members: (prev && prev.me === keys.wallet.address && prev.members) || [], savedAt: null, readAt: null };
       putShared(rec);
       all[f.sea.id] = rec;
-      if (!local) mergeSeas([f.sea]);
+      if (!local) addInvitedSea(f.sea);
       took++;
       curKey = 'share-in';
       await readWith(rec, f.key);
@@ -4111,7 +4131,7 @@ function chainBox(opts = {}) {
       wrapped: await wrapSeaKey(f.key, keys.recordKey, f.sea.id, f.gen, keys.wallet.address), board: board.address,
       members: [], inv: f.inv, savedAt: null, readAt: null };
     putShared(rec);
-    if (!local) mergeSeas([f.sea]);
+    if (!local) addInvitedSea(f.sea);
     curKey = 'share-in';
     await readWith(rec, f.key);
     paint();
