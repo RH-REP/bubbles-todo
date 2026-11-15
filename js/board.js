@@ -393,9 +393,11 @@ export async function writeInvite(network, wallet, text, box, opt) {
 
 /* 書き込み → コードで入ってきた人（まだ名簿にいない人）。invites = [{ inv, exp, used }]（持ち主の端末の控え）。
    1 つのコードにつき、いちばん早く書いた 1 人だけ。期限を過ぎてから書いたもの・使い済みのコードは足さない */
-export function joinsOf(posts, { sea, gen, owner, members, invites }) {
+/* now: 足す時刻。書き込みの at は書いた人が決められる（古い時刻を書ける）ので、期限は持ち主の端末の時刻でも見る
+   （2026-11-16 Issue #68 の点検: 期限を過ぎたコードでも、at を期限の前にすれば足されてしまった） */
+export function joinsOf(posts, { sea, gen, owner, members, invites, now = Date.now() }) {
   const known = new Set([owner].concat((members || []).map(m => m.a)));
-  const open = new Map((invites || []).filter(i => i && !i.used).map(i => [i.inv, i]));
+  const open = new Map((invites || []).filter(i => i && !i.used && now <= Number(i.exp)).map(i => [i.inv, i]));
   const best = new Map();
   posts.forEach(p => {
     if (p.sea !== sea || Number(p.g) !== gen || typeof p.inv !== 'string' || typeof p.x !== 'string') return;

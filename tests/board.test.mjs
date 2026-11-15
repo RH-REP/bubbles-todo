@@ -353,10 +353,12 @@ await test('招待コードで入ってきた人: 1 つのコードで最初の 
     post('E', 'BOX9', 10),             /* 知らないコード */
     post('M', 'BOX1', 5),              /* もう名簿にいる */
     post('F', 'BOX1', 10, { g: 2 }),   /* 別の代 */
-  ], { sea: 's1', gen: 1, owner: 'O', members: [{ a: 'M' }], invites });
+  ], { sea: 's1', gen: 1, owner: 'O', members: [{ a: 'M' }], invites, now: 50 });
   assert.deepEqual(got.map(j => j.a), ['C']);
   assert.equal(got[0].x, 'BTA1-C');
-  assert.deepEqual(joinsOf([post('B', 'BOX1', 101)], { sea: 's1', gen: 1, owner: 'O', members: [], invites }), [], '期限を過ぎてから');
+  assert.deepEqual(joinsOf([post('B', 'BOX1', 101)], { sea: 's1', gen: 1, owner: 'O', members: [], invites, now: 50 }), [], '期限を過ぎてから書いた');
+  /* at を期限の前に偽っても、持ち主の端末の時刻で期限を過ぎていれば足さない（2026-11-16 の点検） */
+  assert.deepEqual(joinsOf([post('B', 'BOX1', 10)], { sea: 's1', gen: 1, owner: 'O', members: [], invites, now: 101 }), [], '期限を過ぎてから読んだ');
 });
 
 await test('読むための鍵: 海の鍵から作り、同じ代だけ使う。それで掲示板を読める（Issue #68 の A 案）', async () => {

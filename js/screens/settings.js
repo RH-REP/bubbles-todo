@@ -2701,12 +2701,19 @@ function serverChatUnread(id) {
 /* 共有の海 1 つを、読むための鍵で読む（鍵を求めない）。記録は確かめずに重ね、チャットは履歴に足す。新しく足したチャットの数 */
 /* 記録の写しを重ねる（自動の読み込み・直の通信の受け取り）。cur は共有の海の控え（書き換える。保存は呼ぶ側）。
    重ねる直前に「前の同期のあとの書き込みが無いか」を見て、無ければ重ねたあとの中身を目印にする（ここから書くまで await しない） */
+/* ほかのメンバーが写しに入れた「海の一覧の 1 件」から、名前・色・書き換えた時刻だけを使う（2026-11-16 Issue #68 の点検）。
+   そのまま重ねると、消した印（alive 0）でこちらの端末の海が消え（共有の控えも外れる）、
+   同期の先（region）でこちらの海の繋ぎ先（自分のサーバー など）が変わってしまえた */
+function memberEntry(entry, id) {
+  if (!entry || typeof entry !== 'object' || entry.id !== id) return null;
+  return { id, name: entry.name, color: entry.color, at: entry.at, alive: 1 };
+}
 function mergeSnapsInto(cur, snaps) {
   const id = cur.id;
   const before = seaStateById(id);
   const clean = !!cur.syncMark && !pendingNotesIn(before).length && sigOfBox(before) === cur.syncMark;
   snaps.forEach(s => {
-    const entry = s.entry && s.entry.id === id ? s.entry : null;
+    const entry = memberEntry(s.entry, id);
     mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [id]: s.box } });
   });
   cur.readAt = Date.now();
@@ -2745,9 +2752,11 @@ function meshFor(rec) {
     sea: id, g: gen, dev: deviceId(), ice: iceServers(prefs),
     allowed: () => [now().owner].concat((now().members || []).map(m => m.a)),
     post: async (inner) => {
-      if (inner.kind === 'offer') {
-        const k = id + '|' + inner.to;
-        if (Date.now() - (offered.get(k) || 0) < HELLO_MS) throw new Error('この相手へは、つなぎかけている');
+      /* 「つなぎたい」も「つなぐ」も、同じ相手へは 10 分に 1 度まで（2026-11-16 Issue #68 の点検: メンバーが「つなぎたい」を
+         何度も書くと、こちらがそのたびに「つなぐ」を書いて手数料が減っていった） */
+      if (inner.kind === 'offer' || inner.kind === 'answer') {
+        const k = id + '|' + inner.kind + '|' + inner.to;
+        if (Date.now() - (offered.get(k) || 0) < HELLO_MS) throw new Error('この相手へは、少し前につなぎに行った');
         offered.set(k, Date.now());
       }
       await writePost(net, wallet, await postMemos(wallet, inner, chat), chat);
@@ -3925,7 +3934,15 @@ function chainBox(opts = {}) {
     if (prefs.on && p2pSupported()) {
       mesh = new Mesh({
         sea, g: gen, dev: myDev, allowed, ice: iceServers(prefs), history: () => hist,
-        post: (inner) => postChain(inner),
+        /* 裏の網と同じく、「つなぎたい」「つなぐ」は同じ相手へ 10 分に 1 度まで（手数料を減らされないように。2026-11-16 の点検） */
+        post: (inner) => {
+          if (inner.kind === 'offer' || inner.kind === 'answer') {
+            const k = sea + '|' + inner.kind + '|' + inner.to;
+            if (Date.now() - (offered.get(k) || 0) < HELLO_MS) return Promise.reject(new Error('この相手へは、少し前につなぎに行った'));
+            offered.set(k, Date.now());
+          }
+          return postChain(inner);
+        },
         onMessages: (msgs) => { putHist(mergeHistory(hist, msgs, 'p2p').list); render(); },
         onPeerOpen: () => {
           /* つながった相手には、手元の新しい 100 通（未送を含む）が送られた。未送は直に届いた扱いにする */
@@ -4572,7 +4589,7 @@ function chainBox(opts = {}) {
     const wasClean = !!fresh.syncMark && !hasPendingNotes(id) && boxSig(id) === fresh.syncMark;
     /* 写しの中の海の ID は見ず、この海の箱にだけ重ねる（メンバーがほかの海を書き換えられないように） */
     snaps.forEach(s => {
-      const entry = s.entry && s.entry.id === id ? s.entry : null;
+      const entry = memberEntry(s.entry, id);
       mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [id]: s.box } });
     });
     putShared(Object.assign(next, { readAt: Date.now() }, wasClean ? { syncMark: boxSig(id) } : {}));
