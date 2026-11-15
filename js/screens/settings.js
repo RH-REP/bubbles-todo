@@ -391,6 +391,15 @@ export default {
     gShare.appendChild(shareHub);
     /* チャットを開いている間は描き直さない（2026-11-16 Issue #68 の返事「設定のチャットを押してもなにも起こらない？」:
        チャットを開くと「見た」の印を付け、その知らせで面を描き直していたので、開いたチャットがすぐ閉じていた） */
+    /* 知らせの［開く］から、その海のチャットを開く（Issue #68）。設定の画面に移ったあとで呼ばれる。描き直すたびに付け替える */
+    if (openChatHandler) window.removeEventListener('bubbles:open-sea-chat', openChatHandler);
+    openChatHandler = (ev) => {
+      const id = ev && ev.detail && ev.detail.id;
+      if (!id) return;
+      gShare.open = true;
+      setTimeout(() => { if (typeof shareHub.openSeaChat === 'function') shareHub.openSeaChat(id); }, 50);
+    };
+    window.addEventListener('bubbles:open-sea-chat', openChatHandler);
     const shareRefresh = () => {
       if (!gShare.open || typeof shareHub.refresh !== 'function') return;
       if (typeof shareHub.hasChat === 'function' && shareHub.hasChat()) return;
@@ -2644,6 +2653,8 @@ const READ_HOLD_MS = 10 * 60 * 1000;
 let readHold = null;
 /* 共有の面のサーバーの海のカードから、サーバーのチャット・サーバーの設定を開く受け口（Issue #68 の X 案。設定を描き直すたびに付け替える） */
 let srvHandlers = null;
+/* 知らせの［開く］から共有の海のチャットを開く受け口（Issue #68。設定を描き直すたびに付け替える） */
+let openChatHandler = null;
 
 /* ---- 読むための鍵と、開いている間の読み込み（2026-11-15 Issue #68 の返事「おすすめで」= A 案・B 案） ----
    A: 海の鍵を開けたときに、読むための鍵（js/board.js の readKeysOf）を共有の海の控えに置く。以後、読むだけならパスキー・合言葉は要らない。
@@ -2873,7 +2884,17 @@ async function watchAll() {
         const n = await watchOne(rec);
         if (n > 0) {
           const ent = allEntries().find(e => e.id === rec.id);
-          toast('「' + (ent ? ent.name : rec.id) + '」のチャットに新しいメッセージ（設定の「他の人と一緒に使う」のその海の「チャット」で見る）');
+          /* 短くし、［開く］でその海のチャットへ移る（2026-11-16 Issue #68 の返事「届いたメッセージが長すぎて枠からはみ出てる」「タップしたらその画面に遷移できない？」）。
+             海の名前が長いときは切る */
+          const nm = String(ent ? ent.name : rec.id);
+          const id = rec.id;
+          toast('新しいチャット ' + n + ' 件「' + (nm.length > 10 ? nm.slice(0, 9) + '…' : nm) + '」', {
+            label: '開く', undo: false,
+            on: () => {
+              try { window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'settings' } })); } catch (e) { /* 進む */ }
+              setTimeout(() => { try { window.dispatchEvent(new CustomEvent('bubbles:open-sea-chat', { detail: { id } })); } catch (e) { /* 進む */ } }, 80);
+            },
+          }, 8000);
           try { window.dispatchEvent(new CustomEvent('bubbles:chat-unread')); } catch (e) { /* 知らせなくても進む */ }
         }
       } catch (e) { /* 1 つ読めなくても、ほかは読む */ }
@@ -5096,6 +5117,16 @@ function chainBox(opts = {}) {
   wrap.syncSea = id => syncShared1(id);
   /* チャット（読むだけの面か、鍵を開けたチャット）を開いているか。開いている間は外から描き直さない（Issue #68） */
   wrap.hasChat = () => !!chat;
+  /* その海のチャットを開く（知らせの［開く］から。2026-11-16 Issue #68 の返事「タップしたらその画面に遷移できない？」）。
+     読むだけの欄を開いて、その欄まで画面を動かす */
+  wrap.openSeaChat = id => {
+    const rec = loadShared()[id];
+    if (!rec || rec.me !== cfg.address) return false;
+    paint();
+    try { peekChat('sea:' + id, rec); } catch (e) { return false; }
+    if (chat && chat.panel) { try { chat.panel.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* 進む */ } }
+    return true;
+  };
   /* 読み込みだけ（盤のひとことを送ったとき。Issue #68 の返事「TODOのメッセージを送る時に読み込みだけは行った方がいいのでは？」）。
      開けた鍵と海の鍵は 10 分だけメモリに置き（readHold）、そのあいだはパスキー・合言葉を求めない。端末には置かない */
   wrap.readSea = async id => {
