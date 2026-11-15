@@ -32,7 +32,7 @@ import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unw
 import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, loadHistory, saveHistory, mergeHistory, markState,
   signMsg, messagesFromPosts, signSnap, HELLO_MS } from '../p2p.js';
 /* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
-import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
+import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies, CHAT_TODO } from '../notes.js';
 import { signNote, holdWallet } from '../notesign.js';
 import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
@@ -387,7 +387,7 @@ export default {
        「海を共有する／共有中の海を同期する／チャットする」×「サーバーで／ブロックチェーンで」の 3 段の選択をやめ、開いたらすぐ 1 つの面
        （共有中の海のカード → ＋ 海を共有する → 招待コードを受け取る → 畳んだ説明・自分あてのメモ）を出す。
        サーバーの共有・チャットは、サーバーあり版だけ下に畳んで置く（サーバーなし版では出さない） */
-    const shareHub = chainBox({ tasks: ['share'], part: 'hub', title: '共有の海（ブロックチェーン）', goSetup });
+    const shareHub = chainBox({ tasks: ['share'], part: 'hub', title: isSolo() ? '共有の海（ブロックチェーン）' : '共有の海（サーバー・ブロックチェーン）', goSetup });
     gShare.appendChild(shareHub);
     const shareRefresh = () => { if (gShare.open && typeof shareHub.refresh === 'function') shareHub.refresh(); };
     /* 自動の読み込みで新しいチャットが来たら、カードの件数を描き直す（開いているときだけ） */
@@ -415,6 +415,21 @@ export default {
         'サーバーの設定を開く', goServer));
       srv.appendChild(serverChatBox(this));
       gShare.appendChild(srv);
+      /* 共有の面のサーバーの海のカードの［チャット］［人を招く］から開く（Issue #68 の X 案）。描き直すたびに前の受け口を外す */
+      if (srvHandlers) {
+        window.removeEventListener('bubbles:open-server-chat', srvHandlers.chat);
+        window.removeEventListener('bubbles:open-server-settings', srvHandlers.settings);
+      }
+      srvHandlers = {
+        chat: () => {
+          srv.open = true;
+          try { srv.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* 進む */ }
+          if (serverChatUnread(store.space()) > 0) markChatSeen('srv:' + store.space());
+        },
+        settings: () => goServer(),
+      };
+      window.addEventListener('bubbles:open-server-chat', srvHandlers.chat);
+      window.addEventListener('bubbles:open-server-settings', srvHandlers.settings);
     }
 
     /* --- 記録を保存する・読み込む（Issue #43 の返事）---
@@ -1300,6 +1315,9 @@ function serverChatBox(screen) {
       list.appendChild(item);
     });
     if (atBottom) list.scrollTop = list.scrollHeight;
+    /* 見えているときは、この海のチャットを見たことにする（共有の面のカードの「新しい N 件」を消す。Issue #68 の X 案）。
+       件数があるときだけ書く（書くと面を描き直すので、毎回は書かない） */
+    if (!mine() && wrap.offsetParent !== null && serverChatUnread(store.space()) > 0) markChatSeen('srv:' + store.space());
 
     /* 書けるか: 海域に繋いでいて、この海の鍵があること。読むだけ（招かれた海で合わせる前）は待つ */
     const st = sync.status();
@@ -2616,6 +2634,8 @@ function resetAllBox() {
    ひとことの署名の鍵（js/notesign.js）と同じ置き方。ページを閉じると消える */
 const READ_HOLD_MS = 10 * 60 * 1000;
 let readHold = null;
+/* 共有の面のサーバーの海のカードから、サーバーのチャット・サーバーの設定を開く受け口（Issue #68 の X 案。設定を描き直すたびに付け替える） */
+let srvHandlers = null;
 
 /* ---- 読むための鍵と、開いている間の読み込み（2026-11-15 Issue #68 の返事「おすすめで」= A 案・B 案） ----
    A: 海の鍵を開けたときに、読むための鍵（js/board.js の readKeysOf）を共有の海の控えに置く。以後、読むだけならパスキー・合言葉は要らない。
@@ -2662,6 +2682,15 @@ function chatUnread(rec) {
   const room = 'sea:' + rec.id + ':' + rec.gen;
   const seen = Number(chatSeen()[room]) || 0;
   return loadHistory(room).filter(m => m.by !== rec.me && Number(m.at) > seen).length;
+}
+/* サーバーで合わせる海のチャット（海の記録の CHAT_TODO）の、まだ見ていないほかの端末のメッセージの数（2026-11-16 Issue #68 の X 案）。
+   見た時刻は部屋 'srv:<海の ID>' として同じ所に置く */
+function serverChatUnread(id) {
+  const st = seaStateById(id);
+  const seen = Number(chatSeen()['srv:' + id]) || 0;
+  const dev = noteDevice();
+  return (st && st.doc && Array.isArray(st.doc.notes) ? st.doc.notes : [])
+    .filter(n => n && n.todo === CHAT_TODO && !n.gone && n.dev !== dev && Number(n.at) > seen).length;
 }
 /* 共有の海 1 つを、読むための鍵で読む（鍵を求めない）。記録は確かめずに重ね、チャットは履歴に足す。新しく足したチャットの数 */
 /* 記録の写しを重ねる（自動の読み込み・直の通信の受け取り）。cur は共有の海の控え（書き換える。保存は呼ぶ側）。
@@ -3071,6 +3100,12 @@ function chainBox(opts = {}) {
       /* 始め方は準備の箱にだけ置く（Issue #45）。ここでは、そこへ移るボタンだけ */
       info.textContent = 'ブロックチェーンをまだ始めていない。先に「ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
       /* 始める前でも、海の共有の流れは見せる（Issue #68「どうやって操作したらいいのかわからない」） */
+      /* サーバーの海のカードは、ブロックチェーンを始めていなくても出す（Issue #68 の X 案） */
+      if (ALLOWED.includes('share') && opts.part === 'hub') {
+        const srvSeas = serverSeaCards();
+        paintServerCards(srvSeas);
+        if (srvSeas.length) info.textContent = 'ブロックチェーンでも共有するときは、先に「ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
+      }
       if (ALLOWED.includes('share')) flowBox(true);
       if (opts.goSetup) {
         group('go-setup', '始める', null);
@@ -3341,8 +3376,12 @@ function chainBox(opts = {}) {
     /* 'hub'（2026-11-16 Issue #68 の返事「設定のUIの配置やナビや説明文などを改良できる？」→ A 案「おすすめで」）:
        共有中の海のカードを先に、その下に［＋ 海を共有する］と［招待コードを受け取る］、いちばん下に畳んだ説明と自分あてのメモ */
     const hub = part === 'hub';
-    if (hub) paintSharedSeas(net, shared, true, true);
-    else flowBox(!sharedFor(shared, cfg.address, net).length);
+    if (hub) {
+      /* サーバーで合わせる海もカードで並べる（Issue #68 の X 案。サーバーあり版だけ） */
+      const srvSeas = serverSeaCards();
+      paintSharedSeas(net, shared, true, true, srvSeas.length > 0);
+      paintServerCards(srvSeas);
+    } else flowBox(!sharedFor(shared, cfg.address, net).length);
     /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
     group('share', hub ? '＋ 海を共有する（人を招く）' : '招く（自分の海に人を招く）',
@@ -3496,8 +3535,47 @@ function chainBox(opts = {}) {
      「共有中の海を同期する」の欄（opts.part === 'sync'）では「招く」が別の欄なので出さない（Issue #68 の返事） */
   /* card: 共有の海の面（Issue #68 の A 案）のカードの形。今の様子（立場・最後の同期・直のつながり・新しいチャット）を 1 行で出し、
      ボタンは［同期］［チャット］［人を招く］だけ。手数料・外す・やめるは畳む */
-  function paintSharedSeas(net, shared, linkInvite, card) {
+  /* サーバーで合わせる海（サーバーあり版だけ。個人の海は除く）→ [{ sea, region }]（2026-11-16 Issue #68 の X 案） */
+  function serverSeaCards() {
+    if (isSolo()) return [];
+    const srvs = serverRegions();
+    if (!srvs.length) return [];
+    return allSeas().filter(s => !s.personal).map(s => ({ sea: s, region: srvs.find(r => r.id === s.rid) })).filter(x => x.region);
+  }
+  /* サーバーの海のカード。今の様子（サーバー「名前」で自動で合う・合わせた時刻・新しいチャット）と［チャット］／［この海を開く］・［人を招く］ */
+  function paintServerCards(list) {
+    list.forEach(({ sea, region }) => {
+      const here = sea.id === store.space();
+      const st = here ? sync.status() : null;
+      const unread = serverChatUnread(sea.id);
+      /* 海の名前とサーバーの名前は文字として入れる（見出しの字は HTML として入るので escapeHtml） */
+      group('srv:' + sea.id, '「' + escapeHtml(sea.name) + '」（サーバー）', null);
+      const stLine = el('div', 'note');
+      stLine.style.cssText = 'width:100%';
+      stLine.textContent = 'サーバー「' + (region.name || '') + '」で自動で合う'
+        + (here ? (st && st.state === 'ok' && st.at ? '・合わせた ' + new Date(st.at).toLocaleString() : '・開いている海') : '・開くと合う')
+        + (unread ? '・新しいチャット ' + unread + ' 件' : '');
+      into.appendChild(stLine);
+      if (here) {
+        btn('チャット' + (unread ? '（新しい ' + unread + ' 件）' : ''), async () => {
+          try { window.dispatchEvent(new CustomEvent('bubbles:open-server-chat')); } catch (e) { /* 進む */ }
+        });
+      } else {
+        /* サーバーのチャットは開いている海のものだけ出せるので、その海へ移ってから見る */
+        btn('この海を開く' + (unread ? '（新しいチャット ' + unread + ' 件）' : ''), async () => {
+          try { store.flush(); } catch (e) { /* 移るのは止めない */ }
+          try { localStorage.setItem(SPACE_KEY, sea.id); } catch (e) { throw new Error('切り替えを覚えられなかった'); }
+          location.reload();
+        });
+      }
+      btn('人を招く（サーバーの設定）', async () => {
+        try { window.dispatchEvent(new CustomEvent('bubbles:open-server-settings')); } catch (e) { /* 進む */ }
+      });
+    });
+  }
+  function paintSharedSeas(net, shared, linkInvite, card, quietEmpty) {
     const mine = sharedFor(shared, cfg.address, net);
+    if (!mine.length && quietEmpty) return;
     if (!mine.length && (card || !linkInvite)) {
       group('sea-none', '共有中の海', card ? 'まだ無い。下の［＋ 海を共有する］で人を招くか、［招待コードを受け取る］から始める。'
         : 'まだ無い。「海を共有する」で招く・招待を受け取ると、ここに出る。');
