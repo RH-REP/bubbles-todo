@@ -389,7 +389,13 @@ export default {
        サーバーの共有・チャットは、サーバーあり版だけ下に畳んで置く（サーバーなし版では出さない） */
     const shareHub = chainBox({ tasks: ['share'], part: 'hub', title: isSolo() ? '共有の海（ブロックチェーン）' : '共有の海（サーバー・ブロックチェーン）', goSetup });
     gShare.appendChild(shareHub);
-    const shareRefresh = () => { if (gShare.open && typeof shareHub.refresh === 'function') shareHub.refresh(); };
+    /* チャットを開いている間は描き直さない（2026-11-16 Issue #68 の返事「設定のチャットを押してもなにも起こらない？」:
+       チャットを開くと「見た」の印を付け、その知らせで面を描き直していたので、開いたチャットがすぐ閉じていた） */
+    const shareRefresh = () => {
+      if (!gShare.open || typeof shareHub.refresh !== 'function') return;
+      if (typeof shareHub.hasChat === 'function' && shareHub.hasChat()) return;
+      shareHub.refresh();
+    };
     /* 自動の読み込みで新しいチャットが来たら、カードの件数を描き直す（開いているときだけ） */
     window.addEventListener('bubbles:chat-unread', shareRefresh);
     const pointer = (title, text, label, on) => {
@@ -2763,6 +2769,9 @@ function meshFor(rec) {
       saveShared(all);
     },
     onPeerOpen: () => { toast('「' + seaName0() + '」の相手と直につながった（ひとことは手数料なしで届く）'); },
+    /* つなぐ途中の失敗を覚えて、カードに出す（Issue #68 の返事「webRTC動いてないように見える。確認できる？」） */
+    onError: (e) => { const m = meshes.get(id); if (m) m.lastError = String((e && e.message) || e).slice(0, 120); },
+    onState: () => { try { window.dispatchEvent(new CustomEvent('bubbles:p2p-state')); } catch (e) { /* 進む */ } },
   });
   meshes.set(id, { mesh, gen });
   /* 顔合わせは「つなぎたい」「つなぐ」が 3 分で切れるので、網があるあいだはチャットの掲示板だけを 20 秒ごとに読む */
@@ -3609,6 +3618,19 @@ function chainBox(opts = {}) {
         st.textContent = (owner ? '持ち主' : member ? 'メンバー' : '読むだけ') + '・最後の同期 ' + (last ? new Date(last).toLocaleString() : 'まだ')
           + (direct ? '・直につながっている ' + direct + ' 台' : '') + (unread ? '・新しいチャット ' + unread + ' 件' : '');
         into.appendChild(st);
+        /* 直の通信の様子（Issue #68 の返事「webRTC動いてないように見える。確認できる？」）。つながらない理由が分かるように 1 行で出す */
+        const p2 = el('div', 'note');
+        p2.style.cssText = 'width:100%';
+        const prefs = loadP2pPrefs();
+        p2.textContent = '直の通信: ' + (!prefs.on ? '切ってある（チャットの欄の「端末どうしで直につなぐ」）'
+          : !p2pSupported() ? 'このブラウザでは使えない'
+          : !sessionKeys ? 'まだ（この海で「同期」すると始まる。ページを読み直すと止まる）'
+          : !member ? '読むだけの間は、ほかの人から見つけてもらえない（メンバーになると始まる）'
+          : direct ? 'つながっている ' + direct + ' 台（ひとことは手数料なしで届く）'
+          : m0 ? 'つなぐ相手を待っている（相手もこの 10 分のうちに新しい書き込みを「同期」すると、つなぎに行く）'
+          : 'これから始める（次の自動の読み込みで）')
+          + (m0 && m0.lastError ? '・前の失敗: ' + m0.lastError : '');
+        into.appendChild(p2);
       }
       /* 同期する（Issue #68 の返事「送るの近くに同期ボタン作れる？読み込みと新規書込みがあれば書込みも」）。取り込み＋新しい書き込みがあれば送る */
       /* 「自分の変更を送る」「みんなの変更を取り込む」は外し、同期だけにした（同日の返事「設定の所も同期でまとめて自分の書き込みと読み込みの2つ消した方がわかりやすい？」） */
@@ -4081,6 +4103,10 @@ function chainBox(opts = {}) {
     const seaKey = await unwrapSeaKey(rec, keys.recordKey);
     /* 開けたついでに、読むための鍵を置く（次からは読むだけなら鍵を求めない。Issue #68 の A 案） */
     if (!readBoardsOf(rec)) await keepReadKeys(rec.id, seaKey, rec.gen);
+    /* 直の通信（C1）のため、共有の海の鍵を開けたら、ページを閉じるまでウォレットの鍵をメモリに置く。
+       前は「同期」で書いたときだけだったので、新しい書き込みが無くて書かなかった同期・送る・招待では、直の通信が始まらなかった
+       （2026-11-16 Issue #68 の返事「TODOのひとことでwebRTC動いてないように見える」） */
+    holdSessionKeys(keys);
     return { keys, seaKey };
   }
   async function needFunds(net, count) {
@@ -4387,6 +4413,8 @@ function chainBox(opts = {}) {
     if (!dirty) {
       curKey = 'sea:' + id;
       line.textContent = readMsg + '　この端末には新しい書き込みが無いので、送らなかった（手数料なし）。';
+      /* 鍵を開けたので、ほかのメンバーの「ここにいる」をすぐ見に行く（直の通信 C1） */
+      setTimeout(() => { watchAll(); }, 1500);
       return;
     }
     const wrote = await saveWith(sharedRec(id), keys, seaKey);
@@ -4978,6 +5006,8 @@ function chainBox(opts = {}) {
   };
   /* 共有中の海を同期する（盤のひとことの「同期」から。Issue #68） */
   wrap.syncSea = id => syncShared1(id);
+  /* チャット（読むだけの面か、鍵を開けたチャット）を開いているか。開いている間は外から描き直さない（Issue #68） */
+  wrap.hasChat = () => !!chat;
   /* 読み込みだけ（盤のひとことを送ったとき。Issue #68 の返事「TODOのメッセージを送る時に読み込みだけは行った方がいいのでは？」）。
      開けた鍵と海の鍵は 10 分だけメモリに置き（readHold）、そのあいだはパスキー・合言葉を求めない。端末には置かない */
   wrap.readSea = async id => {

@@ -991,12 +991,17 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         ev.preventDefault();
         if (qsync.disabled) return;
         clearTimeout(syncBack);
-        const p = ask(a, 'syncShared', (msg) => { if (msg) qsync.title = String(msg); });
-        if (!p || typeof p.then !== 'function') { qsync.textContent = 'できない'; syncBack = setTimeout(() => { qsync.textContent = '同期'; }, 1400); return; }
+        /* 途中の知らせのいちばん後ろを覚え、終わったら画面の下に出す（2026-11-16 Issue #68 の返事「TODOの同期が失敗した時にエラーメッセでる？」:
+           前は失敗（例外）のときだけ知らせ、やめた・届かなかった・送らなかったなどは、ボタンの説明にしか出なかった） */
+        let lastMsg = '';
+        const p = ask(a, 'syncShared', (msg) => { if (msg) { lastMsg = String(msg); qsync.title = lastMsg; } });
+        if (!p || typeof p.then !== 'function') { qsync.textContent = 'できない'; toast('同期できなかった（この海はブロックチェーンで共有していないか、まだ始めていない）'); syncBack = setTimeout(() => { qsync.textContent = '同期'; }, 1400); return; }
         qsync.disabled = true;
         qsync.textContent = '同期中…';
         p.then(() => {
-          qsync.textContent = '同期した';
+          const stopped = /やめた/.test(lastMsg);
+          qsync.textContent = stopped ? 'やめた' : '同期した';
+          if (lastMsg && !stopped) toast('同期: ' + lastMsg);
           syncNotesBtn();
           if (notesPane && !notesPane.hidden) renderNotes();
         }, e => {
