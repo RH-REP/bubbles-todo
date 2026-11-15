@@ -2505,6 +2505,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (!p || typeof p.then !== 'function') return;
     p.then(r => {
       if (r && r.ok) { mk.textContent = '✓ ' + r.name; mk.classList.add('is-ok'); mk.title = 'ウォレットの署名で確かめた書き手'; }
+      /* この端末で書いて、まだ署名していないもの（書くときは鍵を求めず、「自分の変更を送る」で署名する。Issue #68） */
+      else if (!n.sg && ask(a, 'isMyNote', n) === true) { mk.textContent = '（送るときに署名する）'; mk.title = '共有の海で「自分の変更を送る」を押すと、ウォレットで署名して届ける'; }
       else { mk.textContent = '（確かめられない）'; mk.title = '書き手の署名が無いか、名簿に無い'; }
     }, () => { mk.textContent = '（確かめられない）'; });
   }

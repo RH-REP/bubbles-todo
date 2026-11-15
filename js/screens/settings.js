@@ -32,6 +32,7 @@ import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, l
   signMsg, messagesFromPosts, signSnap } from '../p2p.js';
 /* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
 import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
+import { signNote, holdWallet } from '../notesign.js';
 import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupFileName, buildBackup } from '../folderbackup.js';
@@ -4019,10 +4020,13 @@ function chainBox(opts = {}) {
     }
     const { keys, seaKey } = await openShared(rec);
     const board = await boardOf(seaKey);
+    /* この端末で書いた、まだ署名の無いひとことに、開けた鍵でまとめて署名してから写しを作る（Issue #68 の返事。書くときは鍵を求めない） */
+    const signedN = await signPendingNotes(id, keys.wallet);
+    holdWallet(keys.wallet);
     const box = seaBox(id);
     if (!box) throw new Error('この海の記録がこの端末に無い');
     const sea = allEntries().find(e => e.id === id);
-    line.textContent = '作っている…';
+    line.textContent = '作っている…' + (signedN ? '（ひとこと ' + signedN + ' 件に署名した）' : '');
     const inner = { kind: 'snap', sea: id, g: rec.gen, at: Date.now(), entry: sea || null, box };
     /* 招待コードで受け取って、まだ名簿にいないなら、コードの受け口と受け取りIDを入れる（持ち主の端末がこれを見て名簿に足す。Issue #68） */
     const myEntry = (rec.members || []).find(m => m.a === keys.wallet.address);
@@ -4042,6 +4046,27 @@ function chainBox(opts = {}) {
     curKey = 'sea:' + id;
     line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「みんなの変更を取り込む」で重ねる。'
       + (joining ? '招いた人が「みんなの変更を取り込む」を押すと、メンバーに足される。' : '');
+  }
+
+  /* この端末で書いた、まだ署名の無いひとこと（その海の分）に署名する（Issue #68 の返事「TODOのメッセージを送る時に…その場で同期しないのであれば不要なのでは？」）。
+     開いている海は store.signedNotes で置き換え（記録の印も付く）、ほかの海は箱を直に書き換えて印を進める。署名した数 */
+  async function signPendingNotes(id, wallet) {
+    const dev = noteDevice();
+    const st = id === store.space() ? (() => { try { store.flush(); } catch (e) { /* 読むのは止めない */ } return store.exportState(); })()
+      : (() => { try { return boxToState(JSON.parse(localStorage.getItem(boxKey(id)) || 'null')); } catch (e) { return null; } })();
+    const notes = st && st.doc && Array.isArray(st.doc.notes) ? st.doc.notes : [];
+    const todo = notes.filter(n => n && !n.gone && !n.sg && n.dev === dev && n.text);
+    if (!todo.length) return 0;
+    const signed = [];
+    for (const n of todo) signed.push(await signNote(n, wallet));
+    if (id === store.space()) return store.signedNotes(signed);
+    const byId = new Map(signed.map(n => [n.id, n]));
+    const now = Date.now();
+    st.doc.notes = notes.map(n => (n && byId.has(n.id) ? byId.get(n.id) : n));
+    st.stamps = st.stamps || {};
+    byId.forEach((_, nid) => { st.stamps['note:' + nid] = [now, 1]; });
+    try { localStorage.setItem(boxKey(id), JSON.stringify(stateToBox(st))); } catch (e) { return 0; }
+    return byId.size;
   }
 
   /* 掲示板を読み、メンバーごとにいちばん新しい記録を重ねる */

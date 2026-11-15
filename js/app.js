@@ -34,7 +34,7 @@ import { playSfx } from './sound.js';
 
 import { setCaptureHandler, setWorklogHandler, setSessionHandler, closeFocus, isFocusOpen } from './focus.js';
 import { setCenterHandler, centerBubble } from './bubble.js';
-import { sharedSeaOf, signingOn, unlockWallet, signNote, checkNote } from './notesign.js';
+import { sharedSeaOf, signingOn, unlockWallet, heldWallet, signNote, checkNote } from './notesign.js';
 import { makeNote, deviceId, noteName, setNoteName, hasUnseen, seenAt, markSeen, latestAt } from './notes.js';
 import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import { closeHelp } from './help.js';
@@ -784,9 +784,12 @@ setCenterHandler({
      noteSigned = 署名を確かめて出す海か、noteSigning = 書くときに署名するか（この端末がブロックチェーンを始めている）。
      addNoteSigned はパスキーを押した手の続きで呼ぶので、unlockWallet より前で await しない */
   noteSigned:    () => !!sharedSeaOf(store.space()),
-  noteSigning:   () => has('putNote') && signingOn(store.space()),
+  /* 書くときは鍵を求めない（2026-11-15 Issue #68 の返事「TODOのメッセージを送る時に合言葉やパスキーの認識を求めらる。
+     その場で同期しないのであれば不要なのでは？」）。鍵がもう開いている（10 分のうち）ときだけその場で署名し、
+     開いていなければ署名せずに積んで、「自分の変更を送る」で鍵を開けたときにまとめて署名する（settings.js の signPendingNotes） */
+  noteSigning:   () => has('putNote') && signingOn(store.space()) && !!heldWallet(),
   addNoteSigned: async (id, v) => {
-    const w = await unlockWallet();
+    const w = heldWallet() || await unlockWallet();
     const n = makeNote(id, v, noteName(), deviceId(), Date.now());
     if (!n) return null;
     return store.putNote(await signNote(n, w));

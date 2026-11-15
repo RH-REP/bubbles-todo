@@ -2496,6 +2496,26 @@ export const store = {
     return { ...v };
   },
 
+  /* 署名を足した写しで、同じ id のまだ署名の無い 1 件を置き換える（2026-11-15 Issue #68 の返事「TODOのメッセージを送る時に
+     合言葉やパスキーの認識を求めらる。その場で同期しないのであれば不要なのでは？」）。書くときは署名せず、
+     「自分の変更を送る」で鍵を開けたときに、この端末で書いたものへまとめて署名する（settings.js の signPendingNotes）。
+     中身（文・時刻・名前）は変えない。置き換えた数 */
+  signedNotes(list) {
+    let k = 0;
+    (Array.isArray(list) ? list : []).forEach(n => {
+      const v = normalizeNote(n);
+      if (!v || !v.sg) return;
+      const i = noteList.findIndex(x => x.id === v.id && !x.sg && !x.gone);
+      if (i < 0) return;
+      const cur = noteList[i];
+      if (cur.todo !== v.todo || cur.at !== v.at || cur.text !== v.text || (cur.by || '') !== (v.by || '')) return;
+      noteList[i] = v;
+      k++;
+    });
+    if (k) { persist(); emit(); }
+    return k;
+  },
+
   /* --- 海のチャット（サーバーあり版。Issue #42。js/notes.js の CHAT_TODO）---
      ひとことと同じ notes 欄に、泡でない宛先で積む。サーバーへは記録と一緒に写る。消すのは removeNote */
 
@@ -3394,7 +3414,7 @@ export const WRITE_METHODS = [
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
-  'setSpan', 'setRepeat', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'putNote', 'addChat', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
+  'setSpan', 'setRepeat', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'putNote', 'signedNotes', 'addChat', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
 ];
 /* 知らせない口（画面が裏で何度も呼ぶもの。断るだけ） */
 const QUIET = new Set(['flush', 'setDraft']);

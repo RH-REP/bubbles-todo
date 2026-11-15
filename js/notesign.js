@@ -34,6 +34,10 @@ export function heldWallet(now = Date.now()) {
   return null;
 }
 export function dropWallet() { held = null; }
+/* ほかの所（「自分の変更を送る」など）で開けた鍵を、ひとことの署名にも 10 分だけ使う（Issue #68） */
+export function holdWallet(wallet, now = Date.now()) {
+  if (wallet && typeof wallet.sign === 'function') held = { wallet, until: now + HOLD_MS };
+}
 
 /* その海がブロックチェーンで共有している海なら、その記録（{ owner, members, me, … }）。でなければ null */
 export function sharedSeaOf(space) {
