@@ -30,7 +30,7 @@ import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unw
   makeInviteCode, readInviteCode, inviteBoxOf, sealInvite, writeInvite, findInviteByCode, joinsOf, acceptedSnaps, INVITE_DAYS,
   readBoardWith, readKeysOf, readBoardsOf } from '../board.js';
 import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, loadHistory, saveHistory, mergeHistory, markState,
-  signMsg, messagesFromPosts, signSnap } from '../p2p.js';
+  signMsg, messagesFromPosts, signSnap, HELLO_MS } from '../p2p.js';
 /* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
 import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies } from '../notes.js';
 import { signNote, holdWallet } from '../notesign.js';
@@ -2706,6 +2706,100 @@ function chatUnread(rec) {
   return loadHistory(room).filter(m => m.by !== rec.me && Number(m.at) > seen).length;
 }
 /* 共有の海 1 つを、読むための鍵で読む（鍵を求めない）。記録は確かめずに重ね、チャットは履歴に足す。新しく足したチャットの数 */
+/* 記録の写しを重ねる（自動の読み込み・直の通信の受け取り）。cur は共有の海の控え（書き換える。保存は呼ぶ側）。
+   重ねる直前に「前の同期のあとの書き込みが無いか」を見て、無ければ重ねたあとの中身を目印にする（ここから書くまで await しない） */
+function mergeSnapsInto(cur, snaps) {
+  const id = cur.id;
+  const before = seaStateById(id);
+  const clean = !!cur.syncMark && !pendingNotesIn(before).length && sigOfBox(before) === cur.syncMark;
+  snaps.forEach(s => {
+    const entry = s.entry && s.entry.id === id ? s.entry : null;
+    mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [id]: s.box } });
+  });
+  cur.readAt = Date.now();
+  if (clean) cur.syncMark = sigOfBox(seaStateById(id));
+}
+
+/* ---- 直の通信（2026-11-16 Issue #68 の返事「おすすめで」= C1） ----
+   「同期」の写しに「ここにいる」（端末の印 dev と時刻）を入れる（手数料は増えない）。アプリを開いている間、自動の読み込みで
+   10 分以内の「ここにいる」を見つけたら、js/p2p.js の網（Mesh）で「つなぎたい」を書き、相手の端末が「つなぐ」を返す（1 回つなぐごとに 2 件の手数料）。
+   つながったら、盤のひとこと・記録・チャットをその線で直に送り合う（手数料なし）。
+   書くにはウォレットの署名が要るので、「同期」で鍵を開けたら、ページを閉じるまでウォレットの鍵をメモリに置く（sessionKeys。端末には置かない）。
+   鍵を開けていない端末は、つなぎにいかない（「ここにいる」も書かない）。設定のチャットを開いている海は、チャットの網に任せる */
+let sessionKeys = null;
+const SESSION_HOLD_MS = 12 * 60 * 60 * 1000;   /* ひとことの署名の鍵も、同じく開いている間（長くても 12 時間）置く */
+const meshes = new Map();   /* 海の ID → { mesh, gen } */
+const offered = new Map();  /* 海|相手の端末 → 「つなぎたい」を書いた時刻（同じ相手へ 10 分に 1 度まで。手数料の無駄を防ぐ） */
+let chatOpenSea = null;
+let fastTimer = 0;
+function holdSessionKeys(keys) {
+  if (keys && keys.wallet) sessionKeys = keys;
+}
+function meshFor(rec) {
+  if (!sessionKeys || !rec || sessionKeys.wallet.address !== rec.me || chatOpenSea === rec.id) return null;
+  const prefs = loadP2pPrefs();
+  if (!prefs.on || !p2pSupported()) return null;
+  const rb = readBoardsOf(rec);
+  if (!rb || !rb.chat) return null;
+  const had = meshes.get(rec.id);
+  if (had && had.gen === rec.gen) return had.mesh;
+  if (had) { try { had.mesh.close(); } catch (e) { /* 閉じられなくても進む */ } meshes.delete(rec.id); }
+  const id = rec.id, gen = rec.gen, net = rec.net, chat = rb.chat, wallet = sessionKeys.wallet;
+  const room = 'sea:' + id + ':' + gen;
+  const now = () => loadShared()[id] || rec;
+  const seaName0 = () => { const e = allEntries().find(x => x.id === id); return e ? e.name : id; };
+  const mesh = new Mesh({
+    sea: id, g: gen, dev: deviceId(), ice: iceServers(prefs),
+    allowed: () => [now().owner].concat((now().members || []).map(m => m.a)),
+    post: async (inner) => {
+      if (inner.kind === 'offer') {
+        const k = id + '|' + inner.to;
+        if (Date.now() - (offered.get(k) || 0) < HELLO_MS) throw new Error('この相手へは、つなぎかけている');
+        offered.set(k, Date.now());
+      }
+      await writePost(net, wallet, await postMemos(wallet, inner, chat), chat);
+    },
+    history: () => loadHistory(room),
+    onMessages: (list) => {
+      const r = mergeHistory(loadHistory(room), list, 'p2p');
+      if (r.added) { saveHistory(room, r.list); try { window.dispatchEvent(new CustomEvent('bubbles:chat-unread')); } catch (e) { /* 進む */ } }
+    },
+    snapshot: async () => {
+      const box = collectBoxes()[id];
+      if (!box) return null;
+      return signSnap(wallet, { sea: id, g: gen, entry: allEntries().find(e => e.id === id) || null, box });
+    },
+    onSnap: (inner) => {
+      const all = loadShared();
+      if (!all[id] || all[id].gen !== gen) return;
+      mergeSnapsInto(all[id], [inner]);
+      saveShared(all);
+    },
+    onPeerOpen: () => { toast('「' + seaName0() + '」の相手と直につながった（ひとことは手数料なしで届く）'); },
+  });
+  meshes.set(id, { mesh, gen });
+  /* 顔合わせは「つなぎたい」「つなぐ」が 3 分で切れるので、網があるあいだはチャットの掲示板だけを 20 秒ごとに読む */
+  if (!fastTimer) fastTimer = setInterval(fastPoll, 20000);
+  return mesh;
+}
+async function fastPoll() {
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (!meshes.size) { clearInterval(fastTimer); fastTimer = 0; return; }
+  for (const [id, m] of meshes) {
+    const rec = loadShared()[id];
+    const rb = rec && rec.gen === m.gen ? readBoardsOf(rec) : null;
+    if (!rb || !rb.chat || chatOpenSea === id) continue;
+    try { await m.mesh.onPosts(await readChatPosts(rec.net, rb.chat)); } catch (e) { /* 次に読む */ }
+  }
+}
+/* 直につながっている相手へ、その海の記録をすぐ送る（盤のひとことを積んだあと。手数料なし）。送った相手の数 */
+export async function pushSeaDirect(id) {
+  const m = meshes.get(id);
+  if (!m || !m.mesh.openCount() || !m.mesh.snapshot) return 0;
+  const env = await m.mesh.snapshot();
+  return env ? m.mesh.broadcastSnap(env) : 0;
+}
+
 async function watchOne(rec) {
   const rb = readBoardsOf(rec);
   if (!rb) return 0;
@@ -2720,17 +2814,7 @@ async function watchOne(rec) {
       return m.x || !old ? m : Object.assign({}, m, { x: old.x });
     });
   }
-  if (got.snaps.length) {
-    /* 重ねる直前に「前の同期のあとの書き込みが無いか」を見て、無ければ重ねたあとの中身を目印にする（ここから書くまで await しない） */
-    const before = seaStateById(id);
-    const clean = !!cur.syncMark && !pendingNotesIn(before).length && sigOfBox(before) === cur.syncMark;
-    got.snaps.forEach(s => {
-      const entry = s.entry && s.entry.id === id ? s.entry : null;
-      mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [id]: s.box } });
-    });
-    cur.readAt = Date.now();
-    if (clean) cur.syncMark = sigOfBox(seaStateById(id));
-  }
+  if (got.snaps.length) mergeSnapsInto(cur, got.snaps);
   all[id] = cur;
   saveShared(all);
   /* チャット */
@@ -2738,6 +2822,13 @@ async function watchOne(rec) {
   const room = 'sea:' + id + ':' + cur.gen;
   const allowed = [cur.owner].concat((cur.members || []).map(m => m.a));
   const posts = await readChatPosts(cur.net, rb.chat);
+  /* 直の通信（C1）: 同期の写しに入っている「ここにいる」と、チャットの掲示板の顔合わせを網へ渡す */
+  const mesh = meshFor(cur);
+  if (mesh) {
+    const here = got.posts.filter(p => p.kind === 'snap' && p.sea === id && Number(p.g) === cur.gen && typeof p.dev === 'string')
+      .map(p => ({ kind: 'hello', sea: id, g: cur.gen, dev: p.dev, at: Number(p.at) || 0, by: p.by }));
+    mesh.onPosts(posts.concat(here)).catch(() => { /* つながらなくても読み込みは済んでいる */ });
+  }
   const msgs = await messagesFromPosts(posts, { sea: id, g: cur.gen, allowed });
   const old = loadHistory(room);
   const oldIds = new Set(old.map(m => m.id));
@@ -3507,6 +3598,7 @@ function chainBox(opts = {}) {
     clearInterval(chat.timer);
     try { if (chat.mesh) chat.mesh.close(); } catch (e) { /* 閉じられなくても進む */ }
     if (chat.panel && chat.panel.parentNode) chat.panel.parentNode.removeChild(chat.panel);
+    if (chat.mesh) chatOpenSea = null;   /* 直の通信（C1）を、裏の網へ戻す */
     chat = null;
   }
   /* 鍵を開けずに、この端末に届いている履歴だけを読む（Issue #68 の返事「チャットを開く時に、合言葉とパスキーが求められるけど、送る時だけでいいのでは？
@@ -3658,6 +3750,13 @@ function chainBox(opts = {}) {
 
     const room = rec ? 'sea:' + rec.id + ':' + rec.gen : 'self:' + keys.wallet.address;
     if (rec) markChatSeen(room);   /* 開いたら、新しいメッセージの数を 0 に（Issue #68 の B 案） */
+    if (rec) {
+      /* チャットを開いている間は、チャットの網で直につなぐ（裏の網 C1 は閉じる。同じ端末の印で 2 つの網がつなぎに行かないように） */
+      chatOpenSea = rec.id;
+      const bg = meshes.get(rec.id);
+      if (bg) { try { bg.mesh.close(); } catch (e) { /* 進む */ } meshes.delete(rec.id); }
+      holdSessionKeys(keys);
+    }
     let hist = loadHistory(room);
     /* サーバーへの写し（2026-11-11 Issue #42 の返事「おすすめで」= A 案・写す）。
        サーバーに繋いでいるページなら、履歴の新しい分を海の記録のチャット（js/notes.js の CHAT_TODO）にも重ねる。
@@ -4224,12 +4323,15 @@ function chainBox(opts = {}) {
     const board = await boardOf(seaKey);
     /* この端末で書いた、まだ署名の無いひとことに、開けた鍵でまとめて署名してから写しを作る（Issue #68 の返事。書くときは鍵を求めない） */
     const signedN = await signPendingNotes(id, keys.wallet);
-    holdWallet(keys.wallet);
+    /* 直の通信（C1）のため、ページを閉じるまでウォレットの鍵をメモリに置く。ひとことの署名にも同じ間使う */
+    holdSessionKeys(keys);
+    holdWallet(keys.wallet, Date.now(), SESSION_HOLD_MS);
     const box = seaBox(id);
     if (!box) throw new Error('この海の記録がこの端末に無い');
     const sea = allEntries().find(e => e.id === id);
     line.textContent = '作っている…' + (signedN ? '（ひとこと ' + signedN + ' 件に署名した）' : '');
-    const inner = { kind: 'snap', sea: id, g: rec.gen, at: Date.now(), entry: sea || null, box };
+    /* dev・at は「ここにいる」の知らせを兼ねる（直の通信 C1。10 分のあいだ、ほかのメンバーの端末がつなぎに来る） */
+    const inner = { kind: 'snap', sea: id, g: rec.gen, at: Date.now(), entry: sea || null, box, dev: deviceId() };
     /* 招待コードで受け取って、まだ名簿にいないなら、コードの受け口と受け取りIDを入れる（持ち主の端末がこれを見て名簿に足す。Issue #68） */
     const myEntry = (rec.members || []).find(m => m.a === keys.wallet.address);
     const joining = rec.inv && rec.owner !== keys.wallet.address && !myEntry;
@@ -4246,6 +4348,8 @@ function chainBox(opts = {}) {
     /* 送った中身の目印を残す（次の同期で、これより後の書き込みがあるかを見る） */
     /* 目印は、送った写しの中身から作る（書いている間に足したひとことを「送った」ことにしない。Issue #68） */
     putShared(Object.assign(sharedRec(id), { savedAt: Date.now(), syncMark: sigOf(box) }));
+    /* 送ったあと、ほかのメンバーの「ここにいる」をすぐ見に行く（直の通信 C1。10 分のうちに開いていれば、つなぎに行く） */
+    setTimeout(() => { watchAll(); }, 1500);
     paint();
     curKey = 'sea:' + id;
     line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「同期する」で重ねる。'

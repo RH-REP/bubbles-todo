@@ -2564,13 +2564,22 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (ask(a, 'noteSigning') === true) {
       const p = ask(a, 'addNoteSigned', id, t);
       if (!p || typeof p.then !== 'function') return done('まだ書けない');
-      p.then(n => { if (!n) return done('まだ書けない'); after(); done('送った'); },
+      p.then(n => { if (!n) return done('まだ書けない'); after(); pushDirect(); done('送った'); },
         e => done(e && /やめた/.test(String(e.message || e)) ? 'やめた' : '署名できない'));
       return '署名中…';
     }
     if (!ask(a, 'addNote', id, t)) return 'まだ書けない';
     after();
+    pushDirect();
     return '送った';
+  }
+  /* 直につながっている相手がいれば、積んだひとことを含む記録をすぐ送る（手数料なし。2026-11-16 Issue #68 の C1）。
+     つながっていなければ何もしない（ひとことは「同期」で届く） */
+  function pushDirect() {
+    const p = ask(a, 'pushShared');
+    if (p && typeof p.then === 'function') {
+      p.then(n => { if (n > 0) toast('直につながっている ' + n + ' 台に送った（手数料なし）'); }, () => { /* 届かなくても同期で届く */ });
+    }
   }
 
   /* 本文の下の 1 行の欄から積む -> ボタンに出す言葉（done は署名のときの後の言葉） */

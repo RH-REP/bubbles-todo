@@ -48,7 +48,7 @@ import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
-import settings, { syncSharedSea, readSharedSea } from './screens/settings.js';
+import settings, { syncSharedSea, readSharedSea, pushSeaDirect } from './screens/settings.js';
 
 const SCREENS = [sea, today, plan, gap, review, settings];
 
@@ -801,6 +801,8 @@ setCenterHandler({
   syncShared:    (say) => syncSharedSea(store.space(), say),
   /* ひとことを送ったあとの読み込みだけ（Issue #68 の返事「TODOのメッセージを送る時に読み込みだけは行った方がいいのでは？」） */
   readShared:    (say) => readSharedSea(store.space(), say),
+  /* 直につながっている相手へ、いまの海の記録をすぐ送る（ひとことを積んだあと。手数料なし。2026-11-16 Issue #68 の C1） */
+  pushShared:    () => pushSeaDirect(store.space()),
   noteName:      () => noteName(),
   setNoteName:   (v) => setNoteName(v),
   hasNewNote:    (id) => has('notesOf')

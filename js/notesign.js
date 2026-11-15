@@ -35,8 +35,9 @@ export function heldWallet(now = Date.now()) {
 }
 export function dropWallet() { held = null; }
 /* ほかの所（「自分の変更を送る」など）で開けた鍵を、ひとことの署名にも 10 分だけ使う（Issue #68） */
-export function holdWallet(wallet, now = Date.now()) {
-  if (wallet && typeof wallet.sign === 'function') held = { wallet, until: now + HOLD_MS };
+/* ms: 置く長さ（省けば 10 分）。「同期」で鍵を開けたときは、直の通信（C1）と同じく、開いている間置く（settings.js） */
+export function holdWallet(wallet, now = Date.now(), ms = HOLD_MS) {
+  if (wallet && typeof wallet.sign === 'function') held = { wallet, until: now + ms };
 }
 
 /* その海がブロックチェーンで共有している海なら、その記録（{ owner, members, me, … }）。でなければ null */
