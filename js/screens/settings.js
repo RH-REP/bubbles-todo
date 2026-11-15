@@ -55,6 +55,16 @@ import { clearAppStorage, confirmed, CONFIRM_WORD } from '../reset.js';
 /* 固有枠に入っているタグの、向きの見出し。選び欄の代わりにこれを出す */
 const FIXED_LABEL = { up: '上', down: '下', left: '左', right: '右' };
 
+/* ブロックチェーンで海を共有する流れ（2026-11-15 Issue #68「どうやって操作したらいいのかわからない。相手の公開アドレス入れるの？」）。
+   chainBox の中の group の説明は HTML として入る。宣言前の参照（Issue #63）にならないよう、ファイルの上に置く */
+const SHARE_FLOW = '2人とも先に「ブロックチェーンを準備する」で鍵を作り、同じネット（devnet など）にそろえる。<br>'
+  + '1. <b>招く人</b>: 「招く」で、共有する海をタップする（今ある海か「＋ 新しい海」）。<br>'
+  + '2. <b>招かれる人</b>: 「招かれる」の「受け取りIDをコピー」を押し、出た受け取りID（BTA1-…）を招く人に送る（メッセージなど）。'
+  + 'ウォレットの公開アドレスではなく、この受け取りIDを使う。<br>'
+  + '3. <b>招く人</b>: 「共有中の海」のその海の欄に受け取りIDを貼って「招く」。<br>'
+  + '4. <b>招かれる人</b>: 「届いた招待を受け取る」を押す。海がこの端末に足される。<br>'
+  + 'そのあとは、それぞれが「自分の変更を送る」で書き、「みんなの変更を取り込む」で読む（自動では合わない。送るたびに手数料が掛かる）。';
+
 /* そのタグの向きが固定されているか。store がまだ答えられない版では null */
 function fixedDirOf(id) {
   if (typeof store.tagDirFixed !== 'function') return null;
@@ -390,7 +400,9 @@ export default {
       const shareChain = chainBox({ tasks: ['share'], title: 'ブロックチェーンで海を共有する', goSetup });
       sub.add('chain', 'ブロックチェーンで', [shareChain]);
       shareChoice.add('sea', '海を共有する', [pane]);
-      if (sync.config().url) sub.pick('server');
+      /* サーバーなし版はサーバーで共有できないので、ブロックチェーンを選んだ姿で始める（Issue #68） */
+      if (isSolo()) sub.pick('chain');
+      else if (sync.config().url) sub.pick('server');
       else { const c = loadConfig(); if (c.mode || c.address) sub.pick('chain'); }
     }
     /* チャットする */
@@ -2667,7 +2679,7 @@ function chainBox(opts = {}) {
     ['backup', 'バックアップする', '保存・復元・復元コードを表示'],
     ['wallet', 'ウォレットを見る', '残高を見る・テスト用の SOL・送る'],
     ['key', '鍵を替える', '新しい鍵へ移し替える・パスキー／合言葉を切り替える'],
-    ['share', '海を共有する', '招待を受ける・自分の海に人を招く・共有中の海'],
+    ['share', '海を共有する', '自分の海に人を招く・招待を受ける・共有中の海'],
     ['memo', '自分にメモを送る', '自分の端末どうしで短いメモを送り合う'],
     ['lost', '鍵を失ったときに読む', '復元コードで読む・この端末での設定を消す'],
   ].filter(([k]) => ALLOWED.includes(k));
@@ -2816,6 +2828,8 @@ function chainBox(opts = {}) {
     if (!cfg.mode && !setup) {
       /* 始め方は準備の箱にだけ置く（Issue #45）。ここでは、そこへ移るボタンだけ */
       info.textContent = 'ブロックチェーンをまだ始めていない。先に「ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
+      /* 始める前でも、海の共有の流れは見せる（Issue #68「どうやって操作したらいいのかわからない」） */
+      if (ALLOWED.includes('share')) group('share-flow', '共有の流れ（招く人と招かれる人の2人で）', SHARE_FLOW);
       if (opts.goSetup) {
         group('go-setup', '始める', null);
         btn('ブロックチェーンを準備する', async () => opts.goSetup(null));
@@ -3028,27 +3042,16 @@ function chainBox(opts = {}) {
        - 「共有用のアドレス」→「受け取りID」（ウォレットのアドレスと取り違えないよう、別の言葉にした）
        - 海は番号を打たず、海の名前のボタンをタップして選ぶ。招く相手の受け取りIDは、海の行の入力欄に貼る
        - 「保存／読み込む」→「自分の変更を送る／みんなの変更を取り込む」。外す・やめるは畳んでおく */
-    group('share-in', '招待を受ける',
-      '① 「受け取りIDをコピー」を押して、招いてくれる人に送る（メッセージなど。人に見られてよい）。'
-      + '② 招かれたら「届いた招待を受け取る」を押す。海はこの端末に自動で足される（自分で作らなくてよい）。');
-    btn('① 受け取りIDをコピー', async () => {
-      const keys = await unlock();
-      await checkSame(keys);
-      const addr = await makeShareAddress(keys, net);
-      cfg = Object.assign(loadConfig(), { share: addr });
-      saveConfig(cfg);
-      const tail = '　← これを招いてくれる人に送る。招かれたら「② 届いた招待を受け取る」を押す。';
-      try { await navigator.clipboard.writeText(addr); line.textContent = '受け取りIDをコピーした: ' + addr + tail; } catch (e) {
-        line.textContent = '受け取りID: ' + addr + tail;
-      }
-    });
-    btn('② 届いた招待を受け取る', acceptInvites);
-
+    /* 2026-11-15 Issue #68「招くが先じゃない？」「相手の公開アドレス入れるの？」: 流れを先に1か所で示し、
+       招く側（海を選ぶ・新しく作る）を上、招かれる側を下に並べ替えた。相手に入れてもらうのはウォレットのアドレスではなく受け取りID */
+    group('share-flow', '共有の流れ（招く人と招かれる人の2人で）', SHARE_FLOW);
     const shared = loadShared();
     /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
-    group('share', '自分の海に人を招く',
-      '① 共有する海をタップする（無ければ「＋ 新しい海」）。② 招く人から受け取りID（BTA1-…）を送ってもらい、下に出る海の欄に貼って「招く」。'
+    group('share', '招く（自分の海に人を招く）',
+      '① どの海を共有するかをタップする（今ある海の名前か、新しく作るなら「＋ 新しい海」）。押すと共有を始め、下の「共有中の海」に欄が出る。'
+      + '② 招く相手に、下の「招かれる」の「受け取りIDをコピー」で受け取りID（BTA1-…）を送ってもらう。ウォレットのアドレスではない。'
+      + '③ 共有中の海の欄に、届いた受け取りIDを貼って「招く」。'
       + '中身はメンバーだけが読める。ただし、誰と誰が同じ海にいるかと、書いた時刻・大きさは、チェーンの上で誰でも見られる。書いたものは消せない。');
     /* group・btn の字は HTML として入る。海の名前は必ず escapeHtml を通す */
     cands.forEach(sea => btn('「' + escapeHtml(sea.name) + '」を共有', () => shareSea(sea)));
@@ -3130,6 +3133,23 @@ function chainBox(opts = {}) {
       });
       into = keep;
     });
+
+    /* 招かれる側（Issue #68 で招く側の下へ移した） */
+    group('share-in', '招かれる（招待を受ける）',
+      '① 「受け取りIDをコピー」を押して、招いてくれる人に送る（メッセージなど。人に見られてよい。ウォレットのアドレスとは別のもの）。'
+      + '② 招かれたら「届いた招待を受け取る」を押す。海はこの端末に自動で足される（自分で作らなくてよい）。');
+    btn('① 受け取りIDをコピー', async () => {
+      const keys = await unlock();
+      await checkSame(keys);
+      const addr = await makeShareAddress(keys, net);
+      cfg = Object.assign(loadConfig(), { share: addr });
+      saveConfig(cfg);
+      const tail = '　← これを招いてくれる人に送る。招かれたら「② 届いた招待を受け取る」を押す。';
+      try { await navigator.clipboard.writeText(addr); line.textContent = '受け取りIDをコピーした: ' + addr + tail; } catch (e) {
+        line.textContent = '受け取りID: ' + addr + tail;
+      }
+    });
+    btn('② 届いた招待を受け取る', acceptInvites);
   }
 
   /* ---- チャット（段2。2026-11-11 Issue #37 の返事「OK」。仕組みは js/board.js の chatBoardOf） ----
@@ -3495,7 +3515,7 @@ function chainBox(opts = {}) {
   function makeSeaThenShare() {
     openSeaSheet(null, {
       note: '作ったら、続けてこの海の共有を始める（パスキーか合言葉を求め、チェーンに書く前に確かめる）。'
-        + 'やめても海はこの端末に残り、あとで「自分の海に人を招く」の海の名前をタップすれば共有できる。',
+        + 'やめても海はこの端末に残り、あとで「招く」の海の名前をタップすれば共有できる。',
       onMade: async (sea) => {
         curKey = 'share';
         line.textContent = '海「' + sea.name + '」を作った。共有を始める…';
