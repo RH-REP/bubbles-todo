@@ -436,10 +436,14 @@ export default {
       sub.add('server', 'サーバーで', [!isSolo() ? serverChatBox(this)
         : pointer('サーバーでチャットする', 'サーバーに繋いだときに使える。先にサーバーに繋ぐ。', 'サーバーの設定を開く', goServer)]);
       const chatChain = chainBox({ tasks: ['memo'], title: 'ブロックチェーンでチャットする', goSetup });
-      chatChain.appendChild(el('p', 'note', '共有した海の中でのチャットは「共有中の海を同期する」→「ブロックチェーンで」の、その海の欄から開く。'));
+      chatChain.appendChild(el('p', 'note', 'チャットの相手は、アドレスではなく共有の海で選ぶ（その海のメンバー全員と話す）。共有中の海ごとに「チャットを開く」が出る。'));
       sub.add('chain', 'ブロックチェーンで', [chatChain]);
+      /* 共有を始めた・受け取ったあとに開いても、その海のチャットが出るよう、選んだときに読み直す（Issue #68） */
+      pane.refresh = () => { if (!chatChain.hidden && typeof chatChain.refresh === 'function') chatChain.refresh(); };
       shareChoice.add('chat', 'チャットする', [pane]);
-      if (sync.config().url) sub.pick('server');
+      /* サーバーなし版はサーバーでチャットできないので、ブロックチェーンを選んだ姿で始める */
+      if (isSolo()) sub.pick('chain');
+      else if (sync.config().url) sub.pick('server');
       else { const c = loadConfig(); if (c.mode || c.address) sub.pick('chain'); }
     }
 
@@ -2984,6 +2988,21 @@ function chainBox(opts = {}) {
     else if (task === 'backup') paintBackup(net);
     else if (task === 'share') paintShare(net);
     else if (task === 'memo') {
+      /* 共有中の海ごとのチャットも、ここに並べる（Issue #68 の返事「チャットは相手をどのように選ぶ？アドレス入れるとことかある？」）。
+         相手はアドレスで選ばず、海で選ぶ（その海のメンバー全員と話す）。前は「共有中の海を同期する」の、その海の欄にしか無かった */
+      const seas = sharedFor(dropGoneShared(loadShared()), cfg.address, net);
+      if (!seas.length) {
+        group('sea-chat-none', '共有の海のチャット', 'チャットの相手は、アドレスではなく共有の海で選ぶ（その海のメンバー全員と話す）。'
+          + 'まだ共有中の海が無い。「海を共有する」で人を招く・招待を受け取ると、ここにその海のチャットが出る。');
+      }
+      seas.forEach(rec => {
+        const ent = allEntries().find(e => e.id === rec.id);
+        const who = (rec.members || []).filter(m => m.a !== cfg.address).map(m => m.n || shortAddr(m.a)).join('・');
+        /* 海の名前と呼び名はほかのメンバーが書くので、必ず escapeHtml を通す */
+        group('sea:' + rec.id, '「' + escapeHtml(ent ? ent.name : rec.id) + '」のチャット',
+          '相手: ' + (who ? escapeHtml(who) : '（まだ自分だけ。メンバーを招くと話せる）') + '。メンバーだけが読める。1 件ごとに手数料が掛かる。');
+        btn('チャットを開く', () => openChat('sea:' + rec.id, rec));
+      });
       /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
       group('self-chat', '自分にメモを送る（端末どうし）',
         '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
