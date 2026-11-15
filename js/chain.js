@@ -582,8 +582,9 @@ export async function readLatestMemos(network, address, { limit = READ_TX, opt }
       if (!it || it.err) continue;
       let p = parseMemo(it.memo);
       if (!p && it.memo == null) continue;   /* メモの無い取引（お金を受け取った、など） */
-      /* 共有の海の掲示板へ書いた取引・届いた招待（Issue #37）。このウォレットの一覧にも出るが、バックアップではない */
-      if (!p && /(?:^|\s|\])bt2e? /.test(String(it.memo))) continue;
+      /* 共有の海の掲示板へ書いた取引・届いた招待（Issue #37）・招待コードの招待（bt2i。Issue #68）。
+         このウォレットの一覧にも出るが、バックアップではない */
+      if (!p && /(?:^|\s|\])bt2[ei]? /.test(String(it.memo))) continue;
       if (!p) p = parseMemo(await memoOfTx(network, it.signature, opt));
       if (p) memos.push(p);
       const got = pickLatest(memos);

@@ -26,7 +26,8 @@ import { NETWORKS, MAX_TX, MAX_PARTS, backupSize, CONFIG_KEY, loadConfig, saveCo
   loadMove, saveMove, clearMove, moveStep, moveSteps } from '../chain.js';
 import { makeShareAddress, readShareAddress, newSeaKey, boardOf, wrapSeaKey, unwrapSeaKey, sealEnvelope, writeEnvelope,
   findInvites, postMemos, writePost, readBoard, loadShared, saveShared, sharedFor, cleanMembers, shortAddr,
-  chatBoardOf, readChatPosts, MSG_MAX, SELF_SEA, GIFT_MESSAGES, giftPlan } from '../board.js';
+  chatBoardOf, readChatPosts, MSG_MAX, SELF_SEA, GIFT_MESSAGES, giftPlan,
+  makeInviteCode, readInviteCode, inviteBoxOf, sealInvite, writeInvite, findInviteByCode, joinsOf, acceptedSnaps, INVITE_DAYS } from '../board.js';
 import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, loadHistory, saveHistory, mergeHistory, markState,
   signMsg, messagesFromPosts, signSnap } from '../p2p.js';
 /* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
@@ -57,12 +58,13 @@ const FIXED_LABEL = { up: '上', down: '下', left: '左', right: '右' };
 
 /* ブロックチェーンで海を共有する流れ（2026-11-15 Issue #68「どうやって操作したらいいのかわからない。相手の公開アドレス入れるの？」）。
    chainBox の中の group の説明は HTML として入る。宣言前の参照（Issue #63）にならないよう、ファイルの上に置く */
+/* 招待コードの形にした（同日 Issue #68 の返事「招く側のみ…書き出して、招かれる側はそれを読み込むだけにできない？」→「おすすめで」）。
+   相手から受け取りIDをもらう往復が無くなった */
 const SHARE_FLOW = '2人とも先に「ブロックチェーンを準備する」で鍵を作り、同じネット（devnet など）にそろえる。<br>'
-  + '1. <b>招く人</b>: 「招く」で、共有する海をタップする（今ある海か「＋ 新しい海」）。<br>'
-  + '2. <b>招かれる人</b>: 「招かれる」の「受け取りIDをコピー」を押し、出た受け取りID（BTA1-…）を招く人に送る（メッセージなど）。'
-  + 'ウォレットの公開アドレスではなく、この受け取りIDを使う。<br>'
-  + '3. <b>招く人</b>: 「共有中の海」のその海の欄に受け取りIDを貼って「招く」。<br>'
-  + '4. <b>招かれる人</b>: 「届いた招待を受け取る」を押す。海がこの端末に足される。<br>'
+  + '1. <b>招く人</b>: 「招く」で共有する海をタップし、「共有中の海」のその海の欄で「招待コードを作る」。出た招待コード（BTI1-…）を相手に送る（メッセージなど）。<br>'
+  + '2. <b>招かれる人</b>: 「招かれる」の欄に招待コードを貼って「受け取る」。海がこの端末に足され、みんなの記録が読める。<br>'
+  + '3. <b>招かれる人</b>が「自分の変更を送る」と、<b>招く人</b>が次に「みんなの変更を取り込む」ときにメンバーに足される（それまでは読むだけ）。<br>'
+  + '招待コードは合言葉と同じで、持っている人は誰でも受け取れる。相手にだけ送る。使えるのは ' + INVITE_DAYS + ' 日・最初の 1 人だけ。<br>'
   + 'そのあとは、それぞれが「自分の変更を送る」で書き、「みんなの変更を取り込む」で読む（自動では合わない。送るたびに手数料が掛かる）。';
 
 /* そのタグの向きが固定されているか。store がまだ答えられない版では null */
@@ -3049,21 +3051,21 @@ function chainBox(opts = {}) {
     /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
     group('share', '招く（自分の海に人を招く）',
-      '① どの海を共有するかをタップする（今ある海の名前か、新しく作るなら「＋ 新しい海」）。押すと共有を始め、下の「共有中の海」に欄が出る。'
-      + '個人の海と前の版の「共有」は、そのままでは共有できないので「写して共有」（中身を写した新しい海を共有する。元の海は残る）。'
-      + '② 招く相手に、下の「招かれる」の「受け取りIDをコピー」で受け取りID（BTA1-…）を送ってもらう。ウォレットのアドレスではない。'
-      + '③ 共有中の海の欄に、届いた受け取りIDを貼って「招く」。'
+      '① どの海を共有するかをタップする（作った海の名前か、空の海から始めるなら「＋ 新しい海」、個人の海の中身から始めるなら「写して共有」）。'
+      + '押すと共有を始め、下の「共有中の海」に欄が出る。'
+      + '② その海の欄の「招待コードを作る」を押し、出た招待コード（BTI1-…）を相手に送る。'
       + '中身はメンバーだけが読める。ただし、誰と誰が同じ海にいるかと、書いた時刻・大きさは、チェーンの上で誰でも見られる。書いたものは消せない。');
     /* group・btn の字は HTML として入る。海の名前は必ず escapeHtml を通す */
     cands.forEach(sea => btn('「' + escapeHtml(sea.name) + '」を共有', () => shareSea(sea)));
-    /* 個人の海と前の版の「共有」は、そのままでは共有できない（個人は自分の端末どうしの海、「共有」はどの端末でも同じ ID）。
-       前は黙って外していたので「新しい海しか出てこない」と見えた（2026-11-15 Issue #68 の返事）。
-       中身を新しい海へ写してから、その新しい海を共有する選択肢として出す（元の海はそのまま残る） */
-    const copyFrom = allSeas().filter(s => s.personal || (s.id === 'share' && !shared.share));
-    copyFrom.forEach(s => btn('「' + escapeHtml(s.name) + '」を写して共有', () => copyThenShare(s)));
     /* 設定の画面で海の作り方を探していた（2026-11-11 Issue #37 の返事）。引き出しと同じ「海をつくる」板をここからも開き、
        作ったらそのまま共有へ進む（その海へは切り替えない） */
     btn('＋ 新しい海', async () => { makeSeaThenShare(); });
+    /* 個人の海と前の版の「共有」は、そのままでは共有できない（個人は自分の端末どうしの海、「共有」はどの端末でも同じ ID）。
+       前は黙って外していたので「新しい海しか出てこない」と見えた（2026-11-15 Issue #68 の返事）。
+       中身を新しい海へ写してから、その新しい海を共有する選択肢として出す（元の海はそのまま残る）。
+       「個人の海は新規と『写して共有』の2つに」（同日の返事）: 「＋ 新しい海」（空から）のすぐ後ろに並べ、2 つから選ぶ形にした */
+    const copyFrom = allSeas().filter(s => s.personal || (s.id === 'share' && !shared.share));
+    copyFrom.forEach(s => btn('「' + escapeHtml(s.name) + '」を写して共有', () => copyThenShare(s)));
 
     const mine = sharedFor(shared, cfg.address, net);
     mine.forEach(rec => {
@@ -3080,6 +3082,19 @@ function chainBox(opts = {}) {
       btn('みんなの変更を取り込む', () => readShared1(rec.id));
       btn('チャット', () => openChat('sea:' + rec.id, rec));
       if (owner) {
+        /* 招待コード（Issue #68 の返事「おすすめで」）。作って相手に送るだけ。相手の受け取りIDは要らない */
+        btn('招待コードを作る', () => createInvite(rec.id));
+        const open = (rec.invites || []).filter(i => !i.used && i.exp > Date.now()).length;
+        if (open) into.appendChild(el('span', 'note', '使われていない招待コード ' + open + ' 件'));
+      }
+      if (owner) {
+        /* 前の形（受け取りIDで招く）は畳んで残す。招待コードを人に見られずに送れないときに使う */
+        const old = document.createElement('details');
+        old.style.cssText = 'margin-top:6px;width:100%';
+        old.appendChild(el('summary', null, '受け取りIDで招く（前の形）'));
+        into.appendChild(old);
+        const keepOld = into;
+        into = old;
         /* 招く相手の受け取りIDは、この海の欄に貼る（前は押してから文字の窓に貼っていた） */
         const idIn = document.createElement('input');
         idIn.type = 'text';
@@ -3105,7 +3120,7 @@ function chainBox(opts = {}) {
         btn('招く', async () => {
           await inviteTo(rec.id, idIn.value, nickIn.value);
         });
-        into = keep;
+        into = keepOld;
       }
       /* 新しいメンバーへ手数料を送る（2026-11-11 Issue #37 の返事）。招かれた人は、受け取る（招待を探す・取り込む）だけなら手数料は要らないが、
          自分の変更を送る・チャットには SOL が要る。始めの一歩を持ち主などが肩代わりできるように */
@@ -3142,20 +3157,38 @@ function chainBox(opts = {}) {
 
     /* 招かれる側（Issue #68 で招く側の下へ移した） */
     group('share-in', '招かれる（招待を受ける）',
-      '① 「受け取りIDをコピー」を押して、招いてくれる人に送る（メッセージなど。人に見られてよい。ウォレットのアドレスとは別のもの）。'
-      + '② 招かれたら「届いた招待を受け取る」を押す。海はこの端末に自動で足される（自分で作らなくてよい）。');
-    btn('① 受け取りIDをコピー', async () => {
+      '届いた招待コード（BTI1-…）を貼って「受け取る」。海はこの端末に自動で足される（自分で作らなくてよい）。受け取るだけなら手数料は掛からない。'
+      + '自分の変更を送ると、招いた人の端末がメンバーに足す（送るには SOL が要る）。');
+    {
+      const codeIn = document.createElement('input');
+      codeIn.type = 'text';
+      codeIn.autocomplete = 'off';
+      codeIn.spellcheck = false;
+      codeIn.placeholder = '招待コード（BTI1-…）を貼る';
+      codeIn.setAttribute('aria-label', '招待コード');
+      codeIn.style.cssText = 'flex:1 1 16em;min-width:12em';
+      into.appendChild(codeIn);
+      btn('受け取る', () => acceptCode(codeIn.value));
+    }
+    btn('届いた招待を受け取る（鍵が作り替えられたとき）', acceptInvites);
+    /* 前の形（受け取りIDを送って招いてもらう）は畳んで残す */
+    const oldIn = document.createElement('details');
+    oldIn.style.cssText = 'margin-top:6px;width:100%';
+    oldIn.appendChild(el('summary', null, '受け取りIDで招いてもらう（前の形）'));
+    into.appendChild(oldIn);
+    into = oldIn;
+    into.appendChild(el('span', 'note', '「受け取りIDをコピー」を押して招く人に送り、招かれたら上の「届いた招待を受け取る」を押す。'));
+    btn('受け取りIDをコピー', async () => {
       const keys = await unlock();
       await checkSame(keys);
       const addr = await makeShareAddress(keys, net);
       cfg = Object.assign(loadConfig(), { share: addr });
       saveConfig(cfg);
-      const tail = '　← これを招いてくれる人に送る。招かれたら「② 届いた招待を受け取る」を押す。';
+      const tail = '　← これを招いてくれる人に送る。招かれたら「届いた招待を受け取る」を押す。';
       try { await navigator.clipboard.writeText(addr); line.textContent = '受け取りIDをコピーした: ' + addr + tail; } catch (e) {
         line.textContent = '受け取りID: ' + addr + tail;
       }
     });
-    btn('② 届いた招待を受け取る', acceptInvites);
   }
 
   /* ---- チャット（段2。2026-11-11 Issue #37 の返事「OK」。仕組みは js/board.js の chatBoardOf） ----
@@ -3626,6 +3659,37 @@ function chainBox(opts = {}) {
     line.textContent = '招いた。相手に「届いた招待を受け取る」を押してもらう。自分の記録がまだなら「自分の変更を送る」。';
   }
 
+  /* 招待コードを作る（持ち主だけ。Issue #68 の返事「おすすめで」= A 案）。
+     コードの受け口に招待を 1 件書き（取引 1 件）、コードを見せてコピーする。コードは端末に残さない（受け口だけを控える） */
+  async function createInvite(id) {
+    const net = netSel.value;
+    const rec = sharedRec(id);
+    const { keys, seaKey } = await openShared(rec);
+    if (rec.owner !== keys.wallet.address) throw new Error('招待コードを作れるのは海の持ち主だけ');
+    const code = await makeInviteCode(net);
+    const box = await inviteBoxOf((await readInviteCode(code)).secret);
+    const sea = allEntries().find(e => e.id === id) || { id, name: id, color: 'magma', at: 0 };
+    const now = Date.now();
+    const text = await sealInvite({ network: net, sea, key: seaKey, gen: rec.gen, owner: keys.wallet, now }, box);
+    const need = await needFunds(net, 1);
+    if (!window.confirm('「' + sea.name + '」の招待コードを作る？（' + NETWORKS[net].label + '）\n'
+      + '招待をチェーンに書く（取引 1 件・手数料の目安 ' + solText(need.fee) + '）。\n'
+      + 'コードは合言葉と同じで、持っている人は誰でもこの海を読める。相手にだけ送る。\n'
+      + 'メンバーに足すのは、このコードで最初に記録を送った 1 人だけ（' + INVITE_DAYS + ' 日のうち）。')) { line.textContent = 'やめた'; return; }
+    line.textContent = '書いている…';
+    await writeInvite(net, keys.wallet, text, box);
+    const next = sharedRec(id);
+    next.invites = (next.invites || []).filter(i => i && i.exp > now - 30 * 86400000)
+      .concat([{ inv: box.address, at: now, exp: now + INVITE_DAYS * 86400000, used: null }]);
+    putShared(next);
+    paint();
+    curKey = 'sea:' + id;
+    const tail = '　← これを相手にだけ送る（メッセージなど）。相手は「招かれる」に貼って「受け取る」。相手が記録を送ったら「みんなの変更を取り込む」でメンバーに足す。';
+    try { await navigator.clipboard.writeText(code); line.textContent = '招待コードをコピーした: ' + code + tail; } catch (e) {
+      line.textContent = '招待コード: ' + code + tail;
+    }
+  }
+
   /* メンバーを外す（持ち主だけ）。海の欄の「外す: 名前」をタップした人を外し、海の鍵を作り替え、残る人にだけ新しい招待を書く */
   async function removeFrom(id, addr) {
     const net = netSel.value;
@@ -3697,7 +3761,11 @@ function chainBox(opts = {}) {
     if (!box) throw new Error('この海の記録がこの端末に無い');
     const sea = allEntries().find(e => e.id === id);
     line.textContent = '作っている…';
-    const memos = await postMemos(keys.wallet, { kind: 'snap', sea: id, g: rec.gen, at: Date.now(), entry: sea || null, box }, board);
+    const inner = { kind: 'snap', sea: id, g: rec.gen, at: Date.now(), entry: sea || null, box };
+    /* 招待コードで受け取って、まだ名簿にいないなら、コードの受け口と受け取りIDを入れる（持ち主の端末がこれを見て名簿に足す。Issue #68） */
+    const joining = rec.inv && rec.owner !== keys.wallet.address && !(rec.members || []).some(m => m.a === keys.wallet.address);
+    if (joining) Object.assign(inner, { inv: rec.inv, x: await makeShareAddress(keys, net) });
+    const memos = await postMemos(keys.wallet, inner, board);
     if (memos.length > MAX_TX) throw new Error('記録が大きすぎる（取引 ' + memos.length + ' 件に分かれる）');
     const need = await needFunds(net, memos.length);
     const todos = Array.isArray(box.doc && box.doc.todos) ? box.doc.todos.filter(t => t && !t.trashed).length : 0;
@@ -3707,22 +3775,57 @@ function chainBox(opts = {}) {
     putShared(Object.assign(sharedRec(id), { savedAt: Date.now() }));
     paint();
     curKey = 'sea:' + id;
-    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「みんなの変更を取り込む」で重ねる。';
+    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「みんなの変更を取り込む」で重ねる。'
+      + (joining ? '招いた人が「みんなの変更を取り込む」を押すと、メンバーに足される。' : '');
   }
 
   /* 掲示板を読み、メンバーごとにいちばん新しい記録を重ねる */
   async function readShared1(id) {
     const rec = sharedRec(id);
-    const { seaKey } = await openShared(rec);
-    await readWith(rec, seaKey);
+    const { keys, seaKey } = await openShared(rec);
+    await readWith(rec, seaKey, keys);
   }
-  async function readWith(rec, seaKey) {
+  /* 招待コードで入ってきた人を名簿に足す（持ち主だけ。Issue #68）。足したら新しい members を返す。足さなければ null */
+  async function addJoiners(next, got, seaKey, keys) {
+    if (!keys || next.owner !== keys.wallet.address) return null;
+    if (!(next.invites || []).some(i => !i.used)) return null;
+    const cands = joinsOf(got.posts, { sea: next.id, gen: next.gen, owner: next.owner, members: next.members, invites: next.invites });
+    const ok = [];
+    for (const j of cands) {
+      /* 受け取りIDが書いた人のものか（ほかの人の受け取りIDを入れて、鍵を作り替えたときの招待を横取りさせない） */
+      try { const to = await readShareAddress(j.x); if (to.wallet === j.a && to.network === next.net) ok.push(j); } catch (e) { /* 捨てる */ }
+    }
+    if (!ok.length) return null;
+    const members = cleanMembers((next.members || []).concat(ok.map(j => ({ a: j.a, x: j.x, n: j.n }))));
+    const board = await boardOf(seaKey);
+    const roster = await postMemos(keys.wallet, rosterInner(Object.assign({}, next, { members })), board);
+    const need = await needFunds(next.net, roster.length);
+    if (!window.confirm('招待コードで ' + ok.length + ' 人が入ってきた: ' + ok.map(j => j.n || shortAddr(j.a)).join('・') + '\n'
+      + 'メンバーに足す？ 新しい名簿をチェーンに書く（取引 ' + roster.length + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
+      + '足すと、その人の記録とチャットも使うようになる。足さなければ、その人は読むだけのまま。')) return null;
+    line.textContent = '名簿を書いている…';
+    await writePost(next.net, keys.wallet, roster, board);
+    const used = new Set(ok.map(j => j.inv));
+    next.invites = (next.invites || []).map(i => (used.has(i.inv) ? Object.assign({}, i, { used: Date.now() }) : i));
+    next.members = members;
+    return members;
+  }
+  async function readWith(rec, seaKey, keys) {
     const id = rec.id;
     line.textContent = '掲示板を読んでいる…';
     const got = await readBoard(rec.net, rec, seaKey);
     let next = sharedRec(id);
     if (got.members) next = Object.assign(next, { members: got.members });
-    const snaps = got.snaps;
+    let snaps = got.snaps;
+    let added = null;
+    /* 名簿に足せなくても（残高が足りない など）、記録の取り込みは続ける */
+    try { added = await addJoiners(next, got, seaKey, keys); } catch (e) {
+      toast('招待コードで入ってきた人を足せなかった: ' + ((e && e.message) || String(e)));
+    }
+    if (added) {
+      putShared(next);
+      snaps = acceptedSnaps(got.posts, { owner: next.owner, members: added, sea: id, gen: next.gen });
+    }
     if (!snaps.length) {
       putShared(next);
       paint();
@@ -3787,6 +3890,39 @@ function chainBox(opts = {}) {
     paint();
     curKey = 'share-in';
     line.textContent = took ? '招待を ' + took + ' 件受け取った。' : (line.textContent || 'どれも受け取らなかった。');
+  }
+
+  /* 招待コードで受け取る（Issue #68 の返事「おすすめで」）。読むだけなので手数料は掛からない */
+  async function acceptCode(code) {
+    if (!String(code || '').trim()) throw new Error('招待コード（BTI1-…）を欄に貼ってから「受け取る」を押す');
+    const keys = await unlock();   /* パスキーは押した手の続きで呼ぶ。ここより前で await しない */
+    await checkSame(keys);
+    const c = await readInviteCode(code);
+    const net = netSel.value;
+    if (c.network !== net) throw new Error('この招待コードは ' + NETWORKS[c.network].label + ' のもの。「ブロックチェーンを準備する」でネットをそろえる');
+    line.textContent = '招待を探している…';
+    const f = await findInviteByCode(code);
+    if (!f) throw new Error('招待が見つからない（期限切れ・写し間違い・まだ書き終わっていない）。少し待ってもう一度押すか、招いた人に作り直してもらう');
+    const all = loadShared();
+    const prev = all[f.sea.id];
+    if (prev && prev.me === keys.wallet.address && prev.gen >= f.gen) throw new Error('「' + f.sea.name + '」はもう受け取っている');
+    if (f.owner === keys.wallet.address) throw new Error('自分が作った招待コード（相手に送る）');
+    const local = allEntries().find(e => e.id === f.sea.id && e.alive);
+    if (local && !prev) throw new Error('「' + f.sea.name + '」の招待は受け取れない（この端末に同じ ID の別の海がある）');
+    if (!window.confirm('海「' + f.sea.name + '」に招かれている。受け取る？\n招いた人のウォレット: ' + f.owner
+      + '\n受け取ると、この海がこの端末に足され、メンバーの記録を読み込む（手数料は掛からない）。'
+      + '\n自分の変更を送ると、招いた人の端末があなたをメンバーに足す。')) { line.textContent = 'やめた'; return; }
+    const board = await boardOf(f.key);
+    const rec = { id: f.sea.id, net, gen: f.gen, owner: f.owner, me: keys.wallet.address,
+      wrapped: await wrapSeaKey(f.key, keys.recordKey, f.sea.id, f.gen, keys.wallet.address), board: board.address,
+      members: [], inv: f.inv, savedAt: null, readAt: null };
+    putShared(rec);
+    if (!local) mergeSeas([f.sea]);
+    curKey = 'share-in';
+    await readWith(rec, f.key);
+    paint();
+    curKey = 'share-in';
+    line.textContent = '「' + f.sea.name + '」を受け取った。自分の変更を送ると、招いた人がメンバーに足す（それまでは読むだけ）。';
   }
 
   async function writeBackup() {

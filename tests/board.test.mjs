@@ -15,6 +15,8 @@ import {
   openEnvelope, findInvites, writeEnvelope, postMemos, writePost, readBoard, collectPosts, signedPost, verifyPost,
   acceptedSnaps, rosterOf, cleanMembers, loadShared, saveShared, sharedFor, STORE_KEY, ENV_TAG,
   chatBoardOf, chatMessages, readChat, MSG_MAX, SELF_SEA, GIFT_LAMPORTS, giftPlan,
+  makeInviteCode, readInviteCode, inviteBoxOf, sealInvite, parseInvite, openInvite, findInviteByCode, writeInvite, joinsOf,
+  INVITE_TAG, INVITE_DAYS,
 } from '../js/board.js';
 
 let n = 0;
@@ -284,6 +286,77 @@ await test('手数料を送る: 100 通ぶん・空の相手には最低の額�
   const funded = giftPlan({ myBalance: 1000000, destBalance: 2000000, rent: 890880 });
   assert.equal(funded.amount, 1000000);
   assert.ok(!funded.ok, '自分の手数料と最低の額が残らないなら送らない');
+});
+
+/* ---- 招待コード（Issue #68） ---- */
+
+await test('招待コード: 行き来・写し間違い・ネット', async () => {
+  const code = await makeInviteCode('devnet');
+  assert.ok(code.startsWith('BTI1-'));
+  const c = await readInviteCode(' ' + code.replace(/-/g, ' - ') + ' ');
+  assert.equal(c.network, 'devnet');
+  assert.equal(c.text, code);
+  assert.equal(c.secret.length, 16);
+  assert.notEqual(await makeInviteCode('devnet'), code, '作るたびに別のコード');
+  const bad = code.slice(0, -1) + (code.endsWith('A') ? 'B' : 'A');
+  await assert.rejects(readInviteCode(bad), /違う|長さ/);
+  await assert.rejects(readInviteCode(''), /貼る/);
+});
+
+await test('招待コードの招待: コードを持つ人だけが開け、署名と期限を確かめる', async () => {
+  const owner = await keysOf(40), eve = await keysOf(41);
+  const box = await inviteBoxOf((await readInviteCode(await makeInviteCode('devnet'))).secret);
+  const other = await inviteBoxOf((await readInviteCode(await makeInviteCode('devnet'))).secret);
+  const seaKey = newSeaKey();
+  const sea = { id: 'sinv1', name: '旅', color: 'moss', at: 3 };
+  const now = 1000000;
+  const text = await sealInvite({ network: 'devnet', sea, key: seaKey, gen: 2, owner: owner.wallet, now }, box);
+  assert.ok(text.startsWith(INVITE_TAG + ' '));
+  assert.ok(new TextEncoder().encode(text).length < 900, '取引 1 件に収まる');
+  const b = parseInvite('[10] ' + text);
+  const got = await openInvite(b, box, now + 1);
+  assert.equal(got.sea.id, 'sinv1');
+  assert.deepEqual(got.key, seaKey);
+  assert.equal(got.gen, 2);
+  assert.equal(got.owner, owner.wallet.address);
+  assert.equal(got.inv, box.address);
+  assert.equal(await openInvite(b, other, now + 1), null, 'ほかのコードでは開けない');
+  assert.equal(await openInvite(b, box, now + INVITE_DAYS * 86400000 + 1), null, '期限を過ぎたら開けない');
+  const fake = await sealInvite({ network: 'devnet', sea, key: seaKey, gen: 2, now,
+    owner: { address: owner.wallet.address, sign: eve.wallet.sign } }, box);
+  assert.equal(await openInvite(parseInvite(fake), box, now + 1), null, '署名が合わない招待は捨てる');
+  assert.equal(parseInvite('bt2e AAAA'), null);
+  assert.equal(parseEnvelope(text), null, '封筒とは取り違えない');
+});
+
+await test('招待コード: 持ち主が書き、招かれる人はコードだけで見つける', async () => {
+  const { opt } = fakeChain();
+  const owner = await keysOf(42);
+  const code = await makeInviteCode('devnet');
+  const box = await inviteBoxOf((await readInviteCode(code)).secret);
+  const seaKey = newSeaKey();
+  const sea = { id: 'sinv2', name: '家', color: 'sand', at: 1 };
+  await writeInvite('devnet', owner.wallet, await sealInvite({ network: 'devnet', sea, key: seaKey, gen: 1, owner: owner.wallet }, box), box, opt);
+  const got = await findInviteByCode(code, { opt });
+  assert.equal(got.sea.id, 'sinv2');
+  assert.deepEqual(got.key, seaKey);
+  assert.equal(await findInviteByCode(await makeInviteCode('devnet'), { opt }), null, 'ほかのコードでは見つからない');
+});
+
+await test('招待コードで入ってきた人: 1 つのコードで最初の 1 人・期限内・名簿にいない人だけ', () => {
+  const invites = [{ inv: 'BOX1', exp: 100, used: null }, { inv: 'BOX2', exp: 100, used: 50 }];
+  const post = (by, inv, at, extra = {}) => Object.assign({ kind: 'snap', sea: 's1', g: 1, by, inv, x: 'BTA1-' + by, at }, extra);
+  const got = joinsOf([
+    post('B', 'BOX1', 30),
+    post('C', 'BOX1', 20),             /* 同じコードで先に書いた C だけ */
+    post('D', 'BOX2', 10),             /* 使い済み */
+    post('E', 'BOX9', 10),             /* 知らないコード */
+    post('M', 'BOX1', 5),              /* もう名簿にいる */
+    post('F', 'BOX1', 10, { g: 2 }),   /* 別の代 */
+  ], { sea: 's1', gen: 1, owner: 'O', members: [{ a: 'M' }], invites });
+  assert.deepEqual(got.map(j => j.a), ['C']);
+  assert.equal(got[0].x, 'BTA1-C');
+  assert.deepEqual(joinsOf([post('B', 'BOX1', 101)], { sea: 's1', gen: 1, owner: 'O', members: [], invites }), [], '期限を過ぎてから');
 });
 
 console.log(n + ' tests passed');

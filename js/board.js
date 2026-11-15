@@ -286,6 +286,127 @@ export async function findInvites(network, keys, { limit = 200, opt } = {}) {
   return Array.from(best.values());
 }
 
+/* ---- 招待コード（2026-11-15 Issue #68 の返事「おすすめで」= A 案。招く側だけが書き、招かれる側は読むだけ） ----
+   前の形（受け取りID → 封筒）は、招かれる人が先に受け取りIDを送り、招く人がそれを貼る 2 往復だった。
+   招待コードは、招く人が作って 1 度送るだけ。招かれる人はコードを貼って受け取る。
+     コード（BTI1-…）= [版][ネット][秘密 16][sha256 の頭 2] を base58。**秘密**（合言葉と同じ扱い。持つ人は誰でも受け取れる）
+     受け口  = HKDF(秘密, "invite-box") を種にしたアドレス（載せるだけの口座。秘密鍵は使わない）
+     カギ    = HKDF(秘密, "invite-key")（AES-256-GCM）
+   招待 = 受け口に載せて書くメモ "bt2i <base64>"、中身 = [版][IV 12][暗号文]。暗号文の中は封筒と同じ欄に、期限 exp を足したもの。
+   持ち主のウォレットの署名を入れる（コードを知っただけの人が持ち主の名をかたって書いても、署名が合わない）。
+   受け取った人は、自分の記録の写し（snap）に inv（受け口）と x（受け取りID）を入れて書く。
+   持ち主の端末は「みんなの変更を取り込む」でそれを見つけ、名簿に足す（1 つのコードで足すのは最初の 1 人だけ。期限を過ぎたものは足さない） */
+export const INVITE_TAG = 'bt2i';
+export const INVITE_DAYS = 7;
+const INVITE_LEN = 2 + 16 + 2;
+
+export async function makeInviteCode(network) {
+  const net = NETWORKS[network];
+  if (!net) throw new Error('ネットが正しくない');
+  const body = concat([Uint8Array.of(VER, net.code), randomBytes(16)]);
+  const sum = (await sha256(body)).subarray(0, 2);
+  return 'BTI1-' + b58encode(concat([body, sum])).match(/.{1,6}/g).join('-');
+}
+
+/* 'BTI1-…' → { network, secret, text } */
+export async function readInviteCode(str) {
+  const raw = String(str || '').replace(/\s/g, '').replace(/^BTI1-?/i, '').replace(/-/g, '');
+  if (!raw) throw new Error('招待コード（BTI1- で始まる文字）を貼る');
+  let b;
+  try { b = b58decode(raw); } catch (e) { throw new Error('招待コードの字が違う（BTI1- で始まる文字を、そのまま貼る）'); }
+  if (b.length !== INVITE_LEN) throw new Error('招待コードの長さが違う（写し間違い？）');
+  const body = b.subarray(0, INVITE_LEN - 2), sum = b.subarray(INVITE_LEN - 2);
+  const want = (await sha256(body)).subarray(0, 2);
+  if (want.some((x, i) => x !== sum[i])) throw new Error('招待コードが違う（写し間違い？）');
+  if (body[0] !== VER) throw new Error('この app より新しい版の招待コード');
+  const network = Object.keys(NETWORKS).find(k => NETWORKS[k].code === body[1]);
+  if (!network) throw new Error('招待コードのネットが分からない');
+  return { network, secret: body.slice(2), text: 'BTI1-' + b58encode(b).match(/.{1,6}/g).join('-') };
+}
+
+/* 秘密 → { address（受け口）, key（カギ） } */
+export async function inviteBoxOf(secret) {
+  if (!secret || secret.length !== 16) throw new Error('招待コードが正しくない');
+  const w = await walletFromSeed(await hkdf(secret, 'invite-box'));
+  return { address: w.address, key: await hkdf(secret, 'invite-key') };
+}
+
+const invSigText = (o, box) => ['bubbles-inv-v1', o.net, box, o.sea.id, o.g, o.kh, o.exp].join('|');
+
+/* info = sealEnvelope と同じ（＋ now）、box = inviteBoxOf の戻り値 → メモの文 */
+export async function sealInvite(info, box) {
+  const now = info.now || Date.now();
+  const sea = { id: info.sea.id, name: info.sea.name, color: info.sea.color, at: info.sea.at || 0 };
+  const o = { v: VER, net: info.network, sea, k: toB64(info.key), g: info.gen, o: info.owner.address,
+    kh: toB64((await sha256(info.key)).subarray(0, 16)), at: now, exp: now + INVITE_DAYS * 86400000 };
+  o.s = toB64(await info.owner.sign(enc(invSigText(o, box.address))));
+  const iv = randomBytes(12);
+  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv, additionalData: enc(SALT + '|inv|' + box.address) },
+    await aesKey(box.key, 'encrypt'), enc(JSON.stringify(o))));
+  return INVITE_TAG + ' ' + toB64(concat([Uint8Array.of(VER), iv, ct]));
+}
+
+export function parseInvite(text) {
+  const m = /(?:^|\s|\])bt2i ([A-Za-z0-9+/=]+)/.exec(String(text || ''));
+  return m ? m[1] : null;
+}
+
+/* 招待を開ける → { network, sea, key, gen, owner, at, exp, inv }。開けない・署名が合わない・期限切れなら null */
+export async function openInvite(b64, box, now = Date.now()) {
+  let all;
+  try { all = fromB64(b64); } catch (e) { return null; }
+  if (all.length < 1 + 12 + 16 || all[0] !== VER) return null;
+  let o;
+  try {
+    const plain = await subtle().decrypt({ name: 'AES-GCM', iv: all.subarray(1, 13), additionalData: enc(SALT + '|inv|' + box.address) },
+      await aesKey(box.key, 'decrypt'), all.subarray(13));
+    o = JSON.parse(dec(new Uint8Array(plain)));
+  } catch (e) { return null; }
+  if (!o || o.v !== VER || !NETWORKS[o.net] || !o.sea || typeof o.sea.id !== 'string' || typeof o.o !== 'string') return null;
+  if (!(Number(o.exp) >= now)) return null;
+  const key = fromB64(String(o.k || ''));
+  if (key.length !== 32 || !(Number(o.g) >= 1)) return null;
+  if (toB64((await sha256(key)).subarray(0, 16)) !== o.kh) return null;
+  if (!(await verifyBy(o.o, invSigText(o, box.address), String(o.s || '')))) return null;
+  return { network: o.net, sea: { id: o.sea.id, name: String(o.sea.name || ''), color: o.sea.color, at: Number(o.sea.at) || 0, alive: 1 },
+    key, gen: Number(o.g), owner: o.o, at: Number(o.at) || 0, exp: Number(o.exp), inv: box.address };
+}
+
+/* コードの受け口を読み、いちばん新しい開ける招待を返す（無ければ null） */
+export async function findInviteByCode(code, { limit = 20, opt, now } = {}) {
+  const c = await readInviteCode(code);
+  const box = await inviteBoxOf(c.secret);
+  const list = await readMemos(c.network, box.address, { limit, opt });
+  for (const it of list) {
+    const b = parseInvite(it.text);
+    if (!b) continue;
+    const info = await openInvite(b, box, now);
+    if (info && info.network === c.network) return info;
+  }
+  return null;
+}
+
+/* 招待を書く（受け口を載せるだけの口座にする） */
+export async function writeInvite(network, wallet, text, box, opt) {
+  return writeMemos(network, wallet, [text], { extra: [box.address], opt });
+}
+
+/* 書き込み → コードで入ってきた人（まだ名簿にいない人）。invites = [{ inv, exp, used }]（持ち主の端末の控え）。
+   1 つのコードにつき、いちばん早く書いた 1 人だけ。期限を過ぎてから書いたもの・使い済みのコードは足さない */
+export function joinsOf(posts, { sea, gen, owner, members, invites }) {
+  const known = new Set([owner].concat((members || []).map(m => m.a)));
+  const open = new Map((invites || []).filter(i => i && !i.used).map(i => [i.inv, i]));
+  const best = new Map();
+  posts.forEach(p => {
+    if (p.sea !== sea || Number(p.g) !== gen || typeof p.inv !== 'string' || typeof p.x !== 'string') return;
+    const inv = open.get(p.inv);
+    if (!inv || known.has(p.by) || !(Number(p.at) <= Number(inv.exp))) return;
+    const cur = best.get(p.inv);
+    if (!cur || Number(p.at) < Number(cur.at)) best.set(p.inv, p);
+  });
+  return Array.from(best.values()).map(p => ({ a: p.by, x: p.x, n: typeof p.n === 'string' ? p.n.slice(0, 24) : '', inv: p.inv }));
+}
+
 /* ---- 書く ---- */
 
 /* 封筒を 1 件書く。宛先が自分なら載せるだけの口座は要らない（払う人と同じ口座を 2 度並べると取引が断られる） */
