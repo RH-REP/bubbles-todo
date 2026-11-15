@@ -2880,6 +2880,7 @@ function chainBox(opts = {}) {
     closeChat();
     row.textContent = '';
     lines.clear();
+    info.hidden = false;
     into = row;
     const net = netSel.value;
     const pk = prfSupported();
@@ -2973,8 +2974,14 @@ function chainBox(opts = {}) {
       }
       return;
     }
-    info.textContent = 'ウォレットのアドレス: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : '合言葉') + 'で開く）'
-      + (cfg.lastAt ? '。最後に保存したバックアップ: ' + new Date(cfg.lastAt).toLocaleString() + '（取引 ' + cfg.lastCount + ' 件）' : '');
+    /* ウォレットのアドレスと最後のバックアップは、準備の欄とバックアップの欄にだけ出す（2026-11-15 Issue #68 の返事
+       「同期→ブロックチェーンを選んだ後に出るメッセージはここでなくてもいいのでは？下のウォレットのアドレスとか」）。
+       共有・同期・チャットの欄では空にする（自分のアドレスが要るときは「招かれる」の「自分のウォレットのアドレスをコピー」） */
+    info.textContent = (setup || ALLOWED.includes('backup'))
+      ? 'ウォレットのアドレス: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : '合言葉') + 'で開く）'
+        + (cfg.lastAt ? '。最後に保存したバックアップ: ' + new Date(cfg.lastAt).toLocaleString() + '（取引 ' + cfg.lastCount + ' 件）' : '')
+      : '';
+    info.hidden = !info.textContent;
 
     /* 鍵の移し替えの途中なら、いちばん上に段と次のボタンを出す（Issue #39） */
     const mv = currentMove();
