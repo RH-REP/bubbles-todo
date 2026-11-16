@@ -14,8 +14,9 @@
      その繋ぎ先の個人 … 泡が1つでもあれば、新しいこの端末の海「個人（前の名前）」を作り、箱を写す（元の箱は残す）
    外した繋ぎ先の住所と鍵の箱（bubble_todo_sync_<ID>）も消さない（戻すときのため）。 */
 
-import { serverRegions, personalId, addServerRegion, removeRegion, regionConf, PERSONAL_RE } from './regions.js';
-import { seaList, setSeaRegion, addSea, boxKey } from './spacelist.js';
+import { serverRegions, personalId, addServerRegion, removeRegion, regionConf, PERSONAL_RE, allRegions, REGIONS_KEY } from './regions.js';
+import { seaList, allEntries, setSeaRegion, addSea, boxKey } from './spacelist.js';
+import { mergeState, initialStamps } from './merge.js';
 
 export const DONE_KEY = 'bubble_todo_oneserver_v1';
 const SPACE_KEY = 'bubble_todo_space';   /* store.js の SPACE_KEY（store.js は読まない。開く前に呼ぶため） */
@@ -90,4 +91,49 @@ export function ensureServer(url, now = Date.now(), st = ls()) {
   const r = theServer(st);
   if (r) return r;
   return addServerRegion('サーバー', { url }, now, st);
+}
+
+/* ---- 個人を1つにまとめる（2026-11-16 利用者の指示「端末個人とサーバー個人に分かれるのは？ 統合…」）----
+   ログインすると、この端末の個人（箱 bubble_todo_v1）と、サーバーの個人（箱 bubble_todo_me_<ID>_v1）の2つが並ぶ。
+   まとめると、2つの箱を記録ごとに重ね（merge.js。消さない。同じ記録は新しいほう）、この端末の個人をサーバーの個人にする
+   （前の版で住所を入れた端末と同じ形 = 前の版からの個人の印 legacyMe をサーバーの繋ぎ先へ移す）。以後、個人は1つで、サーバーと合わせる。
+   作った海のうち繋ぎ先の印の無いもの（前の版からの個人と同じ繋ぎ先の海）は、先に 'local' を付けて動かさない。
+   前の中身は 'bubble_todo_v1_before_unify_<時刻>' に残す。サーバーの個人の箱も消さない */
+
+function stateOf(raw) {
+  let o = null;
+  try { o = JSON.parse(raw || 'null'); } catch (e) { o = null; }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return { doc: {}, stamps: {} };
+  const doc = Object.assign({}, o);
+  delete doc.stamps;
+  const stamps = (o.stamps && typeof o.stamps === 'object' && !Array.isArray(o.stamps)) ? o.stamps : initialStamps(doc, 1);
+  return { doc, stamps };
+}
+
+/* まとめられるか（この端末の個人が前の版からの個人で、サーバーの個人が別の箱） */
+export function canUnify(st = ls()) {
+  const r = theServer(st);
+  if (!r || r.legacyMe) return false;
+  const loc = allRegions(st).find(x => x.id === 'local');
+  return !!(loc && loc.legacyMe);
+}
+
+/* まとめる → まとめた個人の海の ID（'me'）か null */
+export function unifyPersonal(now = Date.now(), st = ls()) {
+  if (!st || !canUnify(st)) return null;
+  const r = theServer(st);
+  const localRaw = st.getItem(boxKey('me'));
+  const serverRaw = st.getItem('bubble_todo_me_' + r.id + '_v1');
+  const merged = mergeState(stateOf(localRaw), stateOf(serverRaw));
+  try {
+    if (localRaw) st.setItem('bubble_todo_v1_before_unify_' + now, localRaw);
+    st.setItem(boxKey('me'), JSON.stringify(Object.assign({}, merged.doc, { stamps: merged.stamps })));
+  } catch (e) { return null; }
+  /* 印の無い海は、いまの「前の版からの個人」の繋ぎ先（この端末）のもの。動かさないよう先に印を付ける */
+  allEntries().forEach(e => { if (e.alive && !e.region) setSeaRegion(e.id, 'local'); });
+  const rows = allRegions(st).map(x => Object.assign({}, x, { legacyMe: x.id === r.id }));
+  try { st.setItem(REGIONS_KEY, JSON.stringify(rows)); } catch (e) { return null; }
+  const open = st.getItem(SPACE_KEY);
+  if (open === 'me.' + r.id || open === 'me.local') { try { st.setItem(SPACE_KEY, 'me'); } catch (e) { /* 次に開いたとき */ } }
+  return 'me';
 }

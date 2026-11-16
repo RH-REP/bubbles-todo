@@ -115,21 +115,31 @@ try {
   /* 2026-11-16 海と同期の作り直し（js/screens/seapanel.js）: サーバーの話は海の欄のいちばん下の1行だけ。
      ［サーバーにログイン］で欄を開き、招待コードで登録する。サーバーの個人は、ログインすると並ぶ */
   await step('設定の海の欄は、初めはサーバーの欄を出さず、［サーバーにログイン］で開く', async () => {
+    /* ログインする前に、この端末の個人に1つ書いておく（あとで個人をまとめたとき、サーバーへ届くか見る） */
+    await until(`return !!document.querySelector('.gearbtn')`);
+    await js(`(await import('/js/store.js')).store.add('端末で書いた');`);
     await openSettings();
     assert.equal(await js(`return !!document.querySelector('input[aria-label="招待コード"]')`), false, '初めは招待コードの欄を出さない');
     await js(`${button('サーバーにログイン')}.click();`);
     await until(`return !!document.querySelector('input[aria-label="招待コード"]')`);
   });
 
-  await step('招待コードで登録すると、サーバーの個人が並び、開くと合わせ始める', async () => {
+  await step('招待コードで登録すると個人が2つ並び、1つにまとめるとこの端末の個人の泡もサーバーへ届く', async () => {
     await js(`const i = document.querySelector('input[aria-label="招待コード"]'); i.value = ${JSON.stringify(invite)};
       i.closest('form').requestSubmit();`);
     await until(`return !!${button('ログアウト')}`);
     const creds = (await send('WebAuthn.getCredentials', { authenticatorId })).result.credentials;
     assert.equal(creds.length, 1, '仮のパスキーの置き場に1つ入った');
-    await js(`${button('個人（サーバー）')}.click();`);
+    /* 個人が2つ並ぶので、1つにまとめる（2度押す）。まとめると読み直し、個人がサーバーと合わせ始める */
+    await until(`return !!${button('個人を1つにまとめる')}`);
+    await js(`${button('個人を1つにまとめる')}.click();`);
+    await js(`${button('もう一度押すとまとめる')}.click();`);
     await sleep(1500);
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
+    assert.equal(await js(`return (await import('/js/store.js')).store.space()`), 'me');
+    const f = join(data, 'state.json');
+    for (let i = 0; i < 60 && !(existsSync(f) && readFileSync(f, 'utf8').includes('端末で書いた')); i++) await sleep(100);
+    assert.match(readFileSync(f, 'utf8'), /端末で書いた/, 'この端末の個人の泡がサーバーの個人へ届いた');
     const c = await js(`return (await import('/js/sync.js')).sync.config().passkey`);
     assert.equal(c.name, '自分のスマホ');
     assert.deepEqual(c.spaces, ['me', 'share']);
@@ -148,6 +158,20 @@ try {
     const f = join(data, 'state.json');
     for (let i = 0; i < 60 && !(existsSync(f) && readFileSync(f, 'utf8').includes('パスキーで書いた')); i++) await sleep(100);
     assert.match(readFileSync(f, 'utf8'), /パスキーで書いた/);
+  });
+
+  await step('オフラインでも個人に書け、繋がったらサーバーへ届く', async () => {
+    await send('Network.enable');
+    await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    assert.equal(await js(`return (await import('/js/store.js')).store.readOnly()`), false, '読むだけにならない');
+    await js(`(await import('/js/store.js')).store.add('オフラインで書いた');`);
+    await js(`await (await import('/js/sync.js')).sync.syncNow();`);
+    const f = join(data, 'state.json');
+    assert.doesNotMatch(readFileSync(f, 'utf8'), /オフラインで書いた/, 'オフラインの間は届かない');
+    await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await js(`window.dispatchEvent(new Event('online'));`);
+    for (let i = 0; i < 80 && !readFileSync(f, 'utf8').includes('オフラインで書いた'); i++) await sleep(100);
+    assert.match(readFileSync(f, 'utf8'), /オフラインで書いた/);
   });
 
   await step('ログアウトしたあと、パスキーでログインし直せる（Face ID のつもりの確かめつき）', async () => {

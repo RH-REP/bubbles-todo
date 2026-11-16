@@ -19,7 +19,7 @@ import { registerPasskey, loginPasskey, logoutPasskey, authMode, passkeySupporte
   requestRegistration, requestStatus, makeInvite } from '../passkey.js';
 import { COLORS, colorMark, addSea, updateSea, removeSea, setSeaRegion, mergeSeas } from '../spacelist.js';
 import { allSeas, regionConf, entriesOf } from '../regions.js';
-import { theServer, serverUrl, ensureServer } from '../oneserver.js';
+import { theServer, serverUrl, ensureServer, canUnify, unifyPersonal } from '../oneserver.js';
 
 const SKY = '#7cc3e8';                        /* 個人の水の色（css の空色に近い印） */
 const REQ_KEY = 'bubble_todo_pk_request';     /* 登録の頼み（前の欄と同じ箱。続きから使える） */
@@ -149,8 +149,9 @@ export function seaPanel(opts = {}) {
     if (s.personal) {
       here.disabled = srv.disabled = true;
       why.textContent = onServer(s, st)
-        ? 'サーバーの個人は、ログインした人だけの海（ほかの人には見えない）。置き場は変えられない。'
-        : 'この端末の個人。置き場は変えられない（サーバーの個人は、ログインすると並ぶ）。';
+        ? 'サーバーの個人は、ログインした人だけの海（ほかの人には見えない）。'
+        : 'この端末の個人。';
+      if (unifiable(st)) g.appendChild(unifyBox());
     } else if (!onServer(s, st)) {
       if (!st.live) why.textContent = 'サーバーに置くには、先にログインする（下の［サーバーにログイン］）。';
       else if (!st.owner) why.textContent = 'サーバーに海を置けるのは、サーバーの持ち主だけ。';
@@ -183,6 +184,26 @@ export function seaPanel(opts = {}) {
       const r = el('div', 'row'); r.style.marginTop = '8px'; r.appendChild(del); g.appendChild(r);
     }
     return g;
+  }
+
+  /* 個人を1つにまとめる（2026-11-16「端末個人とサーバー個人に分かれるのは？ 統合…」）。js/oneserver.js の unifyPersonal */
+  function unifiable(st) { return st.live && st.spaces.indexOf('me') >= 0 && canUnify(); }
+  function unifyBox() {
+    const w = el('div', 'sp-unify');
+    w.dataset.name = '個人をまとめる';
+    w.appendChild(text('p', null, 'この端末の個人とサーバーの個人を1つにまとめる。両方の泡を残して重ね（同じ泡は新しいほう）、'
+      + '以後は1つの「個人」としてサーバーと合わせる（この端末の個人の中身もサーバーへ送る）。'
+      + 'オフラインの間も書け、繋がったときに合わせる。作った海はそのまま。'));
+    const b = btn('個人を1つにまとめる');
+    let armed = false;
+    b.addEventListener('click', () => {
+      if (!armed) { armed = true; b.textContent = 'もう一度押すとまとめる'; return; }
+      if (!unifyPersonal()) { toast('まとめられなかった'); return; }
+      toast('個人を1つにまとめた');
+      location.reload();
+    });
+    const r = el('div', 'row'); r.appendChild(b); w.appendChild(r);
+    return w;
   }
 
   /* 人を招く（2026-11-16 利用者の指示「招けるようにして」）。招待コードはサーバーが作る（24 時間・1回きり）。
@@ -441,6 +462,13 @@ export function seaPanel(opts = {}) {
       });
       who.appendChild(out);
       wrap.appendChild(who);
+      /* 個人が2つ並ぶときは、まとめる道を上に出す */
+      if (unifiable(st)) {
+        const n = el('div', 'sp-unify-hint');
+        n.style.cssText = 'margin:6px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:10px';
+        n.appendChild(unifyBox());
+        wrap.appendChild(n);
+      }
     }
     const seas = allSeas();
     const srvSeas = seas.filter(s => onServer(s, st) && !(s.personal && st.live && st.spaces.indexOf('me') < 0));

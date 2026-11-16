@@ -26,7 +26,7 @@ function test(name, fn) {
   }
 }
 
-const { consolidate, theServer, serverUrl, ensureServer } = await import(new URL('../js/oneserver.js', import.meta.url).href);
+const { consolidate, theServer, serverUrl, ensureServer, canUnify, unifyPersonal } = await import(new URL('../js/oneserver.js', import.meta.url).href);
 const { regionList, regionOfSpace } = await import(new URL('../js/regions.js', import.meta.url).href);
 const { seaList } = await import(new URL('../js/spacelist.js', import.meta.url).href);
 
@@ -98,6 +98,28 @@ test('住所: 繋ぎ先があればそれ、無ければパスキーのサーバ
   assert.equal(ensureServer('https://other.example', 2000).id, r.id, '2つ目は作らない');
   assert.equal(serverUrl('https://x.example', 'passkey'), 'https://page.example');
   assert.equal(regionOfSpace('me'), 'local', 'この端末の個人は動かさない');
+});
+
+test('個人をまとめる: 2つの箱を重ねて1つの個人にし、サーバーと合わせる。作った海は動かさない', () => {
+  mem.set('bubble_todo_regions', JSON.stringify([{ id: 'local', legacyMe: true }, { id: 'rs1', name: 'サーバー', legacyConf: true }]));
+  mem.set('bubble_todo_sync', JSON.stringify({ url: 'https://a.example', session: 'S' }));
+  mem.set('bubble_todo_spaces', JSON.stringify([{ id: 'shome11', name: '家', color: 'moss', at: 1, alive: 1 }]));
+  const todo = (id, text, at) => ({ id, text, createdAt: at });
+  mem.set('bubble_todo_v1', JSON.stringify({ todos: [todo('a1', '端末の泡', 1)], stamps: { 'todo:a1': [10, 1] } }));
+  mem.set('bubble_todo_me_rs1_v1', JSON.stringify({ todos: [todo('b1', 'サーバーの泡', 1)], stamps: { 'todo:b1': [20, 1] } }));
+  mem.set('bubble_todo_space', 'me.rs1');
+  assert.equal(regionOfSpace('shome11'), 'local');
+  assert.equal(canUnify(), true);
+  assert.equal(unifyPersonal(5000), 'me');
+  const box = JSON.parse(mem.get('bubble_todo_v1'));
+  const texts = (box.todos || []).map(t => t.text).sort();
+  assert.deepEqual(texts, ['サーバーの泡', '端末の泡'], '両方残る');
+  assert.equal(regionOfSpace('me'), 'rs1', '個人はサーバーと合わせる');
+  assert.equal(regionOfSpace('shome11'), 'local', '作った海は動かさない');
+  assert.equal(mem.get('bubble_todo_space'), 'me');
+  assert.ok(mem.get('bubble_todo_v1_before_unify_5000'), '前の中身の控え');
+  assert.ok(mem.get('bubble_todo_me_rs1_v1'), 'サーバーの個人の箱も消さない');
+  assert.equal(canUnify(), false, '2度目はしない');
 });
 
 console.log(`\n${pass} passed, ${failed.length} failed`);
