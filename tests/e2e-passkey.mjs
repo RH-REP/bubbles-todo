@@ -89,25 +89,40 @@ try {
   await send('Page.navigate', { url: origin + '/' });
   await sleep(1500);
 
-  await step('設定を開くと、サーバーの形を聞いてパスキーの欄が出る', async () => {
-    await js(`document.querySelector('.gearbtn').click();`);
-    await until(`!document.querySelector('.pkbox').hidden`);
-    assert.equal(await js(`return document.querySelector('input[aria-label="サーバーの合言葉"]').hidden`), true, '合言葉の欄は隠す');
+  const button = (t) => `[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith(${JSON.stringify(t)}))`;
+  /* 読み直したあとも使う。設定がもう開いていれば押さない（押すと閉じる） */
+  const openSettings = async () => {
+    await until(`return !!document.querySelector('.gearbtn')`);
+    await js(`const g = document.querySelector('.gearbtn'); if (!g.classList.contains('is-open')) g.click();`);
+    await until(`return !!${button('サーバーにログイン')} || !!${button('ログアウト')}`);
+  };
+
+  /* 2026-11-16 海と同期の作り直し（js/screens/seapanel.js）: サーバーの話は海の欄のいちばん下の1行だけ。
+     ［サーバーにログイン］で欄を開き、招待コードで登録する。サーバーの個人は、ログインすると並ぶ */
+  await step('設定の海の欄は、初めはサーバーの欄を出さず、［サーバーにログイン］で開く', async () => {
+    await openSettings();
+    assert.equal(await js(`return !!document.querySelector('input[aria-label="招待コード"]')`), false, '初めは招待コードの欄を出さない');
+    await js(`${button('サーバーにログイン')}.click();`);
+    await until(`return !!document.querySelector('input[aria-label="招待コード"]')`);
   });
 
-  await step('招待コードで登録すると、通行証を受け取って合わせ始める', async () => {
+  await step('招待コードで登録すると、サーバーの個人が並び、開くと合わせ始める', async () => {
     await js(`const i = document.querySelector('input[aria-label="招待コード"]'); i.value = ${JSON.stringify(invite)};
       i.closest('form').requestSubmit();`);
+    await until(`return !!${button('ログアウト')}`);
+    const creds = (await send('WebAuthn.getCredentials', { authenticatorId })).result.credentials;
+    assert.equal(creds.length, 1, '仮のパスキーの置き場に1つ入った');
+    await js(`${button('個人（サーバー）')}.click();`);
+    await sleep(1500);
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
     const c = await js(`return (await import('/js/sync.js')).sync.config().passkey`);
     assert.equal(c.name, '自分のスマホ');
     assert.deepEqual(c.spaces, ['me', 'share']);
-    const creds = (await send('WebAuthn.getCredentials', { authenticatorId })).result.credentials;
-    assert.equal(creds.length, 1, '仮のパスキーの置き場に1つ入った');
   });
 
   if (SHOT) {
-    await js(`document.querySelector('.pkbox').scrollIntoView({ block: 'center' });`);
+    await openSettings();
+    await js(`document.querySelector('.sea-panel').scrollIntoView({ block: 'start' });`);
     await sleep(300);
     const shot = await send('Page.captureScreenshot', { format: 'jpeg', quality: 72 });
     writeFileSync(SHOT, Buffer.from(shot.result.data, 'base64'));
@@ -120,10 +135,14 @@ try {
     assert.match(readFileSync(f, 'utf8'), /パスキーで書いた/);
   });
 
-  await step('出たあと、パスキーで入り直せる（Face ID のつもりの確かめつき）', async () => {
-    await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'この端末から出る').click();`);
-    await until(`return !(await import('/js/sync.js')).sync.config().passkey`);
-    await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'パスキーで入る').click();`);
+  await step('ログアウトしたあと、パスキーでログインし直せる（Face ID のつもりの確かめつき）', async () => {
+    await openSettings();
+    await js(`${button('ログアウト')}.click();`);
+    await until(`return !!${button('サーバーにログイン')}`);
+    await js(`${button('サーバーにログイン')}.click();`);
+    await until(`return !!${button('パスキーでログイン')}`);
+    await js(`${button('パスキーでログイン')}.click();`);
+    await sleep(1500);
     await until(`return (await import('/js/sync.js')).sync.config().passkey?.name === '自分のスマホ'`);
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
   });

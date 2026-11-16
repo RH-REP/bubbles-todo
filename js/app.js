@@ -8,6 +8,8 @@
    review / settings は受けない（data-drop="no"）。
    判定に使うのは指先の座標で、バブルの外形ではない（外形はタブ6本ぶんを覆うため）。 */
 
+/* サーバーを1つにまとめる（2026-11-16）。store.js より先に（開く海と繋ぎ先を読む前に） */
+import './oneserver-boot.js';
 import { store } from './store.js';
 /* サーバーと記録を合わせる。設定で住所を入れていなければ何もしない（sync.js） */
 import './sync.js';
