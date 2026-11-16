@@ -1443,7 +1443,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       box.appendChild(body);
       fields.appendChild(box);
       syncSpanRow();
-      /* 期間を決めていない泡では「その他」に畳む（Issue #40）。決めてあれば、いつも出す */
+      /* 決めてあれば、いつも出す。決めていない泡で畳むのは「この端末の表示」で期間を外したときだけ
+         （Issue #40 では既定で畳んでいた。2026-11-16 Issue #76 で既定は出すにした。js/prefs.js の BOARD_SHOW_DEF） */
       foldPart(box, 'span', !!curSpan());
     }
 

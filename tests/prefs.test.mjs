@@ -32,6 +32,8 @@ test('盤の下のボタンも選べ、古い値にはボタンを足して読�
 test('盤にはじめから出す欄（Issue #49。set の項目）', () => {
   const d = defaults().boardShow;
   assert.ok(d.includes('step') && !d.includes('url') && !d.includes('fav'));
+  /* 期間は既定で出す（Issue #76。版ごとに別の設定なので、既定で期限の欄が畳まれていると版で違って見えた） */
+  assert.ok(d.includes('span'));
   /* 知らない値は落とし、並びは選ぶものの順にそろえる。空でもよい */
   assert.deepEqual(checkValue('boardShow', ['url', 'name', 'xx', 'name']), ['name', 'url']);
   assert.deepEqual(checkValue('boardShow', []), []);

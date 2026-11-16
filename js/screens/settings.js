@@ -5690,6 +5690,9 @@ function prefsBox(onRender) {
   const wrap = el('div', 'tags prefs-box');
   wrap.appendChild(el('h3', null, 'この端末の表示を変える'));
   wrap.appendChild(el('p', 'note', '好みで見た目と動きを変える。この端末にだけ置く（同期・引っ越しには乗らない）。'));
+  /* Issue #76。設定はページの住所（オリジン）ごとの localStorage にあるので、サーバーあり版とサーバーなし版で別になる */
+  wrap.appendChild(el('p', 'note', 'サーバーあり版とサーバーなし版（開いているページの住所が違うもの）では、この設定は別々に置かれる。'
+    + '片方で変えたら、もう片方でも同じように変える。'));
 
   let cur = loadPrefs();
   const controls = el('div', 'prefs-ctl');
