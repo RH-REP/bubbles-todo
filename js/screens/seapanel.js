@@ -16,7 +16,7 @@ import { el, toast } from '../ui.js';
 import { SPACE_KEY } from '../store.js';
 import { sync } from '../sync.js';
 import { registerPasskey, loginPasskey, logoutPasskey, authMode, passkeySupported,
-  requestRegistration, requestStatus } from '../passkey.js';
+  requestRegistration, requestStatus, makeInvite } from '../passkey.js';
 import { COLORS, colorMark, addSea, updateSea, removeSea, setSeaRegion, mergeSeas } from '../spacelist.js';
 import { allSeas, regionConf, entriesOf } from '../regions.js';
 import { theServer, serverUrl, ensureServer } from '../oneserver.js';
@@ -169,6 +169,7 @@ export function seaPanel(opts = {}) {
         if (s.id === cur) location.reload(); else paint();
       });
     }
+    if (onServer(s, st) && st.live) g.appendChild(inviteBox(s, st));
     /* 消す（2度押す。記録の箱は残し、一覧に消した印を付ける） */
     if (!s.personal) {
       const del = btn('この海を消す');
@@ -182,6 +183,60 @@ export function seaPanel(opts = {}) {
       const r = el('div', 'row'); r.style.marginTop = '8px'; r.appendChild(del); g.appendChild(r);
     }
     return g;
+  }
+
+  /* 人を招く（2026-11-16 利用者の指示「招けるようにして」）。招待コードはサーバーが作る（24 時間・1回きり）。
+     サーバーの個人 … 自分の端末を足す。持ち主なら、新しい人（その人だけの個人）も招ける
+     ほかのサーバーの海 … その海に人を招く。持ち主なら「その人だけの個人もつける」を選べる */
+  function inviteBox(s, st) {
+    const w = el('div', 'sp-invite');
+    w.dataset.name = '人を招く';
+    w.appendChild(text('p', 'prefs-pages-lb', s.personal ? '端末を足す・人を招く' : 'この海に人を招く'));
+    const f = el('form', 'tagadd');
+    const nm = document.createElement('input');
+    nm.type = 'text'; nm.maxLength = 40; nm.setAttribute('aria-label', '招く端末の呼び名');
+    nm.placeholder = s.personal ? '足す端末の呼び名（例 自分のタブレット）' : '招く人の呼び名（例 母のスマホ）';
+    f.appendChild(nm);
+    let who = null;
+    if (st.owner) {
+      who = document.createElement('select');
+      who.setAttribute('aria-label', '誰を招くか');
+      const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; who.appendChild(o); };
+      if (s.personal) { opt('mine', '自分の端末'); opt('new', '新しい人（その人だけの個人）'); }
+      else { opt('sea', 'この海だけ'); opt('new', 'この海と、その人だけの個人'); }
+      f.appendChild(who);
+    }
+    const b = el('button', 'btn'); b.type = 'submit'; b.textContent = '招待コードを作る';
+    f.appendChild(b);
+    w.appendChild(f);
+    const out = el('div');
+    out.setAttribute('aria-live', 'polite');
+    w.appendChild(out);
+    f.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const name = nm.value.trim();
+      if (!name) { toast('呼び名を入れる'); return; }
+      b.disabled = true;
+      out.textContent = '';
+      try {
+        const got = await makeInvite(st.url, st.session, { name, sea: s.personal ? 'me' : s.id, newPerson: !!(who && who.value === 'new') });
+        const code = text('p', null, got.code);
+        code.style.cssText = 'font-size:1.5em;letter-spacing:.1em;font-weight:600;margin:4px 0;user-select:all';
+        out.appendChild(code);
+        out.appendChild(text('p', null, '「' + name + '」の招待コード（24 時間・1回だけ）。相手にこのページの住所とコードを渡す。'
+          + '相手は設定の「海」の［サーバーにログイン］→［招待コードで登録］。'));
+        const cp = btn('コードを写す');
+        cp.addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(got.code); toast('写した'); }
+          catch (e) { try { getSelection().selectAllChildren(code); toast(document.execCommand('copy') ? '写した' : '選んだので ⌘C で'); } catch (_) { toast('コードを長押しして写す'); } }
+        });
+        out.appendChild(cp);
+        nm.value = '';
+      } catch (e) {
+        out.appendChild(text('p', 'note', (e && e.message) || '作れなかった'));
+      } finally { b.disabled = false; }
+    });
+    return w;
   }
 
   function colorSelect(val) {

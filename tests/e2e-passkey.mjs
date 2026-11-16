@@ -147,6 +147,19 @@ try {
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
   });
 
+  await step('海の ⚙ から人を招く: 招待コードが出て、サーバーに招いた人の名前が残る', async () => {
+    await openSettings();
+    await js(`[...document.querySelectorAll('.sp-gear')][0].click();`);
+    await until(`return !!document.querySelector('input[aria-label="招く端末の呼び名"]')`);
+    await js(`const i = document.querySelector('input[aria-label="招く端末の呼び名"]'); i.value = '自分のタブレット'; i.closest('form').requestSubmit();`);
+    await until(`return /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(document.querySelector('.sp-invite p[style]')?.textContent || '')`);
+    const inv = JSON.parse(readFileSync(join(data, 'invites.json'), 'utf8'));
+    const row = inv.find(r => r.name === '自分のタブレット');
+    assert.ok(row, '招待コードの行ができた');
+    assert.equal(row.by, '自分のスマホ');
+    assert.deepEqual(row.spaces, ['me']);
+  });
+
   await step('同じ招待コードは2度使えない', async () => {
     const st = await js(`const r = await fetch('/api/passkey/register/options', { method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invite: ${JSON.stringify(invite)} }) }); return r.status;`);

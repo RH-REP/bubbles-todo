@@ -129,6 +129,26 @@ export async function makeMoveKey(base, session) {
   return json;
 }
 
+/* ログインしている端末から人を招く（2026-11-16）→ {code, spaces, person}。
+   sea: 'me'（自分の個人の2台目）か海の ID。newPerson: 持ち主だけ。その人だけの個人も作る */
+export async function makeInvite(base, session, { name, sea, newPerson }) {
+  let res;
+  try {
+    res = await fetch(base + '/api/passkey/invite', {
+      method: 'POST', cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + session, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: String(name || '').trim().slice(0, 40), sea, newPerson: !!newPerson }),
+    });
+  } catch (e) { throw new Error('サーバーに届かない'); }
+  let json = null;
+  try { json = await res.json(); } catch (e) { /* 中身が無い */ }
+  if (res.status === 200 && json && json.code) return json;
+  if (res.status === 404) throw new Error('サーバーが「人を招く」を知らない（サーバーを新しくする）');
+  if (res.status === 401) throw new Error('ログインし直す（通行証の期限切れか、取り消された）');
+  if ((res.status === 403 || res.status === 409) && json && json.message) throw new Error(json.message);
+  throw new Error('招待コードを作れなかった（' + res.status + '）');
+}
+
 export async function logoutPasskey(base, session) {
   try {
     await fetch(base + '/api/passkey/logout', {

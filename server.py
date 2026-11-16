@@ -84,6 +84,9 @@ API:
     POST /api/passkey/register/options {invite} → 登録の問題   POST /api/passkey/register {credential} → 通行証
     POST /api/passkey/login/options {}  → 入場の問題           POST /api/passkey/login {credential}    → 通行証
     POST /api/passkey/logout（Authorization: Bearer 通行証）
+    POST /api/passkey/invite（Authorization: Bearer 通行証）{name, sea, newPerson?} → {code, spaces, person}
+        端末から人を招く（2026-11-16）。持ち主はどの海にも・新しい人の個人も、ほかの人は自分の個人の2台目と入れる海だけ。
+        範囲の外は 403 {"error": "scope"}、いっぱいなどは 409 {"error": "invite"}。招いた人の名前を by に残す（passkey-list に出る）
     POST /api/passkey/request {name} → {key, code, expires}（待っている頼みが多すぎれば 429 {"error": "requests"}）
     POST /api/passkey/request/status {key} → {state: "waiting"} | {state: "approved", name, spaces}
                                             断った・期限切れは 401。認めたあとは key を招待コードにして登録する
@@ -892,7 +895,7 @@ def make_handler(spaces, cfg: Config = None):
                     if retired:
                         cfg.devices.leave(inv.get('from'))
                         log_event('passkey-retired', self.ip(), f'name={retired}')
-                    name = pk.add_passkey(name=inv['name'], spaces=inv['spaces'], cred=out, person=inv.get('person'))
+                    name = pk.add_passkey(name=inv['name'], spaces=inv['spaces'], cred=out, person=inv.get('person'), by=inv.get('by'))
                     tok, exp = pk.new_session(out['cred_id'], inv['spaces'])
                     log_event('passkey-registered', self.ip(), f'name={name}')
                     return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=name))
@@ -920,6 +923,21 @@ def make_handler(spaces, cfg: Config = None):
                     pk.touch_passkey(row['id'], count)
                     tok, exp = pk.new_session(row['id'], row['spaces'])
                     return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=row['name']))
+                if path == '/api/passkey/invite':
+                    # 端末から人を招く（2026-11-16）。入っている端末だけ。招ける範囲は passkey_store.py の invite_from
+                    info = self.session()
+                    if not info:
+                        return self.deny('invite-make')
+                    try:
+                        code, spaces, person = pk.invite_from(info, body.get('name', ''), str(body.get('sea', '')),
+                                                              bool(body.get('newPerson')))
+                    except PermissionError as e:
+                        return self.send_json(403, {'error': 'scope', 'message': str(e)})
+                    except ValueError as e:
+                        # 入場の失敗ではない（いっぱい・名前が無い）。失敗の数に入れない
+                        return self.send_json(409, {'error': 'invite', 'message': str(e)})
+                    log_event('invite-made', self.ip())
+                    return self.send_json(200, {'code': code, 'spaces': spaces, 'person': person})
                 if path == '/api/passkey/move':
                     # 引っ越しの鍵を作る（Issue #19）。入っている端末だけ。前に作った鍵は使えなくなる
                     info = self.session()
@@ -1089,14 +1107,16 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
             if r.get('kind') == 'move':   # 引っ越しの鍵（Issue #19）
                 print(f"{r['name']}\t{where_of(r)}\t引っ越しの鍵（作った {time.strftime('%Y-%m-%d', time.localtime(r['created']))}）")
             else:
-                print(f"{r['name']}\t{where_of(r)}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}")
+                by = f"\t招いた人 {r['by']}" if r.get('by') else ''
+                print(f"{r['name']}\t{where_of(r)}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}{by}")
     elif cmd == 'passkey-list':
         rows = pk.passkeys()
         if not rows:
             print('登録したパスキーはありません（invite-add <名前> で招待コードを作る）')
         for r in rows:
             last = time.strftime('%Y-%m-%d', time.localtime(r['last_used'])) if r.get('last_used') else '未使用'
-            print(f"{r['name']}\t{where_of(r)}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}")
+            by = f"\t招いた人 {r['by']}" if r.get('by') else ''
+            print(f"{r['name']}\t{where_of(r)}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}{by}")
         used = list(dict.fromkeys(['share'] + [s for r in rows for s in r.get('spaces', []) if s != 'me']))
         counts = [f'{person_label(n)} {pk.count_in("me", n)}/{pk.max_per_space}' for n in pk.persons()]
         print('（' + '・'.join(counts + [f'{space_label(s)} {pk.count_in(s)}/{pk.max_per_space}' for s in used]) + '）')

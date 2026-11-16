@@ -260,7 +260,7 @@ class PasskeyStore:
         _, person = self._invite_row(name, spaces, person, _sha(raw), ttl=ttl)
         return '-'.join(raw[i:i + 4] for i in range(0, 12, 4)), person
 
-    def _invite_row(self, name, spaces, person, code_hash, ttl: int = INVITE_TTL, kind=None):
+    def _invite_row(self, name, spaces, person, code_hash, ttl: int = INVITE_TTL, kind=None, by=None):
         """招待コードの行を足す（招待コードと、認めた頼みが使う）→ (名前, 個人の番号か None)"""
         name = (name or '').strip()
         spaces = list(dict.fromkeys(s for s in spaces if valid_space(s)))
@@ -287,9 +287,45 @@ class PasskeyStore:
                 row['person'] = person
             if kind:
                 row['kind'] = kind
+            if by:
+                row['by'] = by            # 端末から招いた人のパスキーの名前（2026-11-16）
             rows.append(row)
             self._write('invites.json', rows)
         return name, person
+
+    # --- 端末から人を招く（2026-11-16 利用者の指示「招けるようにして」）---
+    # ログインしている端末が招待コードを作る。招ける範囲:
+    #   持ち主（1 番の人）… どの海にも。新しい人の個人（new_person）も
+    #   ほかの人        … 自分の個人の2台目（sea 'me'）と、自分が入れる海だけ
+    # 招いた人の名前を招待コードの行と、登録されたパスキーの行に残す（by。passkey-list に出る）。
+    # 1人が同時に持てる使われていない招待は INVITE_BY_MAX まで
+    INVITE_BY_MAX = 5
+
+    def invite_from(self, info, name: str, sea: str, new_person: bool = False):
+        """info は session_info の答え。→ (コード, 置き場の一覧, 個人の番号か None)。範囲の外なら PermissionError"""
+        pk = self.find_passkey(info['cred_id'])
+        if not pk:
+            raise PermissionError('このパスキーは登録されていない')
+        by = pk['name']
+        if not valid_space(sea):
+            raise ValueError('海の ID が違う')
+        if new_person:
+            if not info.get('owner'):
+                raise PermissionError('新しい人の個人を作れるのは持ち主だけ')
+            spaces, person = (['me'] if sea == 'me' else ['me', sea]), None
+        elif sea == 'me':
+            if info.get('person') is None:
+                raise PermissionError('この端末は個人に入れない')
+            spaces, person = ['me'], info['person']
+        else:
+            if not (info.get('owner') or sea in info.get('spaces', [])):
+                raise PermissionError('入れない海には招けない')
+            spaces, person = [sea], None
+        if sum(1 for r in self.list_invites() if r.get('by') == by) >= self.INVITE_BY_MAX:
+            raise ValueError(f'使われていない招待が多い（{self.INVITE_BY_MAX} まで。24 時間で消える）')
+        raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(12))
+        _, person = self._invite_row((name or '').strip()[:40], spaces, person, _sha(raw), by=by)
+        return '-'.join(raw[i:i + 4] for i in range(0, 12, 4)), spaces, person
 
     # --- 引っ越しの鍵（2026-11-07 Issue #19）---
     def add_move_key(self, cred_id: str):
@@ -388,7 +424,7 @@ class PasskeyStore:
                 return r
         return None
 
-    def add_passkey(self, *, name, spaces, cred, person=None):
+    def add_passkey(self, *, name, spaces, cred, person=None, by=None):
         person = (person or OWNER) if 'me' in spaces else None
         with self.lock:
             rows = self._read('passkeys.json')
@@ -405,6 +441,8 @@ class PasskeyStore:
                          'created': self.clock(), 'last_used': None})
             if person is not None:
                 rows[-1]['person'] = person
+            if by:
+                rows[-1]['by'] = by
             self._write('passkeys.json', rows)
         return name
 

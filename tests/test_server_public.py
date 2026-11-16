@@ -163,6 +163,41 @@ class PublicServerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.pk.add_invite('だめ', ['../x'])
 
+    def test_invite_from_device(self):
+        """2026-11-16: ログインした端末から招く。持ち主はどこでも・新しい人も、ほかの人は自分の2台目と入れる海だけ"""
+        self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
+            auth='passkey', origin=self.origin, rp_id='localhost', guard=self.guard, passkeys=self.pk,
+            stores=server.SeaStores(self.dir), allow_origins=(), sea_list=server.SeaList(self.dir)))
+
+        def invite(sess, **body):
+            return self.req('POST', '/api/passkey/invite', body, {'Authorization': 'Bearer ' + sess})
+
+        own = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('自分のスマホ', ['me']))[1]
+        # 持ち主が新しい人を、個人と海つきで招く
+        code, got, _ = invite(own['session'], name='母のスマホ', sea='shome123', newPerson=True)
+        self.assertEqual((code, got['spaces'], got['person']), (200, ['me', 'shome123'], 2))
+        mom = self.register(FakeAuthenticator('localhost', self.origin), got['code'])[1]
+        self.assertEqual((mom['person'], mom['owner'], mom['spaces']), (2, False, ['me', 'shome123']))
+        self.assertEqual(self.data(mom['session'], 'shome123')[0], 200)
+        row = next(r for r in self.pk.passkeys() if r['name'] == '母のスマホ')
+        self.assertEqual(row.get('by'), '自分のスマホ', '招いた人を残す')
+        # 母は自分の2台目を招ける（母の個人に入る）
+        code, got, _ = invite(mom['session'], name='母のタブレット', sea='me')
+        self.assertEqual((code, got['person']), (200, 2))
+        tab = self.register(FakeAuthenticator('localhost', self.origin), got['code'])[1]
+        self.assertEqual(tab['person'], 2)
+        # 母は入れる海に人を招ける。入れない海・新しい人の個人には招けない
+        self.assertEqual(invite(mom['session'], name='父', sea='shome123')[0], 200)
+        self.assertEqual(invite(mom['session'], name='父', sea='share')[0], 403)
+        self.assertEqual(invite(mom['session'], name='父', sea='me', newPerson=True)[0], 403)
+        # 通行証が無ければ 401。名前が無いのは 409（入場の失敗に数えない）
+        self.assertEqual(invite('nope', name='x', sea='me')[0], 401)
+        self.assertEqual(invite(own['session'], name='', sea='me')[0], 409)
+        # 1人が持てる使われていない招待は 5 まで
+        for i in range(4):
+            invite(mom['session'], name=f'人{i}', sea='shome123')
+        self.assertEqual(invite(mom['session'], name='人5', sea='shome123')[0], 409)
+
     def test_personal_is_per_person(self):
         """2026-11-03: 個人は人ごと。ほかの人の個人は見えず、持ち主（1 番）だけがどの海にも入る"""
         self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
