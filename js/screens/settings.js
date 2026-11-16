@@ -2955,6 +2955,8 @@ function chainBox(opts = {}) {
   /* 控えに入れる海域を選ぶ（段2。利用者の指示「海域ごとに…すべてを選べる様に」） */
   const chainPick = regionPicker('ブロックチェーンの控え');
   const wrap = el('div', 'tags');
+  /* 共有の面（招待）だけ、まとまりを枠に入れて見せる（2026-11-16 Issue #75「招待画面の枠のレイアウトがスマホで良くない」） */
+  if (opts.part === 'hub') wrap.classList.add('share-hub');
   /* 用語（2026-11-09 Issue #31 の返事で見直し）: ほかのウォレット・取引所と行き来するので、そちらと同じ言葉にそろえる。
      ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
   wrap.appendChild(el('h3', null, opts.title || 'ブロックチェーンを使う（Solana・試し）'));
@@ -3030,11 +3032,12 @@ function chainBox(opts = {}) {
   let lastCode = null;
   /* 見出しつきのまとまりを足し、以後の btn はそこへ並べる。parent は畳む箱（fold）に入れるとき */
   function group(key, title, note, parent = row) {
-    const g = el('div', null);
+    /* cb-group・cb-row: 共有の面（.share-hub）で、まとまりを枠に入れ、スマホでは欄とボタンを1行ずつにする（2026-11-16 Issue #75。css/screens/stub.css） */
+    const g = el('div', 'cb-group');
     g.style.cssText = 'margin-top:10px';
     g.appendChild(el('h4', null, title));
     if (note) g.appendChild(el('p', 'note', note));
-    const r = el('div', 'row');
+    const r = el('div', 'row cb-row');
     r.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center';
     g.appendChild(r);
     const st = el('p', 'note');
