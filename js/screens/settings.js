@@ -63,7 +63,21 @@ const FIXED_LABEL = { up: '上', down: '下', left: '左', right: '右' };
 /* 招待コードの形にした（同日 Issue #68 の返事「招く側のみ…書き出して、招かれる側はそれを読み込むだけにできない？」→「おすすめで」）。
    相手から受け取りIDをもらう往復が無くなった */
 /* 2026-11-16 Issue #68 の A 案で、共有の面（カード → ＋ 海を共有する → 招待コードを受け取る）の名前に合わせて書き直した */
-const SHARE_FLOW = '2人とも先に「ブロックチェーンを準備する」で鍵を作り、同じネット（devnet など）にそろえる。<br>'
+/* ブロックチェーンの鍵とウォレットの箱の名前（2026-11-16 Issue #74。前は「ブロックチェーンを準備する」）。文の中の案内もこの名前で書く */
+const PREP_NAME = 'ブロックチェーンの鍵とウォレット';
+/* 招待コードの種類を形で見分ける（2026-11-16 Issue #74 の A 案の (d)。受け取る欄を 1 つにした）。
+   'chain' = ブロックチェーンの招待コード（BTI1-…。js/board.js の makeInviteCode）、
+   'server' = サーバーのパスキーの招待コード（ABCD-EFGH-JKLM の形。passkey_store.py の add_invite_full が _CODE_ABC から 12 字を作り、
+              4 字ずつ - でつなぐ。サーバーは大文字にして区切りを無視する）、
+   'unknown' = どちらでもない */
+export function inviteKind(text) {
+  const t = String(text || '').trim();
+  if (/^BTI1-/i.test(t)) return 'chain';
+  const core = t.replace(/[\s-]/g, '').toUpperCase();
+  if (/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/.test(core) && /^[A-Za-z0-9]+(?:[\s-][A-Za-z0-9]+)*$/.test(t)) return 'server';
+  return 'unknown';
+}
+const SHARE_FLOW = '2人とも先に鍵（パスキーか合言葉）を選び、同じネット（devnet など）にそろえる（この面の「ブロックチェーンで共有する：鍵を選ぶ」）。<br>'
   + '0. （すぐメンバーにするなら）<b>招かれる人</b>: 「招待コードを受け取る」の「自分のウォレットのアドレスをコピー」で、アドレスを招く人に送る。<br>'
   + '1. <b>招く人</b>: 「＋ 海を共有する」で海を選び、もらったアドレスを入れて（無ければ空のまま）「招待コードを作る」。出た招待コード（BTI1-…）を相手にだけ送る。<br>'
   + '2. <b>招かれる人</b>: 「招待コードを受け取る」に貼って「受け取る」。海が足され、みんなの記録が読める。<br>'
@@ -265,13 +279,19 @@ export default {
     /* 2026-11-12 Issue #45（A 案）: 「他の人と一緒に使う」は、海を共有する・チャットする だけにし、それぞれの中で
        「サーバーで／ブロックチェーンで」を選ぶ。サーバーに繋ぐ設定と、ブロックチェーンの始め方・ウォレット・鍵は
        「サーバー・ブロックチェーンを準備する」へ。ブロックチェーンのバックアップは「記録を保存する・読み込む」へ移した */
-    const gShare = group('他の人と一緒に使う', '共有の海（同期・チャット・人を招く・招待コードを受け取る）');
-    /* 2026-11-13 Issue #47 の返事「全部」（C）: サーバーに繋ぐ・入るのは「海を設定する」の ⚙ 1か所にした。ここはブロックチェーンだけ */
-    const gPrep = group('ブロックチェーンを準備する', 'ブロックチェーンを始める（ウォレット・鍵）');
+    /* 2026-11-16 Issue #74（A 案「推奨で実施」）: 箱を「何を使うか」ではなく「何をしたいか」で分ける。
+       他の人と一緒に使う（共有の海・人を招く・招待コードを受け取る。ブロックチェーンの鍵選びもこの中で済む）／
+       自分の端末どうしで使う（自分のほかの端末と合わせる・自分にメモを送る）／記録を保存する・読み込む（バックアップだけ）／
+       ブロックチェーンの鍵とウォレット（前の「ブロックチェーンを準備する」。共有の前提の箱が共有より下にあって行き来が要ったので、
+       始め方は共有の面にも出し、ここは後から使うウォレット・鍵の替え・失ったときを主にする） */
+    const gShare = group('他の人と一緒に使う', '共有の海（人を招く・招待コードを受け取る・同期・チャット）');
+    const gSelf = group('自分の端末どうしで使う', '自分のほかの端末と合わせる・自分にメモを送る');
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
-    const gSave = group('記録を保存する・読み込む', 'ファイル・フォルダ・サーバー・ブロックチェーンに書き出す');
+    const gSave = group('記録を保存する・読み込む', 'その時点の控え（バックアップ）をファイル・フォルダ・ブロックチェーンに書き出す・読み込む');
+    /* 2026-11-13 Issue #47 の返事「全部」（C）: サーバーに繋ぐ・入るのは「海を設定する」の ⚙ 1か所にした。ここはブロックチェーンだけ */
+    const gPrep = group(PREP_NAME, 'ブロックチェーンを始める・ウォレットを見る・鍵を替える・鍵を失ったとき');
     const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
@@ -387,7 +407,21 @@ export default {
        「海を共有する／共有中の海を同期する／チャットする」×「サーバーで／ブロックチェーンで」の 3 段の選択をやめ、開いたらすぐ 1 つの面
        （共有中の海のカード → ＋ 海を共有する → 招待コードを受け取る → 畳んだ説明・自分あてのメモ）を出す。
        サーバーの共有・チャットは、サーバーあり版だけ下に畳んで置く（サーバーなし版では出さない） */
-    const shareHub = chainBox({ tasks: ['share'], part: 'hub', title: isSolo() ? '共有の海（ブロックチェーン）' : '共有の海（サーバー・ブロックチェーン）', goSetup });
+    /* 2026-11-16 Issue #74 の A 案: サーバーで共有する道（serverShare）と、サーバーの招待コードの受け取り（serverInvite）も
+       この面に入れる。前は下の畳んだ箱に「『海を設定する』の［＋ 海を追加］で…」と道順を文で書き、受け取る欄も「海を設定する」の ⚙ の中だけだった */
+    const serverInvite = (code) => {
+      goServer();
+      if (serverEl && typeof serverEl.fillInvite === 'function' && serverEl.fillInvite(code)) {
+        return 'サーバーの招待コード。「海を設定する」の、開いている海の「この海のサーバーに入る」の欄に入れた。そこで「この端末を登録」を押す（パスキーを作る）。';
+      }
+      if (sync.region().kind === 'local') {
+        return 'サーバーの招待コード。いま開いている海は「この端末だけ」なので、まだ入れられない。'
+          + '「海を設定する」の［＋ 海を追加］で、招いた人から聞いた ID・同じサーバーの海を足し、その海を［開く］で開いてから、もう一度ここに貼る。';
+      }
+      return 'サーバーの招待コード。「海を設定する」の「この海のサーバーに入る」を開いた。パスキーの欄が出たら、そこに貼って「この端末を登録」を押す。';
+    };
+    const shareHub = chainBox({ tasks: ['share'], part: 'hub', title: isSolo() ? '共有の海（ブロックチェーン）' : '共有の海（サーバー・ブロックチェーン）', goSetup,
+      serverShare: isSolo() ? null : goServer, serverInvite: isSolo() ? null : serverInvite });
     gShare.appendChild(shareHub);
     /* チャットを開いている間は描き直さない（2026-11-16 Issue #68 の返事「設定のチャットを押してもなにも起こらない？」:
        チャットを開くと「見た」の印を付け、その知らせで面を描き直していたので、開いたチャットがすぐ閉じていた） */
@@ -409,27 +443,13 @@ export default {
     window.addEventListener('bubbles:chat-unread', shareRefresh);
     /* 直につながった・切れたら、カードの「⇄台数」と「直の通信: …」を描き直す（Issue #68） */
     window.addEventListener('bubbles:p2p-state', shareRefresh);
-    const pointer = (title, text, label, on) => {
-      const w = el('div', 'tags');
-      w.appendChild(el('h3', null, title));
-      w.appendChild(el('p', 'note', text));
-      const r = el('div', 'row');
-      const b = el('button', 'btn', label);
-      b.type = 'button';
-      b.addEventListener('click', on);
-      r.appendChild(b);
-      w.appendChild(r);
-      return w;
-    };
     if (!isSolo()) {
-      /* サーバーあり版だけ: サーバーで共有する・サーバーのチャット（畳んで下に） */
+      /* サーバーあり版だけ: サーバーのチャット（開いている海）。
+         2026-11-16 Issue #74: 前はここに「サーバーで共有する」の案内も畳んで置き、上のカードと 2 か所に出ていた。
+         案内は面の「＋ 海を共有する（サーバーで）」へ移し、ここはカードの［チャット］で開くチャットだけにした */
       const srv = document.createElement('details');
       srv.style.cssText = 'margin-top:12px';
-      srv.appendChild(el('summary', null, 'サーバーで共有する・チャットする（サーバーあり版）'));
-      srv.appendChild(pointer('サーバーで海を共有する',
-        'サーバーの持ち主が、招く人の端末を認めると、その人の端末とも同じ海になる（自動で合わせる。手数料は掛からない）。'
-        + '招かれた人は、「海を設定する」の［＋ 海を追加］で、同じ ID・同じサーバーの海を足し、その海の ⚙ で受け取った合言葉か招待コードを入れる。',
-        'サーバーの設定を開く', goServer));
+      srv.appendChild(el('summary', null, 'サーバーのチャット（開いている海）'));
       srv.appendChild(serverChatBox(this));
       gShare.appendChild(srv);
       /* 共有の面のサーバーの海のカードの［チャット］［人を招く］から開く（Issue #68 の X 案）。描き直すたびに前の受け口を外す */
@@ -464,7 +484,7 @@ export default {
        どの欄も「見出し → 説明（ⓘ）→ 選ぶもの → ボタン → 知らせ」の順 */
     [
       'どれを使う？',
-      '・同じサーバーに繋いだ端末どうし（iPhone・Android・PC を同時に使うなど）は、自動で同じ記録になる。ふだんは何もしなくてよい。',
+      '・自分のほかの端末といつも同じ記録にするのは、上の「自分の端末どうしで使う」（同じサーバーに繋いだ端末どうしは自動）。ここはその時点の控え（バックアップ）。',
       '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。すべての海が1つのファイルに入る。',
       '・フォルダ（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く（記録だけ。鍵は入らない）。読み込むときは「ファイル」から選ぶ。',
       '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。',
@@ -479,8 +499,12 @@ export default {
        同期するボタンをつけて明示的に書き出せるようにした方が迷わない」で戻した。
        書き出す・読み込む = その時点の控え（バックアップ）、同期する = ほかの端末と同じ記録にする、と言葉で分ける。
        サーバーは自動（［今すぐ合わせる］もある）、ブロックチェーンは［同期する］で送り、受け取りは画面の下の知らせ（js/chainwatch.js） */
+    /* 2026-11-16 Issue #74 の A 案: 自分のほかの端末と合わせる欄は、新しい箱「自分の端末どうしで使う」へ移した
+       （この箱は書き出す・読み込む＝バックアップだけ）。「同期」の言葉は共有の海の［🔑 同期］にだけ使い、ここは「合わせる」 */
     const syncWrap = el('div');
-    modeChoice.add('sync', 'ほかの端末と同期する', [syncWrap]);
+    gSelf.appendChild(el('p', 'note', '自分のほかの端末（iPhone と PC など）と、いつも同じ記録にする。'
+      + '人と一緒に使う海は「他の人と一緒に使う」、その時点の控え（バックアップ）は「記録を保存する・読み込む」。'));
+    gSelf.appendChild(syncWrap);
     modeChoice.add('out', '書き出す（バックアップ）', [outWrap]);
     modeChoice.add('in', '読み込む（バックアップから）', [inWrap]);
     outWrap.appendChild(el('p', 'prefs-pages-lb', 'どこに書き出す？'));
@@ -494,7 +518,7 @@ export default {
     /* サーバーの欄（書き出す・読み込むとも、繋いでいる間は自動。押す操作は無い） */
     const serverPane = (mode) => {
       const w = el('div', 'tags');
-      w.appendChild(el('h3', null, mode === 'out' ? 'サーバーに書き出す' : mode === 'sync' ? 'サーバーで同期する（自動）' : 'サーバーから読み込む'));
+      w.appendChild(el('h3', null, mode === 'out' ? 'サーバーに書き出す' : mode === 'sync' ? 'サーバーで合わせる（自動）' : 'サーバーから読み込む'));
       w.appendChild(el('p', 'note', mode === 'sync'
         ? '同じサーバーの同じ海を開いている端末どうしは、自動で同じ記録になる（保存して数秒で送り、開いている間は 20 秒ごと・画面に戻ったときに読む）。今すぐ合わせたいときは［今すぐ合わせる］。'
         : mode === 'out'
@@ -544,18 +568,19 @@ export default {
       r.appendChild(b);
       w.appendChild(r);
       w.appendChild(st);
-      gSave.addEventListener('toggle', () => { if (gSave.open) showState(); });
+      const owner = mode === 'sync' ? gSelf : gSave;   /* 合わせる欄は「自分の端末どうしで使う」の中（Issue #74） */
+      owner.addEventListener('toggle', () => { if (owner.open) showState(); });
       return w;
     };
     /* ブロックチェーンの欄（書き出す＝保存・復元コードを表示、読み込む＝復元・復元コードで復元） */
     const chainPane = (mode) => {
       const e = chainBox({ tasks: ['backup'], only: mode, goSetup,
-        title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試し）' : mode === 'sync' ? 'ブロックチェーンで同期する（Solana・試し）' : 'ブロックチェーンから読み込む（Solana・試し）' });
+        title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試し）' : mode === 'sync' ? 'ブロックチェーンで合わせる（Solana・試し）' : 'ブロックチェーンから読み込む（Solana・試し）' });
       e.insertBefore(el('p', 'note', mode === 'sync'
-        ? 'サーバーなしで、同じパスキーか同じ合言葉で開いた端末どうしを合わせる。送るのは［同期する］を押したときだけ（手数料が掛かる）。'
+        ? 'サーバーなしで、同じパスキーか同じ合言葉で開いた端末どうしを合わせる。送るのは［自分のほかの端末へ送る］を押したときだけ（手数料が掛かる）。'
           + 'ほかの端末が送ったものは、開いたとき・画面に戻ったとき・泡を開いたとき・5 分ごとに見に行き、画面の下の知らせ［読み込む］で受け取る（受け取りは手数料なし）。'
         : mode === 'out'
-        ? '記録を暗号化して、Solana のチェーンに書く。押したときだけ書く（手数料が掛かる）。パスキーか合言葉で開く。始め方・ウォレット・鍵は「ブロックチェーンを準備する」にある。'
+        ? '記録を暗号化して、Solana のチェーンに書く。押したときだけ書く（手数料が掛かる）。パスキーか合言葉で開く。始め方・ウォレット・鍵は「' + PREP_NAME + '」にある。'
           + 'サーバーなし版のほかの端末（同じパスキーか同じ合言葉で開いたもの）では、書いたものが「新しい記録がある」の知らせで出る。'
         : 'チェーンに書いた記録を、今の記録に重ねる（消さない。手数料は掛からない）。パスキーか合言葉、失くしたときは復元コードで開く。どの端末からでも読み込める。'
           + 'サーバーなし版では、ほかの端末が新しく書いたら、開いている間に画面の下に知らせが出る（そこからも読み込める）。'),
@@ -571,15 +596,21 @@ export default {
     inChoice.add('file', 'ファイル', [fileFormats('in')]);
     inChoice.add('server', 'サーバー', [serverPane('in')]);
     inChoice.add('chain', 'ブロックチェーン', [chainPane('in')]);
-    /* --- ほかの端末と同期する（Issue #52）。サーバーなし版にはサーバーの欄を出さない --- */
+    /* --- 自分のほかの端末と合わせる（Issue #52。2026-11-16 Issue #74 で「自分の端末どうしで使う」へ移した）。
+       サーバーなし版にはサーバーの欄を出さない --- */
     if (!isSolo()) syncWrap.appendChild(serverPane('sync'));
-    syncWrap.appendChild(chainPane('sync'));
+    const selfChain = chainPane('sync');
+    syncWrap.appendChild(selfChain);
+    /* 自分にメモを送る（前は「他の人と一緒に使う」の面のいちばん下。自分だけのものなので、ここへ移した。Issue #74） */
+    const selfMemo = chainBox({ tasks: ['memo'], selfOnly: true, goSetup, title: '自分にメモを送る（Solana・試し）' });
+    gSelf.appendChild(selfMemo);
     /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
-    [gShare, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
+    [gShare, gSelf, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
       if (!d.open) return;
       d.querySelectorAll('.choice-pane').forEach(p => { if (!p.hidden && typeof p.refresh === 'function') p.refresh(); });
       if (d === gPrep && typeof chainEl.refresh === 'function') chainEl.refresh();
       if (d === gShare && typeof shareHub.refresh === 'function') shareHub.refresh();
+      if (d === gSelf) [selfChain, selfMemo].forEach(x => { if (typeof x.refresh === 'function') x.refresh(); });
     }));
 
     /* 「記録の置き場を選ぶ」（Issue #42）は外した（2026-11-13 Issue #47 の C）。
@@ -947,6 +978,14 @@ function serverBox(screen) {
   pkForm.appendChild(invIn);
   pkForm.appendChild(regBtn);
   pkBox.appendChild(pkForm);
+  /* 「他の人と一緒に使う」の「招待コードを受け取る」に貼ったサーバーの招待コードを、この欄へ入れる（2026-11-16 Issue #74 の A 案の (d)）。
+     登録（パスキーを作る）は押した手の続きで呼ぶので、ここでは入れるだけ。パスキーの欄が出ていなければ（合言葉の形・まだ確かめ中）false */
+  wrap.fillInvite = (code) => {
+    invIn.value = String(code || '').trim();
+    if (pkBox.hidden) return false;
+    try { invIn.focus(); } catch (e) { /* 入れてはある */ }
+    return true;
+  };
   const pkRow = el('div', 'row');
   pkRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
   const inBtn = el('button', 'btn', 'パスキーで入る');
@@ -2024,7 +2063,8 @@ function seasBox({ serverEl } = {}) {
   wrap.appendChild(el('p', 'note',
     '海ごとに、どこと合わせるか（同期）を決める。「この端末だけ」の海はサーバーに送らない。'
     + '同じサーバーと合わせる海は、住所と合言葉（パスキー）を共有する（入るのはサーバーごとに1回）。'
-    + '海を足すときに、ほかの端末で足した海と同じ ID を入れると、同じ海になる（共有）。ID を空にすると、ほかと重ならない ID で作る。'));
+    + '海を足すときに ID を空にすると、ほかと重ならない ID で作る。ほかの端末で足した海と同じ ID・同じサーバーにすると、同じ海になる。'
+    + '人と海を共有する手順は「他の人と一緒に使う」にある。'));   /* 2026-11-16 Issue #74 */
   /* サーバーにつなぐ案内（2026-11-13 Issue #50 の返事「設定で聞かなくてもいいように、UI で誘導できる？」）。
      今の様子から「次にすること」を1つだけ出す: 住所を入れる → そのサーバーの海を開く →（別のページなら）サーバーのページを開く → 入る。
      中身は、下の海の一覧・⚙ と同じ操作を呼ぶだけ（新しい送り先・鍵の扱いは足していない） */
@@ -2927,7 +2967,8 @@ function chainBox(opts = {}) {
       + '分けた取引が1つでも欠けると戻せない。サーバーの住所と鍵、AI のキーは書かない。'
       + '鍵は3種類: <b>パスキー</b>と<b>合言葉</b>は、ウォレット（手数料を払う）とバックアップの両方を開く。'
       + '<b>復元コード</b>はバックアップを読むだけ（お金は動かせず、書けない）。ウォレットは手数料ぶんの少額だけを入れる。'
-      + 'ここで始めたあと、バックアップは「記録を保存する・読み込む」、海の共有とチャットは「他の人と一緒に使う」で使う。'));
+      + 'ここで始めたあと、海の共有とチャットは「他の人と一緒に使う」、自分のほかの端末と合わせる・自分にメモを送るのは「自分の端末どうしで使う」、'
+      + 'バックアップは「記録を保存する・読み込む」で使う（「他の人と一緒に使う」の面からも、ここと同じ鍵を選べる）。'));
   }
 
   let cfg = loadConfig();
@@ -3153,19 +3194,15 @@ function chainBox(opts = {}) {
     const net = netSel.value;
     const pk = prfSupported();
     if (!cfg.mode && !setup) {
-      /* 始め方は準備の箱にだけ置く（Issue #45）。ここでは、そこへ移るボタンだけ */
-      info.textContent = 'ブロックチェーンをまだ始めていない。先に「ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
-      /* 始める前でも、海の共有の流れは見せる（Issue #68「どうやって操作したらいいのかわからない」） */
-      /* サーバーの海のカードは、ブロックチェーンを始めていなくても出す（Issue #68 の X 案） */
-      if (ALLOWED.includes('share') && opts.part === 'hub') {
-        const srvSeas = serverSeaCards();
-        paintServerCards(srvSeas);
-        if (srvSeas.length) info.textContent = 'ブロックチェーンでも共有するときは、先に「ブロックチェーンを準備する」で鍵（パスキーか合言葉）を選ぶ。';
-      }
+      /* 共有の面（hub）は、鍵の選び方をその場で出す（2026-11-16 Issue #74 の A 案の (a)。
+         前は「先に『ブロックチェーンを準備する』で…」と出して下の箱へ飛ばし、鍵を作ったら自分で上の箱へ戻る必要があった） */
+      if (ALLOWED.includes('share') && opts.part === 'hub') { paintHubStart(net, pk); return; }
+      /* ほかの欄（バックアップ・自分あてのメモなど）は、鍵の箱へ移るボタンだけ（Issue #45） */
+      info.textContent = 'ブロックチェーンをまだ始めていない。先に「' + PREP_NAME + '」で鍵（パスキーか合言葉）を選ぶ。';
       if (ALLOWED.includes('share')) flowBox(true);
       if (opts.goSetup) {
         group('go-setup', '始める', null);
-        btn('ブロックチェーンを準備する', async () => opts.goSetup(null));
+        btn('「' + PREP_NAME + '」を開く', async () => opts.goSetup(null));
       }
       /* 鍵を失ったときの読むだけの復元は、バックアップの欄からも出す（始めていなくても使える） */
       if (ALLOWED.includes('backup')) {
@@ -3174,7 +3211,32 @@ function chainBox(opts = {}) {
       }
       return;
     }
-    if (!cfg.mode) {
+    if (!cfg.mode) { paintStart(net, pk); return; }
+    paintStarted(net, pk);
+  }
+
+  /* 共有の面（hub）の、ブロックチェーンを始める前の姿（2026-11-16 Issue #74 の A 案）。
+     上から サーバーの海のカード → ＋ 海を共有する（サーバーで）→ ブロックチェーンで共有する：鍵を選ぶ → 招待コードを受け取る → 畳んだ共有の流れ。
+     鍵を選ぶと start()／paint() で、この面がそのまま共有の面（paintShare）になる */
+  function paintHubStart(net, pk) {
+    paintServerCards(serverSeaCards());
+    paintServerShare();
+    group('chain-start', 'ブロックチェーンで共有する：鍵を選ぶ',
+      'ブロックチェーンで海を共有する・招待コード（BTI1-…）を受け取るには、先に鍵（パスキーか合言葉）を選ぶ。'
+      + '選ぶとウォレットができ、この面がそのまま共有の面になる。招く人と招かれる人で、ネットをそろえる。'
+      + 'あとからウォレットを見る・鍵を替えるのは「' + PREP_NAME + '」。');
+    into.appendChild(netRow);
+    paintStart(net, pk);
+    /* paintStart は info に「まだ始めていない…」を書く。この面では上の見出しが言うので、面のいちばん上には出さない */
+    info.textContent = '';
+    info.hidden = true;
+    paintReceive();
+    flowBox(true);
+  }
+
+  /* 鍵の選び方（始める前）。準備の箱と、共有の面（paintHubStart）の両方から呼ぶ */
+  function paintStart(net, pk) {
+    {
       /* 鍵の選び方（2026-11-10 Issue #31 の返事）。パスキーを先に置くが、合言葉も畳まずに並べる。
          パスキーが使える端末でも、パスキーが引き継がれない端末どうし（iPhone と Windows・Android など）で
          同じウォレットを使うなら、合言葉のほうが向くため。畳むのは、パスキーを失ったときの復元コードだけ */
@@ -3246,8 +3308,11 @@ function chainBox(opts = {}) {
           await start('passkey', await keysFromRoot(got.root), got.credId);
         });
       }
-      return;
     }
+  }
+
+  /* 始めたあとの姿（やりたいこと・共有の面など） */
+  function paintStarted(net, pk) {
     /* ウォレットのアドレスと最後のバックアップは、準備の欄とバックアップの欄にだけ出す（2026-11-15 Issue #68 の返事
        「同期→ブロックチェーンを選んだ後に出るメッセージはここでなくてもいいのでは？下のウォレットのアドレスとか」）。
        共有・同期・チャットの欄では空にする（自分のアドレスが要るときは「招かれる」の「自分のウォレットのアドレスをコピー」） */
@@ -3273,8 +3338,10 @@ function chainBox(opts = {}) {
     else if (task === 'memo') {
       /* 共有中の海ごとのチャットも、ここに並べる（Issue #68 の返事「チャットは相手をどのように選ぶ？アドレス入れるとことかある？」）。
          相手はアドレスで選ばず、海で選ぶ（その海のメンバー全員と話す）。前は「共有中の海を同期する」の、その海の欄にしか無かった */
-      const seas = sharedFor(dropGoneShared(loadShared()), cfg.address, net);
-      if (!seas.length) {
+      /* opts.selfOnly（2026-11-16 Issue #74）: 「自分の端末どうしで使う」の箱では、自分あてのメモだけを出す
+         （共有の海のチャットは「他の人と一緒に使う」のカードの［チャット］） */
+      const seas = opts.selfOnly ? [] : sharedFor(dropGoneShared(loadShared()), cfg.address, net);
+      if (!seas.length && !opts.selfOnly) {
         group('sea-chat-none', '共有の海のチャット', 'チャットの相手は、アドレスではなく共有の海で選ぶ（その海のメンバー全員と話す）。'
           + 'まだ共有中の海が無い。「海を共有する」で人を招く・招待を受け取ると、ここにその海のチャットが出る。');
       }
@@ -3351,11 +3418,11 @@ function chainBox(opts = {}) {
   function paintBackup(net) {
     /* opts.only: 'sync'（ほかの端末と同期する。Issue #52 の返事「同期するボタンをつけて明示的に書き出せるように」） */
     if (opts.only === 'sync') {
-      group('backup', 'ほかの端末へ送る',
+      group('backup', '自分のほかの端末へ送る',
         '押すと、先にほかの端末の新しい控えがあれば重ね（消さない）、そのうえで今の記録をチェーンに書く（手数料が掛かる）。'
         + 'iPhone と Android のようにパスキーが引き継がれない端末どうしは、両方を同じ合言葉で開く。');
       if (into && into.parentElement) into.parentElement.insertBefore(chainPick.el, into);
-      btn('同期する（ほかの端末へ送る）', syncChain);
+      btn('自分のほかの端末へ送る', syncChain);
       return;
     }
     group('backup', opts.only === 'out' ? 'ブロックチェーンに書き出す' : opts.only === 'in' ? 'ブロックチェーンから読み込む' : 'バックアップする','保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
@@ -3437,10 +3504,12 @@ function chainBox(opts = {}) {
       const srvSeas = serverSeaCards();
       paintSharedSeas(net, shared, true, true, srvSeas.length > 0);
       paintServerCards(srvSeas);
+      /* サーバーで共有する道（サーバーあり版。Issue #74 の A 案の (c)）。ブロックチェーンで招く欄の前に置き、どちらで共有するかを見出しで分ける */
+      paintServerShare();
     } else flowBox(!sharedFor(shared, cfg.address, net).length);
     /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
-    group('share', hub ? '＋ 海を共有する（人を招く）' : '招く（自分の海に人を招く）',
+    group('share', hub ? (opts.serverShare ? '＋ 海を共有する（ブロックチェーンで。押したとき・手数料あり）' : '＋ 海を共有する（人を招く）') : '招く（自分の海に人を招く）',
       '① 海を選ぶ（共有中の海・まだ共有していない海・「＋ 新しい海」・個人の海を「写して共有」）。② 下の欄で招待コードを作り、相手にだけ送る。'
       + '中身はメンバーだけが読める。誰と誰が同じ海にいるかと、書いた時刻・大きさはチェーンの上で誰でも見られる。書いたものは消せない。');
     /* 招待コードの欄は、共有中の海ごとの欄ではなく、この「招く」の流れの中に置く（Issue #68 の返事
@@ -3548,37 +3617,12 @@ function chainBox(opts = {}) {
 
     /* 招かれる側。招く側のすぐ下に置く（Issue #68 の返事「招かれるが下の方にある。招く招かれるで近くにあった方がわかりやすくない？」。
        前は共有中の海の欄のさらに下だった） */
-    group('share-in', hub ? '招待コードを受け取る' : '招かれる（招待を受ける）',
-      '届いた招待コード（BTI1-…）を貼って「受け取る」。海は自動で足される。受け取るだけなら手数料なし。'
-      + '先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる。'
-      + '送っていなければ、「同期」で記録を送ったときに招いた人の端末がメンバーに足す（送るには SOL が要る）。');
-    {
-      const codeIn = document.createElement('input');
-      codeIn.type = 'text';
-      codeIn.autocomplete = 'off';
-      codeIn.spellcheck = false;
-      codeIn.placeholder = '招待コード（BTI1-…）を貼る';
-      codeIn.setAttribute('aria-label', '招待コード');
-      codeIn.style.cssText = 'flex:1 1 16em;min-width:12em';
-      into.appendChild(codeIn);
-      btn('🔑 受け取る', () => acceptCode(codeIn.value));
-    }
-    /* 先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる（Issue #68 の返事） */
-    btn('自分のウォレットのアドレスをコピー（先に招く人へ）', async () => {
-      const tail = '　← 招く人に送ると、招待コードと同時にメンバーに足され、手数料も送ってもらえる（送らなくても受け取れる）。';
-      try { await navigator.clipboard.writeText(cfg.address); line.textContent = 'アドレスをコピーした: ' + cfg.address + tail; } catch (e) {
-        line.textContent = 'アドレス: ' + cfg.address + tail;
-      }
-    });
-    /* 鍵を作り替えたとき（人を外したとき）の新しい鍵は、前と同じく受け取りIDあての封筒で届くので、この受け取りは残す。
-       前の形の「受け取りIDをコピー」は外した（Issue #68 の返事「前の形 使わないので消せる？」） */
-    btn('🔑 届いた招待を受け取る（鍵が作り替えられたとき）', acceptInvites);
+    paintReceive();
 
     if (hub) {
-      /* 読むだけの説明と、自分の端末どうしのメモは畳んで下に（Issue #68 の A 案） */
+      /* 読むだけの説明は畳んで下に（Issue #68 の A 案）。
+         自分にメモを送る（自分の端末どうし）は、2026-11-16 Issue #74 で「自分の端末どうしで使う」の箱へ移した */
       flowBox(false);
-      group('self-chat', '自分にメモを送る（自分の端末どうし）', '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。1 件ごとに手数料。');
-      btn('メモを開く', async () => peekChat('self-chat', null));
       group('share-keys', '🔑 の付いたボタン', '🔑 の付いたボタンは、パスキーか合言葉を求める（書く・招く・受け取る）。'
         + '読むだけ（チャットを読む・自動の読み込み）は求めない。「同期」で 1 度開けると、ページを閉じるまで求めない。');
       return;
@@ -3591,6 +3635,67 @@ function chainBox(opts = {}) {
      「共有中の海を同期する」の欄（opts.part === 'sync'）では「招く」が別の欄なので出さない（Issue #68 の返事） */
   /* card: 共有の海の面（Issue #68 の A 案）のカードの形。今の様子（立場・最後の同期・直のつながり・新しいチャット）を 1 行で出し、
      ボタンは［同期］［チャット］［人を招く］だけ。手数料・外す・やめるは畳む */
+  /* 招待コードを受け取る（2026-11-16 Issue #74 の A 案の (d)）。欄を 1 つにし、貼ったコードの形で振り分ける。
+     BTI1-… はブロックチェーンの招待（acceptCode）、ABCD-EFGH-JKLM の形はサーバーのパスキーの招待（opts.serverInvite が
+     「海を設定する」の、開いている海の「この海のサーバーに入る」の欄へ入れる）。前はサーバーの招待コードを受け取る欄が「海を設定する」の ⚙ の中にしか無く、
+     同じ「招待コード」の名前でこちらに貼ると形が合わずに失敗した */
+  function paintReceive() {
+    const started = !!cfg.mode;
+    const srv = typeof opts.serverInvite === 'function';
+    group('share-in', opts.part === 'hub' ? '招待コードを受け取る' : '招かれる（招待を受ける）',
+      '届いた招待コードを貼って「受け取る」。'
+      + 'ブロックチェーンの招待コード（BTI1-…）なら、海が自動で足される（受け取るだけなら手数料なし。先に鍵を選んでおく）。'
+      + (srv ? 'サーバーの招待コード（ABCD-EFGH-JKLM の形）なら、「海を設定する」の、開いている海の「この海のサーバーに入る」の欄へ入れる。' : '')
+      + (started ? '先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる。'
+        + '送っていなければ、「同期」で記録を送ったときに招いた人の端末がメンバーに足す（送るには SOL が要る）。' : ''));
+    const codeIn = document.createElement('input');
+    codeIn.type = 'text';
+    codeIn.autocomplete = 'off';
+    codeIn.spellcheck = false;
+    codeIn.placeholder = srv ? '招待コード（BTI1-… か ABCD-EFGH-JKLM）を貼る' : '招待コード（BTI1-…）を貼る';
+    codeIn.setAttribute('aria-label', '招待コード');
+    codeIn.style.cssText = 'flex:1 1 16em;min-width:12em';
+    into.appendChild(codeIn);
+    /* パスキーは押した手の続きで呼ぶので、acceptCode の前で await しない */
+    btn(started ? '🔑 受け取る' : '受け取る', async () => {
+      const v = codeIn.value;
+      const kind = inviteKind(v);
+      if (kind === 'chain') {
+        if (!cfg.mode) throw new Error('ブロックチェーンの招待コード。先に上の「ブロックチェーンで共有する：鍵を選ぶ」で鍵を選ぶ（招いた人と同じネット）。');
+        return acceptCode(v);
+      }
+      if (kind === 'server') {
+        if (srv) { line.textContent = opts.serverInvite(v.trim()); return; }
+        throw new Error(isSolo()
+          ? 'サーバーの招待コードの形。このページはサーバーに繋がない版なので、「海を設定する」の ⚙ の「サーバーに繋ぐページを開く」から、サーバーに繋ぐページで入れる。'
+          : 'サーバーの招待コードの形。「海を設定する」の、開いている海の ⚙ の「この海のサーバーに入る」に入れる。');
+      }
+      throw new Error(String(v || '').trim() ? '招待コードの形ではない（ブロックチェーンは BTI1-…、サーバーは ABCD-EFGH-JKLM の形）。' : '招待コードを貼る。');
+    });
+    if (!started) return;
+    /* 先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる（Issue #68 の返事） */
+    btn('自分のウォレットのアドレスをコピー（先に招く人へ）', async () => {
+      const tail = '　← 招く人に送ると、招待コードと同時にメンバーに足され、手数料も送ってもらえる（送らなくても受け取れる）。';
+      try { await navigator.clipboard.writeText(cfg.address); line.textContent = 'アドレスをコピーした: ' + cfg.address + tail; } catch (e) {
+        line.textContent = 'アドレス: ' + cfg.address + tail;
+      }
+    });
+    /* 鍵を作り替えたとき（人を外したとき）の新しい鍵は、前と同じく受け取りIDあての封筒で届くので、この受け取りは残す。
+       前の形の「受け取りIDをコピー」は外した（Issue #68 の返事「前の形 使わないので消せる？」） */
+    btn('🔑 届いた招待を受け取る（鍵が作り替えられたとき）', acceptInvites);
+  }
+  /* ＋ 海を共有する（サーバーで）。サーバーあり版だけ（opts.serverShare = 「海を設定する」の、開いている海の ⚙ を開く）。
+     2026-11-16 Issue #74 の A 案の (c): 前は面の下の畳んだ箱に置き、上のカードと 2 か所に出ていた。
+     サーバーへの通信・鍵の扱いは変えていない（案内と、前からある ⚙ を開くボタンだけ） */
+  function paintServerShare() {
+    if (typeof opts.serverShare !== 'function') return;
+    group('srv-share', '＋ 海を共有する（サーバーで。自動・手数料なし）',
+      '同期の先がサーバーの海は、サーバーの持ち主が認めた人の端末とも同じ海になる（自動で合う。手数料は掛からない）。'
+      + '<b>招く人</b>: 共有する海の ID（上のカード、または「海を設定する」の ⚙）を相手に伝え、サーバーの持ち主がサーバーで招待コードを作って渡す'
+      + '（例 <code>invite-add &lt;呼び名&gt; --space &lt;海の ID&gt;</code>）。'
+      + '<b>招かれる人</b>: 「海を設定する」の［＋ 海を追加］で、同じ ID・同じサーバーの海を足し、その海を［開く］で開いてから、下の「招待コードを受け取る」に貼る。');
+    btn('サーバーの設定を開く（「海を設定する」の ⚙）', async () => opts.serverShare());
+  }
   /* サーバーで合わせる海（サーバーあり版だけ。個人の海は除く）→ [{ sea, region }]（2026-11-16 Issue #68 の X 案） */
   function serverSeaCards() {
     if (isSolo()) return [];
@@ -3610,7 +3715,9 @@ function chainBox(opts = {}) {
       stLine.style.cssText = 'width:100%';
       stLine.textContent = 'サーバー「' + (region.name || '') + '」で自動で合う'
         + (here ? (st && st.state === 'ok' && st.at ? '・合わせた ' + new Date(st.at).toLocaleString() : '・開いている海') : '・開くと合う')
-        + (unread ? '・新しいチャット ' + unread + ' 件' : '');
+        + (unread ? '・新しいチャット ' + unread + ' 件' : '')
+        /* 招く相手に伝える海の ID（2026-11-16 Issue #74。前は「海を設定する」の ⚙ を開かないと見えなかった） */
+        + '・ID ' + sea.id;
       into.appendChild(stLine);
       if (here) {
         btn('チャット' + (unread ? '（新しい ' + unread + ' 件）' : ''), async () => {
@@ -4746,7 +4853,7 @@ function chainBox(opts = {}) {
     await checkSame(keys);
     const c = await readInviteCode(code);
     const net = netSel.value;
-    if (c.network !== net) throw new Error('この招待コードは ' + NETWORKS[c.network].label + ' のもの。「ブロックチェーンを準備する」でネットをそろえる');
+    if (c.network !== net) throw new Error('この招待コードは ' + NETWORKS[c.network].label + ' のもの。「' + PREP_NAME + '」でネットをそろえる（招いた人と同じネットで鍵を開く）');
     line.textContent = '招待を探している…';
     const f = await findInviteByCode(code);
     if (!f) throw new Error('招待が見つからない（期限切れ・写し間違い・まだ書き終わっていない）。少し待ってもう一度押すか、招いた人に作り直してもらう');

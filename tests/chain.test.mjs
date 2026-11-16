@@ -381,5 +381,27 @@ await test('1 ページより大きい控えも、続きのページを読んで
   assert.ok(empty.calls.list <= 1);
 });
 
+await test('招待コードを受け取る欄は 1 つで、貼ったコードの形で振り分ける（Issue #74）', async () => {
+  /* settings.js は画面（document）を読むので import せず、関数の字だけを取り出して動かす */
+  const src = readFileSync(new URL('../js/screens/settings.js', import.meta.url), 'utf8');
+  const m = src.match(/export function inviteKind\(text\) \{[\s\S]*?\n\}/);
+  assert.ok(m, 'inviteKind が無い');
+  const inviteKind = new Function(m[0].replace(/^export /, '') + '\nreturn inviteKind;')();
+  assert.equal(inviteKind('BTI1-3xYzAbc'), 'chain');
+  assert.equal(inviteKind('  bti1-3xYzAbc '), 'chain');
+  assert.equal(inviteKind('ABCD-EFGH-JKLM'), 'server');
+  assert.equal(inviteKind('abcd efgh jklm'), 'server');      /* サーバーは大文字にして区切りを無視する */
+  assert.equal(inviteKind('ABCDEFGHJKLM'), 'server');
+  assert.equal(inviteKind('ABCD-EFGH-JKL0'), 'unknown');     /* 0・O・1・I は招待コードに使わない */
+  assert.equal(inviteKind('ABCD-EFGH'), 'unknown');          /* 12 字ではない */
+  assert.equal(inviteKind('こんにちは'), 'unknown');
+  assert.equal(inviteKind(''), 'unknown');
+  /* 箱の名前と言葉（Issue #74 の A 案）: 鍵の箱の名前を 1 か所で持ち、「ほかの端末と同期する」の選択肢は「自分の端末どうしで使う」へ移した */
+  assert.ok(src.includes("const PREP_NAME = 'ブロックチェーンの鍵とウォレット'"));
+  assert.ok(src.includes("group('自分の端末どうしで使う'"));
+  assert.ok(!src.includes("modeChoice.add('sync'"));
+  assert.ok(!/'[^']*「ブロックチェーンを準備する」で/.test(src), '前の箱の名前で案内している文が残っている');
+});
+
 void toB64;
 console.log(`\n${n} 件 ok`);
