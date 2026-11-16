@@ -131,9 +131,11 @@ try {
     const creds = (await send('WebAuthn.getCredentials', { authenticatorId })).result.credentials;
     assert.equal(creds.length, 1, '仮のパスキーの置き場に1つ入った');
     /* 個人が2つ並ぶので、1つにまとめる（2度押す）。まとめると読み直し、個人がサーバーと合わせ始める */
-    await until(`return !!${button('個人を1つにまとめる')}`);
-    await js(`${button('個人を1つにまとめる')}.click();`);
-    await js(`${button('もう一度押すとまとめる')}.click();`);
+    /* ［サーバーに統合］は、この端末の個人の行の横に出る */
+    await until(`return !!document.querySelector('.sp-unify')`);
+    assert.match(await js(`return document.querySelector('.sp-unify').closest('.sp-sea').textContent`), /個人/);
+    await js(`document.querySelector('.sp-unify').click();`);
+    await js(`document.querySelector('.sp-unify').click();`);
     await sleep(1500);
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
     assert.equal(await js(`return (await import('/js/store.js')).store.space()`), 'me');

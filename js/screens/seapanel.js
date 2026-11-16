@@ -100,7 +100,9 @@ export function seaPanel(opts = {}) {
     const gear = btn('⚙', 'btn sp-gear');
     gear.setAttribute('aria-label', s.name + ' の設定');
     gear.addEventListener('click', () => { openGear = openGear === s.id ? null : s.id; paint(); });
-    row.appendChild(dot); row.appendChild(go); row.appendChild(gear);
+    row.appendChild(dot); row.appendChild(go);
+    if (s.personal && !onServer(s, st) && canUnify()) row.appendChild(unifyButton());
+    row.appendChild(gear);
     const box = el('div');
     box.appendChild(row);
     if (openGear === s.id) box.appendChild(gearBox(s, st));
@@ -151,7 +153,6 @@ export function seaPanel(opts = {}) {
       why.textContent = onServer(s, st)
         ? 'サーバーの個人は、ログインした人だけの海（ほかの人には見えない）。'
         : 'この端末の個人。';
-      if (unifiable(st)) g.appendChild(unifyBox());
     } else if (!onServer(s, st)) {
       if (!st.live) why.textContent = 'サーバーに置くには、先にログインする（下の［サーバーにログイン］）。';
       else if (!st.owner) why.textContent = 'サーバーに海を置けるのは、サーバーの持ち主だけ。';
@@ -186,24 +187,20 @@ export function seaPanel(opts = {}) {
     return g;
   }
 
-  /* 個人を1つにまとめる（2026-11-16「端末個人とサーバー個人に分かれるのは？ 統合…」）。js/oneserver.js の unifyPersonal */
-  function unifiable(st) { return st.live && st.spaces.indexOf('me') >= 0 && canUnify(); }
-  function unifyBox() {
-    const w = el('div', 'sp-unify');
-    w.dataset.name = '個人をまとめる';
-    w.appendChild(text('p', null, 'この端末の個人とサーバーの個人を1つにまとめる。両方の泡を残して重ね（同じ泡は新しいほう）、'
-      + '以後は1つの「個人」としてサーバーと合わせる（この端末の個人の中身もサーバーへ送る）。'
-      + 'オフラインの間も書け、繋がったときに合わせる。作った海はそのまま。'));
-    const b = btn('個人を1つにまとめる');
+  /* 個人を1つにまとめる（2026-11-16「端末個人とサーバー個人に分かれるのは？ 統合…」「『個人』の横あたりにサーバーに統合ボタンが欲しい」）。
+     サーバーの個人もあるときだけ、この端末の個人の行に［サーバーに統合］を出す（2度押す）。中身は js/oneserver.js の unifyPersonal */
+  function unifyButton() {
+    const b = btn('サーバーに統合', 'btn sp-unify');
+    b.dataset.name = 'サーバーに統合ボタン';
+    b.title = '両方の泡を残して1つの「個人」にし、サーバーと合わせる';
     let armed = false;
     b.addEventListener('click', () => {
-      if (!armed) { armed = true; b.textContent = 'もう一度押すとまとめる'; return; }
+      if (!armed) { armed = true; b.textContent = 'もう一度押す'; toast('もう一度押すと、両方の泡を残して1つの個人にまとめ、サーバーと合わせる'); return; }
       if (!unifyPersonal()) { toast('まとめられなかった'); return; }
       toast('個人を1つにまとめた');
       location.reload();
     });
-    const r = el('div', 'row'); r.appendChild(b); w.appendChild(r);
-    return w;
+    return b;
   }
 
   /* 人を招く（2026-11-16 利用者の指示「招けるようにして」）。招待コードはサーバーが作る（24 時間・1回きり）。
@@ -462,13 +459,6 @@ export function seaPanel(opts = {}) {
       });
       who.appendChild(out);
       wrap.appendChild(who);
-      /* 個人が2つ並ぶときは、まとめる道を上に出す */
-      if (unifiable(st)) {
-        const n = el('div', 'sp-unify-hint');
-        n.style.cssText = 'margin:6px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:10px';
-        n.appendChild(unifyBox());
-        wrap.appendChild(n);
-      }
     }
     const seas = allSeas();
     const srvSeas = seas.filter(s => onServer(s, st) && !(s.personal && st.live && st.spaces.indexOf('me') < 0));

@@ -109,7 +109,7 @@ test('個人をまとめる: 2つの箱を重ねて1つの個人にし、サー�
   mem.set('bubble_todo_me_rs1_v1', JSON.stringify({ todos: [todo('b1', 'サーバーの泡', 1)], stamps: { 'todo:b1': [20, 1] } }));
   mem.set('bubble_todo_space', 'me.rs1');
   assert.equal(regionOfSpace('shome11'), 'local');
-  assert.equal(canUnify(), true);
+  assert.equal(canUnify(), 'toServer');
   assert.equal(unifyPersonal(5000), 'me');
   const box = JSON.parse(mem.get('bubble_todo_v1'));
   const texts = (box.todos || []).map(t => t.text).sort();
@@ -119,7 +119,24 @@ test('個人をまとめる: 2つの箱を重ねて1つの個人にし、サー�
   assert.equal(mem.get('bubble_todo_space'), 'me');
   assert.ok(mem.get('bubble_todo_v1_before_unify_5000'), '前の中身の控え');
   assert.ok(mem.get('bubble_todo_me_rs1_v1'), 'サーバーの個人の箱も消さない');
-  assert.equal(canUnify(), false, '2度目はしない');
+  assert.equal(canUnify(), null, '2度目はしない');
+});
+
+test('前からサーバーにつないでいた端末: この端末だけの個人（me.local）をサーバーの個人へ重ね、一覧から消す', () => {
+  mem.set('bubble_todo_regions', JSON.stringify([{ id: 'local' }, { id: 'r0', name: 'サーバー', legacyMe: true, legacyConf: true }]));
+  mem.set('bubble_todo_sync', JSON.stringify({ url: 'https://a.example', session: 'S' }));
+  const todo = (id, text) => ({ id, text, createdAt: 1 });
+  mem.set('bubble_todo_v1', JSON.stringify({ todos: [todo('s1', 'サーバーの泡')], stamps: { 'todo:s1': [10, 1] } }));
+  assert.equal(canUnify(), null, 'この端末だけの個人が空なら出さない');
+  mem.set('bubble_todo_me_local_v1', JSON.stringify({ todos: [todo('l1', '端末の泡')], stamps: { 'todo:l1': [20, 1] } }));
+  mem.set('bubble_todo_space', 'me.local');
+  assert.equal(canUnify(), 'intoServer');
+  assert.equal(unifyPersonal(7000), 'me');
+  assert.deepEqual(JSON.parse(mem.get('bubble_todo_v1')).todos.map(t => t.text).sort(), ['サーバーの泡', '端末の泡']);
+  assert.equal(mem.has('bubble_todo_me_local_v1'), false, 'この端末だけの個人は空になり、一覧から消える');
+  assert.ok(mem.get('bubble_todo_me_local_v1_before_unify_7000'), '中身は控えに残す');
+  assert.equal(mem.get('bubble_todo_space'), 'me');
+  assert.equal(canUnify(), null);
 });
 
 console.log(`\n${pass} passed, ${failed.length} failed`);

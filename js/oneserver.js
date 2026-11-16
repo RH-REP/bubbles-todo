@@ -110,18 +110,40 @@ function stateOf(raw) {
   return { doc, stamps };
 }
 
-/* まとめられるか（この端末の個人が前の版からの個人で、サーバーの個人が別の箱） */
+/* まとめられるか → 'toServer'（この端末の個人が前の版からの個人。サーバーの個人は別の箱）、
+   'intoServer'（サーバーの個人が前の版からの個人。この端末の個人 'me.local' に泡が残っている。
+   前からサーバーにつないでいた端末で、あとから「この端末だけ」の個人に書いたとき）、どちらでもなければ null */
 export function canUnify(st = ls()) {
   const r = theServer(st);
-  if (!r || r.legacyMe) return false;
+  if (!r) return null;
   const loc = allRegions(st).find(x => x.id === 'local');
-  return !!(loc && loc.legacyMe);
+  if (loc && loc.legacyMe && !r.legacyMe) return 'toServer';
+  if (r.legacyMe && hasTodos(st.getItem('bubble_todo_me_local_v1'))) return 'intoServer';
+  return null;
+}
+function hasTodos(raw) {
+  const o = stateOf(raw).doc;
+  return Array.isArray(o.todos) && o.todos.some(t => t && !t.trashed);
 }
 
 /* まとめる → まとめた個人の海の ID（'me'）か null */
 export function unifyPersonal(now = Date.now(), st = ls()) {
-  if (!st || !canUnify(st)) return null;
+  const kind = st ? canUnify(st) : null;
+  if (!kind) return null;
   const r = theServer(st);
+  const open = st.getItem(SPACE_KEY);
+  if (kind === 'intoServer') {
+    /* サーバーの個人（箱 bubble_todo_v1）へ、この端末の個人（me.local）を重ねる。me.local の箱は控えへ移す（空になり一覧から消える） */
+    const mine = st.getItem('bubble_todo_me_local_v1');
+    const merged = mergeState(stateOf(st.getItem(boxKey('me'))), stateOf(mine));
+    try {
+      st.setItem(boxKey('me'), JSON.stringify(Object.assign({}, merged.doc, { stamps: merged.stamps })));
+      st.setItem('bubble_todo_me_local_v1_before_unify_' + now, mine);
+      st.removeItem('bubble_todo_me_local_v1');
+    } catch (e) { return null; }
+    if (open === 'me.local') { try { st.setItem(SPACE_KEY, 'me'); } catch (e) { /* 次に開いたとき */ } }
+    return 'me';
+  }
   const localRaw = st.getItem(boxKey('me'));
   const serverRaw = st.getItem('bubble_todo_me_' + r.id + '_v1');
   const merged = mergeState(stateOf(localRaw), stateOf(serverRaw));
@@ -133,7 +155,6 @@ export function unifyPersonal(now = Date.now(), st = ls()) {
   allEntries().forEach(e => { if (e.alive && !e.region) setSeaRegion(e.id, 'local'); });
   const rows = allRegions(st).map(x => Object.assign({}, x, { legacyMe: x.id === r.id }));
   try { st.setItem(REGIONS_KEY, JSON.stringify(rows)); } catch (e) { return null; }
-  const open = st.getItem(SPACE_KEY);
   if (open === 'me.' + r.id || open === 'me.local') { try { st.setItem(SPACE_KEY, 'me'); } catch (e) { /* 次に開いたとき */ } }
   return 'me';
 }
