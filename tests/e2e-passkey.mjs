@@ -38,7 +38,10 @@ let serverLog = '';
 server.stderr.on('data', d => { serverLog += d; });
 const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${dbg}`, `--user-data-dir=${join(tmp, 'chrome')}`,
   '--no-first-run', '--lang=ja', 'about:blank'], { stdio: 'ignore' });
-const cleanup = () => { try { chrome.kill(); } catch (e) {} try { server.kill(); } catch (e) {} try { rmSync(tmp, { recursive: true, force: true }); } catch (e) {} };
+/* サーバーが配っていないページのつもり（GitHub Pages から入れた Chrome の app など）。ただの静的な配り（2026-11-16） */
+const plainPort = await freePort();
+const plain = spawn('python3', ['-m', 'http.server', String(plainPort), '--bind', '127.0.0.1', '-d', ROOT], { stdio: 'ignore' });
+const cleanup = () => { try { plain.kill(); } catch (e) {} try { chrome.kill(); } catch (e) {} try { server.kill(); } catch (e) {} try { rmSync(tmp, { recursive: true, force: true }); } catch (e) {} };
 process.on('exit', cleanup);
 
 const invite = execFileSync('python3', [join(ROOT, 'server.py'), '--data-dir', data, 'invite-add', '自分のスマホ', '--space', 'me,share'])
@@ -85,6 +88,18 @@ try {
   const { result: { authenticatorId } } = await send('WebAuthn.addVirtualAuthenticator', { options: {
     protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true,
     automaticPresenceSimulation: true } });
+
+  /* 2026-11-16「chromeのapp版から登録できない」: サーバーが配っていないページでは、行き止まりにせず、サーバーのページを開く道を出す */
+  await send('Page.navigate', { url: `http://127.0.0.1:${plainPort}/index.html` });
+  await sleep(1500);
+  await step('サーバーが配っていないページでは、サーバーの住所の欄と［サーバーのページを開く］が出る', async () => {
+    await until(`return !!document.querySelector('.gearbtn')`);
+    await js(`document.querySelector('.gearbtn').click();`);
+    await until(`return !![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'サーバーにログイン')`);
+    await js(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'サーバーにログイン').click();`);
+    await until(`return !!document.querySelector('input[aria-label="サーバーの住所"]')`);
+    assert.equal(await js(`return !![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'サーバーのページを開く')`), true);
+  });
 
   await send('Page.navigate', { url: origin + '/' });
   await sleep(1500);

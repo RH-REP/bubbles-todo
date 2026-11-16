@@ -271,9 +271,8 @@ export function seaPanel(opts = {}) {
     w.style.cssText = 'margin-top:8px';
     const url = serverUrl(location.origin, pageMode);
     if (!url) {
-      w.appendChild(text('p', 'note', pageMode === undefined
-        ? 'サーバーを確かめている…'
-        : 'ログインできるのは、サーバーが配っているページで開いたときだけ（パスキーはそのページの住所に結び付くため）。サーバーのページを開き、そこで同じ［サーバーにログイン］を押す。'));
+      if (pageMode === undefined) { w.appendChild(text('p', 'note', 'サーバーを確かめている…')); return w; }
+      w.appendChild(otherPageBox());
       return w;
     }
     if (!passkeySupported()) { w.appendChild(text('p', 'note', 'このブラウザはパスキーを使えない。')); return w; }
@@ -349,6 +348,38 @@ export function seaPanel(opts = {}) {
       w.appendChild(inv);
     }
     w.appendChild(line);
+    return w;
+  }
+  /* サーバーが配っていないページ（GitHub Pages・Android の app・Chrome で GitHub Pages からインストールした app）で開いているとき。
+     パスキーはページの住所に結び付くので、ここでは登録もログインもできない。サーバーのページへ移る道を出す（2026-11-16
+     「chromeのapp版から登録できない」。作り直しで住所の欄を外し、行き止まりになっていた） */
+  function otherPageBox() {
+    const w = el('div');
+    const inApp = !!window.Capacitor;
+    w.appendChild(text('p', null, inApp
+      ? 'この app の中ではパスキーを使えないので、サーバーにはログインできない。Chrome でサーバーのページを開き、そこで［サーバーにログイン］を押す（Chrome の「ホーム画面に追加」で置き直すと、次からそこから開ける）。'
+      : 'このページはサーバーが配っているページではないので、ここではログインできない（パスキーはページの住所に結び付くため）。'
+        + 'サーバーの住所を入れて［サーバーのページを開く］を押し、開いたページで［サーバーにログイン］を押す。'
+        + 'アプリとして使うなら、開いたページで Chrome の「アプリをインストール」（スマホは「ホーム画面に追加」）をし直す。'));
+    w.appendChild(text('p', 'note', 'この端末のこのページの記録は、サーバーのページには移らない（住所ごとに別の置き場）。'
+      + '移すときは、ここで「記録を保存する・読み込む」→ ファイルに書き出し、サーバーのページで読み込む。'));
+    const f = el('form', 'tagadd');
+    const u = document.createElement('input');
+    u.type = 'url'; u.autocomplete = 'url'; u.placeholder = 'https://（サーバーの住所）'; u.setAttribute('aria-label', 'サーバーの住所');
+    const go = el('button', 'btn'); go.type = 'submit'; go.textContent = 'サーバーのページを開く';
+    f.appendChild(u); f.appendChild(go);
+    f.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      let raw = u.value.trim();
+      if (!raw) { toast('サーバーの住所を入れる'); return; }
+      if (!/^[a-z]+:\/\//i.test(raw)) raw = 'https://' + raw;
+      let target;
+      try { target = new URL(raw); } catch (e) { toast('住所が読めない'); return; }
+      if (target.protocol !== 'https:') { toast('https:// の住所だけ'); return; }
+      /* 新しいタブ（Chrome の app の窓からは、ふつうの Chrome のタブ）で開く */
+      window.open(target.origin + '/', '_blank', 'noopener');
+    });
+    w.appendChild(f);
     return w;
   }
   function findRegionOfCur(rid) { return allSeas().some(s => s.id === cur && s.rid === rid); }
