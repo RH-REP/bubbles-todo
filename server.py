@@ -39,7 +39,7 @@ API:
                                space はその合言葉の置き場（端末が取り違えに気づくため）
                                minSchema は受け付ける最も古い記録の形の版（下の「記録の形の版」）。GET は版で断らない
     POST /api/spaces         ← {"spaces": [{id, name, color, at, alive}, ...]}
-                             → {"spaces": [...]}  海の一覧。持ち主の鍵なら合わせて全部を返し、
+                             → {"spaces": [...], "access": [...]}  海の一覧。パスキーの形では書き換えず、入れる海と入れる置き場だけを返す（海の管理は VM の sea-add など）。合言葉の形で自分の合言葉なら合わせて全部を返し、
                                招かれた鍵なら書き換えず、入れる海のぶんだけ返す
     PUT /api/data            ← {"base": n, "data": {...}}
                                base が今の版と違えば 409 と今の版・中身を返す（上書きしない）
@@ -67,9 +67,9 @@ API:
     python3 server.py passkey-list / passkey-remove <名前> / invite-list
     python3 server.py move-remove <名前>   その端末が作った引っ越しの鍵を消す（Issue #19）
     個人は人ごと（2026-11-03 利用者の指示）。人はサーバーに登録した順の番号で分ける（passkey_store.py）。
-        --space me      … 新しい人（次の番号）の個人。1 番はサーバーを立てた人（持ち主）で、記録は state.json のまま
+        --space me      … 新しい人（次の番号）の個人。1 番の人の記録は state.json のまま
         --space me:2    … 2 番の人の、もう1台の端末
-        ほかの人の記録は <データの場所>/people/<番号>/state.json。持ち主だけがどの海にも入れる
+        ほかの人の記録は <データの場所>/people/<番号>/state.json。すべての海に入れる人はいない（2026-11-16）
     python3 server.py passkey-person <名前> <番号|new>   そのパスキーをほかの人の個人へ移す
     端末から先に頼む形（2026-11-07 Issue #26。招待コードを先に作らなくてよい）:
         端末の設定の「パスキー」→「登録を頼む」で、端末の画面に確かめの字（例 ABC-DEF）が出る
@@ -85,7 +85,7 @@ API:
     POST /api/passkey/login/options {}  → 入場の問題           POST /api/passkey/login {credential}    → 通行証
     POST /api/passkey/logout（Authorization: Bearer 通行証）
     POST /api/passkey/invite（Authorization: Bearer 通行証）{name, sea, newPerson?} → {code, spaces, person}
-        端末から人を招く（2026-11-16）。持ち主はどの海にも・新しい人の個人も、ほかの人は自分の個人の2台目と入れる海だけ。
+        端末から人を招く（2026-11-16）。自分の個人の2台目と、入れる海だけ（新しい人は VM の invite-add <名前> me）。
         範囲の外は 403 {"error": "scope"}、いっぱいなどは 409 {"error": "invite"}。招いた人の名前を by に残す（passkey-list に出る）
     POST /api/passkey/request {name} → {key, code, expires}（待っている頼みが多すぎれば 429 {"error": "requests"}）
     POST /api/passkey/request/status {key} → {state: "waiting"} | {state: "approved", name, spaces}
@@ -644,7 +644,7 @@ def make_handler(spaces, cfg: Config = None):
         def space(self):
             """(置き場の名前, Store)。合わなければ None。どの海かは X-Bubbles-Space（無ければ me）。
             個人（me）は、その鍵の人の個人（2026-11-03。人ごとに別の箱）。
-            持ち主（1 番の人）の鍵はどの海にも入れる"""
+            海は、その鍵の入れる海だけ（2026-11-16。すべての海に入れる人はいない。海の管理は VM で）"""
             want = self.headers.get('X-Bubbles-Space', 'me') or 'me'
             if cfg.auth == 'passkey':
                 info = self.session()
@@ -656,7 +656,7 @@ def make_handler(spaces, cfg: Config = None):
                     key = 'me' if info['person'] == OWNER else f"me/{info['person']}"
                     if key not in cfg.stores:
                         return None
-                elif want in info['spaces'] or info['owner']:
+                elif want in info['spaces']:
                     key = want
                 else:
                     return None
@@ -676,7 +676,7 @@ def make_handler(spaces, cfg: Config = None):
             """海の一覧のため。(持ち主か, 入れる置き場) か None。端末の数には入れない"""
             if cfg.auth == 'passkey':
                 info = self.session()
-                return (info['owner'], list(info['spaces'])) if info else None
+                return (False, list(info['spaces'])) if info else None
             hit = self.token_hit()
             return (hit[0] == 'me', [hit[0]]) if hit else None
 
@@ -694,10 +694,12 @@ def make_handler(spaces, cfg: Config = None):
             if body is None:
                 return
             owner, allowed = w
+            # パスキーの形では、端末から一覧は書き換えない（海の管理は VM の sea-add など。2026-11-16）。
+            # 入れる海だけを返し、端末が鍵の入れる置き場を新しくできるよう access も返す
             rows = cfg.sea_list.merge(body.get('spaces')) if owner else cfg.sea_list.read()
             if not owner:
                 rows = [r for r in rows if r['id'] in allowed]
-            return self.send_json(200, {'spaces': rows})
+            return self.send_json(200, {'spaces': rows, 'access': allowed})
 
         def who_am_i(self, tok):
             """入ったあとに端末へ返す {spaces, person, owner}"""
@@ -1151,7 +1153,7 @@ def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: 
     if cmd == 'machine-add':
         m = re.fullmatch(r'me(?::([1-9][0-9]{0,5}))?', (space or '').strip())
         if not m:
-            raise SystemExit('置き場は me（持ち主の個人）か me:<番号>（その人の個人）。例: machine-add gantt --space me')
+            raise SystemExit('置き場は me（個人 1）か me:<番号>（その人の個人）。例: machine-add gantt --space me')
         person = int(m.group(1) or OWNER)
         if person != OWNER and person not in PasskeyStore(data_dir).persons():
             raise SystemExit(f'{person_label(person)}はいません（passkey-list で番号を確かめる）')
@@ -1172,6 +1174,89 @@ def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: 
         if not keys.remove(name):
             raise SystemExit(f'「{name}」は見つかりません（machine-list で名前を確かめる）')
         print(f'「{name}」の機械の鍵を消しました。その鍵は次の要求から入れません', flush=True)
+    return 0
+
+
+SEA_COLORS = ('magma', 'moss', 'dusk', 'sand', 'ink')   # js/spacelist.js の COLORS
+
+
+def sea_command(data_dir: Path, args) -> int:
+    """海の管理（2026-11-16 利用者の指示「海の管理はVMから直接行う。appからそのようなことはできない」）。
+    動いているサーバーは止めなくてよい（端末は次に一覧を取りに来たときに知る）。
+      sea-list                                   海の一覧（ID・名前・色・入れる端末）
+      sea-add <名前> [--sea-id <ID>] [--color c] 海を作る。--sea-id に端末の海の ID を入れると、その海をサーバーの海にする
+      sea-rename <ID> <新しい名前>
+      sea-remove <ID>                            一覧から外す（記録の置き場は消さない）
+      passkey-space <端末の名前> add|remove <ID>  その端末を海に入れる・外す（個人は passkey-person）"""
+    sl = SeaList(data_dir)
+    pk = PasskeyStore(data_dir)
+    now = int(time.time() * 1000)
+    rows = {r['id']: r for r in sl.read()}
+
+    def put(e):
+        cur = rows.get(e['id'])
+        e['at'] = max(now, (cur['at'] + 1) if cur else 0)
+        sl.merge([e])
+
+    cmd = args.command
+    if cmd == 'sea-list':
+        alive = [r for r in rows.values() if r.get('alive', 1)]
+        if not alive:
+            print('サーバーの海はありません（sea-add <名前> で作る）')
+        for r in alive:
+            who = [x['name'] for x in pk.passkeys() if r['id'] in x.get('spaces', [])]
+            print(f"{r['id']}\t{r['name']}\t{r['color']}\t入れる端末: {'・'.join(who) if who else 'なし'}")
+        return 0
+    if cmd == 'sea-add':
+        name = args.name.strip()[:16]
+        if not name:
+            raise SystemExit('名前を入れてください（例: sea-add 家族）')
+        if args.color not in SEA_COLORS:
+            raise SystemExit('色は ' + '・'.join(SEA_COLORS))
+        sid = args.sea_id.strip()
+        if sid:
+            if not valid_space(sid) or sid == 'me':
+                raise SystemExit('ID は share か、s と英小文字・数字（端末の海の ⚙ に出るもの）')
+        else:
+            import string
+            def b36(n):
+                d = string.digits + string.ascii_lowercase
+                out = ''
+                while n:
+                    n, r = divmod(n, 36)
+                    out = d[r] + out
+                return out or '0'
+            sid = 's' + b36(now) + ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(4))
+        if sid in rows and rows[sid].get('alive', 1):
+            raise SystemExit(f'「{sid}」はもうあります（名前を変えるなら sea-rename）')
+        put({'id': sid, 'name': name, 'color': args.color, 'alive': 1})
+        print(f'海「{name}」を作りました: {sid}', flush=True)
+        print(f'入れる端末を決める: passkey-space <端末の名前> add {sid}（人を招くなら invite-add <名前> {sid}）', flush=True)
+        return 0
+    sid = args.name.strip()
+    if sid not in rows:
+        if cmd != 'passkey-space':
+            raise SystemExit(f'「{sid}」の海はありません（sea-list で ID を確かめる）')
+    if cmd == 'sea-rename':
+        name = args.value.strip()[:16]
+        if not name:
+            raise SystemExit('新しい名前を入れてください（例: sea-rename sxxxx 家族）')
+        put(dict(rows[sid], name=name))
+        print(f'{sid} の名前を「{name}」にしました', flush=True)
+    elif cmd == 'sea-remove':
+        put(dict(rows[sid], alive=0))
+        print(f'{sid}（{rows[sid]["name"]}）を一覧から外しました。記録の置き場は残しています', flush=True)
+    elif cmd == 'passkey-space':
+        op, sea = args.value.strip(), args.extra.strip()
+        if op not in ('add', 'remove') or not sea:
+            raise SystemExit('使い方: passkey-space <端末の名前> add|remove <海の ID>')
+        if op == 'add' and sea != 'share' and not (sea in rows and rows[sea].get('alive', 1)):
+            raise SystemExit(f'「{sea}」の海はありません（sea-add で先に作る）')
+        try:
+            got = pk.set_space(args.name, sea, op == 'add')
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
+        print(f'「{args.name}」の入れる置き場: {where_of({"spaces": got, "person": None})}', flush=True)
     return 0
 
 
@@ -1206,15 +1291,21 @@ def main(argv=None):
                     choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
                              'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person',
                              'move-remove', 'request-list', 'request-ok', 'request-no', 'limit', 'limit-set',
-                             'machine-add', 'machine-list', 'machine-remove'],
+                             'machine-add', 'machine-list', 'machine-remove',
+                             'sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space'],
                     help='serve（既定）か、合言葉・パスキーの操作')
     ap.add_argument('name', nargs='?', default='',
                     help='share-add / share-remove / invite-add / passkey-remove の名前、request-ok / request-no の字、limit-set の数')
-    ap.add_argument('value', nargs='?', default='', help='passkey-person の移す先（番号か new）')
+    ap.add_argument('value', nargs='?', default='', help='passkey-person の移す先（番号か new）、sea-rename の新しい名前、passkey-space の add / remove')
+    ap.add_argument('extra', nargs='?', default='', help='passkey-space の海の ID')
+    ap.add_argument('--sea-id', default='', help='sea-add で使う海の ID（端末の海の ⚙ に出る ID。省けば新しく作る）')
+    ap.add_argument('--color', default='magma', help='sea-add の水の色（magma・moss・dusk・sand・ink）')
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)   # 新しく作るときは持ち主だけ（Issue #48）
+    if args.command in ('sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space'):
+        return sea_command(data_dir, args)
     if args.command in ('machine-add', 'machine-list', 'machine-remove'):
         if args.command != 'machine-list' and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} gantt）')

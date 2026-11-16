@@ -16,6 +16,11 @@
 #     人を招く海は、その海の ID（アプリの「この海の名前・色」に出る）
 #   bash bubbles-todo/tools/server-setup.sh invite-list / passkey-list / passkey-remove <名前>
 #   bash bubbles-todo/tools/server-setup.sh passkey-person <名前> <番号|new>   そのパスキーをほかの人の個人へ移す
+# 海の管理（2026-11-16。アプリからはできない。すべての海に入れる人はいない）:
+#   bash bubbles-todo/tools/server-setup.sh sea-list                               海の一覧と入れる端末
+#   bash bubbles-todo/tools/server-setup.sh sea-add <名前> [端末の海の ID] [色]    海を作る（ID を入れると端末のその海をサーバーの海にする）
+#   bash bubbles-todo/tools/server-setup.sh sea-rename <ID> <名前> / sea-remove <ID>
+#   bash bubbles-todo/tools/server-setup.sh passkey-space <端末の名前> add|remove <海の ID>
 #   bash bubbles-todo/tools/server-setup.sh request-list                     端末から届いた登録の頼み（字・呼び名）
 #   bash bubbles-todo/tools/server-setup.sh request-ok <字> [置き場]          認める（置き場は invite-add と同じ書き方。既定 share）
 #   bash bubbles-todo/tools/server-setup.sh request-no <字>                  断る
@@ -247,7 +252,7 @@ summary() {
   say "7. できあがり（公開・パスキー）"
   printf '   サービス:     %s（sudo systemctl status %s）\n' "$SERVICE" "$SERVICE"
   printf '   住所:         https://%s\n' "$DOMAIN"
-  printf '   記録:         %s/state.json（持ち主の個人）、%s/people/<番号>/（ほかの人の個人）、%s/share/state.json（共有）、%s/seas/<海の ID>/（作った海）\n' "$DATA" "$DATA" "$DATA" "$DATA"
+  printf '   記録:         %s/state.json（個人 1）、%s/people/<番号>/（ほかの人の個人）、%s/share/state.json（共有）、%s/seas/<海の ID>/（作った海）\n' "$DATA" "$DATA" "$DATA" "$DATA"
   printf '   パスキー:     %s/passkeys.json（公開鍵だけ）\n' "$DATA"
   printf '   自分の端末:   bash %s/tools/server-setup.sh invite-add 自分のスマホ me:1,share\n' "$DIR"
   printf '                 出たコードを、その端末の Bubbles の設定の「パスキー」に入れて「この端末を登録」\n'
@@ -286,6 +291,11 @@ case "${1:-install}" in
   invite-list|passkey-list) token_cmd "$1" ;;
   # 端末からの登録の頼み（Issue #26）と登録の上限。server.py の同じ名前のコマンドをそのまま呼ぶ（Issue #25 の返事で足した）
   request-list|limit) token_cmd "$1" ;;
+  sea-list) token_cmd sea-list ;;
+  sea-add) [[ -n "${2:-}" ]] || die "名前を入れてください（例: sea-add 家族 [端末の海の ID] [色]）"; token_cmd sea-add "$2" ${3:+--sea-id "$3"} ${4:+--color "$4"} ;;
+  sea-rename) [[ -n "${2:-}" && -n "${3:-}" ]] || die "海の ID と新しい名前を入れてください（例: sea-rename sxxxx 家族）"; token_cmd sea-rename "$2" "$3" ;;
+  sea-remove) [[ -n "${2:-}" ]] || die "海の ID を入れてください（sea-list で見られる）"; token_cmd sea-remove "$2" ;;
+  passkey-space) [[ -n "${2:-}" && -n "${3:-}" && -n "${4:-}" ]] || die "使い方: passkey-space <端末の名前> add|remove <海の ID>"; token_cmd passkey-space "$2" "$3" "$4" ;;
   request-ok) [[ -n "${2:-}" ]] || die "端末の画面に出ている字を入れてください（例: request-ok ABC-DEF me）"; token_cmd request-ok "$2" --space "${3:-share}" ;;
   request-no) [[ -n "${2:-}" ]] || die "端末の画面に出ている字を入れてください（例: request-no ABC-DEF）"; token_cmd request-no "$2" ;;
   limit-set) [[ -n "${2:-}" ]] || die "数を入れてください（例: limit-set 5）"; token_cmd limit-set "$2" ;;
@@ -293,5 +303,5 @@ case "${1:-install}" in
   update) cmd_update ;;
   status) cmd_status ;;
   uninstall) cmd_uninstall ;;
-  *) die "使い方: bash $0 [install|update|status|uninstall|invite-add 名前 [me|me:<番号>|share|海の ID をコンマで]|invite-list|passkey-list|passkey-person 名前 <番号|new>|passkey-remove 名前|request-list|request-ok 字 [置き場]|request-no 字|limit|limit-set 数]" ;;
+  *) die "使い方: bash $0 [install|update|status|uninstall|invite-add 名前 [me|me:<番号>|share|海の ID をコンマで]|invite-list|passkey-list|passkey-person 名前 <番号|new>|passkey-space 名前 add|remove ID|sea-list|sea-add 名前 [ID] [色]|sea-rename ID 名前|sea-remove ID|passkey-remove 名前|request-list|request-ok 字 [置き場]|request-no 字|limit|limit-set 数]" ;;
 esac

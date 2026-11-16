@@ -26,7 +26,7 @@ function test(name, fn) {
   }
 }
 
-const { consolidate, theServer, serverUrl, ensureServer, canUnify, unifyPersonal } = await import(new URL('../js/oneserver.js', import.meta.url).href);
+const { consolidate, theServer, serverUrl, ensureServer, canUnify, unifyPersonal, applyServerSeas } = await import(new URL('../js/oneserver.js', import.meta.url).href);
 const { regionList, regionOfSpace } = await import(new URL('../js/regions.js', import.meta.url).href);
 const { seaList } = await import(new URL('../js/spacelist.js', import.meta.url).href);
 
@@ -137,6 +137,20 @@ test('前からサーバーにつないでいた端末: この端末だけの個
   assert.ok(mem.get('bubble_todo_me_local_v1_before_unify_7000'), '中身は控えに残す');
   assert.equal(mem.get('bubble_todo_space'), 'me');
   assert.equal(canUnify(), null);
+});
+
+test('サーバーの海の一覧を受け取る: 新しい海を足し、同じ ID のこの端末の海はサーバーの海にし、入れる置き場を入れ直す', () => {
+  mem.set('bubble_todo_regions', JSON.stringify([{ id: 'local', legacyMe: true }, { id: 'rs1', name: 'サーバー', legacyConf: true }]));
+  mem.set('bubble_todo_sync', JSON.stringify({ url: 'https://a.example', session: 'S', sessionSpaces: ['me'], sessionExpires: 9e9 }));
+  mem.set('bubble_todo_spaces', JSON.stringify([{ id: 'shome11', name: '家', color: 'moss', at: 1, alive: 1, region: 'local' }]));
+  const changed = applyServerSeas('rs1', { spaces: [
+    { id: 'shome11', name: '家', color: 'moss', at: 2, alive: 1 },
+    { id: 'swork22', name: '仕事', color: 'dusk', at: 3, alive: 1 }], access: ['me', 'shome11', 'swork22'] });
+  assert.equal(changed, true);
+  assert.equal(regionOfSpace('shome11'), 'rs1', '管理者が同じ ID で作った海はサーバーの海になる');
+  assert.equal(regionOfSpace('swork22'), 'rs1');
+  assert.deepEqual(JSON.parse(mem.get('bubble_todo_sync')).sessionSpaces, ['me', 'shome11', 'swork22']);
+  assert.equal(applyServerSeas('rs1', { spaces: [], access: ['me', 'shome11', 'swork22'] }), false, '変わらなければ false');
 });
 
 console.log(`\n${pass} passed, ${failed.length} failed`);

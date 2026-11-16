@@ -139,116 +139,112 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(self.data(out['session'], 'share')[0], 200)
         self.assertEqual(self.data(out['session'], 'me')[0], 401, '共有だけの人は個人に入れない')
 
-    def test_named_sea_invite_and_owner_reaches_every_sea(self):
-        """2026-11-02 Issue #4: 人を招くのは海の ID。個人に入れるパスキー（持ち主）はどの海にも入る"""
+    def _seas_handler(self):
         self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
             auth='passkey', origin=self.origin, rp_id='localhost', guard=self.guard, passkeys=self.pk,
             stores=server.SeaStores(self.dir), allow_origins=(), sea_list=server.SeaList(self.dir)))
-        owner = FakeAuthenticator('localhost', self.origin)
-        own = self.register(owner, self.pk.add_invite('自分のスマホ', ['me']))[1]['session']
-        self.assertEqual(self.data(own, 'shome123')[0], 200, '持ち主は作った海に入れる')
-        self.assertEqual(self.data(own, 'share')[0], 200)
-        hdr = {'Authorization': 'Bearer ' + own}
-        self.req('POST', '/api/spaces', {'spaces': [
-            {'id': 'shome123', 'name': '家', 'color': 'moss', 'at': 1, 'alive': 1},
-            {'id': 'share', 'name': '共有', 'color': 'magma', 'at': 1, 'alive': 1}]}, hdr)
-        guest = FakeAuthenticator('localhost', self.origin)
-        code, out, _ = self.register(guest, self.pk.add_invite('母', ['shome123']))
-        self.assertEqual((code, out['spaces']), (200, ['shome123']))
-        self.assertEqual(self.data(out['session'], 'shome123')[1]['space'], 'shome123')
-        self.assertEqual(self.data(out['session'], 'share')[0], 401, '招かれた海のほかには入れない')
-        self.assertEqual(self.data(out['session'], 'me')[0], 401)
-        code, got, _ = self.req('POST', '/api/spaces', {'spaces': []}, {'Authorization': 'Bearer ' + out['session']})
-        self.assertEqual((code, [e['name'] for e in got['spaces']]), (200, ['家']), '招かれた人には入れる海の名前だけ')
+
+    def cli(self, *a):
+        return subprocess.run([sys.executable, str(Path(server.__file__)), '--data-dir', str(self.dir), *a],
+                              capture_output=True, text=True)
+
+    def test_no_one_reaches_every_sea_and_app_cannot_change_seas(self):
+        """2026-11-16 利用者の指示「海の管理はVMから直接行う。appからそのようなことはできない」「全ての海に入れる人は直接的にはいない」"""
+        self._seas_handler()
+        first = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('自分のスマホ', ['me']))[1]
+        self.assertEqual((first['person'], first['owner']), (1, False), '1 番の人も持ち主ではない')
+        self.assertEqual(self.data(first['session'], 'shome123')[0], 401, '入れない海には入れない')
+        self.assertEqual(self.data(first['session'], 'share')[0], 401)
+        hdr = {'Authorization': 'Bearer ' + first['session']}
+        code, got, _ = self.req('POST', '/api/spaces', {'spaces': [{'id': 'shome123', 'name': '家', 'color': 'moss', 'at': 9, 'alive': 1}]}, hdr)
+        self.assertEqual((code, got['spaces'], got['access']), (200, [], ['me']), '端末から海の一覧は書き換えられない')
+        self.assertFalse((self.dir / 'seas.json').exists())
+        # VM で海を作り、端末を入れる
+        out = self.cli('sea-add', '家', '--sea-id', 'shome123', '--color', 'moss')
+        self.assertIn('shome123', out.stdout, out.stderr)
+        out = self.cli('passkey-space', '自分のスマホ', 'add', 'shome123')
+        self.assertIn('海 shome123', out.stdout, out.stderr)
+        code, got, _ = self.req('POST', '/api/spaces', {'spaces': []}, hdr)
+        self.assertEqual(([e['name'] for e in got['spaces']], got['access']), (['家'], ['me', 'shome123']), 'ログインし直さずに届く')
+        self.assertEqual(self.data(first['session'], 'shome123')[0], 200)
+        self.assertIn('入れる端末: 自分のスマホ', self.cli('sea-list').stdout)
+        self.cli('sea-rename', 'shome123', '家族')
+        self.assertEqual([e['name'] for e in self.req('POST', '/api/spaces', {'spaces': []}, hdr)[1]['spaces']], ['家族'])
+        self.cli('passkey-space', '自分のスマホ', 'remove', 'shome123')
+        self.assertEqual(self.data(first['session'], 'shome123')[0], 401, '外したら次の要求から入れない')
+        self.cli('sea-remove', 'shome123')
+        self.assertIn('サーバーの海はありません', self.cli('sea-list').stdout)
+        self.assertNotEqual(self.cli('passkey-space', '自分のスマホ', 'add', 'snone999').returncode, 0, '無い海には入れない')
         with self.assertRaises(ValueError):
             self.pk.add_invite('だめ', ['../x'])
 
     def test_invite_from_device(self):
-        """2026-11-16: ログインした端末から招く。持ち主はどこでも・新しい人も、ほかの人は自分の2台目と入れる海だけ"""
-        self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
-            auth='passkey', origin=self.origin, rp_id='localhost', guard=self.guard, passkeys=self.pk,
-            stores=server.SeaStores(self.dir), allow_origins=(), sea_list=server.SeaList(self.dir)))
+        """2026-11-16: ログインした端末から招けるのは、自分の2台目と、自分が入れる海だけ。新しい人は VM で"""
+        self._seas_handler()
 
         def invite(sess, **body):
             return self.req('POST', '/api/passkey/invite', body, {'Authorization': 'Bearer ' + sess})
 
-        own = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('自分のスマホ', ['me']))[1]
-        # 持ち主が新しい人を、個人と海つきで招く
-        code, got, _ = invite(own['session'], name='母のスマホ', sea='shome123', newPerson=True)
-        self.assertEqual((code, got['spaces'], got['person']), (200, ['me', 'shome123'], 2))
-        mom = self.register(FakeAuthenticator('localhost', self.origin), got['code'])[1]
-        self.assertEqual((mom['person'], mom['owner'], mom['spaces']), (2, False, ['me', 'shome123']))
-        self.assertEqual(self.data(mom['session'], 'shome123')[0], 200)
-        row = next(r for r in self.pk.passkeys() if r['name'] == '母のスマホ')
-        self.assertEqual(row.get('by'), '自分のスマホ', '招いた人を残す')
-        # 母は自分の2台目を招ける（母の個人に入る）
+        mom = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('母のスマホ', ['me', 'shome123']))[1]
+        self.assertEqual((mom['person'], mom['owner'], mom['spaces']), (1, False, ['me', 'shome123']))
         code, got, _ = invite(mom['session'], name='母のタブレット', sea='me')
-        self.assertEqual((code, got['person']), (200, 2))
+        self.assertEqual((code, got['person']), (200, 1))
         tab = self.register(FakeAuthenticator('localhost', self.origin), got['code'])[1]
-        self.assertEqual(tab['person'], 2)
-        # 母は入れる海に人を招ける。入れない海・新しい人の個人には招けない
-        self.assertEqual(invite(mom['session'], name='父', sea='shome123')[0], 200)
-        self.assertEqual(invite(mom['session'], name='父', sea='share')[0], 403)
-        self.assertEqual(invite(mom['session'], name='父', sea='me', newPerson=True)[0], 403)
-        # 通行証が無ければ 401。名前が無いのは 409（入場の失敗に数えない）
+        self.assertEqual(tab['person'], 1)
+        row = next(r for r in self.pk.passkeys() if r['name'] == '母のタブレット')
+        self.assertEqual(row.get('by'), '母のスマホ', '招いた人を残す')
+        code, got, _ = invite(mom['session'], name='父', sea='shome123')
+        self.assertEqual((code, got['spaces'], got['person']), (200, ['shome123'], None))
+        self.assertEqual(invite(mom['session'], name='父', sea='share')[0], 403, '入れない海には招けない')
+        self.assertEqual(invite(mom['session'], name='父', sea='me', newPerson=True)[0], 403, '新しい人は VM で')
         self.assertEqual(invite('nope', name='x', sea='me')[0], 401)
-        self.assertEqual(invite(own['session'], name='', sea='me')[0], 409)
-        # 1人が持てる使われていない招待は 5 まで
-        for i in range(4):
+        self.assertEqual(invite(mom['session'], name='', sea='me')[0], 409)
+        for i in range(4):   # 「父」と合わせて 5（タブレットの招待は使ったので数えない）
             invite(mom['session'], name=f'人{i}', sea='shome123')
-        self.assertEqual(invite(mom['session'], name='人5', sea='shome123')[0], 409)
+        self.assertEqual(invite(mom['session'], name='人5', sea='shome123')[0], 409, '使われていない招待は1人 5 まで')
 
     def test_personal_is_per_person(self):
-        """2026-11-03: 個人は人ごと。ほかの人の個人は見えず、持ち主（1 番）だけがどの海にも入る"""
-        self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
-            auth='passkey', origin=self.origin, rp_id='localhost', guard=self.guard, passkeys=self.pk,
-            stores=server.SeaStores(self.dir), allow_origins=(), sea_list=server.SeaList(self.dir)))
+        """2026-11-03: 個人は人ごと。ほかの人の個人は見えない（2026-11-16 から 1 番の人も特別ではない）"""
+        self._seas_handler()
 
         def put(sess, base, mark):
             return self.req('PUT', '/api/data', {'base': base, 'data': {'doc': {'todos': [mark]}, 'stamps': {}}},
                             {'Authorization': 'Bearer ' + sess, 'X-Bubbles-Space': 'me'})[0]
 
         own = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('自分のスマホ', ['me']))[1]
-        self.assertEqual((own['person'], own['owner']), (1, True), '最初の人が 1 番（持ち主）')
+        self.assertEqual(own['person'], 1, '最初の人が 1 番')
         self.assertEqual(put(own['session'], 0, 'mine'), 200)
         mom = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('母のスマホ', ['me', 'share']))[1]
-        self.assertEqual((mom['person'], mom['owner']), (2, False), '番号を付けない me の招待は新しい人')
+        self.assertEqual(mom['person'], 2, '番号を付けない me の招待は新しい人')
         code, got, _ = self.data(mom['session'], 'me')
-        self.assertEqual((code, got['data'], got['person']), (200, None, 2), '持ち主の個人は見えない')
+        self.assertEqual((code, got['data'], got['person']), (200, None, 2), '1 番の人の個人は見えない')
         self.assertEqual(put(mom['session'], 0, 'moms'), 200)
-        self.assertEqual(self.data(own['session'], 'me')[1]['data']['doc']['todos'], ['mine'], '母の個人は持ち主の個人に入らない')
-        self.assertEqual(self.data(mom['session'], 'shome123')[0], 401, '持ち主でない人は招かれていない海に入れない')
+        self.assertEqual(self.data(own['session'], 'me')[1]['data']['doc']['todos'], ['mine'])
         self.assertEqual(self.data(mom['session'], 'share')[0], 200)
+        self.assertEqual(self.data(own['session'], 'share')[0], 401, '1 番の人も入れない海には入れない')
         self.assertTrue((self.dir / 'people' / '2' / 'state.json').exists())
-        # 同じ人の2台目は番号を付けた招待（me:2）
         tab = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('母のタブレット', ['me'], person=2))[1]
         self.assertEqual(self.data(tab['session'], 'me')[1]['data']['doc']['todos'], ['moms'])
         with self.assertRaises(ValueError):
-            self.pk.add_invite('だれ', ['me'], person=9)   # いない人の番号には作らない
+            self.pk.add_invite('だれ', ['me'], person=9)
         self.assertEqual((self.pk.count_in('me', 1), self.pk.count_in('me', 2)), (1, 2), '個人の登録は人ごとに数える')
-        # 前の版で持ち主の個人に入れてしまったパスキーを移す（通行証はそのまま、次の要求から効く）
         self.assertEqual(self.pk.set_person('自分のスマホ', 'new'), 3)
         got = self.data(own['session'], 'me')[1]
-        self.assertEqual((got['data'], got['person'], got['owner']), (None, 3, False))
-        self.assertEqual(self.data(own['session'], 'shome123')[0], 401, '移したら持ち主ではない')
+        self.assertEqual((got['data'], got['person']), (None, 3))
         self.assertEqual(self.pk.set_person('自分のスマホ', 1), 1)
         self.assertEqual(self.data(own['session'], 'me')[1]['data']['doc']['todos'], ['mine'])
-        # X-Bubbles-Space でほかの人の個人の箱を名指ししても入れない
         self.assertEqual(self.data(mom['session'], 'me/1')[0], 401)
 
-    def test_old_me_passkeys_without_person_stay_with_owner(self):
-        """番号を持たない前の版の行は 1 番（持ち主）。passkey-list に番号が出て、passkey-person で移せる"""
+    def test_old_me_passkeys_without_person_stay_with_person_1(self):
+        """番号を持たない前の版の行は 1 番。passkey-list に番号が出て、passkey-person で移せる"""
         rows = [{'id': 'x', 'name': '古いスマホ', 'spaces': ['me', 'share'], 'alg': -7, 'public_key': '',
                  'sign_count': 0, 'created': 0, 'last_used': None}]
         (self.dir / 'passkeys.json').write_text(json.dumps(rows))
         self.assertEqual((self.pk.persons(), self.pk.next_person()), ([1], 2))
-
-        def cli(*a):
-            return subprocess.run([sys.executable, str(Path(server.__file__)), '--data-dir', str(self.dir), *a],
-                                  capture_output=True, text=True).stdout
-        self.assertIn('個人 1（持ち主）', cli('passkey-list'))
-        self.assertIn('個人 2', cli('passkey-person', '古いスマホ', 'new'))
-        self.assertIn('個人 2', cli('invite-add', '古いスマホの2台目', '--space', 'me:2'))
+        self.assertIn('個人 1', self.cli('passkey-list').stdout)
+        self.assertNotIn('持ち主', self.cli('passkey-list').stdout)
+        self.assertIn('個人 2', self.cli('passkey-person', '古いスマホ', 'new').stdout)
+        self.assertIn('個人 2', self.cli('invite-add', '古いスマホの2台目', '--space', 'me:2').stdout)
 
     def test_move_key_registers_next_device_without_owner(self):
         """Issue #19: 入っている端末が引っ越しの鍵を作り、次の端末はそれで登録する（持ち主の手は要らない）"""

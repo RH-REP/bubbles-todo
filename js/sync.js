@@ -65,6 +65,7 @@ import { store } from './store.js';
 import { mergeState, sameStamps } from './merge.js';
 import { mergeSeas, seaName } from './spacelist.js';
 import { regionOfSpace, defaultRegionId, findRegion, confKeyOf, isPersonal, serverSpace, entriesOf, regionConf } from './regions.js';
+import { applyServerSeas } from './oneserver.js';
 
 const PUSH_DELAY = 1500;      /* 保存してから送るまで。続けて打っている間はまとめる */
 const POLL_MS = 20000;        /* 開いている間、ほかの端末の書き換えを見に行く間隔 */
@@ -130,12 +131,11 @@ function saveConf() {
 
 /* パスキーの通行証（2026-10-24。公開の形）。持っていて、期限内か */
 function sessionLive() { return !!(conf.session && conf.sessionExpires * 1000 > Date.now()); }
-/* 持ち主の鍵。どの海にも入れる（2026-11-02 Issue #4）。
-   パスキーの形では、サーバーが言う owner（1 番の人）。まだ聞いていなければ、前の版どおり個人に入れる鍵 */
+/* 持ち主の鍵。どの海にも入れる（2026-11-02 Issue #4）。合言葉の形（手元の Mac）の自分の合言葉だけ。
+   パスキーの形には持ち主はいない（2026-11-16 利用者の指示「全ての海に入れる人は直接的にはいない」。海の管理は VM で） */
 function ownerKey() {
   if (!conf.session) return !!conf.token;
-  if (!sessionLive()) return false;
-  return conf.sessionOwner === null ? conf.sessionSpaces.indexOf('me') >= 0 : conf.sessionOwner;
+  return false;
 }
 /* いま開いている海の鍵。パスキーの通行証があればそれ、無ければ合言葉 */
 function key() {
@@ -322,7 +322,15 @@ export async function syncSeas() {
     const mine = entriesOf(REGION).map(e => { const o = Object.assign({}, e); delete o.region; return o; });
     const got = await call('POST', { spaces: mine }, '/api/spaces', k);
     if (got.status !== 200 || !got.json || !Array.isArray(got.json.spaces)) return false;
-    if (mergeSeas(got.json.spaces, REGION)) seaListeners.forEach(fn => { try { fn(); } catch (e) { /* 通知で落とさない */ } });
+    let changed;
+    if (conf.session) {
+      /* パスキーの形: 入れる海と入れる置き場を受け取る（js/oneserver.js。VM で足した海・入れた海がここで届く） */
+      changed = applyServerSeas(REGION, got.json);
+      if (Array.isArray(got.json.access)) conf.sessionSpaces = got.json.access.slice();
+    } else {
+      changed = mergeSeas(got.json.spaces, REGION);
+    }
+    if (changed) seaListeners.forEach(fn => { try { fn(); } catch (e) { /* 通知で落とさない */ } });
     return true;
   } catch (e) { return false; }
 }

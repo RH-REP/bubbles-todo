@@ -17,9 +17,9 @@ import { SPACE_KEY } from '../store.js';
 import { sync } from '../sync.js';
 import { registerPasskey, loginPasskey, logoutPasskey, authMode, passkeySupported,
   requestRegistration, requestStatus, makeInvite } from '../passkey.js';
-import { COLORS, colorMark, addSea, updateSea, removeSea, setSeaRegion, mergeSeas } from '../spacelist.js';
-import { allSeas, regionConf, entriesOf } from '../regions.js';
-import { theServer, serverUrl, ensureServer, canUnify, unifyPersonal } from '../oneserver.js';
+import { COLORS, colorMark, addSea, updateSea, removeSea, setSeaRegion } from '../spacelist.js';
+import { allSeas, regionConf } from '../regions.js';
+import { theServer, serverUrl, ensureServer, canUnify, unifyPersonal, applyServerSeas } from '../oneserver.js';
 
 const SKY = '#7cc3e8';                        /* 個人の水の色（css の空色に近い印） */
 const REQ_KEY = 'bubble_todo_pk_request';     /* 登録の頼み（前の欄と同じ箱。続きから使える） */
@@ -33,14 +33,13 @@ export function loginState() {
   const c = r ? regionConf(r.id) : null;
   const live = !!(c && c.session && Number(c.sessionExpires) * 1000 > Date.now());
   const spaces = live && Array.isArray(c.sessionSpaces) ? c.sessionSpaces : [];
-  const owner = live && (typeof c.sessionOwner === 'boolean' ? c.sessionOwner : spaces.indexOf('me') >= 0);
-  return { region: r, url: (c && c.url) || '', live, name: live ? String(c.sessionName || '') : '', spaces, owner, session: live ? c.session : '' };
+  return { region: r, url: (c && c.url) || '', live, name: live ? String(c.sessionName || '') : '', spaces, session: live ? c.session : '' };
 }
 
-/* ログインしたあと、入れる海の一覧をサーバーから受け取る（持ち主ならこの端末のサーバーの海も届ける） */
+/* ログインしたあと、入れる海の一覧をサーバーから受け取る。端末からは一覧を書き換えない（海の管理は VM。2026-11-16） */
 async function pullSeas(st) {
   if (!st.live || !st.region) return false;
-  const mine = st.owner ? entriesOf(st.region.id).map(e => { const o = Object.assign({}, e); delete o.region; return o; }) : [];
+  const mine = [];
   try {
     const res = await fetch(st.url + '/api/spaces', {
       method: 'POST', cache: 'no-store',
@@ -49,7 +48,7 @@ async function pullSeas(st) {
     });
     const j = await res.json();
     if (res.status !== 200 || !j || !Array.isArray(j.spaces)) return false;
-    mergeSeas(j.spaces, st.region.id);
+    applyServerSeas(st.region.id, j);
     return true;
   } catch (e) { return false; }
 }
@@ -116,11 +115,14 @@ export function seaPanel(opts = {}) {
     return 'サーバー';
   }
 
-  /* ---- 海の ⚙（名前・色・置き場・消す）---- */
+  /* ---- 海の ⚙ ----
+     この端末の海 … 名前・色を変える、消す。サーバーに置くのは管理者が VM で（ID を出す）
+     サーバーの海 … 名前・色・消すはアプリからできない（海の管理は VM。2026-11-16 利用者の指示）。人を招く・この端末へ戻す */
   function gearBox(s, st) {
     const g = el('div', 'sp-gearbox');
     g.style.cssText = 'margin:0 0 10px 24px;padding:8px 10px;border-left:2px solid var(--line)';
-    if (!s.personal) {
+    const server = onServer(s, st);
+    if (!s.personal && !server) {
       const f = el('form', 'tagadd');
       const nm = document.createElement('input');
       nm.type = 'text'; nm.maxLength = 16; nm.value = s.name; nm.setAttribute('aria-label', '海の名前');
@@ -134,46 +136,33 @@ export function seaPanel(opts = {}) {
       });
       g.appendChild(f);
     }
-    /* 置き場 */
-    g.appendChild(text('p', 'prefs-pages-lb', '置き場'));
-    const seg = el('div', 'row');
-    seg.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
-    const here = btn('この端末');
-    const srv = btn('サーバー');
-    (onServer(s, st) ? srv : here).classList.add('on');
-    here.setAttribute('aria-pressed', String(!onServer(s, st)));
-    srv.setAttribute('aria-pressed', String(onServer(s, st)));
-    seg.appendChild(here); seg.appendChild(srv);
-    g.appendChild(seg);
-    const why = el('p', 'note');
-    why.setAttribute('aria-live', 'polite');
-    g.appendChild(why);
+    const note = (t) => { const p = text('p', 'note', t); g.appendChild(p); return p; };
     if (s.personal) {
-      here.disabled = srv.disabled = true;
-      why.textContent = onServer(s, st)
-        ? 'サーバーの個人は、ログインした人だけの海（ほかの人には見えない）。'
-        : 'この端末の個人。';
-    } else if (!onServer(s, st)) {
-      if (!st.live) why.textContent = 'サーバーに置くには、先にログインする（下の［サーバーにログイン］）。';
-      else if (!st.owner) why.textContent = 'サーバーに海を置けるのは、サーバーの持ち主だけ。';
-      srv.addEventListener('click', () => {
-        if (!st.live) { loginOpen = true; openGear = null; paint(); scrollToLogin(); return; }
-        if (!st.owner) { toast('サーバーに海を置けるのは、サーバーの持ち主だけ'); return; }
-        if (!setSeaRegion(s.id, st.region.id)) { toast('変えられなかった'); return; }
-        toast('サーバーに置いた。中身は次に合わせたときに送る');
-        if (s.id === cur) location.reload(); else paint();
-      });
+      note(server ? 'サーバーの個人。ログインした人の端末どうしだけで合わせる（ほかの人には見えない）。' : 'この端末の個人。');
+    } else if (!server) {
+      /* サーバーに置くのは管理者（VM の sea-add）。この海の ID を渡す */
+      note('この端末だけの海。サーバーに置くには、サーバーの管理者が VM でこの海の ID を使って海を作り、入れる端末を決める。'
+        + '済んだら、ログインしてこの欄を開き直すと、この海がサーバーの海になる（中身は開いたときに送る）。');
+      const id = text('p', null, s.id);
+      id.dataset.name = '海の ID';
+      id.style.cssText = 'font-family:ui-monospace,monospace;user-select:all;margin:2px 0';
+      g.appendChild(id);
+      const cmd = text('p', 'note', 'VM で: sea-add "' + s.name + '" ' + s.id + ' のあと passkey-space <端末の名前> add ' + s.id);
+      cmd.style.userSelect = 'all';
+      g.appendChild(cmd);
     } else {
-      why.textContent = 'この端末へ戻すと、サーバーとは合わせなくなる（この端末の中身は残る。サーバーの中身も消さない）。';
-      here.addEventListener('click', () => {
+      note('サーバーの海。名前・色・入れる人は、サーバーの管理者が VM で決める。');
+      const back = btn('この端末へ戻す（合わせるのをやめる）');
+      back.addEventListener('click', () => {
         if (!setSeaRegion(s.id, 'local')) { toast('変えられなかった'); return; }
-        toast('この端末の海にした');
+        toast('この端末の海にした（この端末の中身は残る。サーバーの中身も消さない）');
         if (s.id === cur) location.reload(); else paint();
       });
+      const r = el('div', 'row'); r.appendChild(back); g.appendChild(r);
     }
-    if (onServer(s, st) && st.live) g.appendChild(inviteBox(s, st));
-    /* 消す（2度押す。記録の箱は残し、一覧に消した印を付ける） */
-    if (!s.personal) {
+    if (server && st.live) g.appendChild(inviteBox(s, st));
+    /* 消す（この端末の海だけ。2度押す。記録の箱は残し、一覧に消した印を付ける） */
+    if (!s.personal && !server) {
       const del = btn('この海を消す');
       let armed = false;
       del.addEventListener('click', () => {
@@ -204,26 +193,18 @@ export function seaPanel(opts = {}) {
   }
 
   /* 人を招く（2026-11-16 利用者の指示「招けるようにして」）。招待コードはサーバーが作る（24 時間・1回きり）。
-     サーバーの個人 … 自分の端末を足す。持ち主なら、新しい人（その人だけの個人）も招ける
-     ほかのサーバーの海 … その海に人を招く。持ち主なら「その人だけの個人もつける」を選べる */
+     サーバーの個人 … 自分の端末を足す（自分の個人に入る）。ほかのサーバーの海 … その海に人を招く（その海だけ）。
+     新しい人（その人だけの個人）を作るのは、サーバーの管理者が VM で（invite-add <名前> me） */
   function inviteBox(s, st) {
     const w = el('div', 'sp-invite');
     w.dataset.name = '人を招く';
-    w.appendChild(text('p', 'prefs-pages-lb', s.personal ? '端末を足す・人を招く' : 'この海に人を招く'));
+    w.appendChild(text('p', 'prefs-pages-lb', s.personal ? '自分の端末を足す' : 'この海に人を招く'));
+    if (s.personal) w.appendChild(text('p', 'note', 'このコードで登録した端末は、あなたの個人に入る。ほかの人には渡さない（ほかの人の個人は、サーバーの管理者が VM で作る）。'));
     const f = el('form', 'tagadd');
     const nm = document.createElement('input');
     nm.type = 'text'; nm.maxLength = 40; nm.setAttribute('aria-label', '招く端末の呼び名');
     nm.placeholder = s.personal ? '足す端末の呼び名（例 自分のタブレット）' : '招く人の呼び名（例 母のスマホ）';
     f.appendChild(nm);
-    let who = null;
-    if (st.owner) {
-      who = document.createElement('select');
-      who.setAttribute('aria-label', '誰を招くか');
-      const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; who.appendChild(o); };
-      if (s.personal) { opt('mine', '自分の端末'); opt('new', '新しい人（その人だけの個人）'); }
-      else { opt('sea', 'この海だけ'); opt('new', 'この海と、その人だけの個人'); }
-      f.appendChild(who);
-    }
     const b = el('button', 'btn'); b.type = 'submit'; b.textContent = '招待コードを作る';
     f.appendChild(b);
     w.appendChild(f);
@@ -237,7 +218,7 @@ export function seaPanel(opts = {}) {
       b.disabled = true;
       out.textContent = '';
       try {
-        const got = await makeInvite(st.url, st.session, { name, sea: s.personal ? 'me' : s.id, newPerson: !!(who && who.value === 'new') });
+        const got = await makeInvite(st.url, st.session, { name, sea: s.personal ? 'me' : s.id, newPerson: false });
         const code = text('p', null, got.code);
         code.style.cssText = 'font-size:1.5em;letter-spacing:.1em;font-weight:600;margin:4px 0;user-select:all';
         out.appendChild(code);
@@ -446,7 +427,7 @@ export function seaPanel(opts = {}) {
       const who = el('div', 'sp-who');
       who.dataset.name = 'ログイン中の札';
       who.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;border-radius:10px;padding:8px 10px;margin:6px 0;border:1px solid var(--line)';
-      who.appendChild(text('span', null, '「' + st.name + '」でログイン中' + (st.owner ? '（持ち主）' : '')));
+      who.appendChild(text('span', null, '「' + st.name + '」でログイン中'));
       const out = btn('ログアウト');
       out.addEventListener('click', async () => {
         out.disabled = true;

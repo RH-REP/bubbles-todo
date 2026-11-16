@@ -60,7 +60,7 @@ def space_label(space: str) -> str:
     return {'me': '個人', 'share': '共有'}.get(space, '海 ' + space)
 
 
-OWNER = 1   # 持ち主（サーバーを立てた人）の個人の番号
+OWNER = 1   # 1 番の人の個人の番号（記録は前の版の置き場 state.json。2026-11-16 からは、ほかの人と同じ扱い）
 
 
 def person_of(row):
@@ -75,7 +75,7 @@ def person_of(row):
 
 
 def person_label(person) -> str:
-    return f'個人 {person}' + ('（持ち主）' if person == OWNER else '')
+    return f'個人 {person}'
 _CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # 読み違えやすい I・O・0・1 を外す
 
 
@@ -310,15 +310,14 @@ class PasskeyStore:
         if not valid_space(sea):
             raise ValueError('海の ID が違う')
         if new_person:
-            if not info.get('owner'):
-                raise PermissionError('新しい人の個人を作れるのは持ち主だけ')
-            spaces, person = (['me'] if sea == 'me' else ['me', sea]), None
-        elif sea == 'me':
+            # 新しい人を作るのは海の管理。VM で invite-add <名前> me（2026-11-16 利用者の指示「海の管理はVMから直接行う」）
+            raise PermissionError('新しい人はサーバーの管理者が VM で招く（invite-add <名前> me）')
+        if sea == 'me':
             if info.get('person') is None:
                 raise PermissionError('この端末は個人に入れない')
             spaces, person = ['me'], info['person']
         else:
-            if not (info.get('owner') or sea in info.get('spaces', [])):
+            if sea not in info.get('spaces', []):
                 raise PermissionError('入れない海には招けない')
             spaces, person = [sea], None
         if sum(1 for r in self.list_invites() if r.get('by') == by) >= self.INVITE_BY_MAX:
@@ -446,6 +445,29 @@ class PasskeyStore:
             self._write('passkeys.json', rows)
         return name
 
+    def set_space(self, name: str, space: str, on: bool) -> list:
+        """名前のパスキーの入れる海を足す・外す（VM の passkey-space。2026-11-16）→ 変えたあとの置き場の一覧。
+        個人（me）はここでは扱わない（passkey-person で移す）"""
+        if not valid_space(space) or space == 'me':
+            raise ValueError('海の ID（share か s で始まる名前）を入れる')
+        with self.lock:
+            rows = self._read('passkeys.json')
+            r = next((x for x in rows if x['name'] == name), None)
+            if not r:
+                raise ValueError(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
+            sp = list(r.get('spaces', []))
+            if on and space not in sp:
+                if sum(1 for x in rows if space in x.get('spaces', [])) >= self.max_per_space:
+                    raise ValueError(f'{space_label(space)}の登録はいっぱい（{self.max_per_space} 台まで。limit-set で上げられる）')
+                sp.append(space)
+            if not on and space in sp:
+                sp.remove(space)
+                if not sp:
+                    raise ValueError('入れる置き場が無くなる（外すなら passkey-remove）')
+            r['spaces'] = sp
+            self._write('passkeys.json', rows)
+        return sp
+
     def set_person(self, name: str, person) -> int:
         """名前のパスキーを、ほかの人の個人へ移す。person は番号か 'new'（新しい人）。移した先の番号を返す。
         通行証はそのまま（個人の番号は使うたびにパスキーの行から引くので、次の要求から移った先に入る）"""
@@ -510,9 +532,11 @@ class PasskeyStore:
                 pk = keys.get(s['cred_id'])
                 if not pk:            # パスキーを消したら、その通行証は使えない
                     return None
-                spaces = [sp for sp in s['spaces'] if sp in pk['spaces']]
+                # 入れる置き場は、いまのパスキーの行から引く（VM の passkey-space がすぐ効く。2026-11-16）
+                spaces = list(pk['spaces'])
                 person = person_of(pk) if 'me' in spaces else None
-                return {'spaces': spaces, 'cred_id': s['cred_id'], 'person': person, 'owner': person == OWNER}
+                # すべての海に入れる人はいない（2026-11-16 利用者の指示）。owner は前の版の端末のために False で返す
+                return {'spaces': spaces, 'cred_id': s['cred_id'], 'person': person, 'owner': False}
         return None
 
     def check_session(self, tok: str):

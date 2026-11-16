@@ -14,8 +14,8 @@
      その繋ぎ先の個人 … 泡が1つでもあれば、新しいこの端末の海「個人（前の名前）」を作り、箱を写す（元の箱は残す）
    外した繋ぎ先の住所と鍵の箱（bubble_todo_sync_<ID>）も消さない（戻すときのため）。 */
 
-import { serverRegions, personalId, addServerRegion, removeRegion, regionConf, PERSONAL_RE, allRegions, REGIONS_KEY } from './regions.js';
-import { seaList, allEntries, setSeaRegion, addSea, boxKey } from './spacelist.js';
+import { serverRegions, personalId, addServerRegion, removeRegion, regionConf, PERSONAL_RE, allRegions, REGIONS_KEY, confKeyOf } from './regions.js';
+import { seaList, allEntries, setSeaRegion, addSea, boxKey, mergeSeas } from './spacelist.js';
 import { mergeState, initialStamps } from './merge.js';
 
 export const DONE_KEY = 'bubble_todo_oneserver_v1';
@@ -157,4 +157,29 @@ export function unifyPersonal(now = Date.now(), st = ls()) {
   try { st.setItem(REGIONS_KEY, JSON.stringify(rows)); } catch (e) { return null; }
   if (open === 'me.' + r.id || open === 'me.local') { try { st.setItem(SPACE_KEY, 'me'); } catch (e) { /* 次に開いたとき */ } }
   return 'me';
+}
+
+/* ---- サーバーの海の一覧を受け取る（2026-11-16 利用者の指示「海の管理はVMから直接行う。appからそのようなことはできない」）----
+   POST /api/spaces の答え { spaces: [入れる海], access: [この鍵の入れる置き場] }。
+   ・入れる海を一覧に足す（サーバーの海にする）
+   ・この端末の海と同じ ID の海があれば、その海をサーバーの海にする（管理者が VM で sea-add <名前> <その ID> を打ったとき）
+   ・鍵の入れる置き場（access）を、繋ぎ先の箱の通行証の欄に入れ直す（VM の passkey-space がログインし直さずに効く）
+   変わったら true */
+export function applyServerSeas(rid, json, st = ls()) {
+  if (!json || !Array.isArray(json.spaces)) return false;
+  let changed = mergeSeas(json.spaces, rid);
+  const ids = new Set(json.spaces.map(r => r && r.id));
+  allEntries().forEach(e => {
+    if (e.alive && ids.has(e.id) && (!e.region || e.region === 'local') && e.region !== rid) {
+      if (setSeaRegion(e.id, rid)) changed = true;
+    }
+  });
+  if (Array.isArray(json.access) && st) {
+    const key = confKeyOf(rid, st);
+    const c = key ? regionConf(rid, st) : null;
+    if (c && c.session && JSON.stringify(c.sessionSpaces || []) !== JSON.stringify(json.access)) {
+      try { st.setItem(key, JSON.stringify(Object.assign({}, c, { sessionSpaces: json.access.slice() }))); changed = true; } catch (e) { /* 次に取りに来たとき */ }
+    }
+  }
+  return changed;
 }

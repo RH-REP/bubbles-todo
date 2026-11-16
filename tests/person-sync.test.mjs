@@ -87,7 +87,7 @@ await test('前の版で合わせていた持ち主の端末（1 番）は、入
   assert.equal(await sync.syncNow(), true);
   assert.ok(texts().includes('母の todo'), '手元はそのまま');
   assert.equal(mem.get('bubble_todo_sync_person'), '1');
-  assert.equal(sync.owner(), true);
+  assert.equal(sync.owner(), false, 'パスキーの形に持ち主はいない（2026-11-16）');
 });
 
 await test('まだ一度も合わせていない新しい端末は、番号が 1 でなくても手元の記録を残す', async () => {
