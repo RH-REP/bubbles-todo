@@ -40,8 +40,11 @@ export const BOARD_SHOW_FEW = ['name', 'detail', 'span'];
 const BOARD_ACTS = ['start', 'ended', 'ok', 'done', 'del'];
 const BOARD_SHOW_V = 2;
 export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
-/* 既定で出す欄（Issue #40 までの姿と同じ。お気に入り・優先度・期間・リンクは畳む） */
-const BOARD_SHOW_DEF = ['name', 'detail', 'notes', 'tags', 'days', 'step', 'memo', 'hist',
+/* 既定で出す欄（Issue #40 までの姿。お気に入り・優先度・リンクは畳む）。
+   期間（開始日・終了日）は 2026-11-16 Issue #76「サーバーなし版のTODOの期限の設定がサーバーあり版と異なる？」で既定に足した。
+   この設定はページの住所（オリジン）ごとの localStorage に置くので、サーバーあり版で「少なめにする」（期間を出す）を
+   選んでいても、サーバーなし版は既定のまま＝期間が「その他」に畳まれ、期限の欄が無いように見えていた */
+const BOARD_SHOW_DEF = ['name', 'detail', 'notes', 'tags', 'days', 'span', 'step', 'memo', 'hist',
   'start', 'ended', 'ok', 'done', 'del'];
 
 /* 設定の「音と表示を変える」で、先に選ぶ「どの画面を変えるか」（Issue #49 の返事）。

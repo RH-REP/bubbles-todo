@@ -1249,6 +1249,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         const open = grid.hidden;
         grid.hidden = !open;
         head.setAttribute('aria-expanded', open ? 'true' : 'false');
+        where.hidden = !open || !where.textContent;
         relayout();
       });
       ['日', '月', '火', '水', '木', '金', '土'].forEach(d => {
@@ -1282,6 +1283,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         cells.push({ key, b });
       }
       box.appendChild(grid);
+      /* 日を選ぶと海の一覧（タグ無し）から外れる、と書いておく（2026-11-16 Issue #76 の返事
+         「いつの日を、設定するとリストの一覧からTODOが消える？」）。外れるのは作りどおり（js/screens/sea.js の centerItems）:
+         今日 → 「今日」のタグが付いて今日の画面へ。先の日だけ → その日まで漂わせない。どこにあるかを言う */
+      const where = el('p', 'bc-span-note bc-cal-where', '');
+      where.hidden = true;
+      box.appendChild(where);
       foldPart(box, 'days', false);
       fields.appendChild(box);
 
@@ -1300,6 +1307,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           : on.slice(0, 2).map(k => (k === today ? '今日' : md(k))).join('・')
             + (on.length > 2 ? ' ほか' : '');
         head.setAttribute('aria-label', 'いつの日：' + sum.textContent + '。押すとカレンダー');
+        /* 選んだ日で、閉じたあとどこに出るか（カレンダーを開いているときだけ見える） */
+        const later = on.filter(k => k > today);
+        where.textContent = want.has(today)
+          ? '閉じると、今日の画面に出る（海の一覧の「タグ無し」からは外れる）'
+          : (later.length ? md(later[0]) + ' になるまで海の一覧から外れる。フィルターの「今日より後」か、日付で見る（▤）で見える' : '');
+        where.hidden = grid.hidden || !where.textContent;
       }
       paint();
 
@@ -1443,7 +1456,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       box.appendChild(body);
       fields.appendChild(box);
       syncSpanRow();
-      /* 期間を決めていない泡では「その他」に畳む（Issue #40）。決めてあれば、いつも出す */
+      /* 決めてあれば、いつも出す。決めていない泡で畳むのは「この端末の表示」で期間を外したときだけ
+         （Issue #40 では既定で畳んでいた。2026-11-16 Issue #76 で既定は出すにした。js/prefs.js の BOARD_SHOW_DEF） */
       foldPart(box, 'span', !!curSpan());
     }
 

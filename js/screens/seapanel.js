@@ -76,6 +76,7 @@ export function seaPanel(opts = {}) {
   let loginOpen = false;     /* ログインの欄を開いているか */
   let pageMode;              /* このページの /api/auth の答え（undefined = まだ） */
   let pollTimer = 0;
+  let pendingInvite = '';   /* 「他の人と一緒に使う」の「招待コードを受け取る」に貼られたサーバーの招待コード（fillInvite） */
 
   /* ---- 海の行 ---- */
   function seaRow(s, st) {
@@ -337,6 +338,7 @@ export function seaPanel(opts = {}) {
       const inv = el('form', 'tagadd');
       const code = document.createElement('input');
       code.type = 'text'; code.autocomplete = 'off'; code.placeholder = '招待コード（ABCD-EFGH-JKLM）'; code.setAttribute('aria-label', '招待コード');
+      code.value = pendingInvite;
       const reg = el('button', 'btn'); reg.type = 'submit'; reg.textContent = '招待コードで登録';
       inv.appendChild(code); inv.appendChild(reg);
       inv.addEventListener('submit', (ev) => {
@@ -489,6 +491,19 @@ export function seaPanel(opts = {}) {
     if (!loginState().live) loginOpen = true;
     paint();
     scrollToLogin();
+  };
+  /* サーバーの招待コードを、ログインの「招待コード」の欄へ入れる（2026-11-16 Issue #74 の A 案の (d) を、作り直した海に合わせた）。
+     登録（パスキーを作る）は押した手の続きで呼ぶので、ここでは入れるだけ。欄が出ない（ログイン中・サーバーなし版・
+     サーバーが配っていないページ・登録を頼んでいる最中）ときは false */
+  d.fillInvite = (code) => {
+    if (opts.solo || loginState().live) return false;
+    pendingInvite = String(code || '').trim();
+    d.openServer();
+    const inp = wrap.querySelector('input[aria-label="招待コード"]');
+    if (!inp) return false;
+    inp.value = pendingInvite;
+    try { inp.focus(); } catch (e) { /* 入れてはある */ }
+    return true;
   };
   return d;
 }
