@@ -219,7 +219,7 @@ let gridSortBtn = null;   /* 一覧の並びを入れ替える「⇅」（Issue 
 let gridPickBtn = null;
 let pickMode = false;
 const picked = new Set();
-let pickBar = null;       /* { count, go } 描くたびに作り直す（gridNodes に入る） */
+let pickBar = null;       /* { el, go } 面の右下の隅の帯。mount で1回作る */
 let faceName, faceDot, faceLabel;
 let gatherBtn, gatherLabel, gatherIc;
 let narrowBtn, narrowLabel, centerEmpty;
@@ -2363,7 +2363,7 @@ function setGathering(on) {
   /* 整列を畳んだら、さがした文字も片づける。
      次に開いたときに前の結果が残っていると、「全部あるはず」が裏切られる */
   if (!on && gridQ) { gridQ = ''; if (gridFind) gridFind.value = ''; }
-  if (!on) { pickMode = false; picked.clear(); }    /* 選びかけ（Issue #72）も畳む */
+  if (!on) { pickMode = false; picked.clear(); syncPickBar(); }    /* 選びかけ（Issue #72）も畳む */
   if (gathering === on) return;
   cancelShuffle();          /* 整列に入る／戻るときは、混ぜかけを畳む */
   gathering = on;
@@ -3051,12 +3051,33 @@ function setPickMode(on) {
   if (gathering && gridMode === 'list') renderGrid();
 }
 
+/* 右下の隅の小さな帯（Issue #72 の返事で一覧の中から面の隅へ移した）。
+   出すのは、リスト表示の一覧で選んでいる間だけ。件数はボタンの字に入れる（別の行を作らない） */
+function makePickBar() {
+  const bar = el('div', 'sea-pick-bar');
+  bar.hidden = true;
+  bar.setAttribute('role', 'toolbar');
+  bar.setAttribute('aria-label', '選んだものを完了にする');
+  const quit = el('button', 'sea-grid-sort sea-pick-quit', 'やめる');
+  quit.type = 'button';
+  quit.addEventListener('click', ev => { ev.preventDefault(); setPickMode(false); });
+  const go = el('button', 'sea-pick-go');
+  go.type = 'button';
+  go.setAttribute('aria-live', 'polite');
+  go.addEventListener('click', ev => { ev.preventDefault(); completePicked(); });
+  bar.appendChild(quit);
+  bar.appendChild(go);
+  return { el: bar, go };
+}
+
 function syncPickBar() {
   if (!pickBar) return;
+  const show = pickMode && gathering && gridMode === 'list';
+  pickBar.el.hidden = !show;
+  if (!show) return;
   const n = picked.size;
-  pickBar.count.textContent = n ? n + '件を選んでいる' : '完了にするものを押して選ぶ';
   pickBar.go.disabled = n === 0;
-  pickBar.go.textContent = n ? '完了にする（' + n + '件）' : '完了にする';
+  pickBar.go.textContent = n ? '完了にする（' + n + '件）' : '完了にする（0件）';
 }
 
 function togglePick(id, row) {
@@ -3085,6 +3106,7 @@ function completePicked() {
     if (!firstText) firstText = (r && r.text) || (before && before.text) || '';
   });
   if (gathering && gridMode === 'list') renderGrid();
+  syncPickBar();
   if (!doneIds.length) return;
   try { playComplete(); } catch (err) { console.error(err); }   /* 音は1回だけ */
   const msg = doneIds.length === 1 ? '「' + trim(firstText) + '」を完了' : doneIds.length + '件を完了';
@@ -3136,7 +3158,6 @@ function renderGrid() {
     [...picked].forEach(id => { if (!here.has(id)) picked.delete(id); });
   }
   grid.classList.toggle('is-picking', pickMode);
-  pickBar = null;
   let lastDay = null;
 
   /* 行はバブルを組まずに作り直す。**海が新しいほうしか出さなくなったので、
@@ -3268,25 +3289,7 @@ function renderGrid() {
     grid.appendChild(row);
   });
 
-  /* 選んでいる間は、一覧の下に留まる帯（Issue #72）。件数と［完了にする］［やめる］ */
-  if (pickMode) {
-    const bar = el('div', 'sea-pick-bar');
-    const count = el('span', 'sea-pick-count');
-    count.setAttribute('aria-live', 'polite');
-    const go = el('button', 'sea-pick-go');
-    go.type = 'button';
-    go.addEventListener('click', ev => { ev.preventDefault(); completePicked(); });
-    const quit = el('button', 'sea-grid-sort sea-pick-quit', 'やめる');
-    quit.type = 'button';
-    quit.addEventListener('click', ev => { ev.preventDefault(); setPickMode(false); });
-    bar.appendChild(count);
-    bar.appendChild(quit);
-    bar.appendChild(go);
-    gridNodes.set('pick:bar', { node: bar, detach: null });
-    grid.appendChild(bar);
-    pickBar = { count, go };
-    syncPickBar();
-  }
+  syncPickBar();
 }
 
 /* ---------------- 画面まわりの表示 ---------------- */
@@ -3305,7 +3308,7 @@ function setGridMode(mode) {
      終えたものの急ぐ・大事は、もう分ける意味が無い。開く形が四つでも一覧で開く */
   if (mode === 'quad' && isDoneFace()) mode = 'list';
   gridMode = mode;
-  if (mode !== 'list') { pickMode = false; picked.clear(); }   /* 選ぶのは一覧だけ（Issue #72） */
+  if (mode !== 'list') { pickMode = false; picked.clear(); syncPickBar(); }   /* 選ぶのは一覧だけ（Issue #72） */
   if (gridQ) { gridQ = ''; if (gridFind) gridFind.value = ''; }
   if (!gathering) { setGathering(true); return; }
   clearGrid();
@@ -3933,6 +3936,9 @@ export default {
     gridEmpty.hidden = true;
     grid.appendChild(gridEmpty);
     stage.appendChild(grid);
+    /* 選んでまとめて完了の帯（Issue #72）。一覧の外、面の右下の隅に置く */
+    pickBar = makePickBar();
+    stage.appendChild(pickBar.el);
 
     /* --- 四つに分けて見る（優先度・2026-10-25）---
        リスト表示のもう1つの形。左右が 急ぐ／急がない、上下が 大事／大事でない。

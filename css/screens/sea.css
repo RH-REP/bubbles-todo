@@ -584,15 +584,18 @@
 .sea-row.is-picked { background: color-mix(in srgb, var(--bub-edge) 22%, var(--surface)); }
 .sea-row.is-picked .sea-row-pick { color: var(--text); }
 .sea-row.is-unpickable { opacity: .45; cursor: default; }
+/* 帯は一覧の外（面の右下の隅）に小さく置く。Issue #72 の返事「中央に表示されてリストが見にくい。
+   端とか邪魔にならないところに」。前は一覧の中の幅いっぱいの帯で、短い一覧では行のすぐ下＝画面の中ほどに出ていた。
+   一覧の下の余白（.sea-grid の padding-bottom 88px）に収まる高さにして、最後の行まで帯の上へ送れるようにする */
 .sea-pick-bar {
-  position: sticky; bottom: 0; z-index: 1;
-  margin-top: 10px;
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 8px 10px; border-radius: 14px;
-  background: var(--surface); color: var(--text);
+  position: absolute; right: 12px; bottom: 12px; z-index: 8;
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 6px; border-radius: 28px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent); color: var(--text);
   box-shadow: 0 8px 22px -12px var(--bub-shadow), 0 0 0 1px var(--line);
 }
-.sea-pick-count { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text-2); }
+.sea-pick-bar[hidden] { display: none !important; }
 .sea-pick-go {
   appearance: none; -webkit-appearance: none; cursor: pointer;
   font: inherit; font-size: 13.5px; font-weight: 600;
@@ -879,12 +882,13 @@
      .sea-dropoff          … 掴んでいる間の「タグを外す枠」
      .sea-random .sea-shuffle … さいころと、その混ぜる盤
      .sea-cal              … はじめた日のカレンダー
+     .sea-pick-bar         … 選んでまとめて完了の、右下の小さな帯（Issue #72）
 
    A-64 で踏んだ穴：A-57 で「リスト表示にもフィルターを掛ける」と決めて
    `syncNarrowBtn` は直したのに、**この規則が `!important` で消していた**——
    JS では `hidden=false`、CSS では `display:none`。決めたはずの機能に手が届かない。
    **ここに足し忘れると、JS 側でいくら出しても画面には出ない。** */
-.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-days):not(.sea-gather):not(.sea-tools):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal) {
+.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-days):not(.sea-gather):not(.sea-tools):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal):not(.sea-pick-bar) {
   display: none !important;
 }
 
