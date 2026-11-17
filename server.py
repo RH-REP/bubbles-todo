@@ -1325,10 +1325,38 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
     return 0
 
 
-def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: bool) -> int:
-    """機械の鍵の操作（公開の形。共有の記録 v1.2 §8）。動いているサーバーは止めなくてよい"""
+def write_key_file(path: Path, key: str):
+    """鍵をファイルに書く（2026-11-17）。親のフォルダが無ければ 700 で作り、ファイルは 600。
+    すでにあれば（リンクでも）上書きせずに FileExistsError。リンクの先へは書かない"""
+    # 無いフォルダを上から順に 700 で作る（mkdir(parents=True) は途中のフォルダを umask の形で作るため）
+    missing = []
+    d = path.parent
+    while not d.exists():
+        missing.append(d)
+        d = d.parent
+    for d in reversed(missing):
+        d.mkdir(mode=0o700)
+        os.chmod(d, 0o700)
+    old = os.umask(0o077)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+    finally:
+        os.umask(old)
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(key + '\n')
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: bool, key_file: str = '') -> int:
+    """機械の鍵の操作（公開の形。共有の記録 v1.2 §8）。動いているサーバーは止めなくてよい。
+    key_file（--key-file）を付けると、鍵を画面に出さずにそのファイルへ書く（2026-11-17。画面とクリップボードを通さない）"""
     keys = MachineKeys(data_dir)
     if cmd == 'machine-add':
+        kpath = Path(key_file).expanduser() if key_file else None
+        if kpath is not None and (kpath.exists() or kpath.is_symlink()):
+            raise SystemExit(f'{kpath} はもうあります（上書きしない。前の鍵なら machine-remove のあと、ファイルを消すか別の名前で）')
         m = re.fullmatch(r'me(?::([1-9][0-9]{0,5}))?', (space or '').strip())
         if not m:
             raise SystemExit('置き場は me（個人 1）か me:<番号>（その人の個人）。例: machine-add gantt --space me')
@@ -1337,6 +1365,15 @@ def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: 
             raise SystemExit(f'{person_label(person)}はいません（passkey-list で番号を確かめる）')
         key = keys.add(name, person, read_only)
         how = '読むだけ' if read_only else '読み書き'
+        if kpath is not None:
+            try:
+                write_key_file(kpath, key)
+            except OSError as e:
+                keys.remove(name)       # 書けなかった鍵は残さない（誰も持たない鍵になる）
+                raise SystemExit(f'{kpath} に書けませんでした（{e.strerror or type(e).__name__}）。作った鍵は消しました')
+            print(f'「{name.strip()}」の機械の鍵（{person_label(person)}・{how}）を {kpath} に書きました（600。鍵は画面に出しません）。'
+                  f'確かめの印: {MachineKeys.digest(key)[:8]}（machine-list の「印」と同じ）', flush=True)
+            return 0
         # 鍵はここで1度だけ出す。サーバーにはハッシュだけが残る（失くしたら作り直す）
         print(f'「{name.strip()}」の機械の鍵（{person_label(person)}・{how}）: {key}', flush=True)
         print('この鍵はもう出せません。使う機械のファイルに入れ（例: chmod 600 の bubble_key.txt）、'
@@ -1347,7 +1384,7 @@ def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: 
             print('機械の鍵はありません（machine-add <名前> --space me で作る）')
         for r in rows:
             print(f"{r['name']}\t{person_label(r['person'])}\t{'読むだけ' if r.get('read_only') else '読み書き'}"
-                  f"\t作った {r.get('created', '')}")
+                  f"\t作った {r.get('created', '')}\t印 {r['hash'][:8]}")
     elif cmd == 'machine-remove':
         if not keys.remove(name):
             raise SystemExit(f'「{name}」は見つかりません（machine-list で名前を確かめる）')
@@ -1505,6 +1542,8 @@ def main(argv=None):
     ap.add_argument('extra', nargs='?', default='', help='passkey-space の海の ID')
     ap.add_argument('--sea-id', default='', help='sea-add で使う海の ID（端末の海の ⚙ に出る ID。省けば新しく作る）')
     ap.add_argument('--color', default='magma', help='sea-add の水の色（magma・moss・dusk・sand・ink）')
+    ap.add_argument('--key-file', default='',
+                    help='machine-add で、鍵を画面に出さずにこのファイルへ書く（600。親のフォルダが無ければ 700 で作る。あれば上書きしない）')
     ap.add_argument('--oauth-client-host', action='append', default=None,
                     help='claude.ai の接続で受ける相手の住所の名前（何度でも。既定は環境変数 '
                          'BUBBLE_TODO_OAUTH_CLIENT_HOSTS（コンマで）か claude.ai）')
@@ -1521,7 +1560,9 @@ def main(argv=None):
             raise SystemExit(f'名前を入れてください（例: {args.command} gantt）')
         if args.command == 'machine-add' and args.space == 'share':
             raise SystemExit('置き場を --space me か --space me:<番号> で入れてください（例: machine-add gantt --space me）')
-        return machine_command(data_dir, args.command, args.name, args.space, args.read_only)
+        if args.key_file and args.command != 'machine-add':
+            raise SystemExit('--key-file は machine-add だけで使う')
+        return machine_command(data_dir, args.command, args.name, args.space, args.read_only, args.key_file)
     if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person', 'move-remove',
                         'request-list', 'request-ok', 'request-no', 'limit', 'limit-set'):
         if args.command in ('request-ok', 'request-no') and not args.name.strip():

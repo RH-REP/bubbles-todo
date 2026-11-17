@@ -717,20 +717,25 @@ bash tests/server-setup.test.sh
   公開の形のサーバーの記録を読み書きするための鍵。合言葉の形（`--auth token`）では使わない（今までどおり `token.txt`）。
   - 作る・見る・消すのはサーバーの持ち主だけ（サーバーの機械で。動いているサーバーは止めなくてよい。次の要求から効く）:
     ```bash
-    python3 server.py --data-dir <データの場所> machine-add gantt --space me              # 持ち主の個人。読み書き
+    python3 server.py --data-dir <データの場所> machine-add gantt --space me --key-file ~/gantt-secrets/bubble_key.txt   # 鍵を画面に出さずにファイルへ（おすすめ）
+    python3 server.py --data-dir <データの場所> machine-add gantt --space me              # 持ち主の個人。読み書き（鍵を画面に出す）
     python3 server.py --data-dir <データの場所> machine-add diary --space me --read-only  # 読むだけ
     python3 server.py --data-dir <データの場所> machine-add 秘書 --space me:2              # 2 番の人の個人
     python3 server.py --data-dir <データの場所> machine-list
     python3 server.py --data-dir <データの場所> machine-remove diary
     ```
   - 鍵（`bm_…`）は `machine-add` のときに**1度だけ**出る。サーバーには sha256 だけを残す（`<データの場所>/machine_keys.json`、600）。失くしたら消して作り直す
+  - **`--key-file <パス>`**（2026-11-17）を付けると、鍵を画面に出さずに、そのファイルへ直に書く（600。無いフォルダは上から 700 で作る。
+    ファイルがすでにある・リンクなら上書きせずに止まり、鍵も作らない。書けなければ作った鍵を消す）。画面に出るのは確かめの印（鍵の sha256 の頭 8 字）だけで、
+    `machine-list` の「印」と同じ。画面からコピーして貼る形は、次の手順のコピーのボタンがクリップボードを上書きして鍵を失うことがあった（判例集 R29 と同じ落とし穴）ので、
+    サーバーの機械で使う鍵はこちらで作る。`tools/server-setup.sh machine-add <名前> --key-file <パス> [--read-only]` も同じ
   - 効くのは `GET`・`PUT /api/data` だけ。`Authorization: Bearer <鍵>`、`X-Bubbles-Schema: 1`。置き場は鍵に決めた個人1つで、
     `X-Bubbles-Space` は省くか `me`（ほかを言えば 403）。読むだけの鍵の `PUT` は 403。海の一覧・パスキー・招待などほかの API には効かない（401）
   - 応答は端末と同じ形（`{space, version, data, minSchema}`）に、`person`（誰の個人か）と `owner: false` が付く。`PUT` の 409・426 も端末と同じ
   - 端末の数（`--max-devices`）には数えない。入場の失敗・要求数の守りは端末と同じに効く（違う鍵が続けば 429）。
     記録（journal）には `machine-forbidden name=<名前> …` の形で名前だけを出し、鍵は出さない。fail2ban は正しい鍵の 403 を数えない
   - Origin を付けないサーバー同士の要求で通る（CORS は要らない）
-  - **gantt・diary・秘書に渡す手順**: 鍵をその機械のファイルに入れて、所有者だけが読めるようにする（`chmod 600`）。
+  - **gantt・diary・秘書に渡す手順**: 同じ機械なら `--key-file` でその機械のファイルに直に作る。別の機械なら、鍵をその機械のファイルに入れて、所有者だけが読めるようにする（`chmod 600`）。
     gantt・diary は `--bubble-token-file <そのファイル>` と、サーバーの住所（`https://<名前>`）で起動する。秘書は設定の `key_file` にそのファイルを書く。
     鍵の中身は画面・ログ・会話に出さない。diary には `--read-only` の鍵、gantt と秘書には読み書きの鍵を渡す
 - **秘書のコネクタ（claude.ai から。OAuth 2.1。2026-11-17）**: claude.ai（スマホ・Mac）のカスタムコネクタ「秘書」が、本人のパスキーでのログインを経て

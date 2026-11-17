@@ -442,7 +442,8 @@ case "${1:-install}" in
   limit-set) [[ -n "${2:-}" ]] || die "数を入れてください（例: limit-set 5）"; token_cmd limit-set "$2" ;;
   copy-data) cmd_copy_data ;;
   old-name) cmd_old_name "${2:-}" ;;
-  machine-add) [[ -n "${2:-}" ]] || die "名前を入れてください（例: machine-add gantt [--read-only]）"; token_cmd machine-add "$2" --space me ${3:+"$3"} ;;
+  machine-add) [[ -n "${2:-}" ]] || die "名前を入れてください（例: machine-add gantt --key-file ~/gantt-secrets/bubble_key.txt [--read-only]）"
+    mname="$2"; shift 2; token_cmd machine-add "$mname" --space me "$@" ;;
   machine-list) token_cmd machine-list ;;
   machine-remove) [[ -n "${2:-}" ]] || die "名前を入れてください（例: machine-remove diary）"; token_cmd machine-remove "$2" ;;
   oauth-list) token_cmd oauth-list ;;
@@ -451,5 +452,5 @@ case "${1:-install}" in
   update) cmd_update ;;
   status) cmd_status ;;
   uninstall) cmd_uninstall ;;
-  *) die "使い方: bash $0 [install|update|status|uninstall|copy-data|old-name redirect|remove|machine-add 名前 [--read-only]|machine-list|machine-remove 名前|oauth-list|oauth-revoke id|invite-add 名前 [me|me:<番号>|share|海の ID をコンマで]|invite-list|passkey-list|passkey-person 名前 <番号|new>|passkey-space 名前 add|remove ID|sea-list|sea-add 名前 [ID] [色]|sea-rename ID 名前|sea-remove ID|passkey-remove 名前|request-list|request-ok 字 [置き場]|request-no 字|limit|limit-set 数]" ;;
+  *) die "使い方: bash $0 [install|update|status|uninstall|copy-data|old-name redirect|remove|machine-add 名前 [--key-file パス] [--read-only]|machine-list|machine-remove 名前|oauth-list|oauth-revoke id|invite-add 名前 [me|me:<番号>|share|海の ID をコンマで]|invite-list|passkey-list|passkey-person 名前 <番号|new>|passkey-space 名前 add|remove ID|sea-list|sea-add 名前 [ID] [色]|sea-rename ID 名前|sea-remove ID|passkey-remove 名前|request-list|request-ok 字 [置き場]|request-no 字|limit|limit-set 数]" ;;
 esac
