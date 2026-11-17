@@ -119,13 +119,13 @@ try {
     await until(`return !!document.querySelector('.gearbtn')`);
     await js(`(await import('/js/store.js')).store.add('端末で書いた');`);
     await openSettings();
-    assert.equal(await js(`return !!document.querySelector('input[aria-label="招待コード"]')`), false, '初めは招待コードの欄を出さない');
+    assert.equal(await js(`return !!document.querySelector('.sea-panel input[aria-label="招待コード"]')`), false, '初めは招待コードの欄を出さない');
     await js(`${button('サーバーにログイン')}.click();`);
-    await until(`return !!document.querySelector('input[aria-label="招待コード"]')`);
+    await until(`return !!document.querySelector('.sea-panel input[aria-label="招待コード"]')`);
   });
 
   await step('招待コードで登録すると個人が2つ並び、1つにまとめるとこの端末の個人の泡もサーバーへ届く', async () => {
-    await js(`const i = document.querySelector('input[aria-label="招待コード"]'); i.value = ${JSON.stringify(invite)};
+    await js(`const i = document.querySelector('.sea-panel input[aria-label="招待コード"]'); i.value = ${JSON.stringify(invite)};
       i.closest('form').requestSubmit();`);
     await until(`return !!${button('ログアウト')}`);
     const creds = (await send('WebAuthn.getCredentials', { authenticatorId })).result.credentials;

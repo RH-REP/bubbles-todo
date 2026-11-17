@@ -1998,7 +1998,10 @@ function chainBox(opts = {}) {
   if (opts.part === 'hub') wrap.classList.add('share-hub');
   /* 用語（2026-11-09 Issue #31 の返事で見直し）: ほかのウォレット・取引所と行き来するので、そちらと同じ言葉にそろえる。
      ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
-  wrap.appendChild(el('h3', null, opts.title || 'ブロックチェーンを使う（Solana・試し）'));
+  /* 見出しは字として入れる（呼ぶ側の title を HTML として読まない。tests/html-sink.test.mjs） */
+  const chainTitle = el('h3');
+  chainTitle.textContent = opts.title || 'ブロックチェーンを使う（Solana・試し）';
+  wrap.appendChild(chainTitle);
   /* サーバーが配るページでも使う（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
      server.py の CSP に Solana の公式 RPC を足したので、サーバーに繋いだままバックアップ・共有の海・チャットを使える。
      サーバーでない所（GitHub Pages・Android の app）で繋いでいない index.html は、開いたときに noserver.html へ移る（js/boot-edition.js） */

@@ -94,11 +94,11 @@ need_tools() {
   PY="$(command -v python3)"
   "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' \
     || die "python3 が古い（$("$PY" -V 2>&1)）。3.8 以上が要ります"
-  ok "$("$PY" -V 2>&1)（$PY）、$(git --version)"
+  ok "$("$PY" -V 2>&1)（${PY}）、$(git --version)"
 }
 
 get_code() {
-  say "2. コード（$DIR）"
+  say "2. コード（${DIR}）"
   if [[ -d "$DIR/.git" ]]; then
     git -C "$DIR" pull --ff-only
   else
@@ -109,7 +109,7 @@ get_code() {
 }
 
 make_data() {
-  say "3. 記録の置き場（$DATA）"
+  say "3. 記録の置き場（${DATA}）"
   mkdir -p "$DATA"
   chmod 700 "$DATA"
   printf 'MODE=public\nDOMAIN=%s\n' "$DOMAIN" > "$SETUP_FILE"
@@ -140,7 +140,7 @@ need_mode() {
 server_args() { printf -- '--auth passkey --origin https://%s --trust-proxy' "$DOMAIN"; }
 
 write_unit() {
-  say "5. 常駐（systemd: $SERVICE）"
+  say "5. 常駐（systemd: ${SERVICE}）"
   local user group tmp extra
   extra="$(server_args)"
   user="$(id -un)"; group="$(id -gn)"
@@ -224,7 +224,7 @@ public_front() {
     # 前に起動に失敗していると reload は効かないので、起動し直す
     sudo systemctl restart caddy
     if systemctl is-active --quiet caddy 2>/dev/null || [[ -n "${BUBBLES_ETC:-}" ]]; then
-      ok "Caddy: $ETC/caddy/Caddyfile（https://$DOMAIN → 127.0.0.1:$PORT。待ち受けは $bind の 80・443）"
+      ok "Caddy: $ETC/caddy/Caddyfile（https://$DOMAIN → 127.0.0.1:${PORT}。待ち受けは $bind の 80・443）"
     else
       sudo journalctl -u caddy -n 5 --no-pager >&2 || true
       die "Caddy が起動しません（上の記録を見てください）"
@@ -245,7 +245,7 @@ public_front() {
   warn "  ・サーバーの中（Oracle の Ubuntu は iptables で 22 番以外を閉じていることがある）:"
   warn "      sudo iptables -I INPUT -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j ACCEPT"
   warn "      sudo netfilter-persistent save"
-  warn "  名前（$DOMAIN）がこのサーバーの公開の IP を指していること（DuckDNS などで）も確かめる"
+  warn "  名前（${DOMAIN}）がこのサーバーの公開の IP を指していること（DuckDNS などで）も確かめる"
 }
 
 summary() {

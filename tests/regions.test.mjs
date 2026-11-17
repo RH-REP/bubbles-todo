@@ -234,7 +234,9 @@ await test('サーバーなし版へ（Issue #62）: サーバーの海域をみ
   const r = R.remapPayload(file, map, undefined, MV.mergeBox);
   assert.deepEqual(Object.keys(r.boxes).sort(), ['me', 'sabc1234', 'sinb0001']);
   assert.deepEqual(r.boxes.me.doc.todos.map(t => t.text).sort(), ['A の個人', 'B の個人', 'ローカルの個人'], '個人の記録が上書きで落ちた');
-  assert.deepEqual(r.seas.map(e => [e.id, e.region]).sort(), [['sabc1234', 'local'], ['sinb0001', 'local']]);
+  /* 一覧にはいつも既定の「共有」（share）がある（js/spacelist.js の DEFAULTS）。これも この端末だけの海になる。
+     このテストは書いたとき（23e33ec）から share を数えておらず、落ちていた（2026-11-17 に直した） */
+  assert.deepEqual(r.seas.map(e => [e.id, e.region]).sort(), [['sabc1234', 'local'], ['share', 'local'], ['sinb0001', 'local']]);
   assert.deepEqual(R.regionList().map(x => x.id), ['local'], 'サーバーの海域が増えた');
   /* combine を渡さないときは前のとおり（後のもので上書き） */
   const old = R.remapPayload(file, map);

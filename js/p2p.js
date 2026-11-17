@@ -266,7 +266,7 @@ export class Mesh {
       const sdp = await this.localSdp(peer.pc, 'offer');
       await this.post({ kind: 'offer', sea: this.sea, g: this.g, dev: this.dev, to: dev, sid: peer.sid, sdp, at: Date.now() });
     } catch (e) { giveUp(); throw e; }
-    setTimeout(giveUp, SIG_MS + 30000);
+    this.later(giveUp, SIG_MS + 30000);
   }
   async answer(p) {
     const cur = this.peers.get(p.dev);
@@ -283,7 +283,7 @@ export class Mesh {
       const sdp = await this.localSdp(peer.pc, 'answer');
       await this.post({ kind: 'answer', sea: this.sea, g: this.g, dev: this.dev, to: p.dev, sid: p.sid, sdp, at: Date.now() });
     } catch (e) { giveUp(); throw e; }
-    setTimeout(giveUp, SIG_MS + 30000);
+    this.later(giveUp, SIG_MS + 30000);
   }
   async accept(p) {
     const peer = this.peers.get(p.dev);
@@ -375,8 +375,16 @@ export class Mesh {
     try { if (peer.ch) peer.ch.close(); } catch (e) { /* 閉じられなくても進む */ }
     try { peer.pc.close(); } catch (e) { /* 同じ */ }
   }
+  /* あとで動かす（つなぎかけを諦める）。close() で止める。止めないと、閉じた網の時計が 3 分半残る
+     （2026-11-17。tests/p2p.test.mjs が終わっても Node が抜けなかった） */
+  later(fn, ms) {
+    if (!this.timers) this.timers = new Set();
+    const t = setTimeout(() => { this.timers.delete(t); fn(); }, ms);
+    this.timers.add(t);
+  }
   close() {
     this.closed = true;
+    if (this.timers) { this.timers.forEach(t => clearTimeout(t)); this.timers.clear(); }
     Array.from(this.peers.keys()).forEach(d => this.drop(d));
   }
 }

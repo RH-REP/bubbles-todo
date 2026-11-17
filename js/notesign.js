@@ -91,7 +91,9 @@ async function verifySig(address, text, sigB64) {
 const cache = new Map();
 export async function checkNote(n, rec) {
   if (!n || n.gone || !rec || typeof n.sa !== 'string' || typeof n.sg !== 'string') return { ok: false, name: '' };
-  const ck = n.id + '|' + n.sg + '|' + (rec.gen || 0) + '|' + ((rec.members || []).length);
+  /* 覚えるときの鍵に、署名する中身（signText）も入れる。前は id と署名だけで、
+     文や名前を書き換えた 1 件にも、前に確かめた「ok」を返していた（2026-11-17 tests/notesign.test.mjs） */
+  const ck = signText(n) + '|' + n.sg + '|' + (rec.gen || 0) + '|' + ((rec.members || []).length);
   if (cache.has(ck)) return cache.get(ck);
   const members = Array.isArray(rec.members) ? rec.members : [];
   const allowed = [rec.owner].concat(members.map(m => m && m.a)).filter(Boolean);

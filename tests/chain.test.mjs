@@ -82,7 +82,8 @@ await test('暗号化して切れ端に分け、戻す。順が乱れても・�
   const memos = await sealToMemos(payload, recordKey, 'a1b2c3d4');
   assert.ok(memos.length >= 2, '切れ端が複数になる大きさで試す');
   memos.forEach(m => assert.ok(m.length <= CHUNK + 30));
-  const parts = memos.map(parseMemo).reverse();
+  /* parseMemo の第2引数は tag。map にそのまま渡すと添字が tag に入るので、1引数で呼ぶ */
+  const parts = memos.map(m => parseMemo(m)).reverse();
   assert.deepEqual(await openMemos(parts, recordKey), payload);
   const other = await sealToMemos({ x: 1 }, recordKey, 'ffffffff');
   const latest = pickLatest(['[12] ' + other[0]].concat(memos.slice().reverse()));
@@ -335,9 +336,10 @@ await test('Android の app（Capacitor）ではパスキーを使わない・�
   /* 置く印の名前は、読む側（boot-edition.js）と書く側（settings.js）・sync.js でそろえる */
   const boot = readFileSync(new URL('../js/boot-edition.js', import.meta.url), 'utf8');
   const settings = readFileSync(new URL('../js/screens/settings.js', import.meta.url), 'utf8');
-  const syncSrc = readFileSync(new URL('../js/sync.js', import.meta.url), 'utf8');
+  /* 住所の箱の名前は、2026-11-12（海域）から js/regions.js の LEGACY_CONF_KEY が持つ（sync.js は confKeyOf で引く） */
+  const regionsSrc = readFileSync(new URL('../js/regions.js', import.meta.url), 'utf8');
   assert.ok(boot.includes("'bubble_todo_edition_stay'") && settings.includes("'bubble_todo_edition_stay'"));
-  assert.ok(boot.includes("'bubble_todo_sync'") && syncSrc.includes("CONF_KEY = 'bubble_todo_sync'"));
+  assert.ok(boot.includes("'bubble_todo_sync'") && regionsSrc.includes("LEGACY_CONF_KEY = 'bubble_todo_sync'"));
 });
 
 await test('控えの大きさ: 上限を超えても「それでも書く」で書け、メモの形の上限だけは書かない（Issue #67）', async () => {
