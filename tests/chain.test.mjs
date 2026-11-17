@@ -424,7 +424,9 @@ await test('招待コードを受け取る欄は 1 つで、貼ったコード�
   assert.equal(inviteKind(''), 'unknown');
   /* 箱の名前と言葉（Issue #74 の A 案）: 鍵の箱の名前を 1 か所で持ち、「ほかの端末と同期する」の選択肢は「自分の端末どうしで使う」へ移した */
   assert.ok(src.includes("const PREP_NAME = 'ブロックチェーンの鍵とウォレット'"));
-  assert.ok(src.includes("group('自分の端末どうしで使う'"));
+  /* 名前は Issue #79 で「自分の複数の端末で使う」に替えた（前の名前で案内する文を残さない） */
+  assert.ok(src.includes("group('自分の複数の端末で使う'"));
+  assert.ok(!/'[^'\n]*「自分の端末どうしで使う」/.test(src), '前の箱の名前で案内している文が残っている（Issue #79）');
   assert.ok(!src.includes("modeChoice.add('sync'"));
   assert.ok(!/'[^']*「ブロックチェーンを準備する」で/.test(src), '前の箱の名前で案内している文が残っている');
 });
