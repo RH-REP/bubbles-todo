@@ -114,6 +114,94 @@ out4="$(setup uninstall 2>&1)" || { echo "$out4"; fail "uninstall が止まっ�
 [[ -d "$T/home/bubbles-data" ]] || fail "uninstall で記録の置き場が消えた"
 pass "uninstall は常駐だけをやめ、記録は残す"
 
+# --- 同じ VM に2つ目の名前で足す（BUBBLES_CADDY=site。2026-11-17） ---
+PORT2="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
+OLD="$T/home/bubbles-data"
+NEW="$T/home/bubbles-lab"
+for f in passkeys.json sessions.json invites.json machine_keys.json oauth.json; do echo '[]' > "$OLD/$f"; done
+[[ -f "$OLD/state.json" ]] || echo '{"version": 3, "data": {"doc": {}}}' > "$OLD/state.json"
+mkdir -p "$OLD/people/2" && echo '{}' > "$OLD/people/2/state.json"
+site() { PATH="$T/bin:$PATH" HOME="$T/home" BUBBLES_DIR="$T/code" BUBBLES_DATA="$NEW" BUBBLES_SERVICE=bubbles-lab \
+  BUBBLES_PORT="$PORT2" BUBBLES_UNIT_DIR="$T/unit" BUBBLES_ETC="$T/etc" "$@" < /dev/null; }
+
+outc="$(site env BUBBLES_FROM="$OLD" bash "$T/code/tools/server-setup.sh" copy-data 2>&1)" || { echo "$outc"; fail "copy-data が止まった"; }
+[[ -f "$NEW/state.json" && -f "$NEW/people/2/state.json" ]] || fail "記録が写っていない"
+for f in passkeys.json sessions.json invites.json machine_keys.json oauth.json .setup; do
+  [[ ! -e "$NEW/$f" ]] || fail "写してはいけない $f が写った"
+done
+[[ "$(stat -f %Lp "$NEW" 2>/dev/null || stat -c %a "$NEW")" == 700 ]] || fail "写した先が 700 でない"
+if site env BUBBLES_FROM="$OLD" bash "$T/code/tools/server-setup.sh" copy-data >/dev/null 2>&1; then fail "state.json がある先に写し直せた"; fi
+pass "copy-data は記録だけを写し（パスキー・通行証・機械の鍵・秘書の許可は写さない）、写した先に記録があれば止まる"
+
+cp "$T/etc/caddy/Caddyfile" "$T/main.before"
+cp "$T/etc/fail2ban/filter.d/bubbles.conf" "$T/f2b.before"
+: > "$T/calls.log"
+outs="$(site env BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratry.duckdns.org bash "$T/code/tools/server-setup.sh" install 2>&1)" \
+  || { echo "$outs"; fail "site の install が止まった"; }
+grep -q "http://127.0.0.1:$PORT2/api/health が応えた" <<<"$outs" || { echo "$outs"; fail "site の health"; }
+cmp -s "$T/main.before" "$T/etc/caddy/Caddyfile" || fail "site の形で Caddyfile が書き換わった"
+s="$T/etc/caddy/sites/bubbles-lab.caddy"
+grep -q "^bubbles.app-laboratry.duckdns.org {" "$s" && grep -q "reverse_proxy 127.0.0.1:$PORT2" "$s" || fail "sites/ の節に名前とポートが無い"
+if grep -q "__" "$s"; then fail "節に埋め残しがある"; fi
+grep -q -- "--origin https://bubbles.app-laboratry.duckdns.org --trust-proxy$" "$T/unit/bubbles-lab.service" || fail "新しい unit の origin"
+grep -q "caddy validate" "$T/calls.log" && grep -q "systemctl reload caddy" "$T/calls.log" || fail "validate と reload をしていない"
+if grep -q "systemctl restart caddy" "$T/calls.log"; then fail "site の形で Caddy を restart した（ほかの名前も止まる）"; fi
+cmp -s "$T/f2b.before" "$T/etc/fail2ban/filter.d/bubbles.conf" || fail "前の bubble の fail2ban の設定が書き換わった"
+grep -q "_SYSTEMD_UNIT=bubbles-lab.service" "$T/etc/fail2ban/filter.d/bubbles-lab.conf" && grep -q '^\[bubbles-lab\]$' "$T/etc/fail2ban/jail.d/bubbles-lab.conf" \
+  && grep -q '^filter = bubbles-lab$' "$T/etc/fail2ban/jail.d/bubbles-lab.conf" || fail "fail2ban の設定がサービスごとに分かれていない"
+grep -q "^CADDY=site$" "$NEW/.setup" || fail ".setup に CADDY=site が無い"
+grep -q "BUBBLES_DATA=$NEW BUBBLES_SERVICE=bubbles-lab BUBBLES_PORT=$PORT2 bash .*invite-add 自分のスマホ" <<<"$outs" || { echo "$outs"; fail "打つコマンドに置き場が付いていない"; }
+pass "site の形: Caddyfile と前の fail2ban に触れず、sites/ に節を置いて validate → reload する"
+
+: > "$T/calls.log"
+outu="$(site bash "$T/code/tools/server-setup.sh" update 2>&1)" || { echo "$outu"; fail "site の update が止まった"; }
+cmp -s "$T/main.before" "$T/etc/caddy/Caddyfile" || fail "site の update で Caddyfile が書き換わった"
+if grep -q "systemctl restart caddy" "$T/calls.log"; then fail "site の update で Caddy を restart した"; fi
+grep -q "test_server_oauth" "$T/code/tools/server-setup.sh" || fail "VM のテストに OAuth のテストが入っていない"
+pass "site の update は BUBBLES_CADDY なしでも site の形のまま（oracle_apps の ENV と同じ渡し方）"
+
+# import の行が無い Caddyfile には1行だけ足す。Caddy が設定を断ったら、節も足した行も戻して止まる
+grep -v '^import /etc/caddy/sites/' "$T/main.before" > "$T/etc/caddy/Caddyfile"
+cp "$T/etc/caddy/Caddyfile" "$T/main.noimport"
+cp "$s" "$T/site.before"
+printf '#!/bin/sh\necho "caddy $*" >> "%s/calls.log"\n[ "$1" = validate ] && [ -f "%s/caddy_fail" ] && { echo "Error: bad" >&2; exit 1; }\nexit 0\n' "$T" "$T" > "$T/bin/caddy"
+chmod +x "$T/bin/caddy"
+touch "$T/caddy_fail"
+if site env BUBBLES_DOMAIN=other.app-laboratry.duckdns.org bash "$T/code/tools/server-setup.sh" update >/dev/null 2>&1; then fail "Caddy が断っても update が通った"; fi
+cmp -s "$T/main.noimport" "$T/etc/caddy/Caddyfile" || fail "断られたあと、足した import の行が戻っていない"
+cmp -s "$T/site.before" "$s" || fail "断られたあと、前の節に戻っていない"
+rm -f "$T/caddy_fail"
+site bash "$T/code/tools/server-setup.sh" update >/dev/null 2>&1 || fail "import の行が無い Caddyfile で update が止まった"
+[[ "$(grep -c '^import /etc/caddy/sites/\*\.caddy$' "$T/etc/caddy/Caddyfile")" == 1 ]] || fail "import の行がちょうど1つ足されていない"
+pass "import の行が無ければ1行足し、Caddy が断ったら節と足した行を戻して止まる"
+
+outx="$(site bash "$T/code/tools/server-setup.sh" uninstall 2>&1)" || { echo "$outx"; fail "site の uninstall が止まった"; }
+[[ ! -f "$s" && ! -f "$T/etc/fail2ban/jail.d/bubbles-lab.conf" ]] || fail "site の uninstall で節か fail2ban の設定が残った"
+[[ -f "$T/etc/fail2ban/jail.d/bubbles.conf" && -f "$NEW/state.json" ]] || fail "site の uninstall が前の bubble の設定か記録を消した"
+pass "site の uninstall は自分の節と fail2ban の設定だけを外し、記録は残す"
+
+# --- 前の名前の節を転送にする・外す（old-name） ---
+cp "$T/main.before" "$T/etc/caddy/Caddyfile"
+old() { site env BUBBLES_OLD_DOMAIN="$1" bash "$T/code/tools/server-setup.sh" old-name "$2"; }
+old bubbles.example.org redirect >/dev/null 2>&1 || fail "old-name redirect が止まった"
+c="$T/etc/caddy/Caddyfile"
+grep -q '^	redir https://bubbles.app-laboratry.duckdns.org{uri} 308$' "$c" || fail "転送の行が無い"
+if grep -q "reverse_proxy" "$c"; then fail "前の名前の reverse_proxy が残った"; fi
+grep -q "default_bind 10.0.0.42" "$c" && [[ "$(grep -c '^import /etc/caddy/sites/\*\.caddy$' "$c")" == 1 ]] || fail "全体の設定か import の行が消えた"
+cmp -s "$T/main.before" "$c.before-old-name" || fail "前の形が控えに残っていない"
+cp "$T/main.before" "$c"
+old bubbles.example.org remove >/dev/null 2>&1 || fail "old-name remove が止まった"
+if grep -q "bubbles.example.org" "$c"; then fail "前の名前の節が残った"; fi
+grep -q "default_bind 10.0.0.42" "$c" || fail "remove で全体の設定が消えた"
+cp "$c" "$T/after.remove"
+if old bubbles.example.org remove >/dev/null 2>&1; then fail "節が無いのに通った"; fi
+cmp -s "$T/after.remove" "$c" || fail "節が無いときに Caddyfile が変わった"
+cp "$T/main.before" "$c"; touch "$T/caddy_fail"
+if old bubbles.example.org redirect >/dev/null 2>&1; then fail "Caddy が断っても通った"; fi
+cmp -s "$T/main.before" "$c" || fail "Caddy が断ったあと元に戻っていない"
+rm -f "$T/caddy_fail"
+pass "old-name: 前の名前の節だけを転送・外すに書き換え、無ければ・Caddy が断れば元のまま止まる"
+
 # --- 前の Tailscale の形で立ち上げていた置き場 ---
 kill "$(cat "$T/server.pid")" 2>/dev/null || true
 rm -f "$T/server.pid"

@@ -769,6 +769,13 @@ bash tests/server-setup.test.sh
   - よそのオリジンから呼んでよい相手は決めたものだけ（合言葉の形は Android 版だけ、公開の形は無し）。サーバーの版を名乗らない
   - 守りの出来事を `bubbles: auth-fail ip=…` の形で標準エラーに出す（値は出さない）。fail2ban が読んで締め出す
 - **前段（Caddy）**: HTTPS の証明書・待ち時間・大きさの上限（`tools/public/Caddyfile.template`）。server.py は 127.0.0.1 のまま、`--trust-proxy` で接続元を数える
+- **同じ VM に2つ目の名前で立てる（デプロイキット。2026-11-17）**: `BUBBLES_CADDY=site` を付けると、`/etc/caddy/Caddyfile` を書き直さず、
+  節を `/etc/caddy/sites/<サービス名>.caddy` に置く（import の行が無ければ1行足す。`caddy validate` を通してから `reload`。通らなければ置いた節を戻して止まる）。
+  fail2ban の設定もサービスの名前で分ける。形は記録の置き場の `.setup` に覚える（update は `BUBBLES_DATA`・`BUBBLES_SERVICE`・`BUBBLES_PORT` だけでよい）。
+  名前を変えて移るときの `copy-data`（`BUBBLES_FROM` の記録だけを写す。パスキー・通行証・招待・機械の鍵・秘書の許可は写さない。写す先に記録があれば止まる）と、
+  前の名前の節を転送・外す `old-name redirect|remove`（`BUBBLES_OLD_DOMAIN`。Caddyfile の中のその節だけを書き換え、validate が通らなければ戻す）。
+  `machine-add`・`machine-list`・`machine-remove`・`oauth-list`・`oauth-revoke` もこのスクリプトから打てる。
+  `bubbles.app-laboratry.duckdns.org`（サービス `bubbles-lab`、127.0.0.1:8933）に立てる手順書は registry の `local_note`。テストは `bash tests/server-setup.test.sh`（偽物で。本物の VM では未確認）
 - **立ち上げ**: `BUBBLES_DOMAIN=<名前> bash tools/server-setup.sh`（名前は `<データの場所>/.setup` に覚え、`update` は環境変数なしでよい）。前の Tailscale 版で立ち上げた置き場では、名前を付けるよう言って止まる。
   Caddy と fail2ban は入っていれば設定を置く。ファイアウォール（クラウドとサーバーの中）で 80・443 を開ける手順は画面に出す（自動では開けない）
 - **テスト**: `python3 -m unittest tests/test_passkey_crypto.py tests/test_server_public.py tests/test_server_machine.py`（署名は Node の暗号の部品で作り突き合わせる）、
