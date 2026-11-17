@@ -9,14 +9,14 @@
 #   bash bubbles-todo/tools/server-setup.sh status     # 動いているか・住所
 #   bash bubbles-todo/tools/server-setup.sh uninstall  # 常駐をやめる（記録とパスキーは消さない）
 #
-# 同じ VM に2つ目の bubble を別の名前で足す（2026-11-17。例 bubbles.app-laboratry.duckdns.org）:
+# 同じ VM に2つ目の bubble を別の名前で足す（2026-11-17。例 bubbles.app-laboratory.duckdns.org）:
 #   BUBBLES_CADDY=site にすると、/etc/caddy/Caddyfile を書き直さず、節を /etc/caddy/sites/<サービス名>.caddy に置く
 #   （Caddyfile に import /etc/caddy/sites/*.caddy の行が無ければ1行だけ足す）。caddy validate を通してから reload する
 #   （通らなければ置いた節を外して止まる）。fail2ban の設定も <サービス名>.conf に分ける。uninstall は節と fail2ban の設定も外す。
 #   BUBBLES_CADDY は記録の置き場の .setup.<サービス名> に覚える（update は置き場・サービス・ポートの環境変数だけでよい）。
 #   前の住所のサービスと同じ記録の置き場を使ってよい（BUBBLES_DATA を同じにする。server.py はプロセスをまたぐ錠で書く。
 #   パスキーは住所ごとに別で、登録の上限〈置き場ごとに 3〉は両方の住所のパスキーを合わせて数える）。
-#     BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratry.duckdns.org BUBBLES_SERVICE=bubbles-lab \
+#     BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratory.duckdns.org BUBBLES_SERVICE=bubbles-lab \
 #       BUBBLES_PORT=8933 BUBBLES_DATA=$HOME/bubbles-lab bash bubbles-lab-code/tools/server-setup.sh install
 #   前の置き場の記録を写す（パスキー・通行証・招待・機械の鍵・秘書の許可は写さない。名前が変わるとパスキーは使えないため）:
 #     BUBBLES_FROM=$HOME/bubbles-public BUBBLES_DATA=$HOME/bubbles-lab bash bubbles-lab-code/tools/server-setup.sh copy-data

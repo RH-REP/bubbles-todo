@@ -136,14 +136,14 @@ pass "copy-data は記録だけを写し（パスキー・通行証・機械の�
 cp "$T/etc/caddy/Caddyfile" "$T/main.before"
 cp "$T/etc/fail2ban/filter.d/bubbles.conf" "$T/f2b.before"
 : > "$T/calls.log"
-outs="$(site env BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratry.duckdns.org bash "$T/code/tools/server-setup.sh" install 2>&1)" \
+outs="$(site env BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratory.duckdns.org bash "$T/code/tools/server-setup.sh" install 2>&1)" \
   || { echo "$outs"; fail "site の install が止まった"; }
 grep -q "http://127.0.0.1:$PORT2/api/health が応えた" <<<"$outs" || { echo "$outs"; fail "site の health"; }
 cmp -s "$T/main.before" "$T/etc/caddy/Caddyfile" || fail "site の形で Caddyfile が書き換わった"
 s="$T/etc/caddy/sites/bubbles-lab.caddy"
-grep -q "^bubbles.app-laboratry.duckdns.org {" "$s" && grep -q "reverse_proxy 127.0.0.1:$PORT2" "$s" || fail "sites/ の節に名前とポートが無い"
+grep -q "^bubbles.app-laboratory.duckdns.org {" "$s" && grep -q "reverse_proxy 127.0.0.1:$PORT2" "$s" || fail "sites/ の節に名前とポートが無い"
 if grep -q "__" "$s"; then fail "節に埋め残しがある"; fi
-grep -q -- "--origin https://bubbles.app-laboratry.duckdns.org --trust-proxy$" "$T/unit/bubbles-lab.service" || fail "新しい unit の origin"
+grep -q -- "--origin https://bubbles.app-laboratory.duckdns.org --trust-proxy$" "$T/unit/bubbles-lab.service" || fail "新しい unit の origin"
 grep -q "caddy validate" "$T/calls.log" && grep -q "systemctl reload caddy" "$T/calls.log" || fail "validate と reload をしていない"
 if grep -q "systemctl restart caddy" "$T/calls.log"; then fail "site の形で Caddy を restart した（ほかの名前も止まる）"; fi
 cmp -s "$T/f2b.before" "$T/etc/fail2ban/filter.d/bubbles.conf" || fail "前の bubble の fail2ban の設定が書き換わった"
@@ -167,7 +167,7 @@ cp "$s" "$T/site.before"
 printf '#!/bin/sh\necho "caddy $*" >> "%s/calls.log"\n[ "$1" = validate ] && [ -f "%s/caddy_fail" ] && { echo "Error: bad" >&2; exit 1; }\nexit 0\n' "$T" "$T" > "$T/bin/caddy"
 chmod +x "$T/bin/caddy"
 touch "$T/caddy_fail"
-if site env BUBBLES_DOMAIN=other.app-laboratry.duckdns.org bash "$T/code/tools/server-setup.sh" update >/dev/null 2>&1; then fail "Caddy が断っても update が通った"; fi
+if site env BUBBLES_DOMAIN=other.app-laboratory.duckdns.org bash "$T/code/tools/server-setup.sh" update >/dev/null 2>&1; then fail "Caddy が断っても update が通った"; fi
 cmp -s "$T/main.noimport" "$T/etc/caddy/Caddyfile" || fail "断られたあと、足した import の行が戻っていない"
 cmp -s "$T/site.before" "$s" || fail "断られたあと、前の節に戻っていない"
 rm -f "$T/caddy_fail"
@@ -185,10 +185,10 @@ cp "$T/main.before" "$T/etc/caddy/Caddyfile"
 cp "$OLD/.setup.bubbles-todo" "$T/old.setup.before"
 shared() { PATH="$T/bin:$PATH" HOME="$T/home" BUBBLES_DIR="$T/code" BUBBLES_DATA="$OLD" BUBBLES_SERVICE=bubbles-lab \
   BUBBLES_PORT="$PORT2" BUBBLES_UNIT_DIR="$T/unit" BUBBLES_ETC="$T/etc" "$@" < /dev/null; }
-outsh="$(shared env BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratry.duckdns.org bash "$T/code/tools/server-setup.sh" install 2>&1)" \
+outsh="$(shared env BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratory.duckdns.org bash "$T/code/tools/server-setup.sh" install 2>&1)" \
   || { echo "$outsh"; fail "同じ置き場で site の install が止まった"; }
 cmp -s "$T/old.setup.before" "$OLD/.setup.bubbles-todo" || fail "前のサービスの .setup が書き換わった"
-grep -q "^DOMAIN=bubbles.app-laboratry.duckdns.org$" "$OLD/.setup.bubbles-lab" && grep -q "^CADDY=site$" "$OLD/.setup.bubbles-lab" || fail "新しいサービスの .setup が無い"
+grep -q "^DOMAIN=bubbles.app-laboratory.duckdns.org$" "$OLD/.setup.bubbles-lab" && grep -q "^CADDY=site$" "$OLD/.setup.bubbles-lab" || fail "新しいサービスの .setup が無い"
 grep -q "^ReadWritePaths=$OLD$" "$T/unit/bubbles-lab.service" || fail "新しいサービスが同じ置き場を書けない"
 cmp -s "$T/main.before" "$T/etc/caddy/Caddyfile" || fail "同じ置き場の site の install で Caddyfile が書き換わった"
 : > "$T/calls.log"
@@ -197,7 +197,7 @@ grep -q -- "--origin https://bubbles.example.org --trust-proxy$" "$u" || fail "�
 grep -q "systemctl restart caddy" "$T/calls.log" || fail "前のサービスが main の形でなくなった"
 grep -q "^bubbles.example.org {" "$T/etc/caddy/Caddyfile" && [[ "$(grep -c '^import /etc/caddy/sites/\*\.caddy$' "$T/etc/caddy/Caddyfile")" == 1 ]] \
   || fail "前のサービスの update で Caddyfile の形が変わった"
-grep -q "^bubbles.app-laboratry.duckdns.org {" "$T/etc/caddy/sites/bubbles-lab.caddy" || fail "前のサービスの update で新しい節が消えた"
+grep -q "^bubbles.app-laboratory.duckdns.org {" "$T/etc/caddy/sites/bubbles-lab.caddy" || fail "前のサービスの update で新しい節が消えた"
 pass "同じ置き場で並べても、.setup はサービスごとに分かれ、前のサービスは前の名前・main の形のまま"
 shared bash "$T/code/tools/server-setup.sh" uninstall >/dev/null 2>&1 || fail "同じ置き場の新しいサービスの uninstall が止まった"
 [[ -f "$OLD/state.json" && -f "$OLD/.setup.bubbles-todo" ]] || fail "新しいサービスの uninstall が記録か前の .setup を消した"
@@ -208,7 +208,7 @@ cp "$T/main.before" "$T/etc/caddy/Caddyfile"
 old() { site env BUBBLES_OLD_DOMAIN="$1" bash "$T/code/tools/server-setup.sh" old-name "$2"; }
 old bubbles.example.org redirect >/dev/null 2>&1 || fail "old-name redirect が止まった"
 c="$T/etc/caddy/Caddyfile"
-grep -q '^	redir https://bubbles.app-laboratry.duckdns.org{uri} 308$' "$c" || fail "転送の行が無い"
+grep -q '^	redir https://bubbles.app-laboratory.duckdns.org{uri} 308$' "$c" || fail "転送の行が無い"
 if grep -q "reverse_proxy" "$c"; then fail "前の名前の reverse_proxy が残った"; fi
 grep -q "default_bind 10.0.0.42" "$c" && [[ "$(grep -c '^import /etc/caddy/sites/\*\.caddy$' "$c")" == 1 ]] || fail "全体の設定か import の行が消えた"
 cmp -s "$T/main.before" "$c.before-old-name" || fail "前の形が控えに残っていない"
