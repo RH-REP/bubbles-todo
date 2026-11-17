@@ -230,7 +230,7 @@ async function call(method, body, path = '/api/data', auth = key()) {
 
 /* 古い版だと断られた。syncNow が状態 'outdated' にする */
 function outdatedError(min) {
-  const e = new Error('この版は古いので同期を止めた。更新すると続きから合わさる');
+  const e = new Error('この app の版が古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる');
   e.outdated = true;
   e.minSchema = Number.isFinite(Number(min)) ? Number(min) : null;
   return e;

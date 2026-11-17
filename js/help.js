@@ -56,7 +56,7 @@ export function closeHelp(restoreFocus) {
 const EXAMPLES = [
   '次の一手はどこで書く？',
   '長期保留の「もどってくる日」はどう使う？',
-  '別の端末と記録を合わせるには？',
+  '自分のほかの端末でも同じ記録を使うには？',
 ];
 
 /* Issue の候補（2026-11-07。利用者の指示 Issue #28、案A）。

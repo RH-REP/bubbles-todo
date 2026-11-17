@@ -15,7 +15,7 @@
      ・個人は空色のまま。ほかの海は選んだ色の水になる（css/space.css。html.is-sea[data-sea=…]）
 
    個人でない海のときだけ出るもの:
-     ・状態の字   薄い帯の右に2行。「合わせた／15:30」・「繋がっていない／15:30 に見たもの」
+     ・状態の字   薄い帯の右に2行。「やりとり済み／15:30」・「つながっていない／15:30 に見たもの」（2026-11-17 Issue #79 で前の「合わせた」から替えた）
                   件数・人数は出さない（数を出さない決まりと同じ）
      ・読むだけ   招かれて入った海で、合わせられていない間は、入力欄を点線にして「繋がると書ける」。
                   書き込み口は store が断り、ここが知らせを出す
@@ -334,10 +334,12 @@ function paint() {
   const seen = sync.seenAt();
   stateEl.hidden = !sync.ready() || settingsOpen();
   stateEl.classList.toggle('is-off', st.state === 'error' || st.state === 'outdated');
-  if (st.state === 'ok') stateText('合わせた', hhmm(st.at));
-  else if (st.state === 'outdated') stateText('同期を止めた（古い版）', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
-  else if (st.state === 'error') stateText('繋がっていない', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
-  else stateText('合わせている…');
+  /* 言葉は 2026-11-17 Issue #79 の返事「設定以外も同じようにできる？」で「合わせた」→「やりとり済み」などにした
+     （設定の「サーバーとやりとりした」とそろえる。「同期」は共有の海の［🔑 同期］だけに使う） */
+  if (st.state === 'ok') stateText('やりとり済み', hhmm(st.at));
+  else if (st.state === 'outdated') stateText('やりとりを止めた（app が古い）', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
+  else if (st.state === 'error') stateText('つながっていない', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
+  else stateText('やりとり中…');
 }
 
 sync.on(paint);

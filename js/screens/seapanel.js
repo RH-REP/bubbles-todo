@@ -112,7 +112,7 @@ export function seaPanel(opts = {}) {
   function whereOf(s, st) {
     if (!onServer(s, st)) return 'この端末';
     if (!st.live) return 'サーバー・ログインしていない';
-    if (s.id === cur) { const at = sync.seenAt(); return at ? 'サーバー・合わせた ' + hhmm(at) : 'サーバー'; }
+    if (s.id === cur) { const at = sync.seenAt(); return at ? 'サーバー・やりとり済み ' + hhmm(at) : 'サーバー'; }
     return 'サーバー';
   }
 
@@ -139,7 +139,7 @@ export function seaPanel(opts = {}) {
     }
     const note = (t) => { const p = text('p', 'note', t); g.appendChild(p); return p; };
     if (s.personal) {
-      note(server ? 'サーバーの個人。ログインした人の端末どうしだけで合わせる（ほかの人には見えない）。' : 'この端末の個人。');
+      note(server ? 'サーバーの個人。ログインした自分の端末どうしだけで同じ記録にする（ほかの人には見えない）。' : 'この端末の個人。');
     } else if (!server) {
       /* サーバーに置くのは管理者（VM の sea-add）。この海の ID を渡す */
       note('この端末だけの海。サーバーに置くには、サーバーの管理者が VM でこの海の ID を使って海を作り、入れる端末を決める。'
@@ -153,7 +153,7 @@ export function seaPanel(opts = {}) {
       g.appendChild(cmd);
     } else {
       note('サーバーの海。名前・色・入れる人は、サーバーの管理者が VM で決める。');
-      const back = btn('この端末へ戻す（合わせるのをやめる）');
+      const back = btn('この端末だけの海に戻す（サーバーとのやりとりをやめる）');
       back.addEventListener('click', () => {
         if (!setSeaRegion(s.id, 'local')) { toast('変えられなかった'); return; }
         toast('この端末の海にした（この端末の中身は残る。サーバーの中身も消さない）');
@@ -182,10 +182,10 @@ export function seaPanel(opts = {}) {
   function unifyButton() {
     const b = btn('サーバーに統合', 'btn sp-unify');
     b.dataset.name = 'サーバーに統合ボタン';
-    b.title = '両方の泡を残して1つの「個人」にし、サーバーと合わせる';
+    b.title = '両方の泡を残して1つの「個人」にし、サーバーに置く';
     let armed = false;
     b.addEventListener('click', () => {
-      if (!armed) { armed = true; b.textContent = 'もう一度押す'; toast('もう一度押すと、両方の泡を残して1つの個人にまとめ、サーバーと合わせる'); return; }
+      if (!armed) { armed = true; b.textContent = 'もう一度押す'; toast('もう一度押すと、両方の泡を残して1つの個人にまとめ、サーバーに置く'); return; }
       if (!unifyPersonal()) { toast('まとめられなかった'); return; }
       toast('個人を1つにまとめた');
       location.reload();
@@ -225,10 +225,10 @@ export function seaPanel(opts = {}) {
         out.appendChild(code);
         out.appendChild(text('p', null, '「' + name + '」の招待コード（24 時間・1回だけ）。相手にこのページの住所とコードを渡す。'
           + '相手は設定の「海」の［サーバーにログイン］→［招待コードで登録］。'));
-        const cp = btn('コードを写す');
+        const cp = btn('コードをコピー');
         cp.addEventListener('click', async () => {
-          try { await navigator.clipboard.writeText(got.code); toast('写した'); }
-          catch (e) { try { getSelection().selectAllChildren(code); toast(document.execCommand('copy') ? '写した' : '選んだので ⌘C で'); } catch (_) { toast('コードを長押しして写す'); } }
+          try { await navigator.clipboard.writeText(got.code); toast('コピーした'); }
+          catch (e) { try { getSelection().selectAllChildren(code); toast(document.execCommand('copy') ? 'コピーした' : '選んだので ⌘C で'); } catch (_) { toast('コードを長押ししてコピーする'); } }
         });
         out.appendChild(cp);
         nm.value = '';
@@ -447,7 +447,7 @@ export function seaPanel(opts = {}) {
     const srvSeas = seas.filter(s => onServer(s, st) && !(s.personal && st.live && st.spaces.indexOf('me') < 0));
     const localSeas = seas.filter(s => !onServer(s, st));
     if (srvSeas.length) {
-      wrap.appendChild(text('p', 'prefs-pages-lb', st.live ? 'サーバーの海（入れる海）' : 'サーバーの海（ログインすると合わせる）'));
+      wrap.appendChild(text('p', 'prefs-pages-lb', st.live ? 'サーバーの海（入れる海）' : 'サーバーの海（ログインすると使える）'));
       srvSeas.forEach(s => wrap.appendChild(seaRow(s, st)));
     }
     wrap.appendChild(text('p', 'prefs-pages-lb', 'この端末の海'));
@@ -463,7 +463,7 @@ export function seaPanel(opts = {}) {
       q.style.cssText = 'margin-top:16px;padding-top:10px;border-top:1px solid var(--line)';
       const r = el('div', 'row');
       r.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
-      r.appendChild(text('span', 'note', 'ほかの端末・ほかの人と合わせる'));
+      r.appendChild(text('span', 'note', '自分のほかの端末・ほかの人と同じ記録を使う'));
       const open = btn(loginOpen ? 'とじる' : 'サーバーにログイン');
       open.addEventListener('click', () => { loginOpen = !loginOpen; paint(); if (loginOpen) scrollToLogin(); });
       r.appendChild(open);

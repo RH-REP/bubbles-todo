@@ -167,7 +167,7 @@ h2, h3 { scroll-margin-top: 76px; }
 <figure>
   <div class="shot"><img src="img/23_sea_edit.jpg" alt="この海の板。名前・色・人を招くときのコマンド・この海を消す" loading="lazy"><figcaption>この海の名前・色</figcaption></div>
   <div class="shot"><img src="img/01_sea.jpg" alt="個人の海（水色）" loading="lazy"><figcaption>個人（いつもの水の色）</figcaption></div>
-  <div class="shot"><img src="img/13_share.jpg" alt="共有の海（マグマの赤）。薄い帯の右に「合わせた」と時刻" loading="lazy"><figcaption>共有（マグマの水。右上に「合わせた」）</figcaption></div>
+  <div class="shot"><img src="img/13_share.jpg" alt="共有の海（マグマの赤）。薄い帯の右に「合わせた」と時刻" loading="lazy"><figcaption>共有（マグマの水。右上に「やりとり済み」。写真は前の版で「合わせた」と出ている）</figcaption></div>
 </figure>
 <div class="box share">泡を1つずつ別の海へ移す道はありません（間違えて人に見せないため）。海を丸ごとまとめるときは、設定の「海を設定する」でまとめる元の海の ⚙ →［ほかの海へまとめる］で先を選びます（先が人を招いた海なら、確かめが出ます）。その海に置きたいものは、その海に切り替えてから書きます。件数や人数は出しません。</div>
 
@@ -256,7 +256,7 @@ bash bubbles-todo/tools/server-setup.sh passkey-list
 
 # 取り消す（その端末は次の要求から入れない）
 bash bubbles-todo/tools/server-setup.sh passkey-remove 母のスマホ</code></pre>
-<p class="note">移された端末は、次に合わせたとき手元の個人をその人の個人に入れ替えます（前の中身は端末の中に控えとして残ります）。</p>
+<p class="note">移された端末は、次にサーバーとやりとりしたとき手元の個人をその人の個人に入れ替えます（前の中身は端末の中にバックアップとして残ります）。</p>
 <p class="note">登録できるパスキーは置き場（人ごとの個人・海）ごとに3つ、同時に使える端末は3台までです。端末を替えたら、古い端末のパスキーを <code>passkey-remove</code> で外してから招待し直します。</p>
 
 <h2 id="move">8. 引っ越し（ファイルの書き出し・読み込み）</h2>
@@ -286,7 +286,7 @@ bash bubbles-todo/tools/server-setup.sh passkey-remove 母のスマホ</code></p
   <tr><td>招待コードで登録できない</td><td>コードは1回きり・24時間。使ったか切れたなら、持ち主に作り直してもらう。パスキーがいっぱい（3つ）のときも断られる。</td></tr>
   <tr><td>入っていたのに入れなくなった</td><td>通行証（30日）が切れた。設定の「パスキーで入る」を押す。それでも入れないなら、取り消された（<code>passkey-remove</code>）かもしれない。</td></tr>
   <tr><td>「http では繋がない」</td><td>住所を <code>https://&lt;名前&gt;</code> にする。</td></tr>
-  <tr><td>招かれた海で書けない（点線）</td><td>サーバーと合わせられるまで読むだけ。いちばん上の薄い帯の右の字が「合わせた」になれば書ける。</td></tr>
+  <tr><td>招かれた海で書けない（点線）</td><td>サーバーとやりとりできるまで読むだけ。いちばん上の薄い帯の右の字が「やりとり済み」になれば書ける。</td></tr>
   <tr><td>update したのに古いまま・下のタブが隠れる</td><td>Bubbles を「最近使ったアプリ」から払って完全に閉じ、開き直す。直らなければ、設定の下の「画面の大きさの記録」を写して持ち主に渡す。</td></tr></table>
 <p class="note">この記事のスクリーンショットは、試し用の記録で撮ったものです。</p>
 </main>

@@ -99,10 +99,11 @@ export function encryptedHead(text) {
   let o;
   try { o = JSON.parse(String(text || '')); } catch (e) { return null; }
   if (!o || o.format !== FORMAT_ENC) return null;
-  if (!o.kdf || !o.cipher || !o.data) throw new Error('暗号化した控えが壊れている');
-  if (Number(o.version) > ENC_VERSION) throw new Error('この app より新しい版の控え（app を更新してから読み込む）');
+  /* 画面に出る言葉は「控え」→「バックアップ」（2026-11-17 Issue #79 の返事） */
+  if (!o.kdf || !o.cipher || !o.data) throw new Error('暗号化したバックアップが壊れている');
+  if (Number(o.version) > ENC_VERSION) throw new Error('この app より新しい版のバックアップ（app を更新してから読み込む）');
   const iter = Number(o.kdf.iterations);
-  if (!(iter >= 100000 && iter <= 10000000)) throw new Error('暗号化した控えが壊れている');
+  if (!(iter >= 100000 && iter <= 10000000)) throw new Error('暗号化したバックアップが壊れている');
   return o;
 }
 
@@ -159,13 +160,13 @@ export function buildBackup({ boxes, seas, at = Date.now(), device = '', regions
 /* 控えのファイルを読む。形が違えば投げる。戻り値は buildBackup の形（mergeIntoDevice にそのまま渡せる） */
 export function readBackup(text) {
   let p;
-  try { p = JSON.parse(String(text || '')); } catch (e) { throw new Error('控えのファイルではない（JSON として読めない）'); }
+  try { p = JSON.parse(String(text || '')); } catch (e) { throw new Error('バックアップのファイルではない（JSON として読めない）'); }
   if (!p || typeof p !== 'object' || p.format !== FORMAT) {
     if (p && p.format === 'bubbles-move') throw new Error('これは引っ越しのファイル（暗号化）。「ファイルに書き出す」の［ファイルから読み込む］で開く');
-    if (p && p.format === FORMAT_ENC) throw new Error('暗号化した控え（openBackup で開く）');
-    throw new Error('控えのファイルではない（bubbles-backup の形でない）');
+    if (p && p.format === FORMAT_ENC) throw new Error('暗号化したバックアップ（openBackup で開く）');
+    throw new Error('バックアップのファイルではない（bubbles-backup の形でない）');
   }
-  if (!p.boxes || typeof p.boxes !== 'object' || Array.isArray(p.boxes)) throw new Error('控えのファイルが壊れている');
+  if (!p.boxes || typeof p.boxes !== 'object' || Array.isArray(p.boxes)) throw new Error('バックアップのファイルが壊れている');
   delete p.server;                       /* 控えには入れていない。入っていても使わない */
   if (!Array.isArray(p.seas)) p.seas = [];
   return p;

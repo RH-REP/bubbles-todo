@@ -23,7 +23,8 @@
 import { sync } from './sync.js';
 import { checkForUpdate, applyUpdate, forceReload } from './update.js';
 
-export const OUTDATED_TEXT = 'この版は古いので同期を止めた。更新すると続きから合わさる';
+/* 言葉は 2026-11-17 Issue #79 の返事で「同期・合わさる」→「やりとり・同じ記録」に（js/sync.js の文と同じにする） */
+export const OUTDATED_TEXT = 'この app の版が古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる';
 export const NOT_FOUND_TEXT = '新しい版がまだ見つからない（少し待ってもう一度押す）';
 export const RELOAD_TEXT = '自動の入れ替えを使っていない端末なので、画面のキャッシュを消して最新の版を読み直す…';
 export const NATIVE_TEXT = 'Android の app は中の版を自分では入れ替えられない。app を作り直して入れ直す';

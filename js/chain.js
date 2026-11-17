@@ -443,26 +443,26 @@ export async function rpc(network, method, params, { fetchFn = globalThis.fetch,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
       });
-    } catch (e) { last = new Error('窓口に繋がらない'); continue; }
-    if (res.status === 429 || res.status >= 500) { last = new Error('窓口が混んでいる（少し待ってやり直す）'); continue; }
+    } catch (e) { last = new Error('ブロックチェーンのサーバーにつながらない'); continue; }
+    if (res.status === 429 || res.status >= 500) { last = new Error('ブロックチェーンのサーバーが混んでいる（少し待ってやり直す）'); continue; }
     if (!res.ok) {
-      const err = new Error('窓口の返事が ' + res.status);
+      const err = new Error('ブロックチェーンのサーバーの返事が ' + res.status);
       err.status = res.status;
       throw err;
     }
     const j = await res.json();
     if (j && j.error) {
       const m = String(j.error.message || '');
-      if (/rate|too many/i.test(m)) { last = new Error('窓口が混んでいる（少し待ってやり直す）'); continue; }
+      if (/rate|too many/i.test(m)) { last = new Error('ブロックチェーンのサーバーが混んでいる（少し待ってやり直す）'); continue; }
       if (/simulation failed/i.test(m)) {
         /* 送る前の試し（preflight）で断られた。取引はチェーンに載っていないので、手数料は掛かっていない */
         throw new Error('書く前の試しで断られた（手数料は掛かっていない）: ' + m);
       }
-      throw new Error('窓口が断った: ' + m);
+      throw new Error('ブロックチェーンのサーバーが断った: ' + m);
     }
     return j.result;
   }
-  throw last || new Error('窓口に繋がらない');
+  throw last || new Error('ブロックチェーンのサーバーにつながらない');
 }
 
 export async function getBalance(network, address, opt) {
@@ -482,7 +482,7 @@ export async function requestAirdrop(network, address, opt) {
     return await rpc(network, 'requestAirdrop', [address, AIRDROP_LAMPORTS], opt);
   } catch (e) {
     if (e && (e.status === 410 || e.status === 403)) {
-      throw new Error('この窓口はいまテスト用の SOL を配っていない（' + e.status + '）');
+      throw new Error('このサーバーはいまテスト用の SOL を配っていない（' + e.status + '）');
     }
     if (e && /混んでいる|airdrop|limit|faucet/i.test(String(e.message))) {
       throw new Error('テスト用の SOL を配る回数の上限に当たった');

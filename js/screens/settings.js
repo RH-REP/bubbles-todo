@@ -3937,7 +3937,7 @@ function chainBox(opts = {}) {
     if (c.network !== net) throw new Error('この招待コードは ' + NETWORKS[c.network].label + ' のもの。「' + PREP_NAME + '」でネットをそろえる（招いた人と同じネットで鍵を開く）');
     line.textContent = '招待を探している…';
     const f = await findInviteByCode(code);
-    if (!f) throw new Error('招待が見つからない（期限切れ・写し間違い・まだ書き終わっていない）。少し待ってもう一度押すか、招いた人に作り直してもらう');
+    if (!f) throw new Error('招待が見つからない（期限切れ・打ち間違い・まだ書き終わっていない）。少し待ってもう一度押すか、招いた人に作り直してもらう');
     const all = loadShared();
     const prev = all[f.sea.id];
     if (prev && prev.me === keys.wallet.address && prev.gen >= f.gen) throw new Error('「' + f.sea.name + '」はもう受け取っている');

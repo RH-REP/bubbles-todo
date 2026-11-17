@@ -101,10 +101,10 @@ export async function readShareAddress(str) {
   let b;
   /* 画面では「受け取りID」と呼ぶ（2026-11-11 Issue #37 の返事: 名前が難しい） */
   try { b = b58decode(raw); } catch (e) { throw new Error('受け取りIDの字が違う（BTA1- で始まる文字を、そのまま貼る）'); }
-  if (b.length !== 2 + 32 + 32 + 4) throw new Error('受け取りIDの長さが違う（写し間違い？）');
+  if (b.length !== 2 + 32 + 32 + 4) throw new Error('受け取りIDの長さが違う（打ち間違い・コピーの漏れ？）');
   const body = b.subarray(0, 66), sum = b.subarray(66);
   const want = (await sha256(body)).subarray(0, 4);
-  if (want.some((x, i) => x !== sum[i])) throw new Error('受け取りIDが違う（写し間違い？）');
+  if (want.some((x, i) => x !== sum[i])) throw new Error('受け取りIDが違う（打ち間違い・コピーの漏れ？）');
   if (body[0] !== VER) throw new Error('この app より新しい版の受け取りID');
   const network = Object.keys(NETWORKS).find(k => NETWORKS[k].code === body[1]);
   if (!network) throw new Error('受け取りIDのネットが分からない');
@@ -314,10 +314,10 @@ export async function readInviteCode(str) {
   if (!raw) throw new Error('招待コード（BTI1- で始まる文字）を貼る');
   let b;
   try { b = b58decode(raw); } catch (e) { throw new Error('招待コードの字が違う（BTI1- で始まる文字を、そのまま貼る）'); }
-  if (b.length !== INVITE_LEN) throw new Error('招待コードの長さが違う（写し間違い？）');
+  if (b.length !== INVITE_LEN) throw new Error('招待コードの長さが違う（打ち間違い・コピーの漏れ？）');
   const body = b.subarray(0, INVITE_LEN - 2), sum = b.subarray(INVITE_LEN - 2);
   const want = (await sha256(body)).subarray(0, 2);
-  if (want.some((x, i) => x !== sum[i])) throw new Error('招待コードが違う（写し間違い？）');
+  if (want.some((x, i) => x !== sum[i])) throw new Error('招待コードが違う（打ち間違い・コピーの漏れ？）');
   if (body[0] !== VER) throw new Error('この app より新しい版の招待コード');
   const network = Object.keys(NETWORKS).find(k => NETWORKS[k].code === body[1]);
   if (!network) throw new Error('招待コードのネットが分からない');
