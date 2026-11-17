@@ -44,8 +44,10 @@ export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
    期間（開始日・終了日）は 2026-11-16 Issue #76「サーバーなし版のTODOの期限の設定がサーバーあり版と異なる？」で既定に足した。
    この設定はページの住所（オリジン）ごとの localStorage に置くので、サーバーあり版で「少なめにする」（期間を出す）を
    選んでいても、サーバーなし版は既定のまま＝期間が「その他」に畳まれ、期限の欄が無いように見えていた */
-const BOARD_SHOW_DEF = ['name', 'detail', 'notes', 'tags', 'days', 'span', 'step', 'memo', 'hist',
-  'start', 'ended', 'ok', 'done', 'del'];
+/* 2026-11-17 Issue #78 の返事「デフォルトで表示される盤の項目を1つにして」: 既定は名前だけにした。
+   ほかの欄と下のボタンは「その他」に畳む（中身の入っている欄は、選ばなくても今までどおり出す）。
+   前の既定: name detail notes tags days span step memo hist start ended ok done del。設定の値を置いた端末はその値のまま */
+const BOARD_SHOW_DEF = ['name'];
 
 /* 設定の「音と表示を変える」で、先に選ぶ「どの画面を変えるか」（Issue #49 の返事）。
    各項目の pages に、その項目が効く画面を書く（2つ以上の画面に効くものは両方に出る）。

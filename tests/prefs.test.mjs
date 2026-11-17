@@ -17,7 +17,8 @@ test('どの項目も、どの画面を変えるか（PAGES）のどれかに入
 
 test('盤の下のボタンも選べ、古い値にはボタンを足して読む（Issue #49 の返事）', () => {
   const acts = ['start', 'ended', 'ok', 'done', 'del'];
-  acts.forEach(k => assert.ok(defaults().boardShow.includes(k)));
+  /* 既定は名前だけ（Issue #78 の返事）。ボタンは「その他」に畳む */
+  assert.deepEqual(defaults().boardShow, ['name']);
   /* 下のボタンを選べなかった版で置いた値（印 boardShowV が無い）→ ボタンを足す */
   const m = mem();
   m.setItem(PREFS_KEY, JSON.stringify({ boardShow: ['name', 'step'] }));
@@ -31,9 +32,8 @@ test('盤の下のボタンも選べ、古い値にはボタンを足して読�
 
 test('盤にはじめから出す欄（Issue #49。set の項目）', () => {
   const d = defaults().boardShow;
-  assert.ok(d.includes('step') && !d.includes('url') && !d.includes('fav'));
-  /* 期間は既定で出す（Issue #76。版ごとに別の設定なので、既定で期限の欄が畳まれていると版で違って見えた） */
-  assert.ok(d.includes('span'));
+  /* 既定は名前だけ（2026-11-17 Issue #78 の返事。前は Issue #76 で期間も既定に足していた） */
+  assert.deepEqual(d, ['name']);
   /* 知らない値は落とし、並びは選ぶものの順にそろえる。空でもよい */
   assert.deepEqual(checkValue('boardShow', ['url', 'name', 'xx', 'name']), ['name', 'url']);
   assert.deepEqual(checkValue('boardShow', []), []);

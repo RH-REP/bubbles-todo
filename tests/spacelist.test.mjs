@@ -23,15 +23,7 @@ function test(name, fn) {
   }
 }
 
-test('初めは海の一覧に何も並ばない（個人だけ。使っていない「共有」は出さない。Issue #78）。個人は一覧に入らない', () => {
-  assert.deepEqual(L.seaList(), []);
-  assert.deepEqual(L.allEntries().map(e => e.id), ['share'], '一覧の行としては「共有」を持ったまま');
-  /* いま開いている海なら出す */
-  localStorage.setItem('bubble_todo_space', 'share');
-  assert.deepEqual(L.seaList().map(e => e.id), ['share']);
-  localStorage.removeItem('bubble_todo_space');
-  /* 前の版の「共有」に記録の箱があれば出す（前の版の記録を引き継ぐ） */
-  localStorage.setItem('bubble_todo_share_v1', '{}');
+test('初めから「共有」の海がある（前の版の記録を引き継ぐ）。個人は一覧に入らない', () => {
   assert.deepEqual(L.seaList().map(e => [e.id, e.name, e.color]), [['share', '共有', 'magma']]);
   assert.equal(L.seaName('me'), '個人');
   assert.equal(L.boxKey('me'), 'bubble_todo_v1');
