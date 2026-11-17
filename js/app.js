@@ -23,7 +23,7 @@ if (folderBackup) {
   folderBackup.on(st => {
     if (told || st.state !== 'need-permission') return;
     told = true;
-    toast('フォルダへの控えが止まっている（書く許しが切れた）', {
+    toast('フォルダへの自動の書き出しが止まっている（書き込みの許可が切れた）', {
       label: '許す', undo: false,
       on: () => { folderBackup.regrant().catch(() => {}); },
     }, 12000);

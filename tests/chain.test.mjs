@@ -431,6 +431,9 @@ await test('招待コードを受け取る欄は 1 つで、貼ったコード�
   assert.ok(!src.includes("'今すぐ合わせる'") && src.includes("'今すぐ同じ記録にする'"));
   assert.ok(!src.includes("el('p', null, t)"), 'サーバーの欄の手順がいつも出ている');
   assert.ok(!src.includes("pageHint.setAttribute('aria-live'"), '選んだ画面の説明がいつも出ている');
+  /* Issue #79 の 2 回目の返事: 問い・見出しの言葉（「何をする？」→ 何を選ぶかが分かる問い、「控える」→「書き出す」） */
+  assert.ok(!src.includes("'何をする？'") && src.includes("'バックアップを書き出す？ 読み込む？'"));
+  assert.ok(!src.includes("'今すぐ控える'") && !src.includes('（Solana・試し）'));
   assert.ok(!src.includes("modeChoice.add('sync'"));
   assert.ok(!/'[^']*「ブロックチェーンを準備する」で/.test(src), '前の箱の名前で案内している文が残っている');
 });

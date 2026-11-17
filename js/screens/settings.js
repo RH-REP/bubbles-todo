@@ -85,7 +85,7 @@ const SHARE_FLOW = '2人とも先に鍵（パスキーか合言葉）を選び�
   + '2. <b>招かれる人</b>: 「招待コードを受け取る」に貼って「受け取る」。海が足され、みんなの記録が読める。<br>'
   + '3. アドレスを入れなかったときは、<b>招かれる人</b>がカードの「同期」で記録を送ると、<b>招く人</b>が次に「同期」したときにメンバーに足される。<br>'
   + '招待コードは合言葉と同じで、持っている人は誰でも受け取れる。使えるのは ' + INVITE_DAYS + ' 日・最初の 1 人だけ。<br>'
-  + 'そのあとは、カードの「同期」か盤のひとことの横の「同期」で合わせる（送るときに手数料）。アプリを開いている間は、ほかの人の変更を自動で読む（手数料なし）。<br>'
+  + 'そのあとは、カードの「同期」か盤のひとことの横の「同期」で、ほかの人と同じ記録にする（送るときに手数料）。アプリを開いている間は、ほかの人の変更を自動で読む（手数料なし）。<br>'
   + 'チャット（カードの「チャット」）と盤のひとことは別のもの: ひとことは泡に付き「同期」で届く。チャットは海ぜんたいの話で 1 件ずつ届く（直につながっていれば手数料なし）。';
 
 /* そのタグの向きが固定されているか。store がまだ答えられない版では null */
@@ -302,8 +302,8 @@ export default {
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
     const gSave = group('記録を保存する・読み込む', chainOn
-      ? 'その時点の控え（バックアップ）をファイル・フォルダ・ブロックチェーンに書き出す・読み込む'
-      : 'その時点の控え（バックアップ）をファイル・フォルダに書き出す・読み込む');
+      ? 'いまの記録のバックアップを、ファイル・フォルダ・ブロックチェーンに書き出す・読み込む'
+      : 'いまの記録のバックアップを、ファイル・フォルダに書き出す・読み込む');
     /* 2026-11-13 Issue #47 の返事「全部」（C）: サーバーに繋ぐ・入るのは「海を設定する」の ⚙ 1か所にした。ここはブロックチェーンだけ。
        サーバーあり版では作らない（Issue #78） */
     const gPrep = chainOn ? group(PREP_NAME, 'ブロックチェーンを始める・ウォレットを見る・鍵を替える・鍵を失ったとき') : null;
@@ -337,7 +337,7 @@ export default {
       pageHint.textContent = '「' + nm + '」を変える項目だけを出している。'
         + (lookPage === 'all' ? 'きっかけ・すきまの画面には、今は変えられる項目が無い。' : '');
     };
-    const pageLb = el('p', 'prefs-pages-lb', 'どの画面を変える？');   /* 説明ではなく問いなので .note にしない（ⓘ の裏に隠さない） */
+    const pageLb = el('p', 'prefs-pages-lb', 'どの画面の音と表示を変える？');   /* 説明ではなく問いなので .note にしない（ⓘ の裏に隠さない） */
     pageLb.style.cssText = 'margin:8px 0 4px;font-size:13.5px;font-weight:600';
     gLook.appendChild(pageLb);
     gLook.appendChild(pageRow);
@@ -417,7 +417,7 @@ export default {
     const goServer = () => { if (seasEl) seasEl.openServer(); };
     /* --- ブロックチェーン（2026-11-08 Issue #31）。始め方・ネット・ウォレット・鍵・鍵を失ったとき ---
        サーバーが配るページでも使える（2026-11-11 Issue #42 の A 案。server.py の CSP に Solana の RPC を足した） */
-    const chainEl = chainOn ? chainBox({ setup: true, tasks: ['wallet', 'key', 'lost'], title: 'ブロックチェーンを始める・ウォレットと鍵（Solana・試し）' }) : null;
+    const chainEl = chainOn ? chainBox({ setup: true, tasks: ['wallet', 'key', 'lost'], title: 'ブロックチェーンを始める・ウォレットと鍵（Solana・試験中）' }) : null;
     if (chainEl) gPrep.appendChild(chainEl);
 
     /* --- 他の人と一緒に使う ---
@@ -504,14 +504,14 @@ export default {
        どの欄も「見出し → 説明（ⓘ）→ 選ぶもの → ボタン → 知らせ」の順 */
     [
       'どれを使う？',
-      '・自分のほかの端末といつも同じ記録にするのは、上の「自分の複数の端末で使う」（同じサーバーに繋いだ端末どうしは自動）。ここはその時点の控え（バックアップ）。',
+      '・自分のほかの端末といつも同じ記録にするのは、上の「自分の複数の端末で使う」（同じサーバーにつないだ端末どうしは自動）。ここは、押した時点の記録を残すバックアップ。',
       '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。すべての海が1つのファイルに入る。',
       '・フォルダ（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く（記録だけ。鍵は入らない）。読み込むときは「ファイル」から選ぶ。',
       chainOn ? '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。' : '',
       'どれから読み込んでも、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
     ].filter(Boolean).forEach(t => gSave.appendChild(el('p', 'note', t)));
     /* 問いなので .note にしない（ⓘ の裏に隠さない） */
-    gSave.appendChild(el('p', 'prefs-pages-lb', '何をする？'));
+    gSave.appendChild(el('p', 'prefs-pages-lb', 'バックアップを書き出す？ 読み込む？'));
     const modeChoice = choiceRow(gSave, '書き出すか読み込むか');
     const outWrap = el('div');
     const inWrap = el('div');
@@ -523,12 +523,12 @@ export default {
        （この箱は書き出す・読み込む＝バックアップだけ）。「同期」の言葉は共有の海の［🔑 同期］にだけ使い、ここは「合わせる」 */
     const syncWrap = el('div');
     gSelf.appendChild(el('p', 'note', '自分のほかの端末（iPhone と PC など）と、いつも同じ記録にする。'
-      + '人と一緒に使う海は「他の人と一緒に使う」、その時点の控え（バックアップ）は「記録を保存する・読み込む」。'));
+      + '人と一緒に使う海は「他の人と一緒に使う」、押した時点の記録を残すバックアップは「記録を保存する・読み込む」。'));
     gSelf.appendChild(syncWrap);
     modeChoice.add('out', '書き出す（バックアップ）', [outWrap]);
     modeChoice.add('in', '読み込む（バックアップから）', [inWrap]);
-    outWrap.appendChild(el('p', 'prefs-pages-lb', 'どこに書き出す？'));
-    inWrap.appendChild(el('p', 'prefs-pages-lb', 'どこから読み込む？'));
+    outWrap.appendChild(el('p', 'prefs-pages-lb', 'どこへ書き出す？（書き出す先を選ぶ）'));
+    inWrap.appendChild(el('p', 'prefs-pages-lb', 'どこから読み込む？（バックアップのある所を選ぶ）'));
     const outChoice = choiceRow(outWrap, '書き出す先');
     const inChoice = choiceRow(inWrap, '読み込む元');
 
@@ -543,7 +543,7 @@ export default {
         ? '同じサーバーの同じ海を開いている端末どうしは、自動で同じ記録になる（保存して数秒で送り、開いている間は 20 秒ごと・画面に戻ったときに読む）。今すぐ同じにしたいときは［今すぐ同じ記録にする］。'
         : mode === 'out'
         ? 'サーバーに繋いでいる間は、記録は自動でサーバーに書かれ、ほかの端末と合う（保存して数秒で送る）。ふだんは押さなくてよい。'
-          + (chainOn ? 'ファイルやブロックチェーンのような' : 'ファイルのような') + '「その時点の控え」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'
+          + (chainOn ? 'ファイルやブロックチェーンのような' : 'ファイルのような') + '「押した時点のバックアップ」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'
         : 'サーバーに繋いでいる間は、ほかの端末で書いたものも自動で読み込まれる（開いている間は 20 秒ごと・画面に戻ったとき）。ふだんは押さなくてよい。'));
       /* もう1台の端末で同じ記録を使う手順（2026-11-13 Issue #52 の返事「サーバーあり版はおすすめで」）。同期するの欄にだけ出す */
       if (mode === 'sync') {
@@ -565,20 +565,20 @@ export default {
       const hhmm = t => { const d = new Date(t); return (d.toDateString() === new Date().toDateString() ? '' : (d.getMonth() + 1) + '/' + d.getDate() + ' ')
         + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
       const showState = () => {
-        if (!sync.config().url) { st.textContent = 'いま: この海はサーバーと合わせていない（下の「ログインの欄を開く」、または設定の「海」の ⚙ で置き場を選ぶ）。'; return; }
+        if (!sync.config().url) { st.textContent = 'いま: この海はサーバーにつないでいない（下の「ログインの欄を開く」、または設定の「海」の ⚙ で置き場を「サーバー」にする）。'; return; }
         const at = sync.seenAt();
-        st.textContent = 'いま: サーバーに繋いでいる（自動で合わせている）。' + (at ? '最後に合わせた: ' + hhmm(at) : 'まだ合わせていない');
+        st.textContent = 'いま: サーバーにつないでいる（自動で同じ記録にしている）。' + (at ? '最後にサーバーとやりとりした: ' + hhmm(at) : 'まだサーバーとやりとりしていない');
       };
       now.addEventListener('click', async () => {
         if (!sync.config().url) { showState(); return; }
         now.disabled = true;
-        st.textContent = '合わせている…';
+        st.textContent = '同じ記録にしている…';
         try {
           const ok = await sync.syncNow();
           const s = sync.status();
           if (ok) showState();
           else if (s.state === 'syncing') st.textContent = 'いま同じ記録にしている途中（終わるとすぐもう1回行う）。';
-          else st.textContent = '合わせられなかった: ' + (s.message || s.state);
+          else st.textContent = '同じ記録にできなかった: ' + (s.message || s.state);
         } finally { now.disabled = false; }
       });
       r.appendChild(now);
@@ -595,7 +595,7 @@ export default {
     /* ブロックチェーンの欄（書き出す＝保存・復元コードを表示、読み込む＝復元・復元コードで復元） */
     const chainPane = (mode) => {
       const e = chainBox({ tasks: ['backup'], only: mode, goSetup,
-        title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試し）' : mode === 'sync' ? 'ブロックチェーンで同じ記録にする（Solana・試し）' : 'ブロックチェーンから読み込む（Solana・試し）' });
+        title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試験中）' : mode === 'sync' ? 'ブロックチェーンで同じ記録にする（Solana・試験中）' : 'ブロックチェーンから読み込む（Solana・試験中）' });
       e.insertBefore(el('p', 'note', mode === 'sync'
         ? 'サーバーなしで、同じパスキーか同じ合言葉で開いた端末どうしで同じ記録にする。送るのは［自分のほかの端末へ送る］を押したときだけ（手数料が掛かる）。'
           + 'ほかの端末が送ったものは、開いたとき・画面に戻ったとき・泡を開いたとき・5 分ごとに見に行き、画面の下の知らせ［読み込む］で受け取る（受け取りは手数料なし）。'
@@ -622,7 +622,7 @@ export default {
     const selfChain = chainOn ? chainPane('sync') : null;
     if (selfChain) syncWrap.appendChild(selfChain);
     /* 自分にメモを送る（前は「他の人と一緒に使う」の面のいちばん下。自分だけのものなので、ここへ移した。Issue #74） */
-    const selfMemo = chainOn ? chainBox({ tasks: ['memo'], selfOnly: true, goSetup, title: '自分にメモを送る（Solana・試し）' }) : null;
+    const selfMemo = chainOn ? chainBox({ tasks: ['memo'], selfOnly: true, goSetup, title: '自分にメモを送る（Solana・試験中）' }) : null;
     if (selfMemo) gSelf.appendChild(selfMemo);
     /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
     [gShare, gSelf, gPrep, gSave].filter(Boolean).forEach(d => d.addEventListener('toggle', () => {
@@ -899,8 +899,8 @@ function serverChatBox(screen) {
   h3.appendChild(head);
   wrap.appendChild(h3);
   wrap.appendChild(el('p', 'note',
-    'サーバーと合わせている海で、この海に入れる人どうしで短いメッセージを送り合う（個人の海では、自分の端末どうしのメモ）。'
-    + 'メッセージはこの海の記録と一緒に自分のサーバーへ写り、ほかの端末には次に合わせたとき（開いている間はおよそ 20 秒ごと）に届く。'
+    'サーバーに置いた海で、この海に入れる人どうしで短いメッセージを送り合う（個人の海では、自分のほかの端末へのメモ）。'
+    + 'メッセージはこの海の記録と一緒に自分のサーバーへ送られ、ほかの端末には次にサーバーとやりとりしたとき（開いている間はおよそ 20 秒ごと）に届く。'
     + '履歴はサーバーと端末に残る。消せるのはこの端末で書いたものだけで、消しても「（消した）」と残る。'
     + '名前は泡の「ひとこと」と同じ（この端末だけの設定）。'));
 
@@ -986,10 +986,10 @@ function serverChatBox(screen) {
     else if (!sync.ready()) state = sync.config().url
       ? 'ログインしていないので使えない（設定の「海」の［サーバーにログイン］）。'
       : 'この海をサーバーに置くと使える（設定の「海」の ⚙ で置き場を「サーバー」に）。';
-    else if (store.readOnly()) state = 'サーバーと合わせてから書ける（合わせている…）。';
-    else if (st.state === 'error') state = 'サーバーに届かない: ' + st.message + '（送ったものはこの端末に残り、届いたら写る）。';
+    else if (store.readOnly()) state = 'サーバーとやりとりが済んでから書ける（やりとりしている…）。';
+    else if (st.state === 'error') state = 'サーバーに届かない: ' + st.message + '（送ったものはこの端末に残り、届くようになったら送られる）。';
     else if (st.state === 'outdated') state = st.message;
-    else if (st.state === 'ok') state = '合わせた（' + hhmm(st.at) + '）。';
+    else if (st.state === 'ok') state = 'サーバーとやりとりした（' + hhmm(st.at) + '）。';
     const can = has && sync.ready() && !store.readOnly();
     input.disabled = send.disabled = !can;
     line.textContent = (said ? said + ' ' : '') + state;
@@ -1004,7 +1004,7 @@ function serverChatBox(screen) {
     const n = store.addChat(text, noteName(), noteDevice());
     if (!n) { said = '送れなかった（読むだけの間は書けない）。'; paint(); return; }
     input.value = '';
-    said = '送った（自分のサーバーへ写している）。';
+    said = '送った（自分のサーバーへ送っている）。';
     paint();
     list.scrollTop = list.scrollHeight;
     /* 少し待ってまとめる同期を待たずに、すぐ写す */
@@ -1167,13 +1167,13 @@ function moveBox(mode) {
         const text = await encryptMove(payload, pass);
         ready = { blob: new Blob([text], { type: 'application/json' }), name: moveFileName(now) };
         passLine.textContent = '合言葉: ' + pass + '　← 書き留めてから「ファイルを保存する」。' + what + warn
-          + (anyMove ? '。前に作った控えの鍵では、もうサーバーに入れない（記録は戻せる）' : '');
+          + (anyMove ? '。前に作ったバックアップの鍵では、もうサーバーに入れない（記録は戻せる）' : '');
       } else {
         /* 鍵を入れず、暗号化もしない控え（毎日の控えと同じ形 bubbles-backup） */
         const plain = buildBackup({ boxes: picked.boxes, seas: picked.seas, at: now, device: dev, regions: regionsPayload(chosen) });
         ready = { blob: new Blob([JSON.stringify(plain, null, 1) + '\n'], { type: 'application/json' }),
           name: moveFileName(now).replace('bubbles-move', 'bubbles-backup') };
-        passLine.textContent = '暗号化していない控えを作った（中の todo はそのまま読める）。「ファイルを保存する」で置く。' + what;
+        passLine.textContent = '暗号化していないバックアップを作った（中の todo はそのまま読める）。「ファイルを保存する」で置く。' + what;
       }
       save.hidden = false;
       save.focus();
@@ -1220,7 +1220,7 @@ function moveBox(mode) {
           p = null;
           if (k) { try { p = await openBackup(fileText, { key: k }); } catch (e) { p = null; } }
           if (!p) {
-            const pass = await askText('暗号化した控え。合言葉（暗号化を始めたときに書き留めた 24 字）');
+            const pass = await askText('暗号化したバックアップ。合言葉（暗号化を始めたときに書き留めた 24 字）');
             if (!pass) { fileText = ''; return; }
             p = await openBackup(fileText, { pass });
           }
@@ -1395,9 +1395,11 @@ function folderBox() {
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
   const pickBtn = el('button', 'btn', 'フォルダを選ぶ');
   pickBtn.type = 'button';
-  const nowBtn = el('button', 'btn', '今すぐ控える');
+  /* 言葉は Issue #79 の返事（同日「説明の文。見出し、ボタンの並びの前の問い →これも表現を再検討して」）で
+     「控える」→「書き出す」、「書く許し」→「書き込みの許可」にした */
+  const nowBtn = el('button', 'btn', '今すぐ書き出す');
   nowBtn.type = 'button';
-  const permBtn = el('button', 'btn', '書く許しを出し直す');
+  const permBtn = el('button', 'btn', '書き込みを許可し直す');
   permBtn.type = 'button';
   const offBtn = el('button', 'btn', '止める');
   offBtn.type = 'button';
@@ -1432,11 +1434,11 @@ function folderBox() {
     permBtn.hidden = s.state !== 'need-permission';
     const how = c.enc ? '（暗号化して）' : '（暗号化せずに）';
     if (s.state === 'off') line.textContent = '止めてある（フォルダを選ぶと始まる）。';
-    else if (s.state === 'need-key') line.textContent = 'この端末に暗号化の鍵が無いので控えていない。「暗号化をやめる」を押してから、もう一度「暗号化して書く」を押す。' + last;
+    else if (s.state === 'need-key') line.textContent = 'この端末に暗号化の鍵が無いので書き出していない。「暗号化をやめる」を押してから、もう一度「暗号化して書く」を押す。' + last;
     else if (s.state === 'no-folder') line.textContent = 'フォルダを覚えていない。もう一度選ぶ。';
-    else if (s.state === 'need-permission') line.textContent = where + 'に書く許しが切れている。「書く許しを出し直す」を押すまで控えない。' + last;
+    else if (s.state === 'need-permission') line.textContent = where + 'への書き込みの許可が切れている。「書き込みを許可し直す」を押すまで書き出さない。' + last;
     else if (s.state === 'error') line.textContent = where + 'に書けなかった: ' + s.message + '。' + last;
-    else line.textContent = where + 'に' + how + '控えている。' + last;
+    else line.textContent = where + 'に' + how + '自動で書き出している。' + last;
   }
   if (ok) folderBackup.on(paint);
   paint();
@@ -1449,7 +1451,7 @@ function folderBox() {
     try { await folderBackup.useFolder(dir); } catch (e) { toast((e && e.message) || '覚えられなかった'); }
     pickBtn.disabled = false;
     paint();
-    if (folderBackup.status().state === 'ok') toast('「' + dir.name + '」に控えた（' + backupFileName() + '）');
+    if (folderBackup.status().state === 'ok') toast('「' + dir.name + '」に書き出した（' + backupFileName() + '）');
   });
   nowBtn.addEventListener('click', async () => {
     nowBtn.disabled = true;
@@ -1462,7 +1464,7 @@ function folderBox() {
     paint();
   });
   offBtn.addEventListener('click', async () => {
-    if (!window.confirm('フォルダへの控えを止める？（書いたファイルは消さない）')) return;
+    if (!window.confirm('フォルダへの自動の書き出しを止める？（書いたファイルは消さない）')) return;
     await folderBackup.turnOff();
     paint();
   });
@@ -1471,7 +1473,7 @@ function folderBox() {
     encBtn.disabled = true;
     try {
       if (c.enc) {
-        if (!window.confirm('暗号化をやめて、次から平文で書く？（前に書いた暗号化した控えは、合言葉で開ける）')) return;
+        if (!window.confirm('暗号化をやめて、次から平文で書く？（前に書いた暗号化したバックアップは、合言葉で開ける）')) return;
         await folderBackup.stopEncrypt();
         encPassLine.hidden = true;
       } else {
@@ -1553,7 +1555,7 @@ function importIntoDevice(p, opts = {}) {
   if (p && Array.isArray(p.regions) && p.regions.length) {
     const fileServers = serverRegionsInFile(p.regions);
     const toLocal = !!(opts.askLocal && isSolo() && fileServers.length
-      && window.confirm('このファイルには、サーバーと合わせる記録がある（' + fileServers.map(r => '「' + r.name + '」').join('・') + '）。\n'
+      && window.confirm('このファイルには、サーバーに置いた海の記録がある（' + fileServers.map(r => '「' + r.name + '」').join('・') + '）。\n'
         + 'それを、この端末だけの海に入れる？（個人は個人へ、作った海はこの端末だけの海になる。サーバーへは送らない）\n'
         + 'キャンセルなら、サーバーの海として入れる（開くとサーバーに繋ぐページへ移る）。'));
     const rest = toLocal ? p.regions.filter(r => fileServers.indexOf(r) < 0) : p.regions;
@@ -1573,7 +1575,7 @@ function importIntoDevice(p, opts = {}) {
     const locals = Object.keys(map).filter(k => map[k] === 'local');
     if (opts.askLocal && locals.length && here.kind === 'server'
       && window.confirm('このファイルには「この端末だけ」（サーバーなし版など）の記録がある。\n'
-        + 'それを、サーバー「' + here.name + '」に入れる？（個人は個人へ、作った海はこのサーバーと合わせる海になり、サーバーへ写る）\n'
+        + 'それを、サーバー「' + here.name + '」に入れる？（個人は個人へ、作った海はこのサーバーに置く海になり、サーバーへ送られる）\n'
         + 'キャンセルなら、この端末だけの海に入れる（サーバーへは送らない）。')) {
       locals.forEach(k => { map[k] = here.id; });
     }
@@ -1621,7 +1623,7 @@ function isSolo() {
 const EDITION_STAY_KEY = 'bubble_todo_edition_stay';   /* js/boot-edition.js の STAY_KEY */
 function soloServerBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, 'サーバーに繋ぐ（複数の端末で同じ記録を使う）'));
+  wrap.appendChild(el('h3', null, 'サーバーにつなぐ（自分の複数の端末で同じ記録を使う）'));
   wrap.appendChild(el('p', 'note',
     'いまはサーバーに繋がないページ（通信してよい先を決め打ちにして守っている）で開いている。'
     + 'サーバーに繋ぐときは、下のボタンでサーバーに繋ぐページを開き、この ⚙ で住所を入れる。繋いだあとは、開くとそのページになる'
@@ -1650,7 +1652,7 @@ function soloServerBox() {
    - 開いた欄は、画面を離れると閉じる（開いたまま後で押すことが無いよう、mount のたびに閉じた形で作る） */
 function resetAllBox() {
   const wrap = el('div', 'reset-all');
-  wrap.appendChild(el('h3', null, 'すべて初期化する（設定も含めて）'));
+  wrap.appendChild(el('h3', null, 'すべて消して最初の状態に戻す（設定も含む）'));
   wrap.appendChild(el('p', 'note',
     'この端末から、すべての海の記録と設定を消して、初めて開いたときの状態に戻す。元に戻せない。'
     + '上の「全部消す」「この海だけ初期化」は、いま開いている海の中身だけを消し、設定は残す。'));
@@ -2009,7 +2011,7 @@ function chainBox(opts = {}) {
   const setup = !!opts.setup;
   const ALLOWED = opts.tasks || ['backup', 'wallet', 'key', 'share', 'memo', 'lost'];
   /* 控えに入れる海域を選ぶ（段2。利用者の指示「海域ごとに…すべてを選べる様に」） */
-  const chainPick = regionPicker('ブロックチェーンの控え');
+  const chainPick = regionPicker('ブロックチェーンのバックアップ');
   const wrap = el('div', 'tags');
   /* 共有の面（招待）だけ、まとまりを枠に入れて見せる（2026-11-16 Issue #75「招待画面の枠のレイアウトがスマホで良くない」） */
   if (opts.part === 'hub') wrap.classList.add('share-hub');
@@ -2017,7 +2019,7 @@ function chainBox(opts = {}) {
      ウォレット・アドレス・バックアップ・Faucet。ボタンは「ウォレット」と「バックアップ」の2つに分けて並べる */
   /* 見出しは字として入れる（呼ぶ側の title を HTML として読まない。tests/html-sink.test.mjs） */
   const chainTitle = el('h3');
-  chainTitle.textContent = opts.title || 'ブロックチェーンを使う（Solana・試し）';
+  chainTitle.textContent = opts.title || 'ブロックチェーンを使う（Solana・試験中）';
   wrap.appendChild(chainTitle);
   /* サーバーが配るページでも使う（2026-11-11 Issue #42 の返事「おすすめで」= A 案）。
      server.py の CSP に Solana の公式 RPC を足したので、サーバーに繋いだままバックアップ・共有の海・チャットを使える。
@@ -2429,14 +2431,14 @@ function chainBox(opts = {}) {
         btn('チャットを開く', async () => peekChat('sea:' + rec.id, rec));
       });
       /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
-      group('self-chat', '自分にメモを送る（端末どうし）',
+      group('self-chat', '自分にメモを送る（自分のほかの端末へ）',
         '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
       btn('メモを開く', async () => peekChat('self-chat', null));
     } else if (task === 'lost') paintLost();
   }
 
   function paintWallet(net) {
-    group('wallet', 'ウォレットを見る（手数料を払う）','バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
+    group('wallet', 'ウォレット（手数料を払う財布）を見る','バックアップを書くたびに、ここから手数料を払う。ほかのウォレット（Phantom など）には読み込めないので、やめる・替える前に残高を送り出す。');
     btn('アドレスをコピー', async () => {
       await navigator.clipboard.writeText(cfg.address);
       toast('アドレスをコピーした');
@@ -2492,14 +2494,14 @@ function chainBox(opts = {}) {
     /* opts.only: 'sync'（ほかの端末と同期する。Issue #52 の返事「同期するボタンをつけて明示的に書き出せるように」） */
     if (opts.only === 'sync') {
       group('backup', '自分のほかの端末へ送る',
-        '押すと、先にほかの端末の新しい控えがあれば重ね（消さない）、そのうえで今の記録をチェーンに書く（手数料が掛かる）。'
+        '押すと、先にほかの端末の新しいバックアップがあれば重ね（消さない）、そのうえで今の記録をチェーンに書く（手数料が掛かる）。'
         + 'iPhone と Android のようにパスキーが引き継がれない端末どうしは、両方を同じ合言葉で開く。');
       if (into && into.parentElement) into.parentElement.insertBefore(chainPick.el, into);
       btn('自分のほかの端末へ送る', syncChain);
       return;
     }
     group('backup', opts.only === 'out' ? 'ブロックチェーンに書き出す' : opts.only === 'in' ? 'ブロックチェーンから読み込む' : 'バックアップする','保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
-      + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに控えていなければ表示して書き留める。');
+      + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに書き留めていなければ、ここで表示して書き留める。');
     /* opts.only: 'out'（書き出すだけ）／'in'（読み込むだけ）。書き出すと読み込むを分けて出す（2026-11-13 Issue #48 の返事） */
     const only = opts.only || '';
     if (only !== 'in' && into && into.parentElement) into.parentElement.insertBefore(chainPick.el, into);
@@ -2676,7 +2678,7 @@ function chainBox(opts = {}) {
         const code = lastCode.code;
         btn('招待コードをコピー', async () => {
           try { await navigator.clipboard.writeText(code); line.textContent = '招待コードをコピーした。相手にだけ送る。'; } catch (e) {
-            line.textContent = 'コピーできなかった。コードの字を長押しして選んで写す。';
+            line.textContent = 'コピーできなかった。コードの字を長押しして選び、コピーする。';
           }
         });
         into = keepCode;
@@ -2696,7 +2698,7 @@ function chainBox(opts = {}) {
       /* 読むだけの説明は畳んで下に（Issue #68 の A 案）。
          自分にメモを送る（自分の端末どうし）は、2026-11-16 Issue #74 で「自分の端末どうしで使う」の箱へ移した */
       flowBox(false);
-      group('share-keys', '🔑 の付いたボタン', '🔑 の付いたボタンは、パスキーか合言葉を求める（書く・招く・受け取る）。'
+      group('share-keys', '🔑 の付いたボタンについて', '🔑 の付いたボタンは、パスキーか合言葉を求める（書く・招く・受け取る）。'
         + '読むだけ（チャットを読む・自動の読み込み）は求めない。「同期」で 1 度開けると、ページを閉じるまで求めない。');
       return;
     }
@@ -2716,7 +2718,7 @@ function chainBox(opts = {}) {
     const srvOnly = !!opts.serverOnly;   /* サーバーあり版（Issue #78）: サーバーの招待コードだけ */
     const started = !srvOnly && !!cfg.mode;
     const srv = typeof opts.serverInvite === 'function';
-    group('share-in', opts.part === 'hub' ? '招待コードを受け取る' : '招かれる（招待を受ける）',
+    group('share-in', opts.part === 'hub' ? '招待コードを受け取る' : '招待を受ける（招待コードを入れる）',
       srvOnly
         ? '届いたサーバーの招待コード（ABCD-EFGH-JKLM の形）を貼って「受け取る」。設定の「海」のログインの［招待コードで登録］の欄へ入れる。'
         : '届いた招待コードを貼って「受け取る」。'
@@ -2794,7 +2796,7 @@ function chainBox(opts = {}) {
       const stLine = el('div', 'note');
       stLine.style.cssText = 'width:100%';
       stLine.textContent = 'サーバー「' + (region.name || '') + '」で自動で合う'
-        + (here ? (st && st.state === 'ok' && st.at ? '・合わせた ' + new Date(st.at).toLocaleString() : '・開いている海') : '・開くと合う')
+        + (here ? (st && st.state === 'ok' && st.at ? '・サーバーとやりとりした ' + new Date(st.at).toLocaleString() : '・開いている海') : '・開くとサーバーとやりとりする')
         + (unread ? '・新しいチャット ' + unread + ' 件' : '');
       /* 2026-11-16 Issue #74 で海の ID をここに出したが、作り直した海では招待コードが海を運ぶので、相手に ID を伝えなくてよい。2026-11-17 の統合で外した */
       into.appendChild(stLine);
@@ -3075,7 +3077,7 @@ function chainBox(opts = {}) {
     }
     toggle('端末どうしで直につなぐ（p2p）', 'on', '切ると、メッセージは未送として貯め、ブロックチェーンにだけ書く');
     toggle('違う Wi‑Fi でもつなぐ（Cloudflare の STUN）', 'stun',
-      '入れると、つなぐときに Cloudflare の窓口へ IP アドレスが届く（中身は届かない）。切ると同じ Wi‑Fi どうしだけ');
+      '入れると、つなぐときに Cloudflare のサーバーへ IP アドレスが届く（中身は届かない）。切ると同じ Wi‑Fi どうしだけ');
     panel.appendChild(toggles);
     const keepRow = el('div', null);
     keepRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:6px';
@@ -3543,7 +3545,7 @@ function chainBox(opts = {}) {
     lastCode = { id, code };
     let copied = false;
     try { await navigator.clipboard.writeText(code); copied = true; } catch (e) { /* ボタンで写す */ }
-    let msg = (copied ? '招待コードを作ってコピーした。' : '招待コードを作った。下の「招待コードをコピー」で写す。')
+    let msg = (copied ? '招待コードを作ってコピーした。' : '招待コードを作った。下の「招待コードをコピー」でコピーする。')
       + '相手にだけ送る（メッセージなど）。' + (addr ? '' : '相手が記録を送ったら、次に「同期する」ときにメンバーに足す。');
     curKey = 'share-code';
     line.textContent = msg;
@@ -3980,7 +3982,7 @@ function chainBox(opts = {}) {
     const net = netSel.value;
     const keys = await unlock();
     await checkSame(keys);
-    line.textContent = 'ほかの端末の控えを探している…';
+    line.textContent = 'ほかの端末のバックアップを探している…';
     const parts = await readLatestMemos(net, keys.wallet.address);
     const c0 = loadConfig();
     let head = '';
@@ -4028,7 +4030,7 @@ function chainBox(opts = {}) {
     const over = size === 'over'
       ? '\n\n【ふだんの上限 ' + MAX_TX + ' 件を超える】取引 ' + memos.length + ' 件・手数料の目安 ' + solText(need.fee)
         + '\n書き終わるまで 約 ' + Math.max(1, Math.ceil(memos.length * 0.6 / 60)) + ' 分掛かる（画面を閉じない）。'
-        + '途中で止まると、その控えは戻せない（手数料は戻らない）。'
+        + '途中で止まると、そのバックアップは戻せない（手数料は戻らない）。'
         + '引っ越しのファイルなら手数料は掛からない。\nそれでも書くなら OK、やめるならキャンセル。'
       : '';
     if (!window.confirm(NETWORKS[net].label + ' にバックアップを保存する？\n海 ' + sum.seas + ' つ・todo ' + sum.todos + ' 件'
@@ -4056,7 +4058,7 @@ function chainBox(opts = {}) {
   function paintMove(m) {
     const step = moveStep(m);
     const what = s => (s && s.mode === 'passkey') ? 'パスキー' : '合言葉';
-    group('move', '鍵の移し替え（途中）',
+    group('move', '鍵の移し替え（途中で止まっている）',
       '前の鍵（' + what(m.from) + '）のウォレットから、新しい鍵のウォレットへ移す。1から順に押す。途中でやめても、ここに続きが残る。'
       + 'ネット: ' + NETWORKS[m.network].label + '。');
     const list = el('ol', 'note');
@@ -5059,7 +5061,7 @@ function sizeBox() {
   sum.textContent = '画面の大きさを記録する（不具合を調べる用）';
   d.appendChild(sum);
   const pre = document.createElement('pre');
-  const copy = el('button', 'btn', '写す');
+  const copy = el('button', 'btn', 'コピー');
   copy.type = 'button';
   const text = () => {
     const log = window.__bubblesSize || [];
@@ -5072,7 +5074,7 @@ function sizeBox() {
   d.addEventListener('toggle', () => { if (d.open) pre.textContent = text(); });
   copy.addEventListener('click', async () => {
     pre.textContent = text();
-    try { await navigator.clipboard.writeText(pre.textContent); toast('写した'); }
+    try { await navigator.clipboard.writeText(pre.textContent); toast('コピーした'); }
     catch (e) { toast('写せなかった。字を長押しして選んでください'); }
   });
   d.appendChild(pre);
