@@ -427,6 +427,10 @@ await test('招待コードを受け取る欄は 1 つで、貼ったコード�
   /* 名前は Issue #79 で「自分の複数の端末で使う」に替えた（前の名前で案内する文を残さない） */
   assert.ok(src.includes("group('自分の複数の端末で使う'"));
   assert.ok(!/'[^'\n]*「自分の端末どうしで使う」/.test(src), '前の箱の名前で案内している文が残っている（Issue #79）');
+  /* Issue #79 の返事: 「合わせる」のボタン・見出しを「同じ記録にする」に。説明は初めは隠す（手順も p.note、画面の説明は aria-live にしない） */
+  assert.ok(!src.includes("'今すぐ合わせる'") && src.includes("'今すぐ同じ記録にする'"));
+  assert.ok(!src.includes("el('p', null, t)"), 'サーバーの欄の手順がいつも出ている');
+  assert.ok(!src.includes("pageHint.setAttribute('aria-live'"), '選んだ画面の説明がいつも出ている');
   assert.ok(!src.includes("modeChoice.add('sync'"));
   assert.ok(!/'[^']*「ブロックチェーンを準備する」で/.test(src), '前の箱の名前で案内している文が残っている');
 });

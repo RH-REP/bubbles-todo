@@ -307,8 +307,8 @@ export default {
     /* 2026-11-13 Issue #47 の返事「全部」（C）: サーバーに繋ぐ・入るのは「海を設定する」の ⚙ 1か所にした。ここはブロックチェーンだけ。
        サーバーあり版では作らない（Issue #78） */
     const gPrep = chainOn ? group(PREP_NAME, 'ブロックチェーンを始める・ウォレットを見る・鍵を替える・鍵を失ったとき') : null;
-    const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
-    const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
+    const gVer = group('版（バージョン）を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
+    const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・お試しの操作・すべて初期化');
 
     /* --- どの画面を変えるか（2026-11-13 Issue #49 の返事「ごちゃごちゃしてきたので、どのページを変えるかを間に挟む」）---
        先に画面を1つ選び、その画面に効く項目だけを下に出す。項目の画面は js/prefs.js の pages（data-pages）。
@@ -317,8 +317,9 @@ export default {
     pageRow.setAttribute('role', 'group');
     pageRow.setAttribute('aria-label', 'どの画面を変えるか');
     pageRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px';
+    /* 選んだ画面の説明。ⓘ を押すまで隠す（2026-11-17 Issue #79 の返事「デフォルトでボタン以外の説明は非表示にして」。
+       前は aria-live でいつも出していた。どれを選んだかはボタンの塗りで分かる） */
     const pageHint = el('p', 'note');
-    pageHint.setAttribute('aria-live', 'polite');   /* 選んだ画面の説明。状態の行なので隠さない */
     const pageBtns = PAGES.map(([pid, name]) => {
       const b = el('button', 'btn', name);
       b.type = 'button';
@@ -537,9 +538,9 @@ export default {
     /* サーバーの欄（書き出す・読み込むとも、繋いでいる間は自動。押す操作は無い） */
     const serverPane = (mode) => {
       const w = el('div', 'tags');
-      w.appendChild(el('h3', null, mode === 'out' ? 'サーバーに書き出す' : mode === 'sync' ? 'サーバーで合わせる（自動）' : 'サーバーから読み込む'));
+      w.appendChild(el('h3', null, mode === 'out' ? 'サーバーに書き出す' : mode === 'sync' ? 'サーバーで自動で同じ記録にする' : 'サーバーから読み込む'));
       w.appendChild(el('p', 'note', mode === 'sync'
-        ? '同じサーバーの同じ海を開いている端末どうしは、自動で同じ記録になる（保存して数秒で送り、開いている間は 20 秒ごと・画面に戻ったときに読む）。今すぐ合わせたいときは［今すぐ合わせる］。'
+        ? '同じサーバーの同じ海を開いている端末どうしは、自動で同じ記録になる（保存して数秒で送り、開いている間は 20 秒ごと・画面に戻ったときに読む）。今すぐ同じにしたいときは［今すぐ同じ記録にする］。'
         : mode === 'out'
         ? 'サーバーに繋いでいる間は、記録は自動でサーバーに書かれ、ほかの端末と合う（保存して数秒で送る）。ふだんは押さなくてよい。'
           + (chainOn ? 'ファイルやブロックチェーンのような' : 'ファイルのような') + '「その時点の控え」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'
@@ -553,13 +554,13 @@ export default {
           '3. 出た確かめの字を、サーバーの持ち主が認める（自分の端末なら置き場は me:1,share）。認められたら「登録を仕上げる」。',
           '4. 終わり。以後は自動。両方の端末で別々に打った同じ名前の泡は、別の泡として両方残る（片方を消す）。',
           '5. ログインすると、入れる海（サーバーの個人と、招かれた海）が設定の「海」に並ぶ。押すとその海へ移る。前の端末で作った「サーバーに入る鍵も入れた」ファイルを読み込んでもよい。',
-        ].forEach(t => w.appendChild(el('p', null, t)));   /* 手順は ⓘ の裏に隠さない */
+        ].forEach(t => w.appendChild(el('p', 'note', t)));   /* 手順も見出しの ⓘ の裏へ（2026-11-17 Issue #79 の返事「デフォルトでボタン以外の説明は非表示にして」。前は隠さなかった） */
       }
       const st = el('p', 'note');
       st.setAttribute('aria-live', 'polite');
       const r = el('div', 'row');
       /* ［今すぐ合わせる］と最後に合わせた時刻（Issue #52 の U1。ブロックチェーンの［書き出す］［読み込む］と同じく押す所を置く） */
-      const now = el('button', 'btn', '今すぐ合わせる');
+      const now = el('button', 'btn', '今すぐ同じ記録にする');
       now.type = 'button';
       const hhmm = t => { const d = new Date(t); return (d.toDateString() === new Date().toDateString() ? '' : (d.getMonth() + 1) + '/' + d.getDate() + ' ')
         + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
@@ -576,7 +577,7 @@ export default {
           const ok = await sync.syncNow();
           const s = sync.status();
           if (ok) showState();
-          else if (s.state === 'syncing') st.textContent = 'いま合わせている途中（終わるとすぐもう1回合わせる）。';
+          else if (s.state === 'syncing') st.textContent = 'いま同じ記録にしている途中（終わるとすぐもう1回行う）。';
           else st.textContent = '合わせられなかった: ' + (s.message || s.state);
         } finally { now.disabled = false; }
       });
@@ -594,9 +595,9 @@ export default {
     /* ブロックチェーンの欄（書き出す＝保存・復元コードを表示、読み込む＝復元・復元コードで復元） */
     const chainPane = (mode) => {
       const e = chainBox({ tasks: ['backup'], only: mode, goSetup,
-        title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試し）' : mode === 'sync' ? 'ブロックチェーンで合わせる（Solana・試し）' : 'ブロックチェーンから読み込む（Solana・試し）' });
+        title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試し）' : mode === 'sync' ? 'ブロックチェーンで同じ記録にする（Solana・試し）' : 'ブロックチェーンから読み込む（Solana・試し）' });
       e.insertBefore(el('p', 'note', mode === 'sync'
-        ? 'サーバーなしで、同じパスキーか同じ合言葉で開いた端末どうしを合わせる。送るのは［自分のほかの端末へ送る］を押したときだけ（手数料が掛かる）。'
+        ? 'サーバーなしで、同じパスキーか同じ合言葉で開いた端末どうしで同じ記録にする。送るのは［自分のほかの端末へ送る］を押したときだけ（手数料が掛かる）。'
           + 'ほかの端末が送ったものは、開いたとき・画面に戻ったとき・泡を開いたとき・5 分ごとに見に行き、画面の下の知らせ［読み込む］で受け取る（受け取りは手数料なし）。'
         : mode === 'out'
         ? '記録を暗号化して、Solana のチェーンに書く。押したときだけ書く（手数料が掛かる）。パスキーか合言葉で開く。始め方・ウォレット・鍵は「' + PREP_NAME + '」にある。'
@@ -660,7 +661,7 @@ export default {
 
     /* --- プロトタイプ操作 --- */
     const proto = el('div', 'proto');
-    proto.appendChild(el('h3', null, 'プロトタイプで試す'));
+    proto.appendChild(el('h3', null, 'お試しの操作（サンプルを入れる・消す）'));
     const row = el('div', 'row');
     ACTIONS.forEach(a => {
       const btn = el('button', 'btn', escapeHtml(a.label));
@@ -2027,7 +2028,7 @@ function chainBox(opts = {}) {
       + '分けた取引が1つでも欠けると戻せない。サーバーの住所と鍵、AI のキーは書かない。'
       + '鍵は3種類: <b>パスキー</b>と<b>合言葉</b>は、ウォレット（手数料を払う）とバックアップの両方を開く。'
       + '<b>復元コード</b>はバックアップを読むだけ（お金は動かせず、書けない）。ウォレットは手数料ぶんの少額だけを入れる。'
-      + 'ここで始めたあと、海の共有とチャットは「他の人と一緒に使う」、自分のほかの端末と合わせる・自分にメモを送るのは「自分の複数の端末で使う」、'
+      + 'ここで始めたあと、海の共有とチャットは「他の人と一緒に使う」、自分のほかの端末と同じ記録にする・自分にメモを送るのは「自分の複数の端末で使う」、'
       + 'バックアップは「記録を保存する・読み込む」で使う（「他の人と一緒に使う」の面からも、ここと同じ鍵を選べる）。'));
   }
 

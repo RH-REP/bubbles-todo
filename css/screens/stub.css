@@ -148,6 +148,10 @@
 .stub .gorow .tx { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .stub .gorow .nm { font-size: 14px; font-weight: 600; }
 .stub .gorow .sub { font-size: 12.5px; color: var(--text-2); }
+/* ボタンの下の小さな説明は出さない（2026-11-17 Issue #79 の返事「デフォルトでボタン以外の説明は非表示にして」）。
+   ボタンの名前（ふりかえる・使い方を読む・ヘルプを開く）だけで分かるので、ⓘ も置かない。
+   設定の 1 行の箱の下の説明（.set-more の .sub[data-gsub]）は前から ⓘ の裏 */
+.stub .gorow .sub { display: none; }
 .stub .gorow .ar { flex: none; font-size: 16px; color: var(--text-2); }
 
 /* 「海にする／している」。前は左右の選び欄だったところ（海が横一列になった） */
