@@ -167,7 +167,7 @@ make_data() {
 
 run_tests() {
   say "4. server.py のテスト"
-  local t="tests/test_server.py tests/test_passkey_crypto.py tests/test_server_public.py tests/test_server_machine.py tests/test_server_oauth.py tests/test_filelock.py"
+  local t="tests/test_server.py tests/test_passkey_crypto.py tests/test_server_public.py tests/test_server_machine.py tests/test_server_oauth.py tests/test_filelock.py tests/test_users.py"
   local out
   # shellcheck disable=SC2086
   if ! out="$(cd "$DIR" && "$PY" -m unittest $t 2>&1)"; then
