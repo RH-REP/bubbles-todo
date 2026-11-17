@@ -450,6 +450,7 @@ js/
   sound.js    完了音と効果音
   feedback.js 右上の !（改善のコメント。issue_hub の正本の写し）
   screens/    6つの画面
+oauth_server.py 秘書のコネクタの許可を出す側（OAuth 2.1。server.py がパスキーの形のときに使う）
 tests/        store.js・merge.js・sync.js のテスト（素の Node と assert だけ）と server.py のテスト
 server.py     記録を置くサーバー（Python の標準ライブラリだけ）。app 本体も配る
 serve.py      デザイン確認用の静的サーバー（開発補助）
@@ -496,6 +497,8 @@ node --test tests/notes.test.mjs
 node --test tests/notesign.test.mjs
 python3 -m unittest tests/test_server.py
 python3 -m unittest tests/test_server_machine.py
+python3 -m unittest tests/test_server_oauth.py
+node tests/e2e-oauth.mjs     # headless の Chrome（秘書のコネクタの許可の画面）
 node tests/e2e-sw.mjs        # headless の Chrome（server.py から開いて service worker が入るか）
 bash tests/server-setup.test.sh
 ```
@@ -729,6 +732,36 @@ bash tests/server-setup.test.sh
   - **gantt・diary・秘書に渡す手順**: 鍵をその機械のファイルに入れて、所有者だけが読めるようにする（`chmod 600`）。
     gantt・diary は `--bubble-token-file <そのファイル>` と、サーバーの住所（`https://<名前>`）で起動する。秘書は設定の `key_file` にそのファイルを書く。
     鍵の中身は画面・ログ・会話に出さない。diary には `--read-only` の鍵、gantt と秘書には読み書きの鍵を渡す
+- **秘書のコネクタ（claude.ai から。OAuth 2.1。2026-11-17）**: claude.ai（スマホ・Mac）のカスタムコネクタ「秘書」が、本人のパスキーでのログインを経て
+  `/mcp` を使うための、許可を出す側（認可サーバー）。仕様は MCP の認可（2026-07-28 版）。作りは `oauth_server.py`、画面の動きは `js/oauth-authorize.js`。
+  **今は守られた入口だけで、`/mcp` の道具（today・done・trash など）はまだ無い**（通行証が合えば JSON-RPC の「道具はまだ無い」を返す）。
+  用語は `docs/spec/terminology.md`、決めたことは `docs/spec/minutes/261117_秘書コネクタの許可.md`。
+  - 流れ: claude.ai が `/mcp` を呼ぶ → 401 と `WWW-Authenticate`（案内の住所）→ 案内（`/.well-known/oauth-protected-resource/mcp`・`/.well-known/oauth-authorization-server`）
+    → ブラウザで `/oauth/authorize`（許可の画面）→ 本人がパスキーでログインして「許可」→ claude.ai の返す先へ code・state・iss を付けて戻る
+    → claude.ai が `/oauth/token` で code と PKCE の verifier を出し、秘書の通行証（`ba_…`・1 時間）と更新の札（`bf_…`・30 日）を受け取る
+  - 秘書の名乗りは「Use Claude's published identity」（秘書の身元の文書。client_id が https の住所）。サーバーはその JSON を取りに行き、返す先が載っているかを見る。
+    取りに行くのは名前を許した所だけ（既定 `claude.ai`。足すなら `--oauth-client-host <名前>` か環境変数 `BUBBLE_TODO_OAUTH_CLIENT_HOSTS`）。
+    許していない名前は取りに行かずに断り、記録に `oauth-client-refused host=<名前>` を出す（claude.ai の名乗りが別の名前だったら、これを見て足す）。
+    自動の登録（「Register automatically」＝DCR）は作っていない
+  - 許せるのは 1 番の人（本人）の個人に入れるパスキーだけ（ほかは 403）。PKCE は S256 だけ。code は 2 分・1 回きり（verifier を間違えても使えなくなる）
+  - 更新の札は使うたびに取り替える。使い終えた札や code がもう一度出されたら、その秘書の許可ごと止める（`oauth-refresh-reuse`・`oauth-code-reuse` が記録に出る）
+  - 秘書の通行証は `/mcp` だけに効く（`/api/data` では 401）。端末の通行証と機械の鍵は `/mcp` では効かない。`/mcp` によそのオリジン（Origin）から来たら 403
+  - サーバーに置くのは sha256 と許可の行だけ（`<データの場所>/oauth.json`、600）。値は記録にも出さない
+  - **取り消す**（VM で。動いているサーバーは止めなくてよい。次の要求から効く）。許可に使ったパスキーを `passkey-remove` しても止まる:
+    ```bash
+    python3 server.py --data-dir <データの場所> oauth-list
+    python3 server.py --data-dir <データの場所> oauth-revoke <id>    # 全部なら all
+    ```
+  - **VM に入れる手順**（まだしていない。入れるかは利用者が決める）:
+    1. VM で `bash bubbles-todo/tools/server-setup.sh update`（取り込み・テスト・立ち直し。Caddy は今の `reverse_proxy` で `/.well-known/`・`/oauth/`・`/mcp` も渡すので直さない）
+    2. 外から `curl -s https://<名前>/.well-known/oauth-authorization-server` で `code_challenge_methods_supported` に `S256` があること、
+       `curl -si -X POST https://<名前>/mcp` が 401 で `WWW-Authenticate: Bearer resource_metadata=…` を返すことを見る
+    3. claude.ai の設定の「コネクタ」→ カスタムコネクタを足す: 住所 `https://<名前>/mcp`、OAuth client は「Use Claude's published identity」のまま
+    4. 出た許可の画面で、返す先が `claude.ai` であることを見てから「パスキーでログインして許可」。VM で `oauth-list` に行が出る
+    - 道具がまだ無いので、つないでも秘書は何もできない（claude.ai がつなぎ失敗と出す見込み。未確認）。本番に入れるのは道具を作ってからでもよい
+  - テスト: `python3 -m unittest tests/test_server_oauth.py`（偽の claude.ai と偽の端末で、authorize → パスキー → token → `/mcp` → 更新 → 取り消し、使い回し・期限・よその名前・持ち主でないパスキー）、
+    `node tests/e2e-oauth.mjs`（headless の Chrome と仮のパスキーで、本物の許可の画面を押して返す先に戻るまで。`tests/e2e_oauth_harness.py` がサーバーを立てる）
+  - **まだ確かめていない**: 本物の claude.ai（名乗りの住所の名前・形）、本物の端末での許可の画面
 - **守り**（`guard.py`・`server.py`。合言葉の形でも効く）:
   - 接続元ごとの同時接続 8・全体 64（超えたら読まずに 429）、要求 120 回/分（/api/ と POST・PUT・OPTIONS）、画面のファイル 600 回/分（/api/ 以外の GET・HEAD。2026-11-12 に分けた）、入場の失敗 10 回/10分（超えたら 429）
   - 1つの接続の待ちは 15 秒、受け取る大きさは 4MB まで

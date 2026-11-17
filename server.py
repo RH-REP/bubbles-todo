@@ -98,6 +98,15 @@ API:
         Authorization: Bearer <鍵>。置き場は鍵に決めた個人1つ（X-Bubbles-Space は省くか me。違えば 403）。
         --read-only の鍵の PUT は 403。端末の数には数えない。入場の失敗・要求数の守りは端末と同じ。
         記録（journal）には鍵の名前だけを出す（machine-forbidden name=…）
+claude.ai の接続（2026-11-17。OAuth 2.1。oauth_server.py。パスキーの形だけ。合言葉の形では 404）:
+    GET  /.well-known/oauth-authorization-server   許可のサーバーの案内（RFC 8414）
+    GET  /.well-known/oauth-protected-resource[/mcp] /mcp の案内（RFC 9728）
+    GET  /oauth/authorize    許可の画面（相手の名乗り＝client_id の住所の JSON を確かめてから出す。PKCE S256 だけ）
+    POST /oauth/approve {request, credential} 持ち主のパスキーで許す → {redirect}   POST /oauth/deny {request} → {redirect}
+    POST /oauth/token        code・更新の札 → 通行証（ba_…・1 時間）と更新の札（bf_…・30 日。使うたびに替わる）
+    POST /mcp                Authorization: Bearer ba_…（まだ道具は無い。JSON-RPC の断りを返す）
+    相手の住所の名前は --oauth-client-host（何度でも。環境変数 BUBBLE_TODO_OAUTH_CLIENT_HOSTS。既定 claude.ai）
+    python3 server.py oauth-list / oauth-revoke <id|all>   許可の一覧・取り消し（値は出さない。止めずに効く）
 守り（どちらの形でも）: 接続元ごとの接続数・要求数・入場の失敗の数に上限（guard.py）、1接続の待ちは 15 秒、
     受け取る大きさは 4MB まで、配るページに CSP などのヘッダ、よそのオリジンは決めた相手だけ。
     守りの出来事は標準エラーに「bubbles: auth-fail ip=…」の形で出す（fail2ban が読む。値は出さない）
@@ -116,7 +125,9 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from urllib.parse import parse_qs
 
+import oauth_server
 import passkey_crypto as pc
 from guard import Devices, Guard
 from passkey_store import PasskeyStore, valid_space, space_label, person_label, person_of, OWNER
@@ -524,7 +535,7 @@ class Config:
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
                  guard=None, passkeys=None, stores=None, require_uv=True, devices=None, sea_list=None,
-                 min_schema=1, machines=None):
+                 min_schema=1, machines=None, oauth=None):
         self.auth, self.origin, self.rp_id = auth, origin, rp_id
         self.trust_proxy = trust_proxy
         self.allow_origins = set(allow_origins)
@@ -536,6 +547,7 @@ class Config:
         self.sea_list = sea_list              # 海の一覧（SeaList）。無ければ /api/spaces は 404
         self.min_schema = int(min_schema)     # 受け付ける最も古い記録の形の版（X-Bubbles-Schema）
         self.machines = machines              # 機械の鍵（MachineKeys）。パスキーの形だけで効く
+        self.oauth = oauth                    # claude.ai の接続（oauth_server.OAuth）。パスキーの形だけで効く
 
 
 def make_handler(spaces, cfg: Config = None):
@@ -701,6 +713,29 @@ def make_handler(spaces, cfg: Config = None):
                 rows = [r for r in rows if r['id'] in allowed]
             return self.send_json(200, {'spaces': rows, 'access': allowed})
 
+        def check_assertion(self, cred):
+            """パスキーの署名を確かめる（/api/passkey/login と /oauth/approve で同じ）。
+            通ればパスキーの行（sign_count を進めたもの）。だめなら 401 を返して None。形が悪ければ投げる"""
+            pk = cfg.passkeys
+            resp = cred.get('response') or {}
+            cd = pc.b64u_decode(resp.get('clientDataJSON', ''))
+            ch = json.loads(cd.decode('utf-8')).get('challenge', '')
+            if not pk.take_challenge(ch, 'get'):
+                self.deny('challenge')
+                return None
+            row = pk.find_passkey(str(cred.get('id', '')))
+            if not row:
+                self.deny('unknown-passkey')
+                return None
+            count = pc.verify_assertion(public_key=row['public_key'], sign_count=row['sign_count'],
+                                        client_data_json=cd,
+                                        authenticator_data=pc.b64u_decode(resp.get('authenticatorData', '')),
+                                        signature=pc.b64u_decode(resp.get('signature', '')),
+                                        challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
+                                        require_uv=cfg.require_uv)
+            pk.touch_passkey(row['id'], count)
+            return row
+
         def who_am_i(self, tok):
             """入ったあとに端末へ返す {spaces, person, owner}"""
             info = cfg.passkeys.session_info(tok) or {}
@@ -754,6 +789,137 @@ def make_handler(spaces, cfg: Config = None):
             v = (self.headers.get('X-Bubbles-Schema', '') or '').strip()
             return int(v) if v.isdigit() and len(v) < 6 else 0
 
+        # --- claude.ai の接続（OAuth 2.1。oauth_server.py） ---
+        def oauth_on(self):
+            return cfg.auth == 'passkey' and cfg.oauth is not None
+
+        def oauth_authorize(self):
+            """GET /oauth/authorize。相手の名乗りを確かめてから許可の画面を出す（確かめられなければ戻さずに断りの画面）"""
+            q = self.path.split('?', 1)[1] if '?' in self.path else ''
+            try:
+                params = parse_qs(q, keep_blank_values=True, max_num_fields=50)
+            except ValueError:
+                return self.send(400, cfg.oauth.error_page('問いの形が読めません'), 'text/html; charset=utf-8')
+            logs, res = cfg.oauth.authorize(params)
+            for kind, detail in logs:
+                log_event(kind, self.ip(), detail)
+            if res[0] == 'redirect':
+                return self.send(302, b'', 'text/plain; charset=utf-8', extra={'Location': res[1]})
+            return self.send(res[1], res[2], 'text/html; charset=utf-8')
+
+        def oauth_post(self, path):
+            """POST /oauth/approve・/oauth/deny・/oauth/token"""
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            if path == '/oauth/token':
+                return self.oauth_token()
+            if path not in ('/oauth/approve', '/oauth/deny'):
+                return self.send_json(404, {'error': 'not found'})
+            origin = self.headers.get('Origin', '')
+            if origin and origin != cfg.origin:
+                log_event('oauth-origin', self.ip())
+                return self.send_json(403, {'error': 'forbidden'})
+            body = self.read_json()
+            if body is None:
+                return
+            rid = body.get('request')
+            if path == '/oauth/deny':
+                url = cfg.oauth.deny(rid)
+                if not url:
+                    return self.send_json(400, {'error': 'expired'})
+                log_event('oauth-denied', self.ip())
+                return self.send_json(200, {'redirect': url})
+            if not cfg.oauth.peek(rid):
+                return self.send_json(400, {'error': 'expired'})
+            try:
+                row = self.check_assertion(body.get('credential') or {})
+            except (pc.VerifyError, ValueError, KeyError, TypeError, AttributeError) as e:
+                return self.deny('passkey ' + type(e).__name__ + ': ' + str(e)[:60])
+            if not row:
+                return
+            if not oauth_server.is_owner(row):
+                # 入場の失敗ではない（正しいパスキーだが、許す力が無い）。失敗の数に入れない
+                log_event('oauth-not-owner', self.ip())
+                return self.send_json(403, {'error': 'not owner'})
+            url = cfg.oauth.approve(rid, row)
+            if not url:
+                return self.send_json(400, {'error': 'expired'})
+            log_event('oauth-approved', self.ip())
+            return self.send_json(200, {'redirect': url})
+
+        def oauth_token(self):
+            """POST /oauth/token（application/x-www-form-urlencoded だけ）。答えは保存させない（no-store）"""
+            def fail(err):
+                cfg.guard.auth_failed(self.ip())
+                kind = {'code-reuse': 'oauth-code-reuse', 'refresh-reuse': 'oauth-refresh-reuse'}.get(err.reason, 'oauth-fail')
+                log_event(kind, self.ip(), err.reason)
+                out = {'error': err.error}
+                if err.description:
+                    out['error_description'] = err.description
+                return self.send(400, json.dumps(out).encode('utf-8'), extra={'Pragma': 'no-cache'})
+
+            ctype = self.headers.get('Content-Type', '').split(';')[0].strip().lower()
+            try:
+                n = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                n = -1
+            if ctype != 'application/x-www-form-urlencoded':
+                return fail(oauth_server.OAuthError('invalid_request', 'content-type', 'application/x-www-form-urlencoded only'))
+            if n <= 0 or n > 64 * 1024:
+                return fail(oauth_server.OAuthError('invalid_request', 'length'))
+            try:
+                form = parse_qs(self.rfile.read(n).decode('utf-8'), keep_blank_values=True, max_num_fields=30)
+            except (ValueError, UnicodeDecodeError):
+                return fail(oauth_server.OAuthError('invalid_request', 'body'))
+            try:
+                out, _ = cfg.oauth.token(form)
+            except oauth_server.OAuthError as e:
+                return fail(e)
+            return self.send(200, json.dumps(out).encode('utf-8'), extra={'Pragma': 'no-cache'})
+
+        def mcp(self):
+            """/mcp（守る口）。通行証は claude.ai の接続のもの（ba_…）だけ。パスキーの通行証・機械の鍵は効かない"""
+            origin = self.headers.get('Origin', '')
+            if origin and origin != cfg.origin:
+                log_event('mcp-origin', self.ip())
+                return self.send_json(403, {'error': 'forbidden'})
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            got = self.headers.get('Authorization', '')
+            unauthorized = json.dumps({'error': 'unauthorized'}).encode('utf-8')
+            if not got:
+                # 初めての呼び出し（どこで許可をもらうかを知らせる）。入場の失敗には数えない
+                return self.send(401, unauthorized, extra={'WWW-Authenticate': cfg.oauth.challenge_header()})
+            g, why = cfg.oauth.check_access(got[7:] if got.startswith('Bearer ') else '')
+            if not g:
+                if why == 'expired':
+                    # 期限切れはいつものこと（相手が更新の札で替える）。締め出しの数には入れない
+                    log_event('oauth-expired', self.ip())
+                else:
+                    cfg.guard.auth_failed(self.ip())
+                    log_event('auth-fail', self.ip(), 'mcp')
+                return self.send(401, unauthorized,
+                                 extra={'WWW-Authenticate': cfg.oauth.challenge_header('invalid_token')})
+            if self.command != 'POST':
+                return self.send(405, json.dumps({'error': 'method'}).encode('utf-8'), extra={'Allow': 'POST'})
+            try:
+                n = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                n = -1
+            if n < 0 or n > MAX_BODY:
+                return self.send_json(413 if n > MAX_BODY else 400, {'error': 'bad length'})
+            try:
+                msg = json.loads(self.rfile.read(n).decode('utf-8')) if n else None
+            except (ValueError, UnicodeDecodeError):
+                msg = None
+            rid = msg.get('id') if isinstance(msg, dict) else None
+            if not isinstance(rid, (str, int)) or isinstance(rid, bool):
+                rid = None
+            return self.send_json(200, {'jsonrpc': '2.0', 'id': rid,
+                                        'error': {'code': -32601, 'message': '道具はまだ無い'}})
+
         # --- 受ける ---
         def do_OPTIONS(self):
             if not self.gate():
@@ -766,8 +932,17 @@ def make_handler(spaces, cfg: Config = None):
 
         def do_GET(self):
             path = self.path.split('?', 1)[0]
-            if not self.gate(static=not path.startswith('/api/')):
+            if not self.gate(static=not (path.startswith(('/api/', '/oauth/')) or path == '/mcp')):
                 return
+            if self.oauth_on():
+                if path == '/.well-known/oauth-authorization-server':
+                    return self.send_json(200, cfg.oauth.as_metadata())
+                if path in ('/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'):
+                    return self.send_json(200, cfg.oauth.pr_metadata(root=not path.endswith('/mcp')))
+                if path == '/oauth/authorize' and self.command == 'GET':
+                    return self.oauth_authorize()
+                if path == '/mcp':
+                    return self.mcp()
             if path == '/api/health':
                 return self.send_json(200, {'ok': True})
             if path == '/api/auth':
@@ -794,6 +969,13 @@ def make_handler(spaces, cfg: Config = None):
             return self.static(path)
 
         do_HEAD = do_GET
+
+        def do_DELETE(self):
+            if not self.gate():
+                return
+            if self.path.split('?', 1)[0] == '/mcp' and self.oauth_on():
+                return self.mcp()
+            return self.send_json(404, {'error': 'not found'})
 
         def do_PUT(self):
             if not self.gate():
@@ -826,6 +1008,10 @@ def make_handler(spaces, cfg: Config = None):
             if not self.gate():
                 return
             path = self.path.split('?', 1)[0]
+            if path.startswith('/oauth/') or path == '/mcp':
+                if not self.oauth_on():
+                    return self.send_json(404, {'error': 'not found'})
+                return self.mcp() if path == '/mcp' else self.oauth_post(path)
             if path == '/api/spaces':
                 return self.seas()
             if cfg.auth != 'passkey' or not path.startswith('/api/passkey/'):
@@ -907,22 +1093,9 @@ def make_handler(spaces, cfg: Config = None):
                         'userVerification': 'required', 'timeout': 120000, 'allowCredentials': [],
                     }})
                 if path == '/api/passkey/login':
-                    cred = body.get('credential') or {}
-                    resp = cred.get('response') or {}
-                    cd = pc.b64u_decode(resp.get('clientDataJSON', ''))
-                    ch = json.loads(cd.decode('utf-8')).get('challenge', '')
-                    if not pk.take_challenge(ch, 'get'):
-                        return self.deny('challenge')
-                    row = pk.find_passkey(str(cred.get('id', '')))
+                    row = self.check_assertion(body.get('credential') or {})
                     if not row:
-                        return self.deny('unknown-passkey')
-                    count = pc.verify_assertion(public_key=row['public_key'], sign_count=row['sign_count'],
-                                                client_data_json=cd,
-                                                authenticator_data=pc.b64u_decode(resp.get('authenticatorData', '')),
-                                                signature=pc.b64u_decode(resp.get('signature', '')),
-                                                challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
-                                                require_uv=cfg.require_uv)
-                    pk.touch_passkey(row['id'], count)
+                        return
                     tok, exp = pk.new_session(row['id'], row['spaces'])
                     return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=row['name']))
                 if path == '/api/passkey/invite':
@@ -1177,6 +1350,32 @@ def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: 
     return 0
 
 
+def oauth_command(data_dir: Path, cmd: str, name: str) -> int:
+    """claude.ai の接続の許可の操作（2026-11-17）。動いているサーバーは止めなくてよい（次の要求から効く）。
+    値（通行証・更新の札）は出さない（ファイルにも無い）"""
+    st = oauth_server.OAuthStore(data_dir)
+    day = lambda t: time.strftime('%Y-%m-%d %H:%M', time.localtime(t)) if t else '未使用'   # noqa: E731
+    if cmd == 'oauth-list':
+        rows = st.grants()
+        if not rows:
+            print('許した接続はありません（claude.ai のコネクタから接続し、許可の画面で許すとできる）')
+        for g in rows:
+            refresh = day(g['refresh_expires']) if g.get('refresh_expires') else 'なし（まだ code を替えていない）'
+            print(f"{g['id']}\t{g.get('client_name', '')}\t{oauth_server.host_of(g.get('client_id', ''))}"
+                  f"\t許した {day(g.get('created'))}\t最後 {day(g.get('last_used'))}\t更新の札の期限 {refresh}")
+        if rows:
+            print('取り消す: oauth-revoke <id>（全部なら oauth-revoke all）', flush=True)
+    elif cmd == 'oauth-revoke':
+        which = name.strip()
+        if not which:
+            raise SystemExit('取り消す許可の id か all を入れてください（例: oauth-revoke g_1a2b3c4d。oauth-list で見られる）')
+        n = st.revoke(which)
+        if not n:
+            raise SystemExit(f'「{which}」の許可はありません（oauth-list で id を確かめる）')
+        print(f'{n} 件の許可を取り消しました。その通行証と更新の札は次の要求から効きません', flush=True)
+    return 0
+
+
 SEA_COLORS = ('magma', 'moss', 'dusk', 'sand', 'ink')   # js/spacelist.js の COLORS
 
 
@@ -1292,7 +1491,8 @@ def main(argv=None):
                              'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person',
                              'move-remove', 'request-list', 'request-ok', 'request-no', 'limit', 'limit-set',
                              'machine-add', 'machine-list', 'machine-remove',
-                             'sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space'],
+                             'sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space',
+                             'oauth-list', 'oauth-revoke'],
                     help='serve（既定）か、合言葉・パスキーの操作')
     ap.add_argument('name', nargs='?', default='',
                     help='share-add / share-remove / invite-add / passkey-remove の名前、request-ok / request-no の字、limit-set の数')
@@ -1300,12 +1500,17 @@ def main(argv=None):
     ap.add_argument('extra', nargs='?', default='', help='passkey-space の海の ID')
     ap.add_argument('--sea-id', default='', help='sea-add で使う海の ID（端末の海の ⚙ に出る ID。省けば新しく作る）')
     ap.add_argument('--color', default='magma', help='sea-add の水の色（magma・moss・dusk・sand・ink）')
+    ap.add_argument('--oauth-client-host', action='append', default=None,
+                    help='claude.ai の接続で受ける相手の住所の名前（何度でも。既定は環境変数 '
+                         'BUBBLE_TODO_OAUTH_CLIENT_HOSTS（コンマで）か claude.ai）')
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)   # 新しく作るときは持ち主だけ（Issue #48）
     if args.command in ('sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space'):
         return sea_command(data_dir, args)
+    if args.command in ('oauth-list', 'oauth-revoke'):
+        return oauth_command(data_dir, args.command, args.name)
     if args.command in ('machine-add', 'machine-list', 'machine-remove'):
         if args.command != 'machine-list' and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} gantt）')
@@ -1334,10 +1539,12 @@ def main(argv=None):
         rp_id = args.rp_id or u.hostname
         if rp_id != u.hostname and not u.hostname.endswith('.' + rp_id):
             raise SystemExit('--rp-id は --origin の名前か、その親の名前にする')
+        passkeys = PasskeyStore(data_dir, max_per_space=args.max_passkeys)
+        oauth = oauth_server.OAuth(data_dir, origin, passkeys, oauth_server.client_hosts_from(args.oauth_client_host))
         cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy,
-                     allow_origins=args.allow_origin or (), passkeys=PasskeyStore(data_dir, max_per_space=args.max_passkeys),
+                     allow_origins=args.allow_origin or (), passkeys=passkeys,
                      stores=SeaStores(data_dir), devices=Devices(max_active=args.max_devices, window=args.device_window),
-                     sea_list=SeaList(data_dir), min_schema=args.min_schema, machines=MachineKeys(data_dir))
+                     sea_list=SeaList(data_dir), min_schema=args.min_schema, machines=MachineKeys(data_dir), oauth=oauth)
         spaces = {}
     else:
         cfg = Config(auth='token', trust_proxy=args.trust_proxy,
@@ -1348,7 +1555,8 @@ def main(argv=None):
     Server.guard, Server.trust_proxy = cfg.guard, cfg.trust_proxy
     httpd = Server((args.host, args.port), make_handler(spaces, cfg))
     print(f'Bubbles server: http://{args.host}:{args.port}/  data: {data_dir}  auth: {cfg.auth}  min-schema: {cfg.min_schema}'
-          + (f'  origin: {cfg.origin}  rp_id: {cfg.rp_id}' if cfg.auth == 'passkey' else ''), flush=True)
+          + (f'  origin: {cfg.origin}  rp_id: {cfg.rp_id}  oauth-client-host: {",".join(sorted(cfg.oauth.client_hosts))}'
+             if cfg.auth == 'passkey' else ''), flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
