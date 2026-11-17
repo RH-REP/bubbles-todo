@@ -109,6 +109,25 @@ grep -q "が応えた" <<<"$out3" || fail "update のあと応えない"
 grep -q -- "--auth passkey --origin https://bubbles.example.org" "$u" || fail "環境変数なしの update で形が変わった"
 pass "2回目も update も、環境変数なしで同じ形のまま通る"
 
+# --- clone の設定に branch.main.merge が2つあっても取り込める（2026-11-18。名前なしの git pull は
+#     「Cannot fast-forward to multiple branches」で止まる）。版が進めば、取り込んだ版のスクリプトで打ち直す ---
+br="$(git -C "$T/code" symbolic-ref --short HEAD)"
+git -C "$T/code" config --add "branch.$br.merge" refs/heads/zz-other
+git clone -q "$T/origin.git" "$T/work"
+git -C "$T/work" push -q origin "$br:zz-other"   # 2つ目の merge の先が origin にあると、名前なしの pull は止まる
+perl -pi -e 's/^set -euo pipefail$/set -euo pipefail\n[[ -n "\$\{BUBBLES_PULLED:-}" ]] && echo NEW-SCRIPT-RAN/' "$T/work/tools/server-setup.sh"
+grep -q NEW-SCRIPT-RAN "$T/work/tools/server-setup.sh" || fail "テスト用の新しい版を作れない"
+git -C "$T/work" -c user.name=t -c user.email=t@t commit -qam "新しい版"
+git -C "$T/work" push -q origin "$br"
+out5="$(setup update 2>&1)" || { echo "$out5"; fail "merge が2つある clone で update が止まった"; }
+[[ "$(git -C "$T/code" rev-parse HEAD)" == "$(git --git-dir="$T/origin.git" rev-parse "$br")" ]] || fail "clone の HEAD が origin と同じでない"
+grep -q "取り込んだ版のこのスクリプトで動かし直します" <<<"$out5" && grep -q NEW-SCRIPT-RAN <<<"$out5" \
+  || { echo "$out5"; fail "取り込んだ版のスクリプトで打ち直していない"; }
+grep -q "が応えた" <<<"$out5" || fail "取り込んだあと応えない"
+out6="$(setup update 2>&1)" || { echo "$out6"; fail "2回目の update が止まった"; }
+grep -q "取り込む版なし" <<<"$out6" || { echo "$out6"; fail "版が同じなのに打ち直した"; }
+pass "branch.$br.merge が2つあっても update が通り、HEAD が origin と同じになり、取り込んだ版で打ち直す"
+
 out4="$(setup uninstall 2>&1)" || { echo "$out4"; fail "uninstall が止まった"; }
 [[ ! -f "$u" ]] || fail "unit が残った"
 [[ -d "$T/home/bubbles-data" ]] || fail "uninstall で記録の置き場が消えた"

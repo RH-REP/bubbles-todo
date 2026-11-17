@@ -43,7 +43,7 @@
 #
 # すること（install）:
 #   1. python3（3.8 以上）と git を確かめる。無ければ dnf / apt で入れる
-#   2. このスクリプトの入っている clone を使う（無ければ BUBBLES_REPO から clone）。あれば git pull --ff-only
+#   2. このスクリプトの入っている clone を使う（無ければ BUBBLES_REPO から clone）。あれば git pull --ff-only origin <今の枝>（版が進めば取り込んだ版で打ち直す）
 #   3. 記録の置き場（BUBBLES_DATA）を作る（chmod 700）
 #   4. server.py のテストを走らせる
 #   5. systemd のサービスを書いて常駐させる。server.py は --auth passkey で 127.0.0.1 だけで待ち受ける
@@ -123,12 +123,38 @@ need_tools() {
 get_code() {
   say "2. コード（${DIR}）"
   if [[ -d "$DIR/.git" ]]; then
-    git -C "$DIR" pull --ff-only
+    pull_clone
   else
     git clone "$REPO" "$DIR"
   fi
   [[ -f "$DIR/server.py" ]] || die "$DIR に server.py がありません"
   ok "$(git -C "$DIR" log --oneline -1)"
+}
+
+# clone を origin に合わせる（2026-11-18）。枝は名前で渡す。git pull だけだと branch.<枝>.merge の設定に従い、
+# それが2つあると「fatal: Cannot fast-forward to multiple branches.」で止まる（2026-11-17 に別の app の VM の clone で起きた）。
+# git は clone の持ち主で打つ（root で打つと .git の中に root のファイルができる）。
+# 版が進んだら、取り込んだ版のこのスクリプトで同じコマンドを打ち直す（古い版の手順で新しい版を入れないため）
+pull_clone() {
+  local owner home branch before after
+  if [[ -n "${BUBBLES_PULLED:-}" ]]; then ok "取り込み済み（$(git -C "$DIR" rev-parse --short HEAD)）"; return 0; fi
+  owner="$("$PY" -c 'import os, pwd, sys; print(pwd.getpwuid(os.stat(sys.argv[1]).st_uid).pw_name)' "$DIR/.git")" \
+    || die "clone の持ち主が分かりません（$DIR/.git）"
+  home="$("$PY" -c 'import pwd, sys; print(pwd.getpwnam(sys.argv[1]).pw_dir)' "$owner")" || die "$owner の家が分かりません"
+  as_owner() { if [[ "$owner" == "$(id -un)" ]]; then "$@"; else sudo -n -u "$owner" env HOME="$home" "$@"; fi; }
+  if ! branch="$(as_owner git -C "$DIR" symbolic-ref -q --short HEAD)"; then
+    warn "clone が枝の上にいないので取り込みません（今の HEAD で続けます）"; return 0
+  fi
+  if ! as_owner git -C "$DIR" remote get-url origin >/dev/null 2>&1; then
+    warn "clone に origin が無いので取り込みません（今の HEAD で続けます）"; return 0
+  fi
+  before="$(as_owner git -C "$DIR" rev-parse --short HEAD)"
+  as_owner git -C "$DIR" pull --ff-only -q origin "$branch" \
+    || die "clone を早送りで取り込めません（${DIR}。clone を直接書き換えた跡か、origin の履歴が書き換わった）。今の版のまま動いています"
+  after="$(as_owner git -C "$DIR" rev-parse --short HEAD)"
+  if [[ "$before" == "$after" ]]; then ok "取り込む版なし（${after}。$owner で origin $branch から）"; return 0; fi
+  ok "$before → ${after}（$owner で origin $branch から）。取り込んだ版のこのスクリプトで動かし直します"
+  exec env BUBBLES_PULLED=1 bash "$DIR/tools/server-setup.sh" "$CMD"
 }
 
 make_data() {
@@ -158,8 +184,8 @@ need_mode() {
     die "Tailscale の形（合言葉）は 2026-10-25 に外しました。公開の形にするなら BUBBLES_DOMAIN=<名前> を付けて実行し直してください（記録はそのまま使えます。端末はパスキーで登録し直します）"
   fi
   [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "BUBBLES_DOMAIN=<名前>（例 bubbles.example.org）を付けてください"
-  [[ "$CADDY" == main || "$CADDY" == site ]] || die "BUBBLES_CADDY は main か site（いまは $CADDY）"
-  [[ "$SERVICE" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || die "BUBBLES_SERVICE は英小文字・数字・- だけ（いまは $SERVICE）"
+  [[ "$CADDY" == main || "$CADDY" == site ]] || die "BUBBLES_CADDY は main か site（いまは ${CADDY}）"
+  [[ "$SERVICE" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || die "BUBBLES_SERVICE は英小文字・数字・- だけ（いまは ${SERVICE}）"
 }
 
 server_args() { printf -- '--auth passkey --origin https://%s --trust-proxy' "$DOMAIN"; }
@@ -306,7 +332,7 @@ caddy_site() {
   [[ -n "$old" ]] && rm -f "$old"
   # reload はほかの名前を止めない（restart は全部の名前を一度止める）
   sudo systemctl reload caddy
-  ok "Caddy: $site（https://$DOMAIN → 127.0.0.1:${PORT}）${added:+。$main に import の行を足した}"
+  ok "Caddy: ${site}（https://$DOMAIN → 127.0.0.1:${PORT}）${added:+。$main に import の行を足した}"
 }
 
 summary() {
@@ -349,7 +375,7 @@ cmd_uninstall() {
     sudo rm -f "$ETC/caddy/sites/$SERVICE.caddy" "$ETC/fail2ban/filter.d/$SERVICE.conf" "$ETC/fail2ban/jail.d/$SERVICE.conf"
     sudo systemctl reload caddy 2>/dev/null || true
     sudo systemctl restart fail2ban 2>/dev/null || true
-    ok "Caddy の節と fail2ban の設定（$SERVICE）を外しました"
+    ok "Caddy の節と fail2ban の設定（${SERVICE}）を外しました"
   fi
   ok "常駐をやめました。記録とパスキーは $DATA に残っています"
 }
@@ -363,7 +389,7 @@ cmd_copy_data() {
   [[ "$from" != "$(mkdir -p "$DATA" && cd "$DATA" && pwd)" ]] || die "写す元と先が同じです"
   [[ -f "$from/state.json" ]] || die "$from に state.json がありません（記録の置き場か確かめる）"
   [[ ! -e "$DATA/state.json" ]] || die "$DATA にはもう state.json があります（上書きしない。写すなら空の置き場で）"
-  say "前の記録を写す（$from → $DATA）"
+  say "前の記録を写す（$from → ${DATA}）"
   chmod 700 "$DATA"
   for item in state.json backup people share seas seas.json limits.json; do
     if [[ -e "$from/$item" ]]; then cp -Rp "$from/$item" "$DATA/"; ok "$item"; n=$((n + 1)); fi
@@ -416,8 +442,8 @@ sys.stdout.write("\n".join(lines[:start] + repl + lines[end + 1:]))
     die "Caddy の設定が通りません。$main を元に戻しました"
   fi
   sudo systemctl reload caddy
-  if [[ "$how" == redirect ]]; then ok "https://$old は https://$DOMAIN へ転送します（前の形は $bak）"
-  else ok "$old の節を外しました（前の形は $bak）。DuckDNS の名前を消すかは別に決める"; fi
+  if [[ "$how" == redirect ]]; then ok "https://$old は https://$DOMAIN へ転送します（前の形は ${bak}）"
+  else ok "$old の節を外しました（前の形は ${bak}）。DuckDNS の名前を消すかは別に決める"; fi
 }
 
 token_cmd() {
@@ -425,7 +451,8 @@ token_cmd() {
   "$PY" "$DIR/server.py" --data-dir "$DATA" "$@"
 }
 
-case "${1:-install}" in
+CMD="${1:-install}"
+case "$CMD" in
   invite-add) [[ -n "${2:-}" ]] || die "名前を入れてください（例: invite-add 自分のスマホ me:1,share）"; token_cmd invite-add "$2" --space "${3:-share}" ;;
   passkey-person) [[ -n "${2:-}" && -n "${3:-}" ]] || die "名前と移す先を入れてください（例: passkey-person 母のスマホ new）"; token_cmd passkey-person "$2" "$3" ;;
   passkey-remove) [[ -n "${2:-}" ]] || die "名前を入れてください（例: passkey-remove 母のスマホ）"; token_cmd passkey-remove "$2" ;;
