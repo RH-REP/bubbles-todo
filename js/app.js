@@ -54,6 +54,12 @@ import settings, { syncSharedSea, readSharedSea, pushSeaDirect, directCount } fr
 
 const SCREENS = [sea, today, plan, gap, review, settings];
 
+/* ブロックチェーンの共有の海（署名・同期）と直の通信（WebRTC）を使う版か。サーバーなし版（noserver.html）だけ。
+   サーバーあり版（index.html）では盤にも出さない（2026-11-17 Issue #78。settings.js の isSolo と同じ見分け方） */
+const CHAIN_ON = (() => {
+  try { return !!document.querySelector('meta[name="bubbles-edition"][content="solo"]'); } catch (e) { return false; }
+})();
+
 /* バブルを受けられるタブ。bubble.js のドロップ判定もこの並びを見る */
 const DROPPABLE = new Set(['sea', 'today', 'plan', 'gap']);
 
@@ -785,11 +791,11 @@ setCenterHandler({
   /* サーバーなし版の共有の海では 1 件ずつウォレットで署名する（Issue #61 の N-A。js/notesign.js）。
      noteSigned = 署名を確かめて出す海か、noteSigning = 書くときに署名するか（この端末がブロックチェーンを始めている）。
      addNoteSigned はパスキーを押した手の続きで呼ぶので、unlockWallet より前で await しない */
-  noteSigned:    () => !!sharedSeaOf(store.space()),
+  noteSigned:    () => CHAIN_ON && !!sharedSeaOf(store.space()),
   /* 書くときは鍵を求めない（2026-11-15 Issue #68 の返事「TODOのメッセージを送る時に合言葉やパスキーの認識を求めらる。
      その場で同期しないのであれば不要なのでは？」）。鍵がもう開いている（10 分のうち）ときだけその場で署名し、
      開いていなければ署名せずに積んで、「自分の変更を送る」で鍵を開けたときにまとめて署名する（settings.js の signPendingNotes） */
-  noteSigning:   () => has('putNote') && signingOn(store.space()) && !!heldWallet(),
+  noteSigning:   () => CHAIN_ON && has('putNote') && signingOn(store.space()) && !!heldWallet(),
   addNoteSigned: async (id, v) => {
     const w = heldWallet() || await unlockWallet();
     const n = makeNote(id, v, noteName(), deviceId(), Date.now());
@@ -799,14 +805,14 @@ setCenterHandler({
   checkNote:     (n) => checkNote(n, sharedSeaOf(store.space())),
   /* 盤のひとことの横の「同期」（2026-11-15 Issue #68 の返事）。ブロックチェーンで共有している海で、この端末がブロックチェーンを始めているときだけ。
      設定の「同期する」と同じ（取り込み・新しい書き込みがあれば送る）。押した手の続きで呼ぶ */
-  shareSyncOn:   () => signingOn(store.space()),
+  shareSyncOn:   () => CHAIN_ON && signingOn(store.space()),
   syncShared:    (say) => syncSharedSea(store.space(), say),
   /* ひとことを送ったあとの読み込みだけ（Issue #68 の返事「TODOのメッセージを送る時に読み込みだけは行った方がいいのでは？」） */
   readShared:    (say) => readSharedSea(store.space(), say),
   /* 直につながっている相手へ、いまの海の記録をすぐ送る（ひとことを積んだあと。手数料なし。2026-11-16 Issue #68 の C1） */
-  pushShared:    () => pushSeaDirect(store.space()),
+  pushShared:    () => (CHAIN_ON ? pushSeaDirect(store.space()) : null),
   /* 盤のひとことの欄に出す、直につながっている台数（Issue #68 の返事「動いてないように見える」: 盤で様子が見えなかった） */
-  directCount:   () => directCount(store.space()),
+  directCount:   () => (CHAIN_ON ? directCount(store.space()) : 0),
   noteName:      () => noteName(),
   setNoteName:   (v) => setNoteName(v),
   hasNewNote:    (id) => has('notesOf')

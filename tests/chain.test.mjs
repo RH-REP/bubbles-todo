@@ -305,17 +305,29 @@ await test('noserver.html は index.html と CSP・印・manifest・title だけ
   assert.match(readFileSync(new URL('../js/boot-edition.js', import.meta.url), 'utf8'), /to = 'noserver\.html'/);
 });
 
-await test('サーバーが配るページ（server.py の CSP）でも Solana の公式 RPC だけを足して使える（Issue #42 の A 案）', () => {
+/* 2026-11-17 Issue #78: サーバーあり版ではブロックチェーンを使わないので、server.py の CSP から Solana の RPC を外した（Issue #42 の A 案を取りやめ） */
+await test('サーバーが配るページ（server.py の CSP）には Solana の RPC を入れない（Issue #78）', () => {
   const py = readFileSync(new URL('../server.py', import.meta.url), 'utf8');
   const m = /^CSP = \(([\s\S]*?)\)\n/m.exec(py);
   assert.ok(m, 'server.py に CSP が無い');
   const csp = m[1].split('\n').map(l => (/"([^"]*)"/.exec(l) || [])[1] || '').join('');
   const connect = /connect-src ([^;]+)/.exec(csp)[1].trim().split(/\s+/);
   assert.deepEqual(connect.sort(), ["'self'", 'https://api.anthropic.com', 'https://api.openai.com',
-    'https://generativelanguage.googleapis.com', 'https://api.devnet.solana.com',
-    'https://api.mainnet-beta.solana.com', 'https://api.open-meteo.com'].sort());
-  Object.values(NETWORKS).forEach(x => assert.ok(connect.includes(x.rpc), x.rpc + ' が server.py の CSP に無い'));
+    'https://generativelanguage.googleapis.com', 'https://api.open-meteo.com'].sort());
+  Object.values(NETWORKS).forEach(x => assert.ok(!connect.includes(x.rpc), x.rpc + ' が server.py の CSP に残っている'));
   Object.values(PROVIDERS).forEach(p => assert.ok(connect.includes(p.origin), p.origin + ' が server.py の CSP に無い'));
+});
+
+await test('サーバーあり版ではブロックチェーン・直の通信の欄と見張りを出さない（Issue #78）', () => {
+  const st = readFileSync(new URL('../js/screens/settings.js', import.meta.url), 'utf8');
+  assert.match(st, /const chainOn = isSolo\(\);/);
+  assert.match(st, /const gPrep = chainOn \? group\(PREP_NAME/);
+  assert.match(st, /if \(chainOn\) outChoice\.add\('chain'/);
+  assert.match(st, /if \(chainOn\) inChoice\.add\('chain'/);
+  assert.match(st, /serverOnly: !chainOn/);
+  assert.match(st, /if \(typeof document !== 'undefined' && isSolo\(\)\) startSharedWatch\(\);/);
+  const app = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  ['noteSigned:    () => CHAIN_ON', 'noteSigning:   () => CHAIN_ON', 'shareSyncOn:   () => CHAIN_ON'].forEach(s => assert.ok(app.includes(s), s));
 });
 
 await test('Android の app（Capacitor）ではパスキーを使わない・入口を1つにする script を両方の head で読む（Issue #38）', () => {

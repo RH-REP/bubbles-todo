@@ -76,8 +76,23 @@ function save(rows) {
   try { st.setItem(LIST_KEY, JSON.stringify(rows)); return true; } catch (e) { return false; }
 }
 
-/* 今ある海（個人は入れない） */
-export function seaList() { return allEntries().filter(e => e.alive); }
+/* 今ある海（個人は入れない）。
+   2026-11-17 Issue #78「バブルの表示はデフォルトTODOの一つだけ」: 前の版からの「共有」は、使っていなければ並べない
+   （初めて開いた端末で、海の帯・引き出し・設定の「海」に出るのを「個人」1つにする）。
+   使っている＝名前・色を直した（at が 0 でない）・同期の先が付いた・この端末に記録の箱がある・いま開いている海。
+   一覧の行は消さない（allEntries にはいつも入る。サーバーの一覧と合わせる形も変えない） */
+export function seaList() { return allEntries().filter(e => e.alive && !unusedDefault(e)); }
+
+function unusedDefault(e) {
+  if (e.id !== 'share' || e.at > 0 || e.region) return false;
+  const st = ls();
+  if (!st) return false;
+  try {
+    if (st.getItem(boxKey('share')) != null) return false;
+    if (st.getItem('bubble_todo_space') === 'share') return false;   /* store.js の SPACE_KEY */
+  } catch (e2) { return false; }
+  return true;
+}
 
 export function findSea(id) {
   return seaList().find(e => e.id === id) || null;

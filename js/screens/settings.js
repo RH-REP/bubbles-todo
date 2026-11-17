@@ -285,14 +285,21 @@ export default {
        自分の端末どうしで使う（自分のほかの端末と合わせる・自分にメモを送る）／記録を保存する・読み込む（バックアップだけ）／
        ブロックチェーンの鍵とウォレット（前の「ブロックチェーンを準備する」。共有の前提の箱が共有より下にあって行き来が要ったので、
        始め方は共有の面にも出し、ここは後から使うウォレット・鍵の替え・失ったときを主にする） */
-    const gShare = group('他の人と一緒に使う', '共有の海（人を招く・招待コードを受け取る・同期・チャット）');
-    const gSelf = group('自分の端末どうしで使う', '自分のほかの端末と合わせる・自分にメモを送る');
+    /* 2026-11-17 Issue #78「サーバーあり版のwebRTCとブロックチェーンを使った箇所の機能とそれに関連する設定を削除してすっきりさせれる？」:
+       サーバーあり版（index.html）では、ブロックチェーン（共有の海・チャット・バックアップ・自分にメモ・鍵とウォレット）と
+       直の通信（WebRTC。チェーンの共有の海の上で動く）の欄を出さない。サーバーなし版（noserver.html）は今までどおり */
+    const chainOn = isSolo();
+    const gShare = group('他の人と一緒に使う', chainOn ? '共有の海（人を招く・招待コードを受け取る・同期・チャット）' : '共有の海（人を招く・招待コードを受け取る・チャット）');
+    const gSelf = group('自分の端末どうしで使う', chainOn ? '自分のほかの端末と合わせる・自分にメモを送る' : '自分のほかの端末と合わせる');
     /* 「記録を引っ越す」と「版を確かめる」は別の働きなので分けた（Issue #43 の返事）。
        引っ越し（CSV・暗号化したファイル）・サーバー・ブロックチェーンは、どれも「記録をどこかに置いて、あとで戻す」なので、
        「記録を保存する・読み込む」にまとめ、置き場を選ぶ形にした */
-    const gSave = group('記録を保存する・読み込む', 'その時点の控え（バックアップ）をファイル・フォルダ・ブロックチェーンに書き出す・読み込む');
-    /* 2026-11-13 Issue #47 の返事「全部」（C）: サーバーに繋ぐ・入るのは「海を設定する」の ⚙ 1か所にした。ここはブロックチェーンだけ */
-    const gPrep = group(PREP_NAME, 'ブロックチェーンを始める・ウォレットを見る・鍵を替える・鍵を失ったとき');
+    const gSave = group('記録を保存する・読み込む', chainOn
+      ? 'その時点の控え（バックアップ）をファイル・フォルダ・ブロックチェーンに書き出す・読み込む'
+      : 'その時点の控え（バックアップ）をファイル・フォルダに書き出す・読み込む');
+    /* 2026-11-13 Issue #47 の返事「全部」（C）: サーバーに繋ぐ・入るのは「海を設定する」の ⚙ 1か所にした。ここはブロックチェーンだけ。
+       サーバーあり版では作らない（Issue #78） */
+    const gPrep = chainOn ? group(PREP_NAME, 'ブロックチェーンを始める・ウォレットを見る・鍵を替える・鍵を失ったとき') : null;
     const gVer = group('版を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・プロトタイプで試す・すべて初期化');
 
@@ -393,6 +400,7 @@ export default {
     let seasEl = null;
     /* ブロックチェーンの始め方・ウォレット・鍵を開く（ほかの箱の「ブロックチェーンを準備する」「ウォレットを開く」から） */
     const goSetup = (k) => {
+      if (!chainEl) return;   /* サーバーあり版にはブロックチェーンの箱が無い（Issue #78） */
       gPrep.open = true;
       if (k && chainEl.openTask) chainEl.openTask(k);
       try { chainEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* 動かせなくても開いてある */ }
@@ -401,8 +409,8 @@ export default {
     const goServer = () => { if (seasEl) seasEl.openServer(); };
     /* --- ブロックチェーン（2026-11-08 Issue #31）。始め方・ネット・ウォレット・鍵・鍵を失ったとき ---
        サーバーが配るページでも使える（2026-11-11 Issue #42 の A 案。server.py の CSP に Solana の RPC を足した） */
-    const chainEl = chainBox({ setup: true, tasks: ['wallet', 'key', 'lost'], title: 'ブロックチェーンを始める・ウォレットと鍵（Solana・試し）' });
-    gPrep.appendChild(chainEl);
+    const chainEl = chainOn ? chainBox({ setup: true, tasks: ['wallet', 'key', 'lost'], title: 'ブロックチェーンを始める・ウォレットと鍵（Solana・試し）' }) : null;
+    if (chainEl) gPrep.appendChild(chainEl);
 
     /* --- 他の人と一緒に使う ---
        2026-11-16 Issue #68 の返事（「設定のUIの配置やナビや説明文などを改良できる？」→ A 案「おすすめで」）:
@@ -423,8 +431,9 @@ export default {
       goServer();
       return 'サーバーの招待コード。設定の「海」の［サーバーにログイン］を開いた。「招待コード」の欄に貼って［招待コードで登録］を押す。';
     };
-    const shareHub = chainBox({ tasks: ['share'], part: 'hub', title: isSolo() ? '共有の海（ブロックチェーン）' : '共有の海（サーバー・ブロックチェーン）', goSetup,
-      serverShare: isSolo() ? null : goServer, serverInvite: isSolo() ? null : serverInvite });
+    /* サーバーあり版は serverOnly: サーバーの海のカード・サーバーで共有する・サーバーの招待コードだけを出す（Issue #78） */
+    const shareHub = chainBox({ tasks: ['share'], part: 'hub', title: isSolo() ? '共有の海（ブロックチェーン）' : '共有の海（サーバー）', goSetup,
+      serverShare: isSolo() ? null : goServer, serverInvite: isSolo() ? null : serverInvite, serverOnly: !chainOn });
     gShare.appendChild(shareHub);
     /* チャットを開いている間は描き直さない（2026-11-16 Issue #68 の返事「設定のチャットを押してもなにも起こらない？」:
        チャットを開くと「見た」の印を付け、その知らせで面を描き直していたので、開いたチャットがすぐ閉じていた） */
@@ -490,9 +499,9 @@ export default {
       '・自分のほかの端末といつも同じ記録にするのは、上の「自分の端末どうしで使う」（同じサーバーに繋いだ端末どうしは自動）。ここはその時点の控え（バックアップ）。',
       '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。すべての海が1つのファイルに入る。',
       '・フォルダ（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く（記録だけ。鍵は入らない）。読み込むときは「ファイル」から選ぶ。',
-      '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。',
+      chainOn ? '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。' : '',
       'どれから読み込んでも、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
-    ].forEach(t => gSave.appendChild(el('p', 'note', t)));
+    ].filter(Boolean).forEach(t => gSave.appendChild(el('p', 'note', t)));
     /* 問いなので .note にしない（ⓘ の裏に隠さない） */
     gSave.appendChild(el('p', 'prefs-pages-lb', '何をする？'));
     const modeChoice = choiceRow(gSave, '書き出すか読み込むか');
@@ -526,7 +535,7 @@ export default {
         ? '同じサーバーの同じ海を開いている端末どうしは、自動で同じ記録になる（保存して数秒で送り、開いている間は 20 秒ごと・画面に戻ったときに読む）。今すぐ合わせたいときは［今すぐ合わせる］。'
         : mode === 'out'
         ? 'サーバーに繋いでいる間は、記録は自動でサーバーに書かれ、ほかの端末と合う（保存して数秒で送る）。ふだんは押さなくてよい。'
-          + 'ファイルやブロックチェーンのような「その時点の控え」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'
+          + (chainOn ? 'ファイルやブロックチェーンのような' : 'ファイルのような') + '「その時点の控え」ではなく、いつも今の記録と同じ中身になる（消したものも消える）。'
         : 'サーバーに繋いでいる間は、ほかの端末で書いたものも自動で読み込まれる（開いている間は 20 秒ごと・画面に戻ったとき）。ふだんは押さなくてよい。'));
       /* もう1台の端末で同じ記録を使う手順（2026-11-13 Issue #52 の返事「サーバーあり版はおすすめで」）。同期するの欄にだけ出す */
       if (mode === 'sync') {
@@ -594,26 +603,26 @@ export default {
     outChoice.add('file', 'ファイル', [fileFormats('out')]);
     outChoice.add('folder', 'フォルダ（自動）', [folderBox()]);
     outChoice.add('server', 'サーバー', [serverPane('out')]);
-    outChoice.add('chain', 'ブロックチェーン', [chainPane('out')]);
+    if (chainOn) outChoice.add('chain', 'ブロックチェーン', [chainPane('out')]);
     /* --- 読み込む（フォルダに自動で書いたものは「ファイル」から選ぶ）--- */
     inChoice.add('file', 'ファイル', [fileFormats('in')]);
     inChoice.add('server', 'サーバー', [serverPane('in')]);
-    inChoice.add('chain', 'ブロックチェーン', [chainPane('in')]);
+    if (chainOn) inChoice.add('chain', 'ブロックチェーン', [chainPane('in')]);
     /* --- 自分のほかの端末と合わせる（Issue #52。2026-11-16 Issue #74 で「自分の端末どうしで使う」へ移した）。
-       サーバーなし版にはサーバーの欄を出さない --- */
+       サーバーなし版にはサーバーの欄を出さない。サーバーあり版にはブロックチェーンの欄を出さない（Issue #78） --- */
     if (!isSolo()) syncWrap.appendChild(serverPane('sync'));
-    const selfChain = chainPane('sync');
-    syncWrap.appendChild(selfChain);
+    const selfChain = chainOn ? chainPane('sync') : null;
+    if (selfChain) syncWrap.appendChild(selfChain);
     /* 自分にメモを送る（前は「他の人と一緒に使う」の面のいちばん下。自分だけのものなので、ここへ移した。Issue #74） */
-    const selfMemo = chainBox({ tasks: ['memo'], selfOnly: true, goSetup, title: '自分にメモを送る（Solana・試し）' });
-    gSelf.appendChild(selfMemo);
+    const selfMemo = chainOn ? chainBox({ tasks: ['memo'], selfOnly: true, goSetup, title: '自分にメモを送る（Solana・試し）' }) : null;
+    if (selfMemo) gSelf.appendChild(selfMemo);
     /* 箱を開くたびに、ブロックチェーンの欄を読み直す（別の箱で始めた・鍵を替えたのを映す。Issue #45） */
-    [gShare, gSelf, gPrep, gSave].forEach(d => d.addEventListener('toggle', () => {
+    [gShare, gSelf, gPrep, gSave].filter(Boolean).forEach(d => d.addEventListener('toggle', () => {
       if (!d.open) return;
       d.querySelectorAll('.choice-pane').forEach(p => { if (!p.hidden && typeof p.refresh === 'function') p.refresh(); });
-      if (d === gPrep && typeof chainEl.refresh === 'function') chainEl.refresh();
+      if (d === gPrep && chainEl && typeof chainEl.refresh === 'function') chainEl.refresh();
       if (d === gShare && typeof shareHub.refresh === 'function') shareHub.refresh();
-      if (d === gSelf) [selfChain, selfMemo].forEach(x => { if (typeof x.refresh === 'function') x.refresh(); });
+      if (d === gSelf) [selfChain, selfMemo].forEach(x => { if (x && typeof x.refresh === 'function') x.refresh(); });
     }));
 
     /* 「記録の置き場を選ぶ」（Issue #42）は外した（2026-11-13 Issue #47 の C）。
@@ -2236,6 +2245,17 @@ function chainBox(opts = {}) {
     lines.clear();
     info.hidden = false;
     into = row;
+    /* サーバーあり版の共有の面（Issue #78）: ブロックチェーンの鍵選び・共有中のチェーンの海・直の通信は出さず、
+       サーバーの海のカード → ＋ 海を共有する（サーバーで）→ 招待コードを受け取る（サーバーの形だけ）にする */
+    if (opts.serverOnly) {
+      info.hidden = true;
+      const cards = serverSeaCards();
+      if (!cards.length) group('sea-none', '共有中の海', 'まだ無い。サーバーにログインすると、入れる海がここに並ぶ。');
+      paintServerCards(cards);
+      paintServerShare();
+      paintReceive();
+      return;
+    }
     const net = netSel.value;
     const pk = prfSupported();
     if (!cfg.mode && !setup) {
@@ -2685,10 +2705,13 @@ function chainBox(opts = {}) {
      設定の「海」のログインの「招待コード」の欄へ入れる。js/screens/seapanel.js の fillInvite）。前はサーバーの招待コードを受け取る欄が海の ⚙ の中にしか無く、
      同じ「招待コード」の名前でこちらに貼ると形が合わずに失敗した */
   function paintReceive() {
-    const started = !!cfg.mode;
+    const srvOnly = !!opts.serverOnly;   /* サーバーあり版（Issue #78）: サーバーの招待コードだけ */
+    const started = !srvOnly && !!cfg.mode;
     const srv = typeof opts.serverInvite === 'function';
     group('share-in', opts.part === 'hub' ? '招待コードを受け取る' : '招かれる（招待を受ける）',
-      '届いた招待コードを貼って「受け取る」。'
+      srvOnly
+        ? '届いたサーバーの招待コード（ABCD-EFGH-JKLM の形）を貼って「受け取る」。設定の「海」のログインの［招待コードで登録］の欄へ入れる。'
+        : '届いた招待コードを貼って「受け取る」。'
       + 'ブロックチェーンの招待コード（BTI1-…）なら、海が自動で足される（受け取るだけなら手数料なし。先に鍵を選んでおく）。'
       + (srv ? 'サーバーの招待コード（ABCD-EFGH-JKLM の形）なら、設定の「海」のログインの［招待コードで登録］の欄へ入れる。' : '')
       + (started ? '先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる。'
@@ -2697,7 +2720,7 @@ function chainBox(opts = {}) {
     codeIn.type = 'text';
     codeIn.autocomplete = 'off';
     codeIn.spellcheck = false;
-    codeIn.placeholder = srv ? '招待コード（BTI1-… か ABCD-EFGH-JKLM）を貼る' : '招待コード（BTI1-…）を貼る';
+    codeIn.placeholder = srvOnly ? '招待コード（ABCD-EFGH-JKLM）を貼る' : srv ? '招待コード（BTI1-… か ABCD-EFGH-JKLM）を貼る' : '招待コード（BTI1-…）を貼る';
     codeIn.setAttribute('aria-label', '招待コード');
     codeIn.style.cssText = 'flex:1 1 16em;min-width:12em';
     into.appendChild(codeIn);
@@ -2705,6 +2728,9 @@ function chainBox(opts = {}) {
     btn(started ? '🔑 受け取る' : '受け取る', async () => {
       const v = codeIn.value;
       const kind = inviteKind(v);
+      if (kind === 'chain' && srvOnly) {
+        throw new Error('ブロックチェーンの招待コード（BTI1-…）。サーバーあり版では受け取れない。サーバーなし版（noserver.html）で受け取る。');
+      }
       if (kind === 'chain') {
         if (!cfg.mode) throw new Error('ブロックチェーンの招待コード。先に上の「ブロックチェーンで共有する：鍵を選ぶ」で鍵を選ぶ（招いた人と同じネット）。');
         return acceptCode(v);
@@ -5071,4 +5097,5 @@ if (typeof document !== 'undefined' && isSolo()) {
 
 /* ブロックチェーンで共有している海を、アプリを開いている間に読む（2026-11-15 Issue #68 の B 案）。
    読むための鍵（rk）がある海だけ。ファイルの下で始める（上の定数を先に作ってから） */
-if (typeof document !== 'undefined') startSharedWatch();
+/* サーバーあり版では見張らない（チェーンの読み込みも、その上の直の通信 WebRTC も始めない。2026-11-17 Issue #78） */
+if (typeof document !== 'undefined' && isSolo()) startSharedWatch();
