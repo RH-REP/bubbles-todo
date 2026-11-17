@@ -42,6 +42,7 @@ import {
   hasKey, isKeyLocked, isKeyPlain, keyTail, keyLock, keyOpen, lockNow, saveKeyLocked, lockPlainKey, removeKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
   PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
 } from '../ai.js';
+import { aiOn } from '../edition.js';
 import { PASS_MIN as AIKEY_PASS_MIN, OPEN_MS as AIKEY_OPEN_MS } from '../aikey.js';
 import { ITEMS, PAGES, BOARD_SHOW_FEW, TAB_LABEL, PREFS_EVENT, loadPrefs, savePrefs, defaults, applyChanges, changeLines,
   changedFromDefault, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle } from '../prefs.js';
@@ -197,7 +198,8 @@ export default {
     akA.setAttribute('aria-hidden', 'true');
     ask.appendChild(akA);
     ask.addEventListener('click', () => openHelpScreen(ask));
-    box.appendChild(ask);
+    /* サーバーあり版では出さない（ヘルプの中心は AI に訊く。記事は上の「使い方を読む」で読める。2026-11-17 Issue #78） */
+    if (aiOn()) box.appendChild(ask);
 
     /* --- 1行にまとめた箱（Issue #40。利用者の返事）---
        基本は個人の TODO なので、ふだん開いて見えるのは ふりかえり・使い方・ヘルプ・海域 だけにし、
@@ -276,7 +278,8 @@ export default {
     /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
     const gLook = group('音と表示を変える', '画面（全体・海・今日・リスト・盤・引き出し）を選んで、音と表示を変える');
     /* 「AI を使う」ではなく「AI を使う設定をする」（Issue #45）。ヘルプそのものは上の1行へ分けた */
-    const gAi = group('AI を使う設定をする', 'API キー・モデル・先の予定');
+    /* サーバーあり版では作らない（AI の機能を出さない。2026-11-17 Issue #78 の返事「AI機能と設定の関連を削除して」） */
+    const gAi = aiOn() ? group('AI を使う設定をする', 'API キー・モデル・先の予定') : null;
     /* 2026-11-12 Issue #45（A 案）: 「他の人と一緒に使う」は、海を共有する・チャットする だけにし、それぞれの中で
        「サーバーで／ブロックチェーンで」を選ぶ。サーバーに繋ぐ設定と、ブロックチェーンの始め方・ウォレット・鍵は
        「サーバー・ブロックチェーンを準備する」へ。ブロックチェーンのバックアップは「記録を保存する・読み込む」へ移した */
@@ -641,11 +644,11 @@ export default {
     gVer.appendChild(rollbackBox());
 
     /* --- AI の API キーとモデル（2026-11-04 Issue #9。2026-11-11 Issue #45 で「ヘルプを開く」を上の1行へ分けた）--- */
-    gAi.appendChild(helpAiBox());
+    if (gAi) gAi.appendChild(helpAiBox());
 
     /* --- 先の予定（AI。2026-11-04。利用者の指示 Issue #13）---
        日付が先に分かっている予定を AI に Web で調べさせ、長期保留のバブルにする。押したときだけ調べる */
-    gAi.appendChild(upcomingBox());
+    if (gAi) gAi.appendChild(upcomingBox());
 
     /* --- 画面の大きさの記録（不具合を調べる用。2026-10-25）---
        立ち上げ直後に下のタブが隠れる件で、実機の値を見るため。js/boot-dvh.js が測った値を出し、写せる */
@@ -4957,7 +4960,8 @@ function prefsBox(onRender) {
   const out = el('div', 'prefs-out');
   out.setAttribute('role', 'status');
   chat.appendChild(out);
-  wrap.appendChild(chat);
+  /* サーバーあり版では AI に頼む欄を出さない（2026-11-17 Issue #78。項目は手で変える） */
+  if (aiOn()) wrap.appendChild(chat);
 
   let busy = false;
   async function ask() {

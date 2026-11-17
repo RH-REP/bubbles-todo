@@ -16,6 +16,7 @@ import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete, playSfx } from '../sound.js';
 import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest } from '../suggest.js';
 import { hasKey, askFull } from '../ai.js';
+import { aiOn } from '../edition.js';
 
 /* 詳細の入力を書き終わりまで待たずに保存する間隔（plan.js と同じ） */
 const SAVE_MS = 400;
@@ -1285,6 +1286,8 @@ function toggleSuggest() {
   aiBtn.type = 'button';
   aiBtn.addEventListener('click', ev => { ev.preventDefault(); askSuggest(); });
   box.appendChild(aiBtn);
+  /* サーバーあり版では AI で選び直すを出さない（2026-11-17 Issue #78。手元の計算のおすすめは残す） */
+  if (!aiOn()) aiBtn.hidden = true;
   const note = el('p', 'tsg-note');
   box.appendChild(note);
   stage.appendChild(box);
@@ -1327,7 +1330,7 @@ function renderSuggest() {
   });
   s.aiBtn.disabled = s.busy;
   s.aiBtn.textContent = s.busy ? 'AI が選んでいる…' : 'AI で選び直す';
-  s.note.textContent = s.msg || (hasKey()
+  s.note.textContent = s.msg || (!aiOn() ? '' : hasKey()
     ? '押すと、候補の泡の名前と印（30 件まで）を設定で選んだ AI の会社へ送る。本文・作業メモは送らない'
     : '設定の「AI を使う設定をする」に API キーを入れると、名前の意味や季節も考えに入れて選べる');
 }

@@ -506,9 +506,10 @@ LOOPBACK = {'127.0.0.1', '::1'}
 # AI の会社を選べるようにし、OpenAI（api.openai.com）と Google Gemini（generativelanguage.googleapis.com）を
 # 足した（2026-11-12 Issue #46 の返事「おすすめで」= A 案）。js/ai.js の PROVIDERS の origin と同じ窓口だけ。
 # 設定で選んだ 1 社にだけ、押したときに送る。住所を自分で入れる形は作らない（CSP を広げないため）。
+# AI の 3 社も 2026-11-17 Issue #78 の返事「AI機能と設定の関連を削除して」で外した（サーバーあり版では AI の機能を出さない。
+# AI はサーバーなし版 noserver.html だけ）。
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
-       "connect-src 'self' https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com "
-       "https://api.open-meteo.com; font-src 'self'; object-src 'none'; base-uri 'self'; "
+       "connect-src 'self' https://api.open-meteo.com; font-src 'self'; object-src 'none'; base-uri 'self'; "
        "form-action 'self'; frame-ancestors 'none'")
 
 

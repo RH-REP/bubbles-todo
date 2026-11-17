@@ -20,6 +20,7 @@ import { el, clamp, fromFeedback, toast } from './ui.js';
 import { playSfx } from './sound.js';
 import { QUADRANTS, quadrantFor } from './priority.js';
 import { askFull, askWithSearchFull, hasKey } from './ai.js';
+import { aiOn } from './edition.js';
 import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, applyName, cleanText, appendSection, lostUrls, failLine,
   buildAskPrompt, parseAskReply, askSectionText, leadDay, relatedDetail, ASK_MAX, DEADLINE_LEAD } from './research.js';
 import { spanFromDetail, withSpan } from './deadline.js';
@@ -2202,7 +2203,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailNote = el('p', 'bm-said', '');
     detailPane.appendChild(detailNote);
 
-    buildAi();
+    /* サーバーあり版では AI の欄を出さない（2026-11-17 Issue #78。js/edition.js） */
+    if (aiOn()) buildAi();
     root.appendChild(detailPane);
   }
 

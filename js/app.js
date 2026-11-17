@@ -42,6 +42,7 @@ import { closeSeaMap, isOpen as seaMapOpen } from './seamap.js';
 import { closeHelp } from './help.js';
 import { closeUpcoming } from './upcoming.js';
 import { askFull, hasKey } from './ai.js';
+import { isSolo, aiOn } from './edition.js';
 import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js';
 /* この端末の表示（Issue #36）。起動時の画面・タブの並び・body の印（pref-wind・pref-hide-tags） */
 import { loadPrefs, PREFS_EVENT } from './prefs.js';
@@ -55,10 +56,8 @@ import settings, { syncSharedSea, readSharedSea, pushSeaDirect, directCount } fr
 const SCREENS = [sea, today, plan, gap, review, settings];
 
 /* ブロックチェーンの共有の海（署名・同期）と直の通信（WebRTC）を使う版か。サーバーなし版（noserver.html）だけ。
-   サーバーあり版（index.html）では盤にも出さない（2026-11-17 Issue #78。settings.js の isSolo と同じ見分け方） */
-const CHAIN_ON = (() => {
-  try { return !!document.querySelector('meta[name="bubbles-edition"][content="solo"]'); } catch (e) { return false; }
-})();
+   サーバーあり版（index.html）では盤にも出さない（2026-11-17 Issue #78。js/edition.js） */
+const CHAIN_ON = isSolo();
 
 /* バブルを受けられるタブ。bubble.js のドロップ判定もこの並びを見る */
 const DROPPABLE = new Set(['sea', 'today', 'plan', 'gap']);
@@ -999,7 +998,9 @@ document.addEventListener('keydown', ev => {
    チェックを入れたときだけ撮って付ける）。記録の欄は出さない（log: false）。
    **書いたもの（バブルの本文）は渡さない。**渡すのは今の画面と件数だけ。 */
 if (window.AppFeedback) {
-  window.AppFeedback.install({
+  /* サーバーあり版では「AI で題名」を渡さない（渡さなければ feedback.js はボタンを出さない。2026-11-17 Issue #78） */
+  const fbAi = aiOn() ? {} : { makeTitle: undefined, makeTitleLabel: undefined, makeTitleNote: undefined };
+  window.AppFeedback.install(Object.assign({
     app: 'bubble_todo',
     version: '0.1.0',                  /* package.json の version */
     repo: 'RH-REP/bubbles-todo',
@@ -1029,5 +1030,5 @@ if (window.AppFeedback) {
           + ' ・ タグ ' + n(() => store.tags()),
       };
     },
-  });
+  }, fbAi));
 }

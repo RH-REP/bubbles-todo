@@ -306,16 +306,28 @@ await test('noserver.html は index.html と CSP・印・manifest・title だけ
 });
 
 /* 2026-11-17 Issue #78: サーバーあり版ではブロックチェーンを使わないので、server.py の CSP から Solana の RPC を外した（Issue #42 の A 案を取りやめ） */
-await test('サーバーが配るページ（server.py の CSP）には Solana の RPC を入れない（Issue #78）', () => {
+await test('サーバーが配るページ（server.py の CSP）には Solana の RPC も AI の会社も入れない（Issue #78）', () => {
   const py = readFileSync(new URL('../server.py', import.meta.url), 'utf8');
   const m = /^CSP = \(([\s\S]*?)\)\n/m.exec(py);
   assert.ok(m, 'server.py に CSP が無い');
   const csp = m[1].split('\n').map(l => (/"([^"]*)"/.exec(l) || [])[1] || '').join('');
   const connect = /connect-src ([^;]+)/.exec(csp)[1].trim().split(/\s+/);
-  assert.deepEqual(connect.sort(), ["'self'", 'https://api.anthropic.com', 'https://api.openai.com',
-    'https://generativelanguage.googleapis.com', 'https://api.open-meteo.com'].sort());
+  assert.deepEqual(connect.sort(), ["'self'", 'https://api.open-meteo.com'].sort());
   Object.values(NETWORKS).forEach(x => assert.ok(!connect.includes(x.rpc), x.rpc + ' が server.py の CSP に残っている'));
-  Object.values(PROVIDERS).forEach(p => assert.ok(connect.includes(p.origin), p.origin + ' が server.py の CSP に無い'));
+  Object.values(PROVIDERS).forEach(p => assert.ok(!connect.includes(p.origin), p.origin + ' が server.py の CSP に残っている'));
+});
+
+await test('サーバーあり版では AI の機能と設定を出さない（Issue #78 の返事）', () => {
+  const src = f => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+  const st = src('js/screens/settings.js');
+  assert.match(st, /const gAi = aiOn\(\) \? group\(/);
+  assert.match(st, /if \(aiOn\(\)\) box\.appendChild\(ask\);/);
+  assert.match(st, /if \(aiOn\(\)\) wrap\.appendChild\(chat\);/);
+  assert.match(src('js/bubble.js'), /if \(aiOn\(\)\) buildAi\(\);/);
+  assert.match(src('js/screens/today.js'), /if \(!aiOn\(\)\) aiBtn\.hidden = true;/);
+  assert.match(src('js/app.js'), /const fbAi = aiOn\(\)/);
+  assert.match(src('js/edition.js'), /export function aiOn\(\) \{ return isSolo\(\); \}/);
+  assert.ok(src('sw.js').includes("'./js/edition.js'"));
 });
 
 await test('サーバーあり版ではブロックチェーン・直の通信の欄と見張りを出さない（Issue #78）', () => {
