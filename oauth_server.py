@@ -33,6 +33,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
+from filelock import DirLock
 from passkey_store import OWNER, person_of
 
 SCOPE = 'todo'
@@ -116,7 +117,7 @@ class OAuthStore:
     def __init__(self, data_dir: Path, clock=_now):
         self.path = Path(data_dir) / 'oauth.json'
         self.clock = clock
-        self.lock = threading.RLock()
+        self.lock = DirLock(Path(data_dir) / '.lock-oauth')   # プロセスをまたぐ錠（2つの server.py・CLI）
 
     def read(self):
         try:

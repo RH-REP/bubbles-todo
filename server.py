@@ -128,6 +128,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 import oauth_server
+from filelock import DirLock
 import passkey_crypto as pc
 from guard import Devices, Guard
 from passkey_store import PasskeyStore, valid_space, space_label, person_label, person_of, OWNER
@@ -153,7 +154,8 @@ class Store:
         self.dir = data_dir
         self.path = data_dir / 'state.json'
         self.backup = data_dir / 'backup'
-        self.lock = threading.Lock()
+        # プロセスをまたぐ錠（2026-11-17。前の住所と新しい住所の2つの server.py が同じ置き場を書くため）
+        self.lock = DirLock(data_dir / '.lock-state')
         self.dir.mkdir(mode=0o700, parents=True, exist_ok=True)   # 新しく作るときは持ち主だけ（Issue #48）
 
     def read(self):
@@ -189,7 +191,7 @@ class Store:
         except OSError:
             pass
         stamp = time.strftime('%Y%m%d-%H%M%S')
-        dst = self.backup / f'state-{stamp}-{secrets.token_hex(2)}.json'
+        dst = self.backup / f'state-{stamp}-{secrets.token_hex(8)}.json'   # 2 バイトでは毎秒数百回の書き込みで名前がぶつかった（2026-11-17）
         fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'wb') as f:
             f.write(self.path.read_bytes())
@@ -249,7 +251,7 @@ class SeaList:
 
     def __init__(self, data_dir: Path):
         self.path = data_dir / 'seas.json'
-        self.lock = threading.Lock()
+        self.lock = DirLock(data_dir / '.lock-seas')
 
     @staticmethod
     def clean(e):
@@ -445,6 +447,7 @@ class MachineKeys:
 
     def __init__(self, data_dir: Path):
         self.path = data_dir / 'machine_keys.json'
+        self.lock = DirLock(data_dir / '.lock-machines')
 
     @staticmethod
     def digest(key: str) -> str:
@@ -470,21 +473,23 @@ class MachineKeys:
         name = name.strip()
         if not name or len(name) > 60 or any(c in name for c in '\t\r\n') or not name.isprintable():
             raise SystemExit('名前を入れてください（60字まで、改行・タブなし。例: machine-add gantt --space me）')
-        rows = self.read()
-        if any(r['name'] == name for r in rows):
-            raise SystemExit(f'「{name}」はもうあります（作り直すなら machine-remove {name} のあとで）')
-        key = self.PREFIX + secrets.token_urlsafe(32)
-        rows.append({'name': name, 'hash': self.digest(key), 'space': 'me', 'person': int(person),
-                     'read_only': bool(read_only), 'created': time.strftime('%Y-%m-%d')})
-        self.write(rows)
+        with self.lock:
+            rows = self.read()
+            if any(r['name'] == name for r in rows):
+                raise SystemExit(f'「{name}」はもうあります（作り直すなら machine-remove {name} のあとで）')
+            key = self.PREFIX + secrets.token_urlsafe(32)
+            rows.append({'name': name, 'hash': self.digest(key), 'space': 'me', 'person': int(person),
+                         'read_only': bool(read_only), 'created': time.strftime('%Y-%m-%d')})
+            self.write(rows)
         return key
 
     def remove(self, name: str) -> bool:
-        rows = self.read()
-        keep = [r for r in rows if r['name'] != name.strip()]
-        if len(keep) == len(rows):
-            return False
-        self.write(keep)
+        with self.lock:
+            rows = self.read()
+            keep = [r for r in rows if r['name'] != name.strip()]
+            if len(keep) == len(rows):
+                return False
+            self.write(keep)
         return True
 
     def find(self, key: str):

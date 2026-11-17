@@ -36,6 +36,8 @@ import threading
 import time
 from pathlib import Path
 
+from filelock import DirLock
+
 INVITE_TTL = 24 * 3600
 MAX_PER_SPACE = 3
 SESSION_TTL = 30 * 24 * 3600
@@ -107,7 +109,8 @@ class PasskeyStore:
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.clock = clock
-        self.lock = threading.Lock()
+        # プロセスをまたぐ錠（2026-11-17。2つの server.py と VM のコマンドが同じ置き場を書くため）
+        self.lock = DirLock(self.dir / '.lock-passkeys')
         self.challenges = {}   # challenge → {kind, invite_hash, expires}
 
     # --- ファイル ---

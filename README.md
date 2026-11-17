@@ -498,6 +498,7 @@ node --test tests/notesign.test.mjs
 python3 -m unittest tests/test_server.py
 python3 -m unittest tests/test_server_machine.py
 python3 -m unittest tests/test_server_oauth.py
+python3 -m unittest tests/test_filelock.py   # 2つのプロセスが同じ置き場に書いても消えない
 node tests/e2e-oauth.mjs     # headless の Chrome（秘書のコネクタの許可の画面）
 node tests/e2e-sw.mjs        # headless の Chrome（server.py から開いて service worker が入るか）
 bash tests/server-setup.test.sh
@@ -775,7 +776,10 @@ bash tests/server-setup.test.sh
   名前を変えて移るときの `copy-data`（`BUBBLES_FROM` の記録だけを写す。パスキー・通行証・招待・機械の鍵・秘書の許可は写さない。写す先に記録があれば止まる）と、
   前の名前の節を転送・外す `old-name redirect|remove`（`BUBBLES_OLD_DOMAIN`。Caddyfile の中のその節だけを書き換え、validate が通らなければ戻す）。
   `machine-add`・`machine-list`・`machine-remove`・`oauth-list`・`oauth-revoke` もこのスクリプトから打てる。
-  `bubbles.app-laboratry.duckdns.org`（サービス `bubbles-lab`、127.0.0.1:8933）に立てる手順書は registry の `local_note`。テストは `bash tests/server-setup.test.sh`（偽物で。本物の VM では未確認）
+  **前の住所のサービスと同じ記録の置き場を使ってよい**（2つの server.py が同じファイルを書く。書くときは `filelock.py` のプロセスをまたぐ錠を取る。
+  `state.json` の版の確かめと書き込み、パスキー・招待・通行証、海の一覧、機械の鍵、秘書の許可が対象。名前と形の控えはサービスごとの `.setup.<サービス名>`。
+  前の版の `.setup` は、そのサービスの控えが無いときだけ読む）。パスキーは住所ごとに別で、登録の上限は両方の住所のパスキーを合わせて数える。
+  `bubbles.app-laboratry.duckdns.org`（サービス `bubbles-lab`、127.0.0.1:8933）に、今の公開版を止めずに並べて立てる手順書は registry の `local_note`。テストは `bash tests/server-setup.test.sh`（偽物で。本物の VM では未確認）
 - **立ち上げ**: `BUBBLES_DOMAIN=<名前> bash tools/server-setup.sh`（名前は `<データの場所>/.setup` に覚え、`update` は環境変数なしでよい）。前の Tailscale 版で立ち上げた置き場では、名前を付けるよう言って止まる。
   Caddy と fail2ban は入っていれば設定を置く。ファイアウォール（クラウドとサーバーの中）で 80・443 を開ける手順は画面に出す（自動では開けない）
 - **テスト**: `python3 -m unittest tests/test_passkey_crypto.py tests/test_server_public.py tests/test_server_machine.py`（署名は Node の暗号の部品で作り突き合わせる）、

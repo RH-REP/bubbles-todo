@@ -126,7 +126,7 @@ site() { PATH="$T/bin:$PATH" HOME="$T/home" BUBBLES_DIR="$T/code" BUBBLES_DATA="
 
 outc="$(site env BUBBLES_FROM="$OLD" bash "$T/code/tools/server-setup.sh" copy-data 2>&1)" || { echo "$outc"; fail "copy-data が止まった"; }
 [[ -f "$NEW/state.json" && -f "$NEW/people/2/state.json" ]] || fail "記録が写っていない"
-for f in passkeys.json sessions.json invites.json machine_keys.json oauth.json .setup; do
+for f in passkeys.json sessions.json invites.json machine_keys.json oauth.json .setup .setup.bubbles-todo; do
   [[ ! -e "$NEW/$f" ]] || fail "写してはいけない $f が写った"
 done
 [[ "$(stat -f %Lp "$NEW" 2>/dev/null || stat -c %a "$NEW")" == 700 ]] || fail "写した先が 700 でない"
@@ -149,7 +149,7 @@ if grep -q "systemctl restart caddy" "$T/calls.log"; then fail "site の形で C
 cmp -s "$T/f2b.before" "$T/etc/fail2ban/filter.d/bubbles.conf" || fail "前の bubble の fail2ban の設定が書き換わった"
 grep -q "_SYSTEMD_UNIT=bubbles-lab.service" "$T/etc/fail2ban/filter.d/bubbles-lab.conf" && grep -q '^\[bubbles-lab\]$' "$T/etc/fail2ban/jail.d/bubbles-lab.conf" \
   && grep -q '^filter = bubbles-lab$' "$T/etc/fail2ban/jail.d/bubbles-lab.conf" || fail "fail2ban の設定がサービスごとに分かれていない"
-grep -q "^CADDY=site$" "$NEW/.setup" || fail ".setup に CADDY=site が無い"
+grep -q "^CADDY=site$" "$NEW/.setup.bubbles-lab" || fail ".setup.bubbles-lab に CADDY=site が無い"
 grep -q "BUBBLES_DATA=$NEW BUBBLES_SERVICE=bubbles-lab BUBBLES_PORT=$PORT2 bash .*invite-add 自分のスマホ" <<<"$outs" || { echo "$outs"; fail "打つコマンドに置き場が付いていない"; }
 pass "site の形: Caddyfile と前の fail2ban に触れず、sites/ に節を置いて validate → reload する"
 
@@ -179,6 +179,29 @@ outx="$(site bash "$T/code/tools/server-setup.sh" uninstall 2>&1)" || { echo "$o
 [[ ! -f "$s" && ! -f "$T/etc/fail2ban/jail.d/bubbles-lab.conf" ]] || fail "site の uninstall で節か fail2ban の設定が残った"
 [[ -f "$T/etc/fail2ban/jail.d/bubbles.conf" && -f "$NEW/state.json" ]] || fail "site の uninstall が前の bubble の設定か記録を消した"
 pass "site の uninstall は自分の節と fail2ban の設定だけを外し、記録は残す"
+
+# --- 前の住所のサービスと同じ記録の置き場を使って並べる（2026-11-17。案「同じ記録」） ---
+cp "$T/main.before" "$T/etc/caddy/Caddyfile"
+cp "$OLD/.setup.bubbles-todo" "$T/old.setup.before"
+shared() { PATH="$T/bin:$PATH" HOME="$T/home" BUBBLES_DIR="$T/code" BUBBLES_DATA="$OLD" BUBBLES_SERVICE=bubbles-lab \
+  BUBBLES_PORT="$PORT2" BUBBLES_UNIT_DIR="$T/unit" BUBBLES_ETC="$T/etc" "$@" < /dev/null; }
+outsh="$(shared env BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratry.duckdns.org bash "$T/code/tools/server-setup.sh" install 2>&1)" \
+  || { echo "$outsh"; fail "同じ置き場で site の install が止まった"; }
+cmp -s "$T/old.setup.before" "$OLD/.setup.bubbles-todo" || fail "前のサービスの .setup が書き換わった"
+grep -q "^DOMAIN=bubbles.app-laboratry.duckdns.org$" "$OLD/.setup.bubbles-lab" && grep -q "^CADDY=site$" "$OLD/.setup.bubbles-lab" || fail "新しいサービスの .setup が無い"
+grep -q "^ReadWritePaths=$OLD$" "$T/unit/bubbles-lab.service" || fail "新しいサービスが同じ置き場を書けない"
+cmp -s "$T/main.before" "$T/etc/caddy/Caddyfile" || fail "同じ置き場の site の install で Caddyfile が書き換わった"
+: > "$T/calls.log"
+outsh2="$(setup update 2>&1)" || { echo "$outsh2"; fail "前のサービスの update が止まった"; }
+grep -q -- "--origin https://bubbles.example.org --trust-proxy$" "$u" || fail "前のサービスの名前が新しい名前に変わった"
+grep -q "systemctl restart caddy" "$T/calls.log" || fail "前のサービスが main の形でなくなった"
+grep -q "^bubbles.example.org {" "$T/etc/caddy/Caddyfile" && [[ "$(grep -c '^import /etc/caddy/sites/\*\.caddy$' "$T/etc/caddy/Caddyfile")" == 1 ]] \
+  || fail "前のサービスの update で Caddyfile の形が変わった"
+grep -q "^bubbles.app-laboratry.duckdns.org {" "$T/etc/caddy/sites/bubbles-lab.caddy" || fail "前のサービスの update で新しい節が消えた"
+pass "同じ置き場で並べても、.setup はサービスごとに分かれ、前のサービスは前の名前・main の形のまま"
+shared bash "$T/code/tools/server-setup.sh" uninstall >/dev/null 2>&1 || fail "同じ置き場の新しいサービスの uninstall が止まった"
+[[ -f "$OLD/state.json" && -f "$OLD/.setup.bubbles-todo" ]] || fail "新しいサービスの uninstall が記録か前の .setup を消した"
+cp "$T/main.before" "$T/etc/caddy/Caddyfile"
 
 # --- 前の名前の節を転送にする・外す（old-name） ---
 cp "$T/main.before" "$T/etc/caddy/Caddyfile"

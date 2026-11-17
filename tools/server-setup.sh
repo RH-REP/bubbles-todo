@@ -13,7 +13,9 @@
 #   BUBBLES_CADDY=site にすると、/etc/caddy/Caddyfile を書き直さず、節を /etc/caddy/sites/<サービス名>.caddy に置く
 #   （Caddyfile に import /etc/caddy/sites/*.caddy の行が無ければ1行だけ足す）。caddy validate を通してから reload する
 #   （通らなければ置いた節を外して止まる）。fail2ban の設定も <サービス名>.conf に分ける。uninstall は節と fail2ban の設定も外す。
-#   BUBBLES_CADDY は記録の置き場の .setup に覚える（update は環境変数なしでよい）。
+#   BUBBLES_CADDY は記録の置き場の .setup.<サービス名> に覚える（update は置き場・サービス・ポートの環境変数だけでよい）。
+#   前の住所のサービスと同じ記録の置き場を使ってよい（BUBBLES_DATA を同じにする。server.py はプロセスをまたぐ錠で書く。
+#   パスキーは住所ごとに別で、登録の上限〈置き場ごとに 3〉は両方の住所のパスキーを合わせて数える）。
 #     BUBBLES_CADDY=site BUBBLES_DOMAIN=bubbles.app-laboratry.duckdns.org BUBBLES_SERVICE=bubbles-lab \
 #       BUBBLES_PORT=8933 BUBBLES_DATA=$HOME/bubbles-lab bash bubbles-lab-code/tools/server-setup.sh install
 #   前の置き場の記録を写す（パスキー・通行証・招待・機械の鍵・秘書の許可は写さない。名前が変わるとパスキーは使えないため）:
@@ -71,13 +73,17 @@ SERVICE="${BUBBLES_SERVICE:-bubbles-todo}"
 UNIT_DIR="${BUBBLES_UNIT_DIR:-/etc/systemd/system}"   # テストのときだけ替える
 DOMAIN="${BUBBLES_DOMAIN:-}"
 CADDY="${BUBBLES_CADDY:-}"
-# 立ち上げたときの名前を覚えておく（update を環境変数なしで走らせても同じ形で立ち上げるため）
-SETUP_FILE="$DATA/.setup"
+# 立ち上げたときの名前を覚えておく（update を環境変数なしで走らせても同じ形で立ち上げるため）。
+# サービスごとのファイル（.setup.<サービス名>。2026-11-17）。2つのサービス（前の住所と新しい住所）が同じ記録の置き場を
+# 使っても、名前と形が混ざらないように。前の版の .setup は、そのサービスのファイルが無いときだけ読む（書くのは新しいほう）
+SETUP_FILE="$DATA/.setup.$SERVICE"
+SETUP_READ="$SETUP_FILE"
+[[ -f "$SETUP_READ" ]] || SETUP_READ="$DATA/.setup"
 OLD_MODE=""
-if [[ -f "$SETUP_FILE" ]]; then
+if [[ -f "$SETUP_READ" ]]; then
   while IFS='=' read -r k v; do
     case "$k" in MODE) OLD_MODE="$v" ;; DOMAIN) [[ -z "$DOMAIN" ]] && DOMAIN="$v" ;; CADDY) [[ -z "$CADDY" ]] && CADDY="$v" ;; esac
-  done < "$SETUP_FILE"
+  done < "$SETUP_READ"
 fi
 CADDY="${CADDY:-main}"
 ETC="${BUBBLES_ETC:-/etc}"                             # テストのときだけ替える（Caddy・fail2ban の置き場）
@@ -135,7 +141,7 @@ make_data() {
 
 run_tests() {
   say "4. server.py のテスト"
-  local t="tests/test_server.py tests/test_passkey_crypto.py tests/test_server_public.py tests/test_server_machine.py tests/test_server_oauth.py"
+  local t="tests/test_server.py tests/test_passkey_crypto.py tests/test_server_public.py tests/test_server_machine.py tests/test_server_oauth.py tests/test_filelock.py"
   local out
   # shellcheck disable=SC2086
   if ! out="$(cd "$DIR" && "$PY" -m unittest $t 2>&1)"; then
@@ -362,7 +368,7 @@ cmd_copy_data() {
   for item in state.json backup people share seas seas.json limits.json; do
     if [[ -e "$from/$item" ]]; then cp -Rp "$from/$item" "$DATA/"; ok "$item"; n=$((n + 1)); fi
   done
-  ok "$n 個を写しました。写さないもの: passkeys.json・sessions.json・invites.json・requests.json・machine_keys.json・oauth.json・.setup"
+  ok "$n 個を写しました。写さないもの: passkeys.json・sessions.json・invites.json・requests.json・machine_keys.json・oauth.json・.setup*"
   warn "端末は新しい住所で招待コードから登録し直します。gantt・diary の機械の鍵も新しく作ります（machine-add）"
 }
 
