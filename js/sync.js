@@ -244,11 +244,19 @@ function topExtras(data) {
   return out;
 }
 
+/* ログインの答えの利用者（2026-11-18）→ {sessionUser, sessionUserName}。前の版のサーバーは返さない */
+function userOf(out) {
+  const u = out && out.user;
+  return (u && typeof u.id === 'string') ? { sessionUser: u.id, sessionUserName: String(u.name || '') } : {};
+}
+
 /* 1回合わせる。食い違い（409）なら3回までやり直す */
 async function syncOnce() {
   for (let tries = 0; tries < 3; tries++) {
     const got = await call('GET');
     if (got.status === 401) throw new Error(conf.session ? 'パスキーで入り直す（通行証の期限切れか、取り消された）' : '合言葉が違う');
+    /* 2026-11-18: 仲間でない海は 403（招かれていないか、外された） */
+    if (got.status === 403) throw new Error('この海の仲間ではない（招かれていないか、外された）');
     if (got.status === 429) {
       throw new Error(got.json && got.json.error === 'devices'
         ? '使っている端末が多い（' + (got.json.max || 3) + '台まで）。ほかの端末が30分使わなければ入れる'
@@ -300,6 +308,8 @@ async function syncOnce() {
     if (put.status === 409) continue;          /* 間に別の端末が書いた。取り直す */
     if (put.status === 426) throw outdatedError(put.json && put.json.minSchema);   /* この版は古い。書かない */
     if (put.status === 401) throw new Error('合言葉が違う');
+    /* 2026-11-18: 見るだけ（viewer）の海には書けない。この端末の変更はこの端末にだけ残る */
+    if (put.status === 403) throw new Error('見るだけの海なので、この端末の変更はサーバーに送らない');
     throw new Error('サーバーに書けなかった（' + put.status + '）');
   }
   throw new Error('ほかの端末と書き込みが重なり続けた');
@@ -392,7 +402,7 @@ export const sync = {
     if (!u || !out || !out.session) return false;
     conf = Object.assign(blankConf(), { url: u, session: String(out.session), sessionSpaces: out.spaces || [],
       sessionExpires: Number(out.expires) || 0, sessionName: String(out.name || ''),
-      sessionOwner: typeof out.owner === 'boolean' ? out.owner : null });
+      sessionOwner: typeof out.owner === 'boolean' ? out.owner : null, ...userOf(out) });
     saveConf();
     clearTimeout(timer);
     failures = 0;
@@ -462,7 +472,7 @@ export const sync = {
     try {
       localStorage.setItem(key, JSON.stringify(Object.assign(blankConf(), { url: u, session: String(out.session),
         sessionSpaces: out.spaces || [], sessionExpires: Number(out.expires) || 0, sessionName: String(out.name || ''),
-        sessionOwner: typeof out.owner === 'boolean' ? out.owner : null })));
+        sessionOwner: typeof out.owner === 'boolean' ? out.owner : null, ...userOf(out) })));
     } catch (e) { return false; }
     return true;
   },

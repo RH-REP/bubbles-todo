@@ -138,8 +138,9 @@ class MachineKeyTest(unittest.TestCase):
         self.assertEqual(self.devices.active(), 0, '端末の数に数えない')
 
     def test_key_for_another_person_goes_to_that_persons_box(self):
-        self.pk.add_invite('持ち主の端末', ['me'])        # 1 番
-        self.pk.add_invite('家族の端末', ['me'])          # 2 番
+        for i, n in enumerate(('持ち主の端末', '家族の端末')):   # 1 番・2 番（2026-11-18 から番号は登録で決まる）
+            self.pk.register(inv={'name': n, 'spaces': ['me'], 'new_user': True},
+                             cred={'cred_id': f'c{i}', 'alg': -7, 'public_key': '', 'sign_count': 0})
         key = self.add_key('家族の秘書', space='me:2')
         self.assertEqual(self.put(key, 0, '2 番の人の作業')[0], 200)
         self.assertTrue((self.dir / 'people' / '2' / 'state.json').exists())

@@ -46,6 +46,15 @@ import { isSolo, aiOn } from './edition.js';
 import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js';
 /* この端末の表示（Issue #36）。起動時の画面・タブの並び・body の印（pref-wind・pref-hide-tags） */
 import { loadPrefs, PREFS_EVENT } from './prefs.js';
+import { actorFor, fetchMe, seaMembers, myRole, userName, initialOf, meInfo } from './me.js';
+
+/* 招待のリンク（https://<サーバー>/#invite=<コード>。2026-11-18）。コードを預けて設定の「海」を開く。
+   使うのは js/screens/seapanel.js（ログインしていれば「この海に入る」、していなければ登録）。サーバーへは送らない（# の後ろ） */
+const INVITE_LINK = /^#invite=([A-Za-z0-9-]{8,40})$/.exec(location.hash || '');
+if (INVITE_LINK) {
+  try { sessionStorage.setItem('bubble_todo_invite_link', INVITE_LINK[1].toUpperCase()); } catch (e) { /* 開いた画面で貼り直せる */ }
+  setTimeout(() => window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'settings' } })), 0);
+}
 import sea from './screens/sea.js';
 import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
@@ -711,6 +720,22 @@ setSessionHandler((s) => { if (has('logFocus')) store.logFocus(s); });
 
 /* 中央に寄せたバブルに出る「次の一手」と「リンク」の出し入れ。
    bubble.js を store から切り離すための差し込み口（focus.js と同じ形）。 */
+/* だれの欄（共有の記録 v1.2。2026-11-18）。書く人は、サーバーの海を開いていてログインしているときの利用者（js/me.js）。
+   この端末の海では入れない。ログインしている利用者と仲間の名前は /api/me から取り、開くたびに取り直す */
+store.setActor(() => actorFor(store.space()));
+function whoMark(item) {
+  const members = seaMembers(store.space());
+  if (!members || !item) return null;
+  const me = meInfo();
+  const mine = !!(me && item.assignee && item.assignee === me.user.id);
+  if (item.done && item.done_by) {
+    return { text: initialOf(item.done_by) + '✓', mine: false, label: '終えた人: ' + (userName(item.done_by) || '?') };
+  }
+  if (!item.assignee) return null;
+  return { text: initialOf(item.assignee), mine, label: '担当: ' + (userName(item.assignee) || '?') };
+}
+fetchMe().then(j => { if (j && typeof store.notify === 'function') store.notify(); });
+
 setCenterHandler({
   firstStep:    (id) => (has('firstStepOf') ? store.firstStepOf(id) : ''),
   setFirstStep: (id, v) => { if (has('setFirstStep')) store.setFirstStep(id, v); },
@@ -818,6 +843,13 @@ setCenterHandler({
     && hasUnseen(store.notesOf(id), seenAt(store.space(), id), deviceId()),
   markNotesSeen: (id) => { if (has('notesOf')) markSeen(store.space(), id, latestAt(store.notesOf(id))); },
 
+  /* 担当・足した人・終えた人（共有の記録 v1.2。2026-11-18）。共有の海（サーバーの海で仲間がいる）でだけ盤と泡に出る */
+  seaMembers:   () => seaMembers(store.space()),
+  myRole:       () => myRole(store.space()),
+  whoOf:        (id) => (has('whoOf') ? store.whoOf(id) : null),
+  setAssignee:  (id, uid) => (has('setAssignee') ? store.setAssignee(id, uid) : false),
+  userName:     (uid) => userName(uid),
+  whoMark:      (item) => whoMark(item),
   /* お気に入りの印（F7）。盤の ☆ が読み書きする。無ければ盤は ☆ を出さない */
   isFav:        (id) => (has('isFav') ? store.isFav(id) : false),
   setFav:       (id, on) => (has('setFav') ? store.setFav(id, on) : false),

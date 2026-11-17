@@ -498,6 +498,9 @@ node --test tests/notesign.test.mjs
 python3 -m unittest tests/test_server.py
 python3 -m unittest tests/test_server_machine.py
 python3 -m unittest tests/test_server_oauth.py
+python3 -m unittest tests/test_users.py     # 利用者と海の仲間（2026-11-18）
+node tests/who.test.mjs                     # 記録の担当・足した人・終えた人
+node tests/e2e-users.mjs                    # headless の Chrome 2 つ（招待のリンク・仲間・担当）
 python3 -m unittest tests/test_filelock.py   # 2つのプロセスが同じ置き場に書いても消えない
 node tests/e2e-oauth.mjs     # headless の Chrome（秘書のコネクタの許可の画面）
 node tests/e2e-sw.mjs        # headless の Chrome（server.py から開いて service worker が入るか）
@@ -738,6 +741,22 @@ bash tests/server-setup.test.sh
   - **gantt・diary・秘書に渡す手順**: 同じ機械なら `--key-file` でその機械のファイルに直に作る。別の機械なら、鍵をその機械のファイルに入れて、所有者だけが読めるようにする（`chmod 600`）。
     gantt・diary は `--bubble-token-file <そのファイル>` と、サーバーの住所（`https://<名前>`）で起動する。秘書は設定の `key_file` にそのファイルを書く。
     鍵の中身は画面・ログ・会話に出さない。diary には `--read-only` の鍵、gantt と秘書には読み書きの鍵を渡す
+- **利用者と海の仲間（2026-11-18 ユーザーの決定。3 つの app の取り決め v1.2。gantt・diary も bubble でログインする）**:
+  人の番号（1, 2, …）とパスキーの行の置き場（spaces）の形を、**利用者**と**海の仲間**の表に替えた。取り決めは registry の `local_note` の手順書の隣（`実装の取り決め.md` §2・§2.1・§3）。
+  - 利用者（`<データの場所>/users.json`、600）：番号 `u_` ＋ 16 進 8 桁・名前・個人の記録の番号（person。1 は `state.json`、ほかは `people/<番号>/`）。1 人に個人の海が 1 つ必ずある
+  - 海の仲間（`members.json`、600）：（海, 利用者, 役割）。役割は `owner`（持ち主）・`editor`（書ける）・`viewer`（見るだけ）。入れる海は毎回この表で引く
+  - 前の形からの移し（`passkey_store.py` の `migrate()`）：サーバーを立ち上げたとき（と CLI）に 1 度だけ。人の番号ごとに利用者を作り（全員）、パスキーの行に利用者の番号を足す（行は消さない。ログインは今までどおりパスキーの番号で引く）。
+    行の置き場の海は仲間（editor）にし、持ち主の無い海は 1 番の人（いなければ最初の仲間）を owner にする。共有だけに入れていた人も利用者になり、自分の個人の海を持つ
+  - これから作るパスキーの `user.id` は利用者の番号（OS のパスキーの選択に利用者の名前が出る）。登録の上限（`limit`）は利用者ごとのパスキーの数になった（前は置き場ごと）
+  - `GET /api/me`（端末の通行証か、利用者の OAuth の通行証）→ 利用者と入れる海（共有の海には仲間）。記録の API は、仲間でない海・見るだけの海への書き込みに 403
+  - 招待のリンク `https://<サーバー>/#invite=<コード>`：開くと設定の「海」が開き、ログインしていなければ表示名と端末の呼び名で登録（新しい利用者）、していれば［この海に入る］。海に招けるのは持ち主だけ（海の ⚙ の［リンクを作る］。書ける・見るだけを選ぶ）
+  - 端末を足す番号：個人の海の ⚙ の［＋ 端末を足す］で 6 桁（10 分・1 回）。新しい端末の［番号で足す］に入れると、同じ利用者のパスキーになる。当て推量は全体で 10 分に 20 回外れたら 10 分断る
+  - 記録の 3 つの欄（共有の記録 v1.2）：`assignee`（担当）・`added_by`（足した人）・`done_by`（終えた人。完了を外したら null）。サーバーの海でログインしているときだけ app が入れる（`js/me.js`）。
+    共有の海では、泡の右下に担当の頭 1 字（終えた泡は終えた人と ✓）、盤に担当の欄（見るだけの人は変えられない）と足した人・終えた人
+  - OAuth：秘書だけ・1 番の人だけだった許可を、どの利用者でもできるようにした。gantt（`client_id=gantt`、範囲 `todo`）と diary（`diary`、`todo.read`）は前もって登録した相手で、許可の画面を出さずログインだけで戻す。
+    その通行証は記録の API（`/api/data`・`/api/me`）にだけ効く（秘書の通行証は `/mcp` だけ）
+  - VM の操作：`user-list`・`user-rename <利用者の番号> <名前>`・`member-set <海> <利用者の番号> <owner|editor|viewer>`・`member-remove <海> <利用者の番号>`・`users-migrate`。`passkey-space` はその端末の利用者を仲間にする・外す（editor）。`sea-list` に仲間と役割が出る
+  - 機械の鍵は切り替えの日まで残す（今の gantt・diary が使っている）
 - **秘書のコネクタ（claude.ai から。OAuth 2.1。2026-11-17）**: claude.ai（スマホ・Mac）のカスタムコネクタ「秘書」が、本人のパスキーでのログインを経て
   `/mcp` を使うための、許可を出す側（認可サーバー）。仕様は MCP の認可（2026-07-28 版）。作りは `oauth_server.py`、画面の動きは `js/oauth-authorize.js`。
   **今は守られた入口だけで、`/mcp` の道具（today・done・trash など）はまだ無い**（通行証が合えば JSON-RPC の「道具はまだ無い」を返す）。
@@ -749,7 +768,7 @@ bash tests/server-setup.test.sh
     取りに行くのは名前を許した所だけ（既定 `claude.ai`。足すなら `--oauth-client-host <名前>` か環境変数 `BUBBLE_TODO_OAUTH_CLIENT_HOSTS`）。
     許していない名前は取りに行かずに断り、記録に `oauth-client-refused host=<名前>` を出す（claude.ai の名乗りが別の名前だったら、これを見て足す）。
     自動の登録（「Register automatically」＝DCR）は作っていない
-  - 許せるのは 1 番の人（本人）の個人に入れるパスキーだけ（ほかは 403）。PKCE は S256 だけ。code は 2 分・1 回きり（verifier を間違えても使えなくなる）
+  - 許せるのは 1 番の人（本人）の個人に入れるパスキーだけ（ほかは 403）。**2026-11-18 から、どの利用者でも許せる**（許すのはその利用者の記録だけ。上の「利用者と海の仲間」）。PKCE は S256 だけ。code は 2 分・1 回きり（verifier を間違えても使えなくなる）
   - 更新の札は使うたびに取り替える。使い終えた札や code がもう一度出されたら、その秘書の許可ごと止める（`oauth-refresh-reuse`・`oauth-code-reuse` が記録に出る）
   - 秘書の通行証は `/mcp` だけに効く（`/api/data` では 401）。端末の通行証と機械の鍵は `/mcp` では効かない。`/mcp` によそのオリジン（Origin）から来たら 403
   - サーバーに置くのは sha256 と許可の行だけ（`<データの場所>/oauth.json`、600）。値は記録にも出さない

@@ -29,7 +29,7 @@ function fromB64u(str) {
 
 /* 画面に出す字。サーバーは理由を言わない（401・429 だけ）ので、ここで言い分ける */
 const WHY = {
-  401: { register: '招待コードが違うか、もう使われているか、期限が切れている', login: 'この端末のパスキーは登録されていないか、取り消されている',
+  401: { register: '招待コード（または番号）が違うか、もう使われているか、期限が切れている', login: 'この端末のパスキーは登録されていないか、取り消されている',
     status: '頼みが断られたか、期限（24 時間）が切れた。頼み直す' },
   429: { register: '失敗が続いたので、しばらく待ってからにする', login: '失敗が続いたので、しばらく待ってからにする',
     request: '待っている頼みが多い。しばらくしてから、または持ち主に招待コードを頼む', status: 'しばらく待ってから' },
@@ -45,7 +45,7 @@ async function post(base, path, body, kind) {
   try { json = await res.json(); } catch (e) { /* 中身が無い */ }
   if (res.status !== 200 || !json) {
     let why = (WHY[res.status] || {})[kind];
-    if (res.status === 409 && json && json.max && why) why = why.replace('登録はいっぱい', '登録はいっぱい（置き場ごとに' + json.max + '台まで）');
+    if (res.status === 409 && json && json.max && why) why = why.replace('登録はいっぱい', 'パスキーはいっぱい（1人' + json.max + '台まで）');
     throw new Error(why || ('サーバーが断った（' + res.status + '）。公開の形（--auth passkey）で動いているか'));
   }
   return json;
@@ -70,10 +70,15 @@ function friendly(e, kind) {
   return e instanceof Error ? e : new Error(String(e));
 }
 
-/* 招待コードで、この端末のパスキーを登録する → {session, expires, spaces, name} */
-export async function registerPasskey(base, invite) {
+/* 招待コードで、この端末のパスキーを登録する → {session, expires, spaces, name, user, roles}。
+   opts（2026-11-18）: device = 「端末を足す」の番号（招待コードの代わり）、userName = 新しい利用者の表示名、
+   deviceName = この端末の呼び名。パスキーの user.id はサーバーが決める利用者の番号 */
+export async function registerPasskey(base, invite, opts = {}) {
   if (!passkeySupported()) throw new Error('このブラウザはパスキーを使えない');
-  const { publicKey: o } = await post(base, '/api/passkey/register/options', { invite }, 'register');
+  const body = opts.device ? { device: String(opts.device) } : { invite };
+  if (opts.userName) body.userName = String(opts.userName).trim().slice(0, 40);
+  if (opts.deviceName) body.deviceName = String(opts.deviceName).trim().slice(0, 40);
+  const { publicKey: o } = await post(base, '/api/passkey/register/options', body, 'register');
   let cred;
   try {
     cred = await navigator.credentials.create({ publicKey: Object.assign({}, o, {
@@ -129,15 +134,16 @@ export async function makeMoveKey(base, session) {
   return json;
 }
 
-/* ログインしている端末から人を招く（2026-11-16）→ {code, spaces, person}。
-   sea: 'me'（自分の個人の2台目）か海の ID。newPerson: 持ち主だけ。その人だけの個人も作る */
-export async function makeInvite(base, session, { name, sea, newPerson }) {
+/* ログインしている端末から人を招く（2026-11-16）→ {code, spaces, person, link}。
+   sea: 'me'（自分の個人の2台目）か海の ID（2026-11-18 から、その海の持ち主だけ）。role: editor（書ける）か viewer（見るだけ）。
+   link は招待のリンク（開くと登録か「この海に入る」が出る） */
+export async function makeInvite(base, session, { name, sea, newPerson, role }) {
   let res;
   try {
     res = await fetch(base + '/api/passkey/invite', {
       method: 'POST', cache: 'no-store',
       headers: { Authorization: 'Bearer ' + session, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: String(name || '').trim().slice(0, 40), sea, newPerson: !!newPerson }),
+      body: JSON.stringify({ name: String(name || '').trim().slice(0, 40), sea, newPerson: !!newPerson, role: role || 'editor' }),
     });
   } catch (e) { throw new Error('サーバーに届かない'); }
   let json = null;
@@ -147,6 +153,46 @@ export async function makeInvite(base, session, { name, sea, newPerson }) {
   if (res.status === 401) throw new Error('ログインし直す（通行証の期限切れか、取り消された）');
   if ((res.status === 403 || res.status === 409) && json && json.message) throw new Error(json.message);
   throw new Error('招待コードを作れなかった（' + res.status + '）');
+}
+
+/* ログインしている端末への頼み（Bearer 付き）→ 答え。断られたら言い分けた字で投げる */
+async function authed(base, session, path, body, what) {
+  let res;
+  try {
+    res = await fetch(base + path, {
+      method: 'POST', cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + session, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+  } catch (e) { throw new Error('サーバーに届かない'); }
+  let json = null;
+  try { json = await res.json(); } catch (e) { /* 中身が無い */ }
+  if (res.status === 200 && json) return json;
+  if (res.status === 404) throw new Error('サーバーが「' + what + '」を知らない（サーバーを新しくする）');
+  if (res.status === 401) throw new Error(what === '海に入る' ? '招待が違うか、もう使われているか、期限が切れている（またはログインし直す）'
+    : 'ログインし直す（通行証の期限切れか、取り消された）');
+  if (json && json.message) throw new Error(json.message);
+  throw new Error(what + 'ができなかった（' + res.status + '）');
+}
+
+/* 「端末を足す」の番号（2026-11-18。10 分・1 回）→ {code: '482 913', expires} */
+export async function makeDeviceCode(base, session) {
+  return authed(base, session, '/api/passkey/device', {}, '端末を足す');
+}
+
+/* ログインしている利用者が、海への招待を受け取る → {joined: [海], spaces, roles, …} */
+export async function acceptInvite(base, session, code) {
+  return authed(base, session, '/api/passkey/invite/accept', { invite: code }, '海に入る');
+}
+
+/* 招待の中身（だれから・どの海へ）→ {kind: 'user'|'sea'|'device', name, by, seas: [{id, name, role}]}。読めなければ null */
+export async function peekInvite(base, code) {
+  try {
+    const res = await fetch(base + '/api/passkey/invite/peek', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invite: code }),
+    });
+    return res.status === 200 ? await res.json() : null;
+  } catch (e) { return null; }
 }
 
 export async function logoutPasskey(base, session) {

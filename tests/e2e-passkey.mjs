@@ -188,17 +188,21 @@ try {
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
   });
 
-  await step('海の ⚙ から人を招く: 招待コードが出て、サーバーに招いた人の名前が残る', async () => {
+  await step('個人の海の ⚙ から端末を足す: 6 桁の番号が出て、その番号で同じ利用者のパスキーを作れる（2026-11-18）', async () => {
     await openSettings();
     await js(`[...document.querySelectorAll('.sp-gear')][0].click();`);
-    await until(`return !!document.querySelector('input[aria-label="招く端末の呼び名"]')`);
-    await js(`const i = document.querySelector('input[aria-label="招く端末の呼び名"]'); i.value = '自分のタブレット'; i.closest('form').requestSubmit();`);
-    await until(`return /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(document.querySelector('.sp-invite p[style]')?.textContent || '')`);
+    await until(`return !!${button('＋ 端末を足す')}`);
+    await js(`${button('＋ 端末を足す')}.click();`);
+    await until(`return /^[0-9]{3} [0-9]{3}$/.test(document.querySelector('[data-name="つなぐ番号"]')?.textContent || '')`);
+    const code = await js(`return document.querySelector('[data-name="つなぐ番号"]').textContent`);
     const inv = JSON.parse(readFileSync(join(data, 'invites.json'), 'utf8'));
-    const row = inv.find(r => r.name === '自分のタブレット');
-    assert.ok(row, '招待コードの行ができた');
-    assert.equal(row.by, '自分のスマホ');
-    assert.deepEqual(row.spaces, ['me']);
+    const row = inv.find(r => r.kind === 'device');
+    assert.ok(row && /^u_[0-9a-f]{8}$/.test(row.user), '番号の行は利用者に結び付く');
+    assert.doesNotMatch(JSON.stringify(inv), new RegExp(code.replace(' ', '')), '番号そのものは置かない');
+    const uid = await js(`const r = await fetch('/api/passkey/register/options', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device: ${JSON.stringify(code)} }) });
+      const j = await r.json(); return atob(j.publicKey.user.id.replace(/-/g, '+').replace(/_/g, '/'));`);
+    assert.equal(uid, row.user, 'パスキーの user.id は利用者の番号');
   });
 
   await step('同じ招待コードは2度使えない', async () => {

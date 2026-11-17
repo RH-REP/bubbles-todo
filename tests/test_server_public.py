@@ -132,12 +132,20 @@ class PublicServerTest(unittest.TestCase):
                        {'Authorization': 'Bearer ' + out2['session'], 'X-Bubbles-Space': 'me'})
         self.assertEqual(put[:2], (200, {'version': 1}))
 
-    def test_share_only_invite_cannot_open_personal(self):
+    def test_share_only_invite_gets_own_personal_sea(self):
+        """2026-11-18: 利用者は個人の海を 1 つ必ず持つ。共有の海だけに招かれた人も、自分だけの個人の海を持つ"""
+        self._seas_handler()
+        own = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('自分', ['me', 'share']))[1]
+        self.req('PUT', '/api/data', {'base': 0, 'data': {'doc': {'todos': ['mine']}, 'stamps': {}}},
+                 {'Authorization': 'Bearer ' + own['session'], 'X-Bubbles-Space': 'me'})
         guest = FakeAuthenticator('localhost', self.origin)
         code, out, _ = self.register(guest, self.pk.add_invite('母', ['share']))
         self.assertEqual(code, 200)
         self.assertEqual(self.data(out['session'], 'share')[0], 200)
-        self.assertEqual(self.data(out['session'], 'me')[0], 401, '共有だけの人は個人に入れない')
+        self.assertNotEqual(out['person'], own['person'])
+        self.assertEqual(out['user']['name'], '母')
+        code, got, _ = self.data(out['session'], 'me')
+        self.assertEqual((code, got['data']), (200, None), '自分の個人の海（ほかの人の個人は見えない）')
 
     def _seas_handler(self):
         self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
@@ -153,8 +161,9 @@ class PublicServerTest(unittest.TestCase):
         self._seas_handler()
         first = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('自分のスマホ', ['me']))[1]
         self.assertEqual((first['person'], first['owner']), (1, False), '1 番の人も持ち主ではない')
-        self.assertEqual(self.data(first['session'], 'shome123')[0], 401, '入れない海には入れない')
-        self.assertEqual(self.data(first['session'], 'share')[0], 401)
+        self.assertEqual(self.data(first['session'], 'shome123')[0], 403, '仲間でない海には入れない（2026-11-18 から 403）')
+        self.assertEqual(self.data(first['session'], 'share')[0], 403)
+        self.assertFalse(self.guard.auth_blocked('127.0.0.1'))
         hdr = {'Authorization': 'Bearer ' + first['session']}
         code, got, _ = self.req('POST', '/api/spaces', {'spaces': [{'id': 'shome123', 'name': '家', 'color': 'moss', 'at': 9, 'alive': 1}]}, hdr)
         self.assertEqual((code, got['spaces'], got['access']), (200, [], ['me']), '端末から海の一覧は書き換えられない')
@@ -167,11 +176,11 @@ class PublicServerTest(unittest.TestCase):
         code, got, _ = self.req('POST', '/api/spaces', {'spaces': []}, hdr)
         self.assertEqual(([e['name'] for e in got['spaces']], got['access']), (['家'], ['me', 'shome123']), 'ログインし直さずに届く')
         self.assertEqual(self.data(first['session'], 'shome123')[0], 200)
-        self.assertIn('入れる端末: 自分のスマホ', self.cli('sea-list').stdout)
+        self.assertIn('仲間: 自分のスマホ（書ける）', self.cli('sea-list').stdout)
         self.cli('sea-rename', 'shome123', '家族')
         self.assertEqual([e['name'] for e in self.req('POST', '/api/spaces', {'spaces': []}, hdr)[1]['spaces']], ['家族'])
         self.cli('passkey-space', '自分のスマホ', 'remove', 'shome123')
-        self.assertEqual(self.data(first['session'], 'shome123')[0], 401, '外したら次の要求から入れない')
+        self.assertEqual(self.data(first['session'], 'shome123')[0], 403, '外したら次の要求から入れない')
         self.cli('sea-remove', 'shome123')
         self.assertIn('サーバーの海はありません', self.cli('sea-list').stdout)
         self.assertNotEqual(self.cli('passkey-space', '自分のスマホ', 'add', 'snone999').returncode, 0, '無い海には入れない')
@@ -179,7 +188,8 @@ class PublicServerTest(unittest.TestCase):
             self.pk.add_invite('だめ', ['../x'])
 
     def test_invite_from_device(self):
-        """2026-11-16: ログインした端末から招けるのは、自分の2台目と、自分が入れる海だけ。新しい人は VM で"""
+        """2026-11-16: ログインした端末から招けるのは、自分の2台目と、自分が入れる海だけ。
+        2026-11-18: 海に招けるのはその海の持ち主（owner）だけ"""
         self._seas_handler()
 
         def invite(sess, **body):
@@ -193,10 +203,14 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(tab['person'], 1)
         row = next(r for r in self.pk.passkeys() if r['name'] == '母のタブレット')
         self.assertEqual(row.get('by'), '母のスマホ', '招いた人を残す')
+        self.assertEqual(invite(mom['session'], name='父', sea='shome123')[0], 403, '書ける（editor）だけでは招けない')
+        self.pk.set_member('shome123', mom['user']['id'], 'owner')
         code, got, _ = invite(mom['session'], name='父', sea='shome123')
         self.assertEqual((code, got['spaces'], got['person']), (200, ['shome123'], None))
+        self.assertTrue(got['link'].endswith('/#invite=' + got['code']), '招待のリンク')
         self.assertEqual(invite(mom['session'], name='父', sea='share')[0], 403, '入れない海には招けない')
-        self.assertEqual(invite(mom['session'], name='父', sea='me', newPerson=True)[0], 403, '新しい人は VM で')
+        self.assertEqual(invite(mom['session'], name='父', sea='me', newPerson=True)[1]['person'], 1,
+                         '新しい人の印は聞き流す（自分の端末の招待になる）')
         self.assertEqual(invite('nope', name='x', sea='me')[0], 401)
         self.assertEqual(invite(mom['session'], name='', sea='me')[0], 409)
         for i in range(4):   # 「父」と合わせて 5（タブレットの招待は使ったので数えない）
@@ -221,7 +235,7 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(put(mom['session'], 0, 'moms'), 200)
         self.assertEqual(self.data(own['session'], 'me')[1]['data']['doc']['todos'], ['mine'])
         self.assertEqual(self.data(mom['session'], 'share')[0], 200)
-        self.assertEqual(self.data(own['session'], 'share')[0], 401, '1 番の人も入れない海には入れない')
+        self.assertEqual(self.data(own['session'], 'share')[0], 403, '1 番の人も入れない海には入れない')
         self.assertTrue((self.dir / 'people' / '2' / 'state.json').exists())
         tab = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('母のタブレット', ['me'], person=2))[1]
         self.assertEqual(self.data(tab['session'], 'me')[1]['data']['doc']['todos'], ['moms'])
@@ -233,7 +247,7 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual((got['data'], got['person']), (None, 3))
         self.assertEqual(self.pk.set_person('自分のスマホ', 1), 1)
         self.assertEqual(self.data(own['session'], 'me')[1]['data']['doc']['todos'], ['mine'])
-        self.assertEqual(self.data(mom['session'], 'me/1')[0], 401)
+        self.assertEqual(self.data(mom['session'], 'me/1')[0], 403)
 
     def test_old_me_passkeys_without_person_stay_with_person_1(self):
         """番号を持たない前の版の行は 1 番。passkey-list に番号が出て、passkey-person で移せる"""
@@ -270,19 +284,20 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(self.req('POST', '/api/passkey/register/options', {'invite': mv['move']})[0], 401, '使い切り')
 
     def test_move_key_retires_old_device_when_full(self):
-        """置き場がいっぱいでも、引っ越しの鍵なら元の端末のパスキーを外して登録する"""
+        """利用者のパスキーがいっぱいでも、引っ越しの鍵なら元の端末のパスキーを外して登録する"""
         devs = {}
         for n in ('A', 'B', 'C'):
             devs[n] = FakeAuthenticator('localhost', self.origin)
-            devs[n].out = self.register(devs[n], self.pk.add_invite(n, ['share']))[1]
+            devs[n].out = self.register(devs[n], self.pk.add_invite(n, ['me', 'share'], person=None if n == 'A' else 1))[1]
         with self.assertRaises(ValueError):
-            self.pk.add_invite('D', ['share'])
+            self.pk.add_invite('D', ['me'], person=1)
         mv = self.req('POST', '/api/passkey/move', {}, {'Authorization': 'Bearer ' + devs['B'].out['session']})[1]['move']
         code, out, _ = self.register(FakeAuthenticator('localhost', self.origin), mv)
-        self.assertEqual((code, out['spaces']), (200, ['share']))
+        self.assertEqual((code, out['spaces'], out['person']), (200, ['me', 'share'], 1))
         self.assertEqual(sorted(r['name'] for r in self.pk.passkeys()), ['A', 'B', 'C'], '外した名前をそのまま継ぐ')
         self.assertNotIn(devs['B'].out and pc.b64u_encode(devs['B'].cred_id), [r['id'] for r in self.pk.passkeys()])
         self.assertEqual(self.data(devs['B'].out['session'], 'share')[0], 401, '外した端末は入れない')
+        self.assertEqual(self.pk.count_user(out['user']['id']), 3)
         self.assertEqual(self.login(devs['A'])[0], 200, 'ほかの端末はそのまま')
         # 鍵を作った端末を消しても鍵は残る（失くした端末の引っ越しのため）。move-remove で消せる
         mv2 = self.req('POST', '/api/passkey/move', {}, {'Authorization': 'Bearer ' + devs['C'].out['session']})[1]['move']
@@ -303,7 +318,7 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(self.req('POST', '/api/passkey/register/options', {'invite': got['key']})[0], 401,
                          '認めるまでは登録できない')
         self.assertEqual(self.pk.approve_request(got['code'].lower().replace('-', ''), ['me', 'share'], person=None),
-                         ('自分のスマホ', 1))
+                         ('自分のスマホ', None), '新しい利用者（番号は登録のときに決まる）')
         self.assertEqual(st(got['key'])[:2], (200, {'state': 'approved', 'name': '自分のスマホ', 'spaces': ['me', 'share']}))
         self.assertEqual(self.pk.list_requests(), [], '認めた頼みは消える')
         code, out, _ = self.register(FakeAuthenticator('localhost', self.origin), got['key'])
@@ -325,18 +340,18 @@ class PublicServerTest(unittest.TestCase):
         self.assertFalse(self.guard.auth_blocked('127.0.0.1'), '頼みの溢れは入場の失敗に数えない')
 
     def test_limit_can_be_changed_later(self):
-        """Issue #26: 上限は limits.json であとから変えられ、止めずに効く"""
+        """Issue #26: 上限は limits.json であとから変えられ、止めずに効く（2026-11-18 から利用者ごとのパスキーの数）"""
         for n in ('A', 'B', 'C'):
-            self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite(n, ['share']))
+            self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite(n, ['me'], person=None if n == 'A' else 1))
         with self.assertRaises(ValueError):
-            self.pk.add_invite('D', ['share'])
+            self.pk.add_invite('D', ['me'], person=1)
         other = PasskeyStore(self.dir)              # 別のプロセス（CLI）から書いたつもり
         self.assertEqual(other.set_limit('4'), 4)
         self.assertEqual(self.pk.max_per_space, 4, '動いている側にもすぐ効く')
-        self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('D', ['share']))[0], 200)
+        self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('D', ['me'], person=1))[0], 200)
         other.set_limit(2)
-        self.assertEqual(self.pk.over_limit(), [('共有', 4)])
-        self.assertEqual(self.pk.count_in('share'), 4, '下げても登録済みは外さない')
+        self.assertEqual([c for _, c in self.pk.over_limit()], [4])
+        self.assertEqual(self.pk.count_in('me', 1), 4, '下げても登録済みは外さない')
         for bad in ('0', '101', 'x'):
             with self.assertRaises(ValueError):
                 other.set_limit(bad)
@@ -374,20 +389,20 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(self.data(out['session'], 'me')[0], 401, '取り消したら次の要求から入れない')
         self.assertEqual(self.login(owner)[0], 401)
 
-    def test_three_passkeys_per_space(self):
+    def test_three_passkeys_per_user(self):
+        """2026-11-18: 登録の上限は利用者ごとのパスキーの数（前は置き場ごと）。共有の海の仲間は数えない"""
         for n in ('A', 'B', 'C'):
-            self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite(n, ['share']))[0], 200)
+            self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin),
+                                           self.pk.add_invite(n, ['me', 'share'], person=None if n == 'A' else 1))[0], 200)
         with self.assertRaises(ValueError):
-            self.pk.add_invite('D', ['share'])          # いっぱいの置き場には招待コードも作らない
-        self.assertEqual(self.pk.count_in('share'), 3)
-        # 個人は別に数える（個人と共有の端末は、両方に入る → 共有がいっぱいなので作れない）
-        self.pk.add_invite('自分', ['me'])
-        with self.assertRaises(ValueError):
-            self.pk.add_invite('自分2', ['me', 'share'])
+            self.pk.add_invite('D', ['me'], person=1)    # いっぱいの利用者には招待コードも作らない
+        self.assertEqual(self.pk.count_in('me', 1), 3)
+        self.assertEqual(self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('母', ['share']))[0], 200,
+                         '共有の海の仲間は上限に数えない（別の利用者）')
         # 先に作ってあった招待コードも、いっぱいになったら登録を受けない
         self.assertTrue(self.pk.remove_passkey('C'))
-        early = self.pk.add_invite('E', ['share'])
-        self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('F', ['share']))
+        early = self.pk.add_invite('E', ['me'], person=1)
+        self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('F', ['me'], person=1))
         code, body, _ = self.req('POST', '/api/passkey/register/options', {'invite': early})
         self.assertEqual((code, body['error']), (409, 'full'))
 
@@ -399,15 +414,15 @@ class PublicServerTest(unittest.TestCase):
             devices=server.Devices(max_active=3, window=1800, clock=lambda: t[0])))
         sessions = []
         for n in ('A', 'B', 'C', 'D'):
-            space = ['share'] if n != 'D' else ['me']    # 置き場ごとの登録の上限に当たらないように
+            space = ['share']
             sessions.append(self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite(n, space))[1]['session'])
         self.assertEqual([self.data(x, 'share')[0] for x in sessions[:3]], [200, 200, 200])
-        code, body, _ = self.data(sessions[3], 'me')
+        code, body, _ = self.data(sessions[3], 'share')
         self.assertEqual((code, body['error']), (429, 'devices'), '4台目は断る')
         self.assertEqual(self.data(sessions[0], 'share')[0], 200, '使っている端末は通る')
         # 出た端末はすぐ外れる
         self.req('POST', '/api/passkey/logout', {}, {'Authorization': 'Bearer ' + sessions[1]})
-        self.assertEqual(self.data(sessions[3], 'me')[0], 200, '1台出たので入れる')
+        self.assertEqual(self.data(sessions[3], 'share')[0], 200, '1台出たので入れる')
         # 30分使わなかった端末は数から外れる
         t[0] = 1801
         self.assertEqual(self.data(sessions[2], 'share')[0], 200)

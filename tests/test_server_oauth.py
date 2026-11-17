@@ -181,7 +181,7 @@ class OAuthTest(unittest.TestCase):
         self.assertEqual(m['code_challenge_methods_supported'], ['S256'])
         self.assertEqual(m['token_endpoint_auth_methods_supported'], ['none'])
         self.assertEqual(m['grant_types_supported'], ['authorization_code', 'refresh_token'])
-        self.assertEqual(m['scopes_supported'], ['todo'])
+        self.assertEqual(m['scopes_supported'], ['todo', 'todo.read'])
         self.assertIs(m['client_id_metadata_document_supported'], True)
         self.assertIs(m['authorization_response_iss_parameter_supported'], True)
         self.assertNotIn('registration_endpoint', m)
@@ -287,7 +287,11 @@ class OAuthTest(unittest.TestCase):
                                     resource='https://evil.example/')[1]['error'], 'invalid_target')
         st, out = self.token(grant_type='refresh_token', refresh_token=tok['refresh_token'], client_id=CLIENT,
                              resource=self.origin + '/')
-        self.assertEqual(st, 200, '根の住所でも /mcp の資源として受ける')
+        self.assertEqual((st, out['error']), (400, 'invalid_target'),
+                         '2026-11-18 から根の住所は記録の API の宛て（/mcp の許可とは別）')
+        st, out = self.token(grant_type='refresh_token', refresh_token=tok['refresh_token'], client_id=CLIENT,
+                             resource=self.origin + '/mcp/')
+        self.assertEqual(st, 200, '/mcp の宛ては末尾の / があっても同じ')
         self.assertIn('bubbles: oauth-fail', self.err.getvalue())
 
     def test_cli_revoke(self):
@@ -394,21 +398,125 @@ class OAuthTest(unittest.TestCase):
         self.assertEqual((st, q['error'], q['state'], q['iss']), (200, ['access_denied'], ['st-123'], [self.origin]))
         self.assertEqual(self.jpost('/oauth/deny', {'request': rid})[0], 400, '1度だけ')
 
-    def test_non_owner_cannot_approve(self):
+    def test_any_user_approves_only_their_own_records(self):
+        """2026-11-18: どの利用者のパスキーでも許可できる。許したのは、その利用者の記録だけ"""
         self.owner()
-        guest = self.owner('母', spaces=('share',))
+        guest = self.owner('母', spaces=('share',))      # 共有だけに招かれた人も利用者（個人の海を持つ）
         st, h, page, _ = self.authorize()
         st, out = self.approve(guest, page)
-        self.assertEqual((st, out), (403, {'error': 'not owner'}))
-        second = self.owner('父', spaces=('me',))          # 新しい人（2 番）
-        self.assertEqual(self.pk.find_passkey(
-            base64.urlsafe_b64encode(second.cred_id).rstrip(b'=').decode())['person'], 2)
-        self.assertEqual(self.approve(second, page)[0], 403)
-        st, h, page2, _ = self.authorize()
-        self.assertEqual(self.approve(second, page2)[0], 403)
+        self.assertEqual(st, 200, out)
+        g = [x for x in self.oauth.store.read()['grants']][-1]
+        mom = self.pk.user_of_passkey(self.pk.find_passkey(base64.urlsafe_b64encode(guest.cred_id).rstrip(b'=').decode()))
+        self.assertEqual((g['user'], g['person']), (mom['id'], mom['person']))
+        self.assertNotEqual(mom['person'], 1)
         # 知らない端末
+        st, h, page2, _ = self.authorize()
         stranger = FakeAuthenticator('localhost', self.origin)
-        self.assertEqual(self.approve(stranger, page)[0], 401)
+        self.assertEqual(self.approve(stranger, page2)[0], 401)
+
+    # --- gantt・diary（前もって登録した相手。2026-11-18 取り決め §2） ---
+    def pre_tokens(self, auth, client='gantt', redirect='http://127.0.0.1:8766/auth/callback', **over):
+        verifier, challenge = pkce()
+        q = {'response_type': 'code', 'client_id': client, 'redirect_uri': redirect, 'code_challenge': challenge,
+             'code_challenge_method': 'S256', 'state': 's1'}
+        q.update(over)
+        q = {k: v for k, v in q.items() if v is not None}
+        st, h, b = self.raw('GET', '/oauth/authorize?' + urlencode(q))
+        page = b.decode('utf-8')
+        self.assertEqual(st, 200, page)
+        self.assertIn('bubble でログイン', page, '許可の画面ではなくログインだけ')
+        self.assertNotIn('自分で', page)
+        st, out = self.approve(auth, page)
+        self.assertEqual(st, 200, out)
+        code = parse_qs(urlsplit(out['redirect']).query)['code'][0]
+        self.secrets.append(code)
+        st, out = self.token(grant_type='authorization_code', code=code, redirect_uri=redirect, client_id=client,
+                             code_verifier=verifier)
+        self.assertEqual(st, 200, out)
+        return out
+
+    def api(self, tok, method='GET', space='me', body=None):
+        hd = {'Authorization': 'Bearer ' + tok, 'X-Bubbles-Schema': '1', 'X-Bubbles-Space': space}
+        if body is not None:
+            hd['Content-Type'] = 'application/json'
+        st, h, b = self.raw(method, '/api/data', json.dumps(body).encode() if body is not None else None, hd)
+        return st, (json.loads(b) if b else None)
+
+    def test_gantt_and_diary_read_bubble_records_as_the_user(self):
+        me = self.owner()
+        self.pk.set_member('share', self.pk.users()[0]['id'], 'owner')
+        server.SeaList(self.dir).merge([{'id': 'sfam01', 'name': '家族', 'color': 'moss', 'at': 1, 'alive': 1}])
+        self.pk.set_member('sfam01', self.pk.users()[0]['id'], 'viewer')
+        g = self.pre_tokens(me)
+        self.assertEqual(g['scope'], 'todo')
+        body = {'base': 0, 'data': {'doc': {'todos': []}, 'stamps': {}}}
+        self.assertEqual(self.api(g['access_token'], 'PUT', 'me', body)[0], 200, 'gantt は個人の海に書ける')
+        st, out = self.api(g['access_token'])
+        self.assertEqual((st, out['user'], out['role']), (200, self.pk.users()[0]['id'], 'owner'))
+        self.assertEqual(self.api(g['access_token'], 'PUT', 'share', body)[0], 200, '持ち主の共有の海にも書ける')
+        self.assertEqual(self.api(g['access_token'], 'PUT', 'sfam01', body)[0], 403, '見るだけの海には書けない')
+        self.assertEqual(self.api(g['access_token'], 'GET', 'sfam01')[0], 200)
+        self.assertEqual(self.api(g['access_token'], 'GET', 'snot01')[0], 403, '仲間でない海は 403')
+        self.assertEqual(self.mcp(g['access_token'], body={})[0], 401, 'gantt の通行証は /mcp に効かない')
+        # /api/me
+        st, h, b = self.raw('GET', '/api/me', None, {'Authorization': 'Bearer ' + g['access_token']})
+        me_out = json.loads(b)
+        self.assertEqual(st, 200)
+        self.assertEqual(me_out['user']['id'], self.pk.users()[0]['id'])
+        self.assertEqual([(s['id'], s['kind'], s['role']) for s in me_out['seas']],
+                         [('me', 'personal', 'owner'), ('share', 'shared', 'owner'), ('sfam01', 'shared', 'viewer')])
+        self.assertTrue(all(re.fullmatch(r'#[0-9a-f]{6}', s['color']) for s in me_out['seas']))
+        self.assertEqual(me_out['seas'][2]['name'], '家族')
+        # diary は読むだけ
+        d = self.pre_tokens(me, 'diary', 'http://127.0.0.1:8780/auth/callback')
+        self.assertEqual(d['scope'], 'todo.read')
+        self.assertEqual(self.api(d['access_token'])[0], 200)
+        self.assertEqual(self.api(d['access_token'], 'PUT', 'me', {'base': 1, 'data': {'doc': {}, 'stamps': {}}})[0], 403)
+        # 端末の通行証でも /api/me
+        st, h, b = self.raw('GET', '/api/me', None, {'Authorization': 'Bearer ' + me.session})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.raw('GET', '/api/me')[0], 401)
+        # 秘書（/mcp 宛て）の通行証は記録の API に効かない
+        sec = self.tokens(me)
+        self.assertEqual(self.api(sec['access_token'])[0], 401)
+        # 期限切れは 401 だが失敗に数えない（gantt は同じ VM の 127.0.0.1 から 1 時間ごとに当たる）
+        self.now[0] += 3601
+        mark = len(self.err.getvalue())
+        st, h, b = self.raw('GET', '/api/data', None, {'Authorization': 'Bearer ' + g['access_token'], 'X-Bubbles-Space': 'me'})
+        self.assertEqual(st, 401)
+        self.assertIn('invalid_token', h.get('www-authenticate', ''))
+        self.assertFalse(self.guard.auth_blocked('127.0.0.1'))
+        self.assertNotIn('auth-fail', self.err.getvalue()[mark:], '期限切れは失敗に数えない')
+
+    def test_pre_registered_clients_are_strict(self):
+        me = self.owner()
+        verifier, challenge = pkce()
+        base = {'response_type': 'code', 'code_challenge': challenge, 'code_challenge_method': 'S256'}
+        # 登録していない戻る先は、戻さずに断る
+        st, h, b = self.raw('GET', '/oauth/authorize?' + urlencode(dict(base, client_id='gantt',
+                                                                          redirect_uri='https://evil.example/auth/callback')))
+        self.assertEqual(st, 400)
+        self.assertNotIn('location', h)
+        # diary は todo（書き込み）を頼めない
+        st, h, b = self.raw('GET', '/oauth/authorize?' + urlencode(dict(base, client_id='diary', scope='todo',
+                                                                          redirect_uri='http://127.0.0.1:8780/auth/callback')))
+        self.assertEqual(st, 302)
+        self.assertIn('error=invalid_scope', h['location'])
+        # gantt は /mcp を頼めない
+        st, h, b = self.raw('GET', '/oauth/authorize?' + urlencode(dict(base, client_id='gantt', resource=self.origin + '/mcp',
+                                                                          redirect_uri='http://127.0.0.1:8766/auth/callback')))
+        self.assertIn('error=invalid_target', h['location'])
+        self.assertEqual(self.fetcher.calls, [], '前もって登録した相手の名乗りは取りに行かない')
+        # 本番の戻る先（取り決めの住所）も受ける
+        st, h, b = self.raw('GET', '/oauth/authorize?' + urlencode(dict(base, client_id='gantt',
+                                                                          redirect_uri='https://gantt.app-laboratory.duckdns.org/auth/callback')))
+        self.assertEqual(st, 200)
+        # 読むだけの更新の札では todo に広げられない
+        d = self.pre_tokens(me, 'diary', 'http://127.0.0.1:8780/auth/callback')
+        self.assertEqual(self.token(grant_type='refresh_token', refresh_token=d['refresh_token'], client_id='diary',
+                                    scope='todo')[1]['error'], 'invalid_scope')
+        st, out = self.token(grant_type='refresh_token', refresh_token=d['refresh_token'], client_id='diary')
+        self.assertEqual((st, out['scope']), (200, 'todo.read'))
 
     def test_removing_passkey_cuts_token(self):
         me = self.owner()

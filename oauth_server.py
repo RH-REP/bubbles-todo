@@ -34,9 +34,21 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 from filelock import DirLock
-from passkey_store import OWNER, person_of
+from passkey_store import OWNER
 
-SCOPE = 'todo'
+SCOPE = 'todo'                  # 読み書き（gantt・秘書）
+SCOPE_READ = 'todo.read'        # 読むだけ（diary）。2026-11-18
+SCOPES = (SCOPE, SCOPE_READ)
+# 前もって登録した相手（2026-11-18 取り決め §2）。許可の画面は出さず、ログインだけで戻す。
+# 通行証は bubble の記録の API（resource = bubble の住所の根）に効く。/mcp には効かない
+PRE_REGISTERED = {
+    'gantt': {'name': 'gantt', 'scopes': (SCOPE, SCOPE_READ), 'default_scope': SCOPE,
+              'redirect_uris': ['https://gantt.app-laboratory.duckdns.org/auth/callback',
+                                'http://127.0.0.1:8766/auth/callback']},
+    'diary': {'name': 'diary', 'scopes': (SCOPE_READ,), 'default_scope': SCOPE_READ,
+              'redirect_uris': ['https://diary.app-laboratory.duckdns.org/auth/callback',
+                                'http://127.0.0.1:8780/auth/callback']},
+}
 ACCESS_TTL = 3600
 REFRESH_TTL = 30 * 24 * 3600
 CODE_TTL = 120
@@ -48,7 +60,8 @@ CIMD_TTL = 3600
 CIMD_MAX = 64 * 1024
 CIMD_TIMEOUT = 5
 NAME_MAX = 100
-GRANT_WHAT = 'bubble の個人の記録を読み書きする'
+GRANT_WHAT = {SCOPE: 'あなたの bubble の記録（個人の海と、入れる共有の海）を読み書きする',
+              SCOPE_READ: 'あなたの bubble の記録（個人の海と、入れる共有の海）を読む'}
 VERIFIER_RE = re.compile(r'^[A-Za-z0-9\-._~]{43,128}$')
 CHALLENGE_RE = re.compile(r'^[A-Za-z0-9_-]{43}$')
 LOCALHOSTS = {'localhost', '127.0.0.1', '::1'}
@@ -74,8 +87,8 @@ def _write_private(path: Path, text: str):
 
 
 def is_owner(row) -> bool:
-    """許可できるパスキーか。1 番の人（持ち主）の個人に入れるものだけ"""
-    return bool(row) and 'me' in (row.get('spaces') or []) and person_of(row) == OWNER
+    """前の版の口。2026-11-18 から、どの利用者のパスキーでも許可できる（利用者の番号を持つ行なら）"""
+    return bool(row) and bool(row.get('user'))
 
 
 def host_of(url: str) -> str:
@@ -192,7 +205,8 @@ class OAuth:
     def __init__(self, data_dir: Path, origin: str, passkeys, client_hosts=('claude.ai',), fetcher=None, clock=_now):
         self.origin = origin.rstrip('/')
         self.issuer = self.origin
-        self.resource = self.origin + '/mcp'
+        self.resource = self.origin + '/mcp'      # 秘書（claude.ai）の /mcp
+        self.api_resource = self.origin           # bubble の記録の API（/api/data・/api/me。gantt・diary）。2026-11-18
         self.passkeys = passkeys
         self.client_hosts = {h.strip().lower() for h in client_hosts if h and h.strip()}
         self.fetcher = fetcher or fetch_cimd
@@ -212,7 +226,7 @@ class OAuth:
             'grant_types_supported': ['authorization_code', 'refresh_token'],
             'code_challenge_methods_supported': ['S256'],
             'token_endpoint_auth_methods_supported': ['none'],
-            'scopes_supported': [SCOPE],
+            'scopes_supported': list(SCOPES),
             'client_id_metadata_document_supported': True,
             'authorization_response_iss_parameter_supported': True,
         }
@@ -220,22 +234,23 @@ class OAuth:
     def pr_metadata(self, root=False):
         """RFC 9728。/mcp の案内は resource を /mcp に、根の案内は根にする（§3.3: 取りに来た住所と合わせる）"""
         return {
-            'resource': self.origin if root else self.resource,
+            'resource': self.api_resource if root else self.resource,
             'authorization_servers': [self.issuer],
-            'scopes_supported': [SCOPE],
+            'scopes_supported': list(SCOPES),
             'bearer_methods_supported': ['header'],
             'resource_name': 'Bubbles',
         }
 
-    def challenge_header(self, error=None):
-        h = f'Bearer resource_metadata="{self.origin}/.well-known/oauth-protected-resource/mcp", scope="{SCOPE}"'
+    def challenge_header(self, error=None, api=False):
+        meta = '' if api else '/mcp'
+        h = f'Bearer resource_metadata="{self.origin}/.well-known/oauth-protected-resource{meta}", scope="{SCOPE}"'
         return h + (f', error="{error}"' if error else '')
 
     # --- 言葉の確かめ ---
-    def norm_resource(self, value):
-        """resource の値 → 正しい /mcp の住所。合わなければ None。無ければ /mcp"""
+    def norm_resource(self, value, default=None):
+        """resource の値 → /mcp の住所（秘書）か、根の住所（記録の API）。合わなければ None。無ければ default（既定 /mcp）"""
         if value is None or value == '':
-            return self.resource
+            return default or self.resource
         try:
             u = urlsplit(value)
             mine = urlsplit(self.origin)
@@ -245,24 +260,35 @@ class OAuth:
             return None
         if (u.scheme.lower(), u.netloc.lower()) != (mine.scheme.lower(), mine.netloc.lower()):
             return None
-        if u.path.rstrip('/') in ('', '/mcp'):
+        path = u.path.rstrip('/')
+        if path == '/mcp':
             return self.resource
+        if path == '':
+            return self.api_resource
         return None
 
     @staticmethod
-    def norm_scope(value):
-        """scope → 'todo'。offline_access は聞き流す。知らない言葉があれば None"""
+    def norm_scope(value, allowed=SCOPES, default=SCOPE):
+        """scope → 'todo' か 'todo.read'（両方なら todo）。offline_access は聞き流す。
+        allowed に無い言葉があれば None。無ければ default"""
         words = set((value or '').split())
         words.discard('offline_access')
-        if words - {SCOPE}:
+        if not words:
+            return default
+        if words - set(allowed):
             return None
-        return SCOPE
+        return SCOPE if SCOPE in words else SCOPE_READ
 
     # --- 相手の名乗り（Client ID Metadata Document） ---
     def client(self, client_id: str):
         """client_id → {client_id, name, redirect_uris}。受けられなければ ClientRefused"""
         if not client_id or len(client_id) > 2000:
             raise ClientRefused('相手の名乗り（client_id）がありません')
+        pre = PRE_REGISTERED.get(client_id)
+        if pre:
+            return {'client_id': client_id, 'name': pre['name'], 'redirect_uris': list(pre['redirect_uris']),
+                    'scopes': pre['scopes'], 'default_scope': pre['default_scope'], 'pre': True,
+                    'default_resource': self.api_resource}
         try:
             u = urlsplit(client_id)
             port = u.port
@@ -307,7 +333,8 @@ class OAuth:
                                 log=('oauth-client-bad', f'host={host} auth_method'))
         name = doc.get('client_name')
         name = name.strip()[:NAME_MAX] if isinstance(name, str) and name.strip() else host
-        c = {'client_id': client_id, 'name': name, 'redirect_uris': [x for x in uris if self.ok_redirect(x)]}
+        c = {'client_id': client_id, 'name': name, 'redirect_uris': [x for x in uris if self.ok_redirect(x)],
+             'scopes': SCOPES, 'default_scope': SCOPE, 'pre': False, 'default_resource': self.resource}
         with self.lock:
             self.cimd = {k: v for k, v in self.cimd.items() if v[0] > now}
             self.cimd[client_id] = (now + CIMD_TTL, c)
@@ -365,11 +392,11 @@ class OAuth:
             return back('unsupported_response_type')
         if one('code_challenge_method') != 'S256' or not CHALLENGE_RE.match(one('code_challenge') or ''):
             return back('invalid_request', 'PKCE S256 required')
-        scope = self.norm_scope(one('scope'))
+        scope = self.norm_scope(one('scope'), c['scopes'], c['default_scope'])
         if scope is None:
             return back('invalid_scope')
-        resource = self.norm_resource(one('resource'))
-        if resource is None:
+        resource = self.norm_resource(one('resource'), c['default_resource'])
+        if resource is None or (c['pre'] and resource != self.api_resource):
             return back('invalid_target')
         now = self.clock()
         with self.lock:
@@ -379,8 +406,8 @@ class OAuth:
             rid = secrets.token_urlsafe(24)
             self.pending[rid] = {'client_id': c['client_id'], 'client_name': c['name'], 'redirect_uri': redirect,
                                  'redirect_given': given, 'state': state, 'challenge': one('code_challenge'),
-                                 'scope': scope, 'resource': resource, 'expires': now + PENDING_TTL}
-        return logs, ('page', 200, self.consent_page(rid, c, redirect))
+                                 'scope': scope, 'resource': resource, 'expires': now + PENDING_TTL, 'pre': c['pre']}
+        return logs, ('page', 200, self.login_page(rid, c) if c['pre'] else self.consent_page(rid, c, redirect, scope))
 
     def peek(self, rid):
         with self.lock:
@@ -392,8 +419,9 @@ class OAuth:
             p = self.pending.pop(rid, None) if isinstance(rid, str) else None
             return p if p and p['expires'] > self.clock() else None
 
-    def approve(self, rid, row):
-        """持ち主のパスキー（row）で許す → 戻る先（code・state・iss つき）。頼みが無ければ None"""
+    def approve(self, rid, row, user=None):
+        """利用者のパスキー（row）で許す → 戻る先（code・state・iss つき）。頼みが無ければ None。
+        user は利用者の行（{id, person}）。2026-11-18 から、どの利用者でも許せる"""
         p = self.take(rid)
         if not p:
             return None
@@ -406,7 +434,8 @@ class OAuth:
                 gid = 'g_' + secrets.token_hex(4)
             d['grants'].append({'id': gid, 'client_id': p['client_id'], 'client_name': p['client_name'],
                                 'redirect_uri': p['redirect_uri'], 'scope': p['scope'], 'resource': p['resource'],
-                                'person': OWNER, 'cred_id': row['id'], 'created': now, 'last_used': None,
+                                'user': (user or {}).get('id') or row.get('user'),
+                                'person': (user or {}).get('person', OWNER), 'cred_id': row['id'], 'created': now, 'last_used': None,
                                 'revoked': None})
             d['codes'].append({'hash': _sha(code), 'grant': gid, 'challenge': p['challenge'],
                                'redirect_uri': p['redirect_uri'], 'redirect_given': p['redirect_given'],
@@ -445,11 +474,27 @@ class OAuth:
         return {'access_token': access, 'token_type': 'Bearer', 'expires_in': ACCESS_TTL,
                 'refresh_token': refresh, 'scope': g['scope']}
 
-    def _grant_ok(self, g):
-        """許可がまだ生きていて、許したパスキーがまだ持ち主のものか"""
-        if not g or g.get('revoked') or g.get('resource') != self.resource:
+    def _grant_ok(self, g, resource=None):
+        """許可がまだ生きていて、許したパスキーがまだあり、同じ利用者のものか。resource を言えば、その宛ての許可だけ"""
+        if not g or g.get('revoked') or g.get('resource') not in (self.resource, self.api_resource):
             return False
-        return is_owner(self.passkeys.find_passkey(g.get('cred_id', '')))
+        if resource is not None and g.get('resource') != resource:
+            return False
+        row = self.passkeys.find_passkey(g.get('cred_id', ''))
+        if not row:
+            return False
+        if not g.get('user'):               # 2026-11-17 の許可（利用者の番号が無い）。1 番の人の個人のパスキーだったもの
+            u = self.passkeys.user_of_passkey(row) if hasattr(self.passkeys, 'user_of_passkey') else None
+            return bool(u and u.get('person') == OWNER)
+        u = self.passkeys.user_of_passkey(row) if hasattr(self.passkeys, 'user_of_passkey') else None
+        return bool(u and u['id'] == g['user'])
+
+    def grant_user(self, g):
+        """許可の利用者の番号（2026-11-17 の許可は、許したパスキーの利用者）"""
+        if g.get('user'):
+            return g['user']
+        u = self.passkeys.user_of_passkey(self.passkeys.find_passkey(g.get('cred_id', '')))
+        return u['id'] if u else None
 
     def _code(self, f):
         code = f.get('code') or ''
@@ -515,8 +560,10 @@ class OAuth:
                 raise OAuthError('invalid_client', 'no-client-id')
             if not g or f['client_id'] != g['client_id']:
                 raise OAuthError('invalid_grant', 'client-mismatch')
-            if 'scope' in f and self.norm_scope(f['scope']) is None:
-                raise OAuthError('invalid_scope', 'scope')
+            if 'scope' in f:
+                want = self.norm_scope(f['scope'], SCOPES, g['scope'])
+                if want is None or (g['scope'] == SCOPE_READ and want != SCOPE_READ):
+                    raise OAuthError('invalid_scope', 'scope')
             if 'resource' in f and self.norm_resource(f['resource']) != g['resource']:
                 raise OAuthError('invalid_target', 'resource')
             if not self._grant_ok(g):
@@ -529,8 +576,10 @@ class OAuth:
         return out, []
 
     # --- /mcp ---
-    def check_access(self, tok: str):
-        """通行証 → (許可の行, None) か (None, 理由)。理由は 'expired'（期限切れ。いつものこと）か 'invalid'"""
+    def check_access(self, tok: str, resource=None):
+        """通行証 → (許可の行, None) か (None, 理由)。理由は 'expired'（期限切れ。いつものこと）か 'invalid'。
+        resource は宛て（既定 /mcp。記録の API なら api_resource）。宛ての違う通行証は 'invalid'"""
+        resource = resource or self.resource
         if not tok.startswith('ba_') or len(tok) > 200:
             return None, 'invalid'
         d = self.store.read()
@@ -539,7 +588,7 @@ class OAuth:
         if not row:
             return None, 'invalid'
         g = next((x for x in d['grants'] if x['id'] == row['grant']), None)
-        if not self._grant_ok(g):
+        if not self._grant_ok(g, resource):
             return None, 'invalid'
         if row['expires'] <= now:
             return None, 'expired'
@@ -578,14 +627,26 @@ class OAuth:
                           f'<p class="what">{html.escape(message)}</p>'
                           '<p class="small">この画面を閉じて、接続を始めたところ（claude.ai など）からやり直してください。</p>')
 
-    def consent_page(self, rid, c, redirect):
+    def login_page(self, rid, c):
+        """前もって登録した相手（gantt・diary）。許可の画面は出さず、パスキーでログインしたら戻す"""
+        e = html.escape
+        body = (f'<div id="oauth" data-request="{e(rid)}">'
+                f'<h1>{e(c["name"])} に bubble でログイン</h1>'
+                f'<p class="what">bubble のパスキーでログインすると、{e(c["name"])} に戻ります。</p>'
+                '<div class="btns"><button id="ok" type="button">パスキーでログイン</button>'
+                '<button id="no" type="button">やめる</button></div>'
+                '<p id="msg" role="status"></p></div>'
+                '<script type="module" src="/js/oauth-authorize.js"></script>')
+        return self._page('ログイン', body)
+
+    def consent_page(self, rid, c, redirect, scope=SCOPE):
         e = html.escape
         chost = host_of(c['client_id'])
         rhost = host_of(redirect)
         body = (f'<div id="oauth" data-request="{e(rid)}">'
                 f'<h1>「{e(c["name"])}」が Bubbles につなぎたいと言っています</h1>'
                 f'<p>許すと戻る先:</p><p class="host">{e(rhost)}</p>'
-                f'<p class="what">許すと、この相手は <strong>{e(GRANT_WHAT)}</strong> ことができます。'
+                f'<p class="what">許すと、この相手は <strong>{e(GRANT_WHAT.get(scope, GRANT_WHAT[SCOPE]))}</strong> ことができます。'
                 '取り消すまで（サーバーの oauth-revoke）続きます。</p>'
                 f'<p class="warn">自分で {e(chost)} から接続を始めたときだけ許可してください。'
                 '覚えが無ければ「断る」を押してください。</p>'

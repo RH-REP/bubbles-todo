@@ -1037,6 +1037,7 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
        値の無いものは欄ごと省く（仕様で「省いてよい」。省いた欄は null / {} として読む）——
        これまでの記録の形を変えないため */
     ...sharedFields(t, tagIds),
+    ...whoFields(t),
   }));
 }
 
@@ -1047,7 +1048,30 @@ const TODO_KNOWN = new Set([
   'started', 'firstStep', 'url', 'detail', 'gap', 'gapSlots', 'gapSlot', 'gapAt', 'plan', 'steps', 'draft',
   'tags', 'done', 'doneAt', 'trashed', 'trashedAt', 'fav', 'urgent', 'important',
   'start', 'due', 'project', 'ext',
+  'assignee', 'added_by', 'done_by',
 ]);
+
+/* だれの欄（共有の記録 v1.2 §3。2026-11-18）。どれも利用者の番号（u_ ＋ 16 進 8 桁）か null。
+     assignee … 担当（共有の海の泡を受け持つ人）
+     added_by … 足した人
+     done_by  … 終えた人（完了を外したら null）
+   形の合わない値は落とす。欄の無い泡は欄を置かない（これまでの記録の形を変えないため） */
+const WHO_KEYS = ['assignee', 'added_by', 'done_by'];
+const USER_ID_RE = /^u_[0-9a-f]{8}$/;
+function whoFields(t) {
+  const out = {};
+  WHO_KEYS.forEach(k => {
+    if (!Object.prototype.hasOwnProperty.call(t, k)) return;
+    const v = t[k];
+    if (v === null || (typeof v === 'string' && USER_ID_RE.test(v))) out[k] = v;
+  });
+  return out;
+}
+/* 書くときの「わたし」（利用者の番号か null）。app.js が setActor で決める（サーバーの海でログインしているときだけ） */
+let actorOf = () => null;
+function actorNow() {
+  try { const v = actorOf(); return (typeof v === 'string' && USER_ID_RE.test(v)) ? v : null; } catch (e) { return null; }
+}
 
 /* 知らない欄の写し（known に無いもの）。値は JSON の写しにする（受け取った物を書き換えない） */
 function unknownFields(o, known) {
@@ -1670,6 +1694,8 @@ export const store = {
     const body = String(text).trim();
     if (!body) return null;
     const t = blankTodo(body, opts);
+    const me = actorNow();
+    if (me) t.added_by = me;                /* 足した人（共有の記録 v1.2。サーバーの海でログインしているときだけ） */
     items.push(t);
     /* 「今日する」枠に直接書いた場合も「入れた」記録に残す（setToday を通らない経路） */
     if (t.today) todayLogs.push({ id: t.id, text: t.text, at: t.createdAt });
@@ -1748,6 +1774,8 @@ export const store = {
     if (t.done) return t;
     t.done = true;
     t.doneAt = Date.now();
+    const me = actorNow();
+    if (me) t.done_by = me;                 /* 終えた人（共有の記録 v1.2） */
     spawnRepeat(t);                         /* 毎月くりかえす なら次の月の写し（Issue #60） */
     persist(); emit();
     return t;
@@ -1760,6 +1788,7 @@ export const store = {
     if (!t || !t.done) return false;
     t.done = false;
     t.doneAt = null;
+    if (Object.prototype.hasOwnProperty.call(t, 'done_by')) t.done_by = null;   /* 完了を外したら null（v1.2） */
     dropRepeatCopy(t);                      /* 完了で作った次の月の写しを消す（手を付けていなければ） */
     /* 消している／完了している間に枠そのものが消されていることがある。
        残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
@@ -1998,6 +2027,26 @@ export const store = {
   isFav(id) {
     const t = store.get(id);
     return !!(t && t.fav);
+  },
+
+  /* だれの欄（共有の記録 v1.2。2026-11-18）。書く人は app.js が決める（サーバーの海でログインしているときだけ） */
+  setActor(fn) { actorOf = typeof fn === 'function' ? fn : () => null; },
+  /* 担当を決める・外す（uid か null）-> 変わったか */
+  setAssignee(id, uid) {
+    const t = store.get(id);
+    if (!t) return false;
+    const want = (typeof uid === 'string' && USER_ID_RE.test(uid)) ? uid : null;
+    if ((t.assignee || null) === want) return false;
+    if (want === null && !Object.prototype.hasOwnProperty.call(t, 'assignee')) return false;
+    t.assignee = want;
+    persist(); emit();
+    return true;
+  },
+  /* {assignee, added_by, done_by}（無い欄は null） */
+  whoOf(id) {
+    const t = findAny(id);
+    if (!t) return null;
+    return { assignee: t.assignee || null, added_by: t.added_by || null, done_by: t.done_by || null };
   },
   /* 印の付いたもの。完了したものは出さない。付けた順は持たないので、書いた順（新しい順） */
   favItems() {
@@ -3337,6 +3386,8 @@ export const store = {
 
   /* --- 購読 --- */
   on(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+  /* 記録は変えずに、画面に描き直させる（2026-11-18。/api/me の仲間の名前が届いたとき、泡の担当の丸を出し直す） */
+  notify() { emit(); },
 
   /* --- サーバーと合わせる（sync.js が使う。画面は使わない） --- */
 
@@ -3410,7 +3461,7 @@ export const store = {
    口を足したらここにも足す（tests/sync.test.mjs が、persist() を呼ぶ口の漏れを見る） */
 export const WRITE_METHODS = [
   'add', 'remove', 'untrash', 'complete', 'uncomplete', 'restore', 'setDay', 'setToday', 'setHold', 'setHoldUntil',
-  'setFav', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
+  'setFav', 'setAssignee', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',

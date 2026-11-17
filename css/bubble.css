@@ -817,6 +817,21 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 }
 .bub .ndot[hidden] { display: none; }
 
+/* ---------- 担当の丸（共有の記録 v1.2。2026-11-18）----------
+   共有の海の泡の右下に、担当の人の名前の頭 1 字（終えた泡は終えた人と ✓）。自分が担当なら縁を太く（is-mine）。
+   押す的ではない */
+.bub .who {
+  position: absolute; bottom: calc(14.6% - 9px); right: calc(14.6% - 9px);
+  min-width: 18px; height: 18px; padding: 0 3px; border-radius: 9px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; font-weight: 600;
+  background: var(--surface); color: var(--text-2);
+  border: 1px solid var(--bub-edge);
+  pointer-events: none;
+}
+.bub .who[hidden] { display: none; }
+.bub.is-mine .skin { box-shadow: 0 0 0 2.5px var(--bub-edge); }
+
 /* ---------- 期間の外の添え字（共有の記録 v1.5 §11。2026-11-12）----------
    期間の外なので長期保留の海にいる泡の下の縁に、小さな字で「11/20 から」「期間を過ぎた」。
    色は控えめな字の色（赤は使わない。「期限切れ」の札にもしない）。押す的ではない */
@@ -853,6 +868,10 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 /* ---------- お気に入りの印（F7）----------
    札の列の上に1つ。見た目は札と同じ作法（押した側は縁と地が立つ）。
    ☆/★ は文字で出す（絵文字も画像も使わない。契約 §15） */
+.bub-center .bc-who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 6px; font-size: 12.5px; color: var(--text-2); }
+.bub-center .bc-who-lb { display: inline-flex; align-items: center; gap: 6px; }
+.bub-center .bc-who select { font: inherit; min-height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); padding: 2px 6px; }
+.bub-center .bc-who-by { font-size: 11.5px; }
 .bub-center .bc-fav {
   appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;

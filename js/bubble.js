@@ -500,7 +500,22 @@ export function updateBubble(node, item, opts = {}) {
     if (wob) wob.appendChild(snote);
   }
   if (snote) { snote.textContent = spanNote; snote.hidden = !spanNote; }
+  /* ---- 担当（共有の記録 v1.2。2026-11-18）----
+     共有の海の泡に、担当の人の名前の頭 1 字を右下の小さな丸に。自分が担当なら縁を太くする（is-mine）。
+     終えた泡には、終えた人の頭 1 字に ✓。預け先に whoMark が無い版・共有でない海では出ない */
+  const who = item ? ask(centerAdapter, 'whoMark', item) : null;
+  const whoText = (who && typeof who.text === 'string') ? who.text : '';
+  let wdot = node.querySelector(':scope > .wob > .who');
+  if (whoText && !wdot) {
+    wdot = el('span', 'who');
+    wdot.setAttribute('aria-hidden', 'true');
+    const wob = node.querySelector(':scope > .wob');
+    if (wob) wob.appendChild(wdot);
+  }
+  if (wdot) { wdot.textContent = whoText; wdot.hidden = !whoText; }
+  node.classList.toggle('is-mine', !!(who && who.mine));
   let label = ariaFor(item, names, marks, started, done);
+  if (who && who.label) label += '、' + who.label;
   if (spanNote) label += '、' + spanNote;
   if (fresh) label += '、新しいひとことあり';
   node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
@@ -826,6 +841,7 @@ function closeAsk(restoreFocus) {
 function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let saveTags = null;          /* タグの付け外しは閉じるときにまとめて書く */
   let saveFav = null;           /* お気に入りの印（F7）も同じく閉じるとき */
+  let saveWho = null;           /* 担当（共有の記録 v1.2）も同じく閉じるとき */
   let savePrio = null;          /* 優先度（急ぐ・大事）も同じく閉じるとき */
   let saveHoldUntil = null;     /* 長期保留の「戻ってくる日」も同じく閉じるとき */
   /* 「今日」の札と、カレンダーの今日の枡は同じものを指す。
@@ -1063,6 +1079,47 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      左のメニューの「お気に入り」に出るための印。タグではないので札の列には並べず、
      その上に1つだけ置く。書くのは閉じるとき（タグと同じ理由：押した瞬間に書くと
      店が emit して盤ごと作り直される）。預け先に isFav / setFav が無い版では出さない。 */
+  /* ---- 担当（2026-11-18。共有の記録 v1.2。モック 4）----
+     共有の海（サーバーの海で仲間がいる）でだけ出す。だれでも／仲間の名前から選ぶ。見るだけの人は変えられない。
+     足した人・終えた人も小さく出す。書くのは閉じるとき（お気に入りと同じ） */
+  if (fields && typeof (a || {}).setAssignee === 'function') {
+    const members = ask(a, 'seaMembers');
+    if (Array.isArray(members) && members.length) {
+      const w0 = ask(a, 'whoOf', id) || {};
+      const box = el('div', 'bc-who');
+      box.dataset.name = '担当';
+      const lb = el('label', 'bc-who-lb');
+      lb.appendChild(el('span', 'bc-who-tx', '担当'));
+      const sel = document.createElement('select');
+      sel.setAttribute('aria-label', '担当');
+      const any = document.createElement('option');
+      any.value = ''; any.textContent = 'だれでも';
+      sel.appendChild(any);
+      members.forEach(m => {
+        const o = document.createElement('option');
+        o.value = m.id; o.textContent = m.name || m.id;
+        if (m.id === w0.assignee) o.selected = true;
+        sel.appendChild(o);
+      });
+      if (w0.assignee && !members.some(m => m.id === w0.assignee)) {
+        const o = document.createElement('option');      /* 仲間から外れた人が担当のまま */
+        o.value = w0.assignee; o.textContent = ask(a, 'userName', w0.assignee) || '前の仲間'; o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.disabled = ask(a, 'myRole') === 'viewer';
+      lb.appendChild(sel);
+      box.appendChild(lb);
+      const by = [];
+      if (w0.added_by) by.push('足した: ' + (ask(a, 'userName', w0.added_by) || '?'));
+      if (w0.done_by) by.push('終えた: ' + (ask(a, 'userName', w0.done_by) || '?'));
+      if (by.length) box.appendChild(el('span', 'bc-who-by', by.join('・')));
+      fields.appendChild(box);
+      saveWho = () => {
+        if (!sel.disabled && sel.value !== (w0.assignee || '')) ask(a, 'setAssignee', id, sel.value || null);
+      };
+    }
+  }
+
   if (fields && typeof (a || {}).setFav === 'function') {
     const fav0 = ask(a, 'isFav', id) === true;
     let favWant = fav0;
@@ -2859,6 +2916,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
       if (saveFav) saveFav();                 /* 印はタグの後ろ。順に意味は無い */
+      if (saveWho) saveWho();
       if (savePrio) savePrio();
       if (saveHoldUntil) saveHoldUntil();
     },
