@@ -40,6 +40,7 @@ import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { seaPanel, loginState } from './seapanel.js';
 import { personalBackups, mergeBackup } from '../oneserver.js';
+import { collectApps, deliverApps } from '../appbundles.js';
 import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupFileName, buildBackup } from '../folderbackup.js';
 import {
   hasKey, isKeyLocked, isKeyPlain, keyTail, keyLock, keyOpen, lockNow, saveKeyLocked, lockPlainKey, removeKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
@@ -1252,11 +1253,14 @@ function moveBox(mode) {
       const now = Date.now();
       const dev = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1);
       const picked = pickForPayload(chosen, collectBoxes(), allEntries());
+      /* ほかの app の束（日記。2026-11-18 取り決め §8.3）。diary に届かなければ入れずに知らせる */
+      const extra = await collectApps();
       const payload = buildPayload({ boxes: picked.boxes, seas: picked.seas, server, at: now, device: dev,
-        regions: regionsPayload(chosen), servers: withKeys ? servers : undefined });
+        regions: regionsPayload(chosen), servers: withKeys ? servers : undefined, apps: extra.apps });
       const info = moveSummary(payload);
       const what = (info.regions.length ? '同期の先 ' + info.regions.join('・') + '・' : '')
-        + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + (withKeys ? '・サーバーに入る鍵' : '（鍵は入れていない）');
+        + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + (withKeys ? '・サーバーに入る鍵' : '（鍵は入れていない）')
+        + (extra.notes.length ? '・' + extra.notes.join('・') : '');
       if (encrypt) {
         const pass = makePassphrase();
         const text = await encryptMove(payload, pass);
@@ -1265,7 +1269,7 @@ function moveBox(mode) {
           + (anyMove ? '。前に作った控えの鍵では、もうサーバーに入れない（記録は戻せる）' : '');
       } else {
         /* 鍵を入れず、暗号化もしない控え（毎日の控えと同じ形 bubbles-backup） */
-        const plain = buildBackup({ boxes: picked.boxes, seas: picked.seas, at: now, device: dev, regions: regionsPayload(chosen) });
+        const plain = buildBackup({ boxes: picked.boxes, seas: picked.seas, at: now, device: dev, regions: regionsPayload(chosen), apps: extra.apps });
         ready = { blob: new Blob([JSON.stringify(plain, null, 1) + '\n'], { type: 'application/json' }),
           name: moveFileName(now).replace('bubbles-move', 'bubbles-backup') };
         passLine.textContent = '暗号化していない控えを作った（中の todo はそのまま読める）。「ファイルを保存する」で置く。' + what;
@@ -1327,7 +1331,7 @@ function moveBox(mode) {
       const info = moveSummary(p);
       const at = info.at ? new Date(info.at).toLocaleString() : '不明';
       if (!window.confirm('このファイルから読み込む？\n' + f.name + '\n書き出した時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
-        + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
+        + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + appsLine(info) + '\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
       restore(p);
       return;
     }
@@ -1351,7 +1355,7 @@ function moveBox(mode) {
     const info = moveSummary(p);
     const at = info.at ? new Date(info.at).toLocaleString() : '不明';
     if (!window.confirm('この端末に戻す？\n書き出した時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
-      + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
+      + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + appsLine(info) + '\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
     restore(p);
     passForm.hidden = true;
     passIn.value = '';
@@ -1367,6 +1371,11 @@ function moveBox(mode) {
     const got = importIntoDevice(p, { askLocal: true });
     const n = got.n;
     line.textContent = '海 ' + n + ' つの記録を戻した。';
+    /* ほかの app の束は、その app へ渡す（日記は diary の /api/import。bubble の記録には入れない。2026-11-18 §8.3） */
+    if (p.apps) {
+      deliverApps(p.apps).then(lines => { if (lines.length) line.textContent += lines.join('。') + '。'; })
+        .catch(e => { line.textContent += '日記を渡せなかった（' + ((e && e.message) || e) + '）。'; });
+    }
     if (Array.isArray(p.regions) && p.regions.length) {
       if (got.added.length) line.textContent += 'サーバー ' + got.added.map(r => r.name).join('・') + ' を足した。';
       joinRegions(p, got.map);
@@ -5254,4 +5263,11 @@ function personalBackupBox(owner) {
   paint();
   if (owner) owner.addEventListener('toggle', () => { if (owner.open) paint(); });
   return w;
+}
+
+/* 読む前の確かめに出す、ほかの app の束の行（日記。2026-11-18 §8.3） */
+function appsLine(info) {
+  if (!info || !info.apps || !info.apps.length) return '';
+  const parts = info.apps.map(a => a === 'diary' ? '日記 ' + (info.diaryDays || 0) + ' 日分（diary へ渡す）' : a + '（この版では渡さない）');
+  return '\n' + parts.join('・');
 }

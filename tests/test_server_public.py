@@ -434,6 +434,17 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual(self.req('POST', '/api/passkey/register/options', {'invite': 'WRONG'})[0], 429)
         self.assertEqual(self.data('x', 'me')[0], 429, '失敗が続いた接続元は、記録にも入れない')
 
+    def test_csp_connect_src_adds_only_the_diary_origin(self):
+        """引っ越しのファイルで日記を運ぶため、connect-src に diary の住所の根だけを足す（2026-11-18 取り決め §8.3）"""
+        def connect(origin, urls):
+            return [x.strip() for x in server.csp_for(origin, urls).split(';') if x.strip().startswith('connect-src')][0]
+        base = "connect-src 'self' https://api.open-meteo.com"
+        self.assertEqual(connect('https://my.example', {'diary': 'https://diary.my.example'}), base + ' https://diary.my.example')
+        self.assertEqual(connect('https://bubbles.app-laboratory.duckdns.org', {}), base + ' https://diary.app-laboratory.duckdns.org')
+        self.assertEqual(connect('http://127.0.0.1:8931', {}), base + ' http://127.0.0.1:8780')
+        self.assertEqual(connect('https://my.example', {}), base, '決められなければ足さない')
+        self.assertEqual(connect('https://my.example', {'gantt': 'https://g.example'}), base, 'gantt は足さない')
+
     def test_security_headers_and_origins(self):
         code, _, h = self.req('GET', '/', headers={'Origin': 'https://evil.example'})
         self.assertEqual(code, 200)

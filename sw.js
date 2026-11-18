@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-18f';
+const VERSION = '2026-11-18g';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -122,6 +122,7 @@ const ASSETS = [
   './js/apps.js',        /* 3 つの app の住所の根（2026-11-18） */
   './js/jump.js',        /* jump（#sea=&todo=・盤の飛び先。2026-11-18） */
   './js/loginflow.js',   /* ログインの仕上げ・ログアウト（個人の海は 1 つ。2026-11-18） */
+  './js/appbundles.js',  /* 引っ越しのファイルで日記の束を運ぶ（取り決め §8.3。2026-11-18） */
   './js/schemaguard.js',   /* 古い版の帯（2026-11-10 共有の記録 v1.1） */
   './js/folderbackup.js', /* 決めたフォルダに自動で控える（2026-11-12） */
   './js/regions.js',      /* 海域の一覧（2026-11-12） */

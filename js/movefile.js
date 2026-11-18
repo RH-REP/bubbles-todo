@@ -125,8 +125,10 @@ export function stateToBox(state) {
    海域（2026-11-12 段2。js/regions.js）: regions = 入れた海域の一覧、servers = { 海域の ID: { url, move | token, shareToken } }。
    regions のあるファイルは、戻すときに海域ごとに付け替える（settings.js の mergeIntoDevice）。
    server は前の版の app のために残す（前の版は servers を読まず、server の1つだけで入り直す） */
-export function buildPayload({ boxes, seas, server, at = Date.now(), device = '', regions, servers }) {
+/* apps = ほかの app の束 {diary: 束, …}（2026-11-18 取り決め §8.3。js/appbundles.js）。中は見ずにそのまま運ぶ */
+export function buildPayload({ boxes, seas, server, at = Date.now(), device = '', regions, servers, apps }) {
   const out = { format: FORMAT, version: VERSION, at, device, seas: Array.isArray(seas) ? seas : [], boxes: {} };
+  if (apps && typeof apps === 'object' && !Array.isArray(apps) && Object.keys(apps).length) out.apps = apps;
   if (Array.isArray(regions)) out.regions = regions;
   if (servers && typeof servers === 'object') {
     out.servers = {};
@@ -170,8 +172,11 @@ export function moveSummary(p) {
     if (Array.isArray(list)) todos += list.filter(t => t && !t.trashed).length;
   });
   const regions = Array.isArray(p && p.regions) ? p.regions.map(r => String((r && r.name) || '')).filter(Boolean) : [];
+  const apps = p && p.apps && typeof p.apps === 'object' && !Array.isArray(p.apps) ? Object.keys(p.apps) : [];
+  const ent = apps.includes('diary') && p.apps.diary && p.apps.diary.data && p.apps.diary.data.entries;
+  const diaryDays = ent && typeof ent === 'object' && !Array.isArray(ent) ? Object.keys(ent).length : 0;
   return { at: Number(p && p.at) || 0, device: (p && p.device) || '', seas: ids.length, todos, regions,
-    server: !!(p && p.server && p.server.url), move: !!(p && p.server && p.server.move) };
+    server: !!(p && p.server && p.server.url), move: !!(p && p.server && p.server.move), apps, diaryDays };
 }
 
 export function moveFileName(now = Date.now()) {

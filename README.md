@@ -509,6 +509,22 @@ bash tests/server-setup.test.sh
 
 ## サーバーで記録を共有する（前の節名「海域」）
 
+### 引っ越しのファイルで日記を運ぶ（2026-11-18 ユーザーの決定「案Cで進めて」。取り決め §8.3。版 2026-11-18g）
+
+日記は bubble の記録（海）にも画面にも入れない。置き場は diary のサーバーのまま、引っ越しのファイル（設定の「記録」の［ファイル］）が日記の束も一緒に運ぶ。
+作り: `js/appbundles.js`（`collectApps`・`deliverApps`）、`js/movefile.js` の `buildPayload({apps})`・`moveSummary` の `apps`・`diaryDays`。
+
+- **作るとき**: `GET <diary>/api/export`（`credentials: include`。diary のクッキーで本人）→ ファイルの `apps.diary`（取り決め §8.1 の束をそのまま）。
+  暗号化した引っ越しのファイルにも、暗号化しない控えにも入る（暗号化しない控えでは日記の字もそのまま読める）。
+  diary にログインしていない（401）・届かない・形が違うときは、日記を入れずに作り「日記は入れていない（…）」と出す。diary の住所（`app_urls.diary`）が無ければ呼ばない。
+  フォルダへの自動の控えとブロックチェーンには入れない
+- **読むとき**: `apps.diary` があれば、読む前の確かめに「日記 N 日分（diary へ渡す）」を出し、`POST <diary>/api/import` に渡して「日記: 足した・新しくした・そのまま」を出す
+  （日ごとに新しい版を残す。消さない。diary 側の決まり）。401 なら「diary にログインしてから、同じファイルを読み込み直す」
+- **知らない app の束**（`apps` のほかの名前）はファイルの中でそのまま運び、渡さない（「この版の知らない app（…）の束は渡さなかった」）
+- **CSP**: 配るページの `connect-src` に diary の住所の根だけを足す（`server.py` の `csp_for`。`--app-url diary=…` を正とし、無ければ `js/apps.js` と同じ決め方）
+- 前の版に戻している間（rollback）は、service worker が `/api/` への書き込みを止めるので、日記も渡さない
+- テスト: `node tests/appbundles.test.mjs`、`node tests/e2e-apps.mjs`（本物の Chrome と仮の diary。手元の本物の diary 127.0.0.1:8780 は使わない）
+
 ### 通しの試しで直した 2 点（2026-11-18 ユーザーの指示「直して」。版 2026-11-18f）
 
 - **gantt・diary へ移るとき、パスキーの操作をもう一度求めない**（取り決め §7.2「bubble でログイン済みならパスキーの操作なしで戻る」）。

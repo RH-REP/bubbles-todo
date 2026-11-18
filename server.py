@@ -126,7 +126,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 import oauth_server
 from filelock import DirLock
@@ -530,6 +530,31 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "form-action 'self'; frame-ancestors 'none'")
 
 
+def diary_origin(origin: str, app_urls: dict) -> str:
+    """diary の住所の根（2026-11-18 取り決め §8.3。引っ越しのファイルに日記の束を入れる・戻すときだけ、画面が呼ぶ）。
+    --app-url の diary を正とし、無ければ js/apps.js の deriveAppUrls と同じ決め方（手元は 127.0.0.1:8780、bubbles.<名前> → diary.<名前>）"""
+    got = (app_urls or {}).get('diary') or ''
+    if got:
+        return got
+    try:
+        u = urlsplit(origin)
+    except ValueError:
+        return ''
+    host = (u.hostname or '').lower()
+    if host in ('localhost', '127.0.0.1'):
+        return 'http://127.0.0.1:8780'
+    if host.startswith('bubbles.'):
+        return 'https://diary.' + host[len('bubbles.'):]
+    return ''
+
+
+def csp_for(origin: str, app_urls: dict) -> str:
+    """配るページの CSP。connect-src に diary の住所の根だけを足す（ほかの外へは広げない）"""
+    d = diary_origin(origin, app_urls)
+    return CSP.replace("connect-src 'self' https://api.open-meteo.com",
+                       "connect-src 'self' https://api.open-meteo.com" + (' ' + d if d else ''), 1)
+
+
 def log_event(kind: str, ip: str, detail: str = ''):
     """守りの出来事を記録（journal）に1行出す。fail2ban がこれを読む。合言葉・通行証の値は出さない"""
     sys.stderr.write(f'bubbles: {kind} ip={ip}{(" " + detail) if detail else ""}\n')
@@ -555,6 +580,7 @@ class Config:
         self.machines = machines              # 機械の鍵（MachineKeys）。パスキーの形だけで効く
         self.oauth = oauth                    # claude.ai の接続（oauth_server.OAuth）。パスキーの形だけで効く
         self.app_urls = dict(app_urls or {})  # 3 つの app の住所の根（2026-11-18 取り決め §7.2。GET /api/apps）
+        self.csp = csp_for(origin or '', self.app_urls)   # connect-src に diary の住所（2026-11-18 §8.3）
 
 
 class DeviceCodeGuard:
@@ -649,7 +675,7 @@ def make_handler(spaces, cfg: Config = None):
             self.send_header('X-Frame-Options', 'DENY')
             self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
             if ctype.startswith('text/html'):
-                self.send_header('Content-Security-Policy', CSP)
+                self.send_header('Content-Security-Policy', cfg.csp)
             # よそのオリジンから呼んでよいのは、決めた相手だけ（既定は Android 版だけ。公開の形では無し）
             origin = self.headers.get('Origin', '')
             if origin and origin in cfg.allow_origins:
