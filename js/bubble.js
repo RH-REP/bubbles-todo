@@ -615,10 +615,19 @@ function actionRow(actions, run, onOk, onStart) {
      **「今日は終わり」の上へ移した**（利用者の指示）。目が行く場所は盤の中で、
      しかも「状態を変える3つ」の先頭。並びの意味は変わらない——
      進む → 今日ぶんを終える → タスクごと終える → 消す、と下るほど重くなる。 */
+  /* 2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」（モック docs/spec/mock/task-start.html）:
+       [ 始める（5 分のタイマー） ]
+       [ 今日はここまで ][ ✓ 完了にする ]
+       （削除は「その他」の最後。arrangeBoard が移す）
+     ［書き留める］は外した。打ち終えた欄から自動で保存し、盤の右下に「保存した」と出す（buildCenterPanel の autosave）。
+     言葉: タスク開始 → 始める、今日は終わり → 今日はここまで、タスク完了 → 完了にする、消す → 削除 */
   if (canStart) {
-    const st = el('button', 'bc-act bc-act-start', 'タスク開始');
+    const st = el('button', 'bc-act bc-act-start');
     st.type = 'button';
     st.dataset.part = 'start';
+    st.appendChild(el('span', 'bc-act-main', '始める'));
+    st.appendChild(el('span', 'bc-act-sub', '5 分のタイマー'));
+    st.setAttribute('aria-label', '始める（5 分のタイマーを開く）');
     st.addEventListener('click', ev => { ev.preventDefault(); onStart(); });
     box.appendChild(st);
   }
@@ -632,57 +641,18 @@ function actionRow(actions, run, onOk, onStart) {
     return b;
   };
 
+  /* 「今日はここまで」は、着手の印（store.start）。押すと泡が薄くなり、日が変わると戻る（契約 §5）。中身は前と同じ */
   const top = el('div', 'bc-act-row');
-  /* 「はじめた」から「今日は終わり」へ（利用者の指示）。
-     **記録している中身は変えていない**（store.start の着手印のまま）。
-     名前を変えたのは、この印が実際にしていることが「今日ぶんはここまで」だから——
-     押すとバブルが薄くなって「もう見なくていい」を伝え、日が変わると戻る（契約 §5）。
-     「はじめた」ではその意味が読めなかった、という指摘。 */
-  if (has('onStarted')) top.appendChild(mk('bc-act-started', '今日は終わり', 'onStarted', 'ended'));
-  if (canOk) {
-    /* OK は他のボタンと性質が違う。**盤を閉じない**（書き留めるだけ）。
-       押したことが分かるよう、少しのあいだ文字を変える——
-       閉じないぶん、何も起きなかったように見えてしまうため。
-
-       出す文字は onOk() が決める。積めたときは「書き留めた」、
-       積まなかったときはその理由（「次の一手が要る」など）。
-       **積めなかったことを黙って同じ顔で返さない**——
-       押したのに何も起きていない、が分からないため。 */
-    /* 「OK」から「書き留める」へ（レビューの指摘）。
-       となりに「今日は終わり」が並ぶと [キャンセル｜OK] のダイアログに見えて、
-       押すと閉じるものと読めていた。実際は閉じないし、するのは書き留めることだけ。
-       押したあとの「書き留めた」とも、そのまま繋がる */
-    const ok = el('button', 'bc-act bc-act-ok');
-    ok.type = 'button';
-    ok.textContent = '書き留める';
-    ok.dataset.part = 'ok';
-    let back = 0;
-    ok.addEventListener('click', ev => {
-      ev.preventDefault();
-      const said = onOk();
-      const label = typeof said === 'string' && said ? said : '書き留めた';
-      const done = label === '書き留めた';
-      clearTimeout(back);
-      ok.textContent = label;
-      ok.classList.toggle('is-done', done);
-      ok.classList.toggle('is-nope', !done);
-      back = setTimeout(() => {
-        ok.textContent = '書き留める';
-        ok.classList.remove('is-done');
-        ok.classList.remove('is-nope');
-      }, 1200);
-    });
-    top.appendChild(ok);
-  }
-  if (top.childNodes.length) box.appendChild(top);
-
-  /* 完了したものの上では「タスク完了」ではなく「海にもどす」。openMenu と同じ入れ替え。
+  if (has('onStarted')) top.appendChild(mk('bc-act-started', '今日はここまで', 'onStarted', 'ended'));
+  /* 完了したものの上では「完了にする」ではなく「海にもどす」。openMenu と同じ入れ替え。
      戻した先が海でない画面（今日の水面）は a.reopenLabel で名前を渡す（Issue #29） */
   if (has('onComplete')) {
-    box.appendChild(mk('bc-act-done',
-      a.isDone === true ? (a.reopenLabel || '海にもどす') : 'タスク完了', 'onComplete', 'done'));
+    top.appendChild(mk('bc-act-done',
+      a.isDone === true ? (a.reopenLabel || '海にもどす') : '✓ 完了にする', 'onComplete', 'done'));
   }
-  if (has('onDelete')) box.appendChild(mk('bc-act-del', '消す', 'onDelete', 'del'));
+  if (top.childNodes.length) box.appendChild(top);
+  if (has('onDelete')) box.appendChild(mk('bc-act-del', '削除', 'onDelete', 'del'));
+  void canOk;   /* onOk（前の［書き留める］）は受けるが、ボタンは作らない */
   return box;
 }
 
@@ -734,7 +704,7 @@ function askDelete(name, onYes) {
   const ttl = el('p', 'ask-title');
   ttl.id = 'ask-t' + seq;
   /* 名前はユーザーが打った文字。innerHTML には入れない */
-  ttl.textContent = name ? '「' + name + '」を消す？' : 'これを消す？';
+  ttl.textContent = name ? '「' + name + '」を削除する？' : 'これを削除する？';   /* 2026-11-18 消す → 削除 */
   box.setAttribute('aria-labelledby', ttl.id);
   box.appendChild(ttl);
 
@@ -751,7 +721,7 @@ function askDelete(name, onYes) {
   no.textContent = 'やめる';
   const yes = el('button', 'ask-btn ask-yes');
   yes.type = 'button';
-  yes.textContent = '消す';
+  yes.textContent = '削除';
   row.appendChild(no);
   row.appendChild(yes);
   box.appendChild(row);
@@ -871,6 +841,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let detailView = null, detailEdit = null, detailNote = null;   /* 読む面と [編集]（Issue #16） */
   let detailClose = null, detailSave = null, detailCancel = null; /* 書く面の [保存]／[キャンセル]（Issue #35） */
   let detailDraft = '';
+  let detailInline = null;      /* 盤のその場のメモの欄（2026-11-18） */
   let detailBase = '';          /* 書く面に入った時点の本文。[キャンセル] でここへ戻す */
   let syncSpanRow = null;       /* 盤の「期間」（Issue #34）。本文が変わったら読み直す */
   /* ひとこと（Issue #25）。入口と別の面。[書く] で1件ずつ積む（書き換えない） */
@@ -942,10 +913,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      空にして閉じても消えない（store.setText が空を弾く＝元の名前のまま）。
      預け先に setText が無い版では出さない。 */
   if (fields && typeof (a || {}).setText === 'function') {
-    const wrap = el('label', 'bc-row');
-    const lb = el('span', 'bc-lb');
+    /* 2026-11-18（モック task-start.html）: 見出しの字は出さず、盤の題としてそのまま直せる形に。
+       お気に入り・優先度は「その他」へ移したので、付いていれば名前の横に ☆・◷・◆ を出す（arrangeBoard） */
+    const wrap = el('label', 'bc-row bc-name-row');
+    const lb = el('span', 'bc-lb bc-vh');
     lb.textContent = '名前';
-    nameIn = el('input', 'bc-in');
+    nameIn = el('input', 'bc-in bc-name-in');
     nameIn.type = 'text';
     nameIn.autocomplete = 'off';
     nameIn.enterKeyHint = 'done';
@@ -967,12 +940,23 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      預け先に setDetail が無い版では出さない。 */
   if (fields && typeof (a || {}).setDetail === 'function') {
     detailDraft = String(ask(a, 'detail', id) || '');
-    const drow = el('div', 'bc-row');
-    drow.appendChild(el('span', 'bc-lb', '本文'));
-    detailBtn = el('button', 'bc-memo-open bc-detail-open');
+    /* 2026-11-18（モック task-start.html）: 「本文」→「メモ」。別の面を開かず、その場の 2 行の欄で書く。
+       長い本文・リンクの読み・AI は、今までの面（［全体を開く ›］）で */
+    const drow = el('div', 'bc-row bc-stack');
+    const dhead = el('div', 'bc-lb-row');
+    dhead.appendChild(el('span', 'bc-lb', 'メモ'));
+    detailBtn = el('button', 'bc-detail-open bc-link-btn');
     detailBtn.type = 'button';
     detailBtn.addEventListener('click', ev => { ev.preventDefault(); openDetail(); });
-    drow.appendChild(detailBtn);
+    dhead.appendChild(detailBtn);
+    drow.appendChild(dhead);
+    detailInline = el('textarea', 'bc-in bc-memo-in');
+    detailInline.rows = 2;
+    detailInline.placeholder = '例 保険証を持っていく';
+    detailInline.setAttribute('aria-label', 'メモ');
+    detailInline.value = detailDraft;
+    detailInline.addEventListener('input', () => { detailDraft = detailInline.value; if (syncSpanRow) syncSpanRow(); });
+    drow.appendChild(detailInline);
     foldPart(drow, 'detail', !!detailDraft.trim());
     fields.appendChild(drow);
     syncDetailBtn();
@@ -988,32 +972,32 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   if (fields && typeof (a || {}).addNote === 'function' && ask(a, 'notesOn') === true) {
     const nwrap = el('div', 'bc-chat');
     const nrow = el('div', 'bc-row');
-    nrow.appendChild(el('span', 'bc-lb', 'ひとこと'));
+    nrow.appendChild(el('span', 'bc-lb', 'コメント'));   /* 2026-11-18 ひとこと → コメント（仲間と泡ごとに話す欄） */
     notesBtn = el('button', 'bc-memo-open bc-notes-open');
     notesBtn.type = 'button';
     notesBtn.addEventListener('click', ev => { ev.preventDefault(); openNotes(); });
     nrow.appendChild(notesBtn);
     nwrap.appendChild(nrow);
     chatList = el('ul', 'bn-chat');
-    chatList.setAttribute('aria-label', 'ひとこと（新しい 3 件。古い順）');
+    chatList.setAttribute('aria-label', 'コメント（新しい 3 件。古い順）');
     nwrap.appendChild(chatList);
     const qrow = el('div', 'bn-quick');
     chatIn = el('input', 'bn-quick-in');
     chatIn.type = 'text';
     chatIn.autocomplete = 'off';
     chatIn.maxLength = 280;
-    chatIn.placeholder = 'ひとことを残す（あとから変えられない）';   /* 見出しの「ひとこと」と同じ言葉に（Issue #70 の返事） */
-    chatIn.setAttribute('aria-label', 'ひとことを書く（あとから変えられない・消せない）');
+    chatIn.placeholder = 'コメントを書く';   /* 2026-11-18。「あとから直せない」は欄の下に小さく出す（430px で切れていた） */
+    chatIn.setAttribute('aria-label', 'コメントを書く（あとから直せない・消せない）');
     chatIn.value = noteDrafts.get(id) || '';
     chatIn.addEventListener('input', () => { noteDrafts.set(id, chatIn.value); });
-    const qsend = el('button', 'bn-quick-send', '送る');
+    const qsend = el('button', 'bn-quick-send', '投稿');   /* 2026-11-18 送る → 投稿 */
     qsend.type = 'button';
     let qback = 0;
     const showSaid = (said) => {
       clearTimeout(qback);
       qsend.textContent = said;
-      qsend.classList.toggle('is-nope', said !== '送った' && said !== '署名中…');
-      if (said !== '署名中…') qback = setTimeout(() => { qsend.textContent = '送る'; qsend.classList.remove('is-nope'); }, 1400);
+      qsend.classList.toggle('is-nope', said !== '投稿した' && said !== '署名中…');
+      if (said !== '署名中…') qback = setTimeout(() => { qsend.textContent = '投稿'; qsend.classList.remove('is-nope'); }, 1400);
     };
     const quickSend = () => { showSaid(sendQuick(showSaid)); };
     qsend.addEventListener('click', ev => { ev.preventDefault(); quickSend(); });
@@ -1063,9 +1047,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       qrow.appendChild(qsync);
     }
     nwrap.appendChild(qrow);
+    nwrap.appendChild(el('p', 'bc-hint', 'あとから直せない・消せない'));
     fields.appendChild(nwrap);
     syncNotesBtn();
     foldPart(nwrap, 'notes', !notesBtn.classList.contains('is-empty'));
+    /* 2026-11-18 ユーザーの決定（モック task-start.html の決めてほしいこと 3）: コメントは共有の海でだけ出す。
+       個人の海には相手がいないため。前に書いたものがあれば、個人の海でも出す（Issue #61 の「個人の海でも出す」を置き換える） */
+    const members0 = ask(a, 'seaMembers');
+    const sharedSea = (Array.isArray(members0) && members0.length > 0) || ask(a, 'shareSyncOn') === true;
+    if (!sharedSea && notesBtn.classList.contains('is-empty')) nwrap.hidden = true;
     /* 新しい 3 件は盤を開いた時点で見えているので、ここまで読んだとする（泡の点を消す）。
        畳んで「その他」に入っているときは見えていないので覚えない */
     if (!nwrap.classList.contains('is-extra') && notesNow().length) {
@@ -1170,6 +1160,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         const other = key === 'urgent' ? 'important' : 'urgent';
         want[key] = want[key] !== true;
         if (want[other] === null) want[other] = false;
+        /* 2026-11-18: ［印を外す］を外した。どちらも押していない形に戻ったら、印そのものを外す（まだ分けていない） */
+        if (want.urgent !== true && want.important !== true) want = { urgent: null, important: null };
         sync();
       });
       row.appendChild(b);
@@ -1180,6 +1172,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const clear = el('button', 'bc-prio-clear', '印を外す');
     clear.type = 'button';
     clear.addEventListener('click', ev => { ev.preventDefault(); want = { urgent: null, important: null }; sync(); });
+    clear.hidden = true;   /* 2026-11-18 外した（押している札をもう一度押すと外れる）。作りは残す */
     row.appendChild(clear);
     const where = el('div', 'bc-prio-where');
     where.setAttribute('aria-live', 'polite');
@@ -1189,17 +1182,17 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       bU.setAttribute('aria-pressed', want.urgent === true ? 'true' : 'false');
       bI.setAttribute('aria-pressed', want.important === true ? 'true' : 'false');
       const q = quadrantFor(want.urgent, want.important);
-      clear.hidden = want.urgent === null && want.important === null;
+      clear.hidden = true;
       where.textContent = '';
       if (q) {
         box.dataset.q = q;
         where.appendChild(document.createTextNode('いまの区分: '));
         { const qb = el('b'); qb.textContent = QUADRANTS[q].name; where.appendChild(qb); }
-        where.appendChild(document.createTextNode('（' + QUADRANTS[q].sub + '）。印はいつでも外せる'));
+        where.appendChild(document.createTextNode('（' + QUADRANTS[q].sub + '）'));
       } else {
-        delete box.dataset.q;
-        where.textContent = 'まだ分けていない（分けなくても使える）';
+        delete box.dataset.q;   /* 2026-11-18「まだ分けていない（分けなくても使える）」の 1 行は外した */
       }
+      where.hidden = !q;
     }
     sync();
     /* まだ分けていない泡では「その他」に畳む（Issue #40）。印があれば、いつも出す */
@@ -1294,7 +1287,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const head = el('button', 'bc-cal-head');
       head.type = 'button';
       head.setAttribute('aria-expanded', 'false');
-      const lb = el('span', 'bc-cal-lb', 'いつの日');
+      const lb = el('span', 'bc-cal-lb', 'やる日');   /* 2026-11-18 いつの日 → やる日（日付の段） */
       const sum = el('span', 'bc-cal-sum');
       head.appendChild(lb);
       head.appendChild(sum);
@@ -1361,10 +1354,10 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
            数は出さない——「あと◯日」はやり残しの数え上げに近い */
         const on = [...want].sort();
         const md = k => Number(k.slice(5, 7)) + '/' + Number(k.slice(8, 10));
-        sum.textContent = on.length === 0 ? 'まだ決めていない'
+        sum.textContent = on.length === 0 ? '未定'
           : on.slice(0, 2).map(k => (k === today ? '今日' : md(k))).join('・')
             + (on.length > 2 ? ' ほか' : '');
-        head.setAttribute('aria-label', 'いつの日：' + sum.textContent + '。押すとカレンダー');
+        head.setAttribute('aria-label', 'やる日：' + sum.textContent + '。押すとカレンダー');
         /* 選んだ日で、閉じたあとどこに出るか（カレンダーを開いているときだけ見える） */
         const later = on.filter(k => k > today);
         where.textContent = want.has(today)
@@ -1496,7 +1489,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         if (sp) endIn.min = sp.start; else endIn.removeAttribute('min');
         /* 数（あと◯日）は出さない。日だけ */
         const rp = rep ? ask(a, 'repeat', id) : null;
-        ssum.textContent = !sp ? '決めていない'
+        ssum.textContent = !sp ? '未定'
           : (sp.start === sp.end ? md(sp.start) : md(sp.start) + ' 〜 ' + md(sp.end)) + (rp ? '・毎月' : '');
         clear.setAttribute('aria-pressed', sp ? 'false' : 'true');
         if (rep) {
@@ -1549,7 +1542,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       head.type = 'button';
       head.setAttribute('aria-expanded', 'false');
       const hsum = el('span', 'bc-cal-sum');
-      const lb = el('label', 'bc-hold-lb', 'もどってくる日');
+      const lb = el('label', 'bc-hold-lb', '海に戻す日');   /* 2026-11-18 もどってくる日 → 海に戻す日 */
       const picks = el('div', 'bc-hold-picks');
       const body = el('div', 'bc-hold-body');
       body.hidden = true;
@@ -1566,7 +1559,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       dayIn.type = 'date';
       const today = ask(a, 'todayKey') || '';
       if (today) dayIn.min = today;                /* 過ぎた日は選ばせない */
-      dayIn.setAttribute('aria-label', 'もどってくる日をえらぶ');
+      dayIn.setAttribute('aria-label', '海に戻す日をえらぶ');
       lb.htmlFor = dayIn.id = 'bc-hold-day-' + String(id);
 
       /* 早い順。いちばん近いものを左に置く（押す回数が多いほうを親指側へ） */
@@ -1605,8 +1598,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         /* 畳んだ姿の要約。日は出すが、あと何日かは出さない（数え上げにしない） */
         hsum.textContent = until
           ? Number(until.slice(5, 7)) + '/' + Number(until.slice(8, 10))
-          : '決めていない';
-        head.setAttribute('aria-label', 'もどってくる日：' + hsum.textContent + '。押すと選べる');
+          : '未定';
+        head.setAttribute('aria-label', '海に戻す日：' + hsum.textContent + '。押すと選べる');
       }
 
       box.appendChild(head);
@@ -1615,6 +1608,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       box.appendChild(body);
       dayIn.value = until || '';
       syncPicks();
+      box.dataset.part = 'hold';   /* 日付の段に入れる（arrangeBoard）。設定の選ぶものには入れない（長期保留の札のときだけ出る） */
       fields.appendChild(box);
 
       /* 長期保留の札の状態に合わせて出し入れする。
@@ -1684,12 +1678,13 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   if (a && fields) {
     const draft = (canCommit && ask(a, 'draft', id)) || null;
 
-    const wrap = el('label', 'bc-row');
+    /* 2026-11-18: 「次の一手」→「次にやること」。欄の字は例を出す（「ひとつめだけ」では何を書くか分からなかった） */
+    const wrap = el('label', 'bc-row bc-stack');
     const lb = el('span', 'bc-lb');
-    lb.textContent = '次の一手';               /* innerHTML には入れない */
+    lb.textContent = '次にやること';               /* innerHTML には入れない */
     stepIn = el('input', 'bc-in');
     stepIn.type = 'text';
-    stepIn.placeholder = 'ひとつめだけ';
+    stepIn.placeholder = '例 予約の電話をかける';
     stepIn.autocomplete = 'off';
     stepIn.enterKeyHint = 'done';
     wrap.appendChild(lb);
@@ -1704,7 +1699,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
          入口には**いま何か書いてあるか**を出す——押さないと分からない、にしない */
       memoDraft = String((draft && draft.did) || '');
       const mrow = el('div', 'bc-row');
-      const mlb = el('span', 'bc-lb', '作業メモ');
+      const mlb = el('span', 'bc-lb', '作業の記録');   /* 2026-11-18 作業メモ → 作業の記録 */
       memoBtn = el('button', 'bc-memo-open');
       memoBtn.type = 'button';
       memoBtn.addEventListener('click', ev => { ev.preventDefault(); openMemo(); });
@@ -1776,7 +1771,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        左寄せの文字だけにして、要約している「作業メモ」のすぐ下へ置く */
     histBtn = el('button', 'bc-hist-open');
     histBtn.type = 'button';
-    histBtn.textContent = '履歴を読む ›';
+    histBtn.textContent = '作業の記録を見る ›';
     histBtn.setAttribute('aria-expanded', 'false');
     histBtn.addEventListener('click', ev => { ev.preventDefault(); openHistory(); });
     foldPart(histBtn, 'hist', false);
@@ -1793,28 +1788,72 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     syncHistBtn();
   }
 
-  /* ---- 「その他」（Issue #40）----
-     あまり使わない欄（印の無いお気に入り・優先度、決めていない期間、空のリンク）は畳んでおき、
-     ここを押したときだけ出す。盤を閉じると畳んだ姿に戻る（Issue #49 の返事。前は開き直しても開いたままだった）。
+  /* ---- 並べ直す（2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」。モック docs/spec/mock/task-start.html）----
+     上から: 名前 → 次にやること → ［始める］［今日はここまで］［完了にする］ → 担当・コメント（共有の海） → メモ → 日付（やる日・期間・海に戻す日） → タグ
+     → 中身のあるリンク・書きかけの作業の記録 → 「その他」 → まれなもの（お気に入り・優先度・リンク・作業の記録・飛び先・削除）。
+     欄そのものは上で組んだまま。ここでは置く順と、畳むかどうかだけを決める */
+  const ORDER = ['name', 'step', 'acts', 'who', 'notes', 'detail', 'dates', 'tags', 'fav', 'prio', 'url', 'memo', 'hist', 'jump', 'del'];
+  if (fields) {
+    /* お気に入り・優先度は、印が付いていても「その他」へ（付いていれば名前の横に印を出す）。設定で選んだときは外に */
+    ['fav', 'prio'].forEach(p => fields.querySelectorAll(':scope > [data-part="' + p + '"]')
+      .forEach(n => { if (!boardShow.has(p)) n.classList.add('is-extra'); }));
+    if (nameIn) {
+      const marks = [];
+      if (ask(a, 'isFav', id) === true) marks.push('☆');
+      const pr = ask(a, 'priorityOf', id) || {};
+      if (pr.urgent === true) marks.push('◷');
+      if (pr.important === true) marks.push('◆');
+      if (marks.length) {
+        const mk = el('span', 'bc-marks', marks.join(' '));
+        mk.setAttribute('aria-label', [marks.includes('☆') ? 'お気に入り' : '', pr.urgent === true ? '急ぐ' : '', pr.important === true ? '大事' : ''].filter(Boolean).join('・'));
+        mk.dataset.name = 'お気に入り・優先度の印';
+        nameIn.parentElement.appendChild(mk);
+      }
+    }
+    /* 日付の段（決めてほしいこと 4）: やる日・期間（・長期保留なら海に戻す日）の札を 2 列に並べ、開いた暦はその下に広げる */
+    const dboxes = ['days', 'span', 'hold'].map(p => fields.querySelector(':scope > [data-part="' + p + '"]')).filter(Boolean);
+    if (dboxes.length) {
+      const dates = el('div', 'bc-dates');
+      dates.dataset.part = 'dates';
+      dates.dataset.name = '日付';
+      dates.appendChild(el('span', 'bc-lb', '日付'));
+      const grid = el('div', 'bc-dates-grid');
+      dboxes.forEach(n => { n.classList.add('bc-date-box'); grid.appendChild(n); });
+      dates.appendChild(grid);
+      if (dboxes.every(n => n.classList.contains('is-extra'))) dates.classList.add('is-extra');
+      fields.appendChild(dates);
+    }
+    const tagsBox = fields.querySelector(':scope > [data-part="tags"]');
+    if (tagsBox && !tagsBox.querySelector('.bc-tags-lb')) tagsBox.insertBefore(el('span', 'bc-lb bc-tags-lb', 'タグ'), tagsBox.firstChild);
+    const whoBox = fields.querySelector(':scope > .bc-who');
+    if (whoBox) whoBox.dataset.part = 'who';
+    const del = acts ? acts.querySelector('[data-part="del"]') : null;
+    if (del) { del.remove(); fields.appendChild(del); }
+    if (acts) { acts.dataset.part = 'acts'; fields.appendChild(acts); }
+    const rank = n => { const k = ORDER.indexOf(n.dataset.part || ''); return k < 0 ? ORDER.length : k; };
+    const kids = [...fields.children].sort((x, y) => rank(x) - rank(y));
+    kids.forEach(n => fields.appendChild(n));
+  }
+
+  /* ---- 「その他」（Issue #40。2026-11-18 から、まれなものだけをここに 1 か所にまとめる）----
+     盤を閉じると畳んだ姿に戻る（Issue #49 の返事）。
      設定の「この端末の表示」で「あまり使わない機能も出す」にしていれば、畳まずに出す（CSS の body.pref-all-tools） */
   /* 中身が無くて隠れている欄（記録の無い履歴など）は数えない。押しても何も出ない「その他」を作らないため */
   const foldedNodes = fields
-    ? [...fields.querySelectorAll('.is-extra'), ...(acts ? acts.querySelectorAll('.is-extra') : [])].filter(n => !n.hidden)
+    ? [...fields.querySelectorAll('.is-extra')].filter(n => !n.hidden && !n.closest('[hidden]'))
     : [];
   if (fields && foldedNodes.length) {
     const more = el('button', 'bc-more');
     more.type = 'button';
-    /* 畳んだ欄の名前（Issue #49。どれを畳むかは設定で変わる）。長くなれば3つまでと「ほか」 */
+    more.dataset.name = 'その他';
     const foldedNames = foldedNodes
       .map(n => BOARD_PART_LABEL[n.dataset.part]).filter(Boolean)
       .filter((v, i, arr) => arr.indexOf(v) === i);
-    const foldedTx = foldedNames.length > 4 ? foldedNames.slice(0, 3).join('・') + ' ほか' : foldedNames.join('・');
     const syncMore = () => {
       fields.classList.toggle('show-extra', boardExtraOpen);
       more.setAttribute('aria-expanded', boardExtraOpen ? 'true' : 'false');
-      more.textContent = boardExtraOpen ? 'その他を畳む ▴' : 'その他' + (foldedTx ? '（' + foldedTx + '）' : '') + ' ▾';
-      if (!boardExtraOpen) more.setAttribute('aria-label', 'その他を開く：' + foldedNames.join('・'));
-      else more.removeAttribute('aria-label');
+      more.textContent = boardExtraOpen ? 'その他 ▴' : 'その他 ▾';   /* 2026-11-18 中身の並びは開けば見える */
+      more.setAttribute('aria-label', (boardExtraOpen ? 'その他を畳む：' : 'その他を開く：') + foldedNames.join('・'));
     };
     more.addEventListener('click', ev => {
       ev.preventDefault();
@@ -1823,12 +1862,39 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       relayout();
     });
     syncMore();
+    /* 外に出ている欄のあと、畳んだ欄（.is-extra）の前に置く。畳んだ欄は開いたとき、この下にまとまって出る */
+    const extras = [...fields.children].filter(n => n.classList.contains('is-extra'));
     fields.appendChild(more);
+    extras.forEach(n => fields.appendChild(n));
+  }
+
+  /* 自動で保存した印（2026-11-18。［書き留める］の代わり）。盤の右下に少しの間だけ */
+  const savedTag = fields ? el('p', 'bc-saved') : null;
+  if (savedTag) {
+    savedTag.setAttribute('aria-live', 'polite');
+    savedTag.dataset.name = '保存の印';
+    fields.appendChild(savedTag);
   }
 
   if (fields) {
-    if (acts) fields.appendChild(acts);
     root.appendChild(fields);
+    /* 打ち終えた欄（名前・次にやること・リンク・メモ）から離れたら保存する（2026-11-18 決めてほしいこと 2。［書き留める］の代わり）。
+       書くものは前の［書き留める］と同じ applyEdits（盤は閉じない）。変わっていなければ何もしない。閉じるときにも今までどおり書く */
+    let savedTimer = 0;
+    const snap = () => [nameIn && nameIn.value, stepIn && stepIn.value, urlIn && urlIn.value, detailDraft].join('\u0000');
+    let lastSnap = snap();
+    fields.addEventListener('focusout', ev => {
+      const t = ev.target;
+      if (!(t === nameIn || t === stepIn || t === urlIn || t === detailInline)) return;
+      if (snap() === lastSnap) return;
+      const said = applyEdits();
+      lastSnap = snap();
+      if (savedTag && said === '書き留めた') {
+        savedTag.textContent = '保存した';
+        clearTimeout(savedTimer);
+        savedTimer = setTimeout(() => { savedTag.textContent = ''; }, 1600);
+      }
+    });
   }
 
   /* ---- 打ち終わりを待って保存する（打つたびには書かない） ---- */
@@ -1868,7 +1934,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (!canCommit) { ask(a, 'setFirstStep', id, next); return '書き留めた'; }
 
     const cur = String(ask(a, 'firstStep', id) || '');
-    if (!next) { saveStep(); return next === cur ? '書き留めた' : '次の一手が要る'; }
+    if (!next) { saveStep(); return next === cur ? '書き留めた' : '次にやることが要る'; }
     if (next === cur) { saveStep(); return '書き留めた'; }
 
     /* 次の一手が変わったなら、記録として1件積む（git のコミットと同じ形）。
@@ -2000,7 +2066,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
     const head = el('div', 'bh-head');
     const ttl = el('span', 'bh-title');
-    ttl.textContent = '履歴';
+    ttl.textContent = '作業の記録';
     histClose = el('button', 'bh-close');
     histClose.type = 'button';
     histClose.textContent = '閉じる';
@@ -2054,11 +2120,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function buildMemo() {
     memoPane = el('div', 'bc-memo');
     memoPane.setAttribute('role', 'group');
-    memoPane.setAttribute('aria-label', '作業メモ');
+    memoPane.setAttribute('aria-label', '作業の記録');
     memoPane.hidden = true;
 
     const head = el('div', 'bm-head');
-    head.appendChild(el('span', 'bm-title', '作業メモ'));
+    head.appendChild(el('span', 'bm-title', '作業の記録'));
     const close = el('button', 'bm-close', '閉じる');
     close.type = 'button';
     close.addEventListener('click', ev => { ev.preventDefault(); closeMemo(true); });
@@ -2075,7 +2141,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     memoArea.className = 'bm-in';
     memoArea.rows = 6;
     memoArea.placeholder = 'ここまでやったこと';
-    memoArea.setAttribute('aria-label', '作業メモ');
+    memoArea.setAttribute('aria-label', '作業の記録');
     memoArea.addEventListener('input', () => {
       memoDraft = memoArea.value;
       clearTimeout(stepTimer);
@@ -2083,7 +2149,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     });
     memoPane.appendChild(memoArea);
 
-    const save = el('button', 'bm-save', '作業メモを保存');
+    const save = el('button', 'bm-save', '作業の記録に足す');
     save.type = 'button';
     let back = 0;
     save.addEventListener('click', ev => {
@@ -2093,7 +2159,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       save.textContent = said;
       save.classList.toggle('is-nope', said !== '記録した');
       back = setTimeout(() => {
-        save.textContent = '作業メモを保存';
+        save.textContent = '作業の記録に足す';
         save.classList.remove('is-nope');
       }, 1400);
     });
@@ -2111,7 +2177,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const did = memoArea ? memoArea.value.trim() : '';
     const next = stepIn ? stepIn.value.trim() : '';
     if (!did) return '書いてから';
-    if (!next) return '次の一手が要る';
+    if (!next) return '次にやることが要る';
     if (!ask(a, 'commitStep', id, { did: did, next: next })) return 'まだ積めない';
     memoArea.value = '';
     memoDraft = '';
@@ -2125,8 +2191,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function openMemo() {
     if (!memoPane) buildMemo();
     memoPane._ctx.textContent = stepIn && stepIn.value.trim()
-      ? '次の一手：' + stepIn.value.trim()
-      : '次の一手を書くと、ここから記録が積める';
+      ? '次にやること：' + stepIn.value.trim()
+      : '次にやることを書くと、ここから記録が積める';
     memoArea.value = memoDraft;
     if (memoSaid) memoSaid.textContent = '';
     memoPane.hidden = false;
@@ -2163,9 +2229,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function syncDetailBtn() {
     if (!detailBtn) return;
     const t = detailDraft.trim();
-    detailBtn.textContent = t ? trimTx(t.split('\n')[0], 16) : '書く';
+    detailBtn.textContent = '全体を開く ›';
+    detailBtn.hidden = !t;
     detailBtn.classList.toggle('is-empty', !t);
-    detailBtn.setAttribute('aria-label', t ? '本文を読む' : '本文を書く');
+    detailBtn.setAttribute('aria-label', 'メモの全体を開く（読む・書く）');
+    if (detailInline && document.activeElement !== detailInline && detailInline.value !== detailDraft) detailInline.value = detailDraft;
     if (syncSpanRow) syncSpanRow();
   }
 
@@ -2607,11 +2675,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const live = rows.filter(n => !n.gone);
     const fresh = ask(a, 'hasNewNote', id) === true;
     /* 面は前のものを読むだけになった（Issue #70 の返事）。盤に出ていない古いもの（3 件より前）があるときだけ出す */
-    notesBtn.textContent = '前のものも見る';
+    notesBtn.textContent = 'すべて見る ›';   /* 2026-11-18 前のものも見る → すべて見る */
     notesBtn.hidden = rows.length <= CHAT_SHOW;
     notesBtn.classList.toggle('is-empty', !live.length);
     notesBtn.classList.toggle('is-fresh', fresh);
-    notesBtn.setAttribute('aria-label', fresh ? 'ひとことの前のものも見る（新しいものあり）' : 'ひとことの前のものも見る');
+    notesBtn.setAttribute('aria-label', fresh ? 'コメントをすべて見る（新しいものあり）' : 'コメントをすべて見る');
     renderChat(rows);
   }
 
@@ -2671,14 +2739,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (ask(a, 'noteSigning') === true) {
       const p = ask(a, 'addNoteSigned', id, t);
       if (!p || typeof p.then !== 'function') return done('まだ書けない');
-      p.then(n => { if (!n) return done('まだ書けない'); after(); pushDirect(); done('送った'); },
+      p.then(n => { if (!n) return done('まだ書けない'); after(); pushDirect(); done('投稿した'); },
         e => done(e && /やめた/.test(String(e.message || e)) ? 'やめた' : '署名できない'));
       return '署名中…';
     }
     if (!ask(a, 'addNote', id, t)) return 'まだ書けない';
     after();
     pushDirect();
-    return '送った';
+    return '投稿した';
   }
   /* 直につながっている相手がいれば、積んだひとことを含む記録をすぐ送る（手数料なし。2026-11-16 Issue #68 の C1）。
      つながっていなければ何もしない（ひとことは「同期」で届く） */
@@ -2733,11 +2801,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function buildNotes() {
     notesPane = el('div', 'bc-memo bc-notes');
     notesPane.setAttribute('role', 'group');
-    notesPane.setAttribute('aria-label', 'ひとこと');
+    notesPane.setAttribute('aria-label', 'コメント');
     notesPane.hidden = true;
 
     const head = el('div', 'bm-head');
-    head.appendChild(el('span', 'bm-title', 'ひとこと'));
+    head.appendChild(el('span', 'bm-title', 'コメント'));
     const close = el('button', 'bm-close', '閉じる');
     close.type = 'button';
     close.addEventListener('click', ev => { ev.preventDefault(); closeNotes(true); });
@@ -2752,7 +2820,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     /* 番号は振らない（「◯件目」を数えない。§0） */
     notesList = el('ul', 'bn-list');
     notesList.tabIndex = 0;
-    notesList.setAttribute('aria-label', 'ひとことの一覧（古い順）');
+    notesList.setAttribute('aria-label', 'コメントの一覧（古い順）');
     notesPane.appendChild(notesList);
 
     /* 2026-11-15 Issue #70 の返事「メッセージを残すがあるからひとこといらないのでは？」:
@@ -2760,7 +2828,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        書くのは盤の 1 行の欄だけにし、この面は前のものを読むだけにする。
        続く返事「ひとことの名前を入れる場所はいらないのでは？」で名前の欄も外した。書き手の名前は、
        前に決めた名前か、パスキー・招待で付いた名前のまま（js/notes.js の noteName）。サーバーあり版は設定の海のチャットの欄でも変えられる */
-    notesPane.appendChild(el('p', 'bm-ctx', '書くのは盤の「ひとことを残す」の欄から'));
+    notesPane.appendChild(el('p', 'bm-ctx', '書くのは盤の「コメントを書く」の欄から'));
 
     root.appendChild(notesPane);
   }
@@ -2918,7 +2986,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       link.dataset.name = j.name || j.label;
       box.appendChild(link);
     });
-    (fields || root).appendChild(box);
+    /* 2026-11-18（モック task-start.html）: 「その他」の中、削除の前へ */
+    box.dataset.part = 'jump';
+    const delNode = fields ? fields.querySelector(':scope > [data-part="del"]') : null;
+    if (fields && fields.querySelector(':scope > .bc-more')) { box.classList.add('is-extra'); fields.insertBefore(box, delNode && delNode.classList.contains('is-extra') ? delNode : fields.querySelector(':scope > .bc-saved')); }
+    else (fields || root).appendChild(box);
   }
 
   /* 見るだけ（viewer）の海（2026-11-18）。盤のボタンと欄を押せなくし、そう書く（押しても仲間に届かないため） */
@@ -3029,8 +3101,8 @@ export function fillStepList(ul, rows, onEdit) {
       w.appendChild(v);
       li.appendChild(w);
     };
-    line('作業メモ', s && s.did);
-    line('次の一手', s && s.next);
+    line('作業の記録', s && s.did);
+    line('次にやること', s && s.next);
     ul.appendChild(li);
   });
   return ul;
@@ -3063,15 +3135,15 @@ function openStepEdit(step, onEdit) {
     const w = el('label', 'fld');
     w.appendChild(el('span', 'k', label));
     const ta = el('textarea', 'v');
-    ta.rows = label === '作業メモ' ? 4 : 2;
+    ta.rows = label === '作業の記録' ? 4 : 2;
     ta.value = String(value == null ? '' : value);
     ta.placeholder = ph;
     w.appendChild(ta);
     box.appendChild(w);
     return ta;
   };
-  const didIn = mk('作業メモ', step && step.did, '書いていなくてもよい');
-  const nextIn = mk('次の一手', step && step.next, '次にどこから始めるか');
+  const didIn = mk('作業の記録', step && step.did, '書いていなくてもよい');
+  const nextIn = mk('次にやること', step && step.next, '次にどこから始めるか');
 
   const why = el('p', 'why', '');
   why.hidden = true;
@@ -3088,7 +3160,7 @@ function openStepEdit(step, onEdit) {
     const next = nextIn.value.trim();
     if (!next) {
       /* 断らずに理由を出す。命令形にはしない（§0） */
-      why.textContent = '記録には次の一手が要る';
+      why.textContent = '記録には次にやることが要る';
       why.hidden = false;
       nextIn.focus({ preventScroll: true });
       return;

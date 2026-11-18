@@ -203,6 +203,13 @@ try {
       (await import('/js/bubble.js')).centerBubble(n);`);
     await yuki.until(`return !!document.querySelector('.bc-who select')`);
     assert.equal(await yuki.js(`return document.querySelector('.bc-who select').value`), ryoId);
+    /* 共有の海ではコメント（前のひとこと）を出す。担当とコメントは「完了にする」の下（2026-11-18 モック task-start.html） */
+    const sharedBoard = await yuki.js(`const f = document.querySelector('.bc-fields'); const parts = [...f.children].map(n => n.dataset.part || '');
+      return { chat: !!f.querySelector('.bc-chat') && !f.querySelector('.bc-chat').hidden && !f.querySelector('.bc-chat').classList.contains('is-extra'),
+        order: ['acts', 'who', 'notes'].map(p => parts.indexOf(p)), send: f.querySelector('.bn-quick-send')?.textContent }`);
+    assert.equal(sharedBoard.chat, true, '共有の海ではコメントが見える');
+    assert.ok(sharedBoard.order.every((v, i, a) => v >= 0 && (i === 0 || v > a[i - 1])), '始める → 担当 → コメントの順: ' + sharedBoard.order);
+    assert.equal(sharedBoard.send, '投稿');
     assert.match(await yuki.js(`return document.querySelector('.bc-who').textContent`), /足した: りょう/);
   });
 

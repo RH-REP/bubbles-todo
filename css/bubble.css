@@ -733,7 +733,7 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 }
 .bub-center .bc-fields {
   transform: translate(-50%, 0);
-  width: min(320px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 24px));   /* 2026-11-18 320 → 400（モック task-start.html） */
   display: grid; gap: 8px;
   padding: 10px;
   /* 高さの上限は place() が入れる（画面の上端から下タブの手前まで）。
@@ -983,7 +983,7 @@ body.pref-all-tools .bub-center .bc-more { display: none; }
   position: fixed; left: 0; top: 0;
   transform: translate(-50%, 0);
   pointer-events: auto;
-  width: min(320px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 24px));   /* 2026-11-18 320 → 400（モック task-start.html） */
   display: flex; flex-direction: column; min-height: 0;
   border: 1px solid var(--line-strong); border-radius: 13px;
   background: var(--surface); color: var(--text);
@@ -1699,3 +1699,53 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
 .bub-center .bc-jump-a { display: inline-flex; align-items: center; min-height: 32px; padding: 3px 10px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--bg); color: var(--text-2); font-size: 12.5px; text-decoration: none; }
 .bub-center .bc-jump-a:hover { color: var(--text); border-color: var(--bub-edge); }
+
+
+/* ---------- 泡の盤の作り直し（2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」。モック docs/spec/mock/task-start.html）----------
+   名前は題として。次にやること・メモは名前を上に縦に並べる。日付はやる日・期間を 2 列の札に。保存の印は右下に */
+.bub-center .bc-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.bub-center .bc-name-row { grid-template-columns: 1fr auto; }
+.bub-center .bc-name-in { font-size: 17px; font-weight: 700; border-color: transparent; background: transparent; padding-left: 6px; }
+.bub-center .bc-name-in:hover, .bub-center .bc-name-in:focus { border-color: var(--line-strong); background: var(--bg); }
+.bub-center .bc-marks { font-size: 15px; color: var(--text-2); letter-spacing: .1em; padding-right: 4px; }
+.bub-center .bc-stack { grid-template-columns: 1fr; gap: 4px; }
+.bub-center .bc-lb-row { display: flex; justify-content: space-between; align-items: center; }
+.bub-center .bc-link-btn { appearance: none; -webkit-appearance: none; border: 0; background: transparent; font: inherit; font-size: 12.5px;
+  color: var(--text-2); cursor: pointer; padding: 4px 2px; min-height: 32px; }
+.bub-center .bc-link-btn[hidden] { display: none; }
+.bub-center .bc-link-btn:hover { color: var(--text); }
+.bub-center .bc-memo-in { resize: vertical; min-height: 58px; line-height: 1.45; font-family: inherit; }
+.bub-center .bc-hint { margin: 2px 2px 0; font-size: 11.5px; color: var(--text-2); }
+.bub-center .bc-chat[hidden] { display: none; }
+
+/* 始める（5 分のタイマー） */
+.bub-center .bc-act-start { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-height: 54px; border-radius: 14px; }
+.bub-center .bc-act-main { font-size: 16px; font-weight: 700; }
+.bub-center .bc-act-sub { font-size: 11.5px; font-weight: 500; opacity: .92; }
+
+/* 日付の段 */
+.bub-center .bc-dates { display: grid; gap: 4px; }
+.bub-center .bc-dates-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bub-center .bc-dates-grid > .bc-date-box { display: contents; }
+.bub-center .bc-dates-grid > .bc-date-box[hidden] { display: none; }
+.bub-center .bc-dates-grid > .bc-date-box > * { grid-column: 1 / -1; order: 1; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head {
+  grid-column: auto; order: 0;
+  flex-direction: column; align-items: flex-start; justify-content: center; gap: 0;
+  min-height: 52px; padding: 6px 26px 6px 11px; position: relative;
+  border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg);
+}
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head::after { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head .bc-cal-lb,
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head .bc-hold-lb { font-size: 11.5px; font-weight: 600; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head .bc-cal-sum { font-size: 14px; max-width: 100%; }
+.bub-center .bc-dates-grid > .bc-date-box > :not(.bc-cal-head) { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.bub-center .bc-dates-grid > .bc-date-box > [hidden] { display: none; }
+
+/* その他 */
+.bub-center .bc-more { border-top: 1px solid var(--line); padding-top: 10px; align-self: stretch; }
+
+/* 保存の印（［書き留める］の代わり） */
+.bub-center .bc-saved { margin: 0; min-height: 14px; font-size: 11.5px; color: var(--text-2); text-align: right; }
+.bub-center .bc-saved:empty { display: none; }
+.bub-center .bc-tags-lb { flex-basis: 100%; width: 100%; margin-bottom: 2px; }

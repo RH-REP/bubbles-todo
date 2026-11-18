@@ -27,18 +27,20 @@ export const TAB_LABEL = { sea: '海', today: '今日', plan: 'きっかけ', ga
 
 /* 盤（泡をタップすると下に開く面）の欄（Issue #49）。並びは盤の上からの順。
    [はじめた]・[完了]・[消す] の行と「もどってくる日」（長期保留の札を付けたときだけ出る）は、選ぶものに入れない */
+/* 2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」（モック docs/spec/mock/task-start.html）で、並び・言葉を作り直した。
+   並びは盤の上からの順（js/bubble.js の arrangeBoard）。［書き留める］（ok）は外した（打ち終えた欄から自動で保存する） */
 export const BOARD_PARTS = [
-  ['name', '名前'], ['detail', '本文'], ['notes', 'ひとこと'], ['fav', 'お気に入り'], ['prio', '優先度'],
-  ['tags', 'タグ'], ['days', 'いつの日'], ['span', '期間'], ['step', '次の一手'], ['memo', '作業メモ'],
-  ['hist', '履歴'], ['url', 'リンク'],
-  /* 下のボタン（Issue #49 の返事「タスク開始、今日は終わる、書き留める、タスク完了、消すも」）。
-     畳むと「その他」を開いたときに出る。完了した泡の「海にもどす」は done と同じ扱い */
-  ['start', 'タスク開始'], ['ended', '今日は終わり'], ['ok', '書き留める'], ['done', 'タスク完了'], ['del', '消す'],
+  ['name', '名前'], ['step', '次にやること'],
+  /* 下のボタン（Issue #49 の返事）。畳むと「その他」を開いたときに出る。完了した泡の「海にもどす」は done と同じ扱い */
+  ['start', '始める'], ['ended', '今日はここまで'], ['done', '完了にする'],
+  ['notes', 'コメント'], ['detail', 'メモ'], ['days', 'やる日'], ['span', '期間'], ['tags', 'タグ'],
+  ['fav', 'お気に入り'], ['prio', '優先度'], ['url', 'リンク'], ['memo', '作業の記録'], ['hist', '作業の記録を見る'],
+  ['del', '削除'],
 ];
-/* 「少なめにする」で選ぶ欄（Issue #49 の返事「本文・タイトル・終了のみデフォルトで表示」。終了は終了日＝期間と読んだ） */
-export const BOARD_SHOW_FEW = ['name', 'detail', 'span'];
-const BOARD_ACTS = ['start', 'ended', 'ok', 'done', 'del'];
-const BOARD_SHOW_V = 2;
+/* 「少なめにする」で選ぶ欄（取りかかるのに要るものだけ） */
+export const BOARD_SHOW_FEW = ['name', 'step', 'start', 'done'];
+/* 3 … 2026-11-18 の作り直し。前の版で置いた値（名前だけ、など）は新しい既定に替える（決めてほしいこと 1 の答え） */
+const BOARD_SHOW_V = 3;
 export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
 /* 既定で出す欄（Issue #40 までの姿。お気に入り・優先度・リンクは畳む）。
    期間（開始日・終了日）は 2026-11-16 Issue #76「サーバーなし版のTODOの期限の設定がサーバーあり版と異なる？」で既定に足した。
@@ -47,7 +49,10 @@ export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
 /* 2026-11-17 Issue #78 の返事「デフォルトで表示される盤の項目を1つにして」: 既定は名前だけにした。
    ほかの欄と下のボタンは「その他」に畳む（中身の入っている欄は、選ばなくても今までどおり出す）。
    前の既定: name detail notes tags days span step memo hist start ended ok done del。設定の値を置いた端末はその値のまま */
-const BOARD_SHOW_DEF = ['name'];
+/* 2026-11-18 ユーザーの決定（モック task-start.html の決めてほしいこと 1。上の Issue #78 の「1つにして」を置き換える）:
+   毎回使うもの（次にやること・始める・今日はここまで・完了にする）と、ときどき使うもの（メモ・日付・タグ）は畳まない。
+   コメントは共有の海でだけ出る（個人の海では、書いたものが無ければ出さない。js/bubble.js）。まれなものは「その他」 */
+const BOARD_SHOW_DEF = ['name', 'step', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'tags'];
 
 /* 設定の「音と表示を変える」で、先に選ぶ「どの画面を変えるか」（Issue #49 の返事）。
    各項目の pages に、その項目が効く画面を書く（2つ以上の画面に効くものは両方に出る）。
@@ -106,8 +111,8 @@ export const ITEMS = [
     id: 'boardShow', type: 'set', def: BOARD_SHOW_DEF.slice(), pages: ['board'],
     label: '盤（泡をタップして開く面）にはじめから出す欄',
     choices: BOARD_PARTS,
-    note: '選ばなかった欄は盤の「その他」に畳む。本文・ひとこと・お気に入り・優先度・期間・リンク・書きかけの作業メモは、'
-      + '中身が入っていれば選ばなくても出す。下のボタン（タスク開始・今日は終わり・書き留める・タスク完了・消す）も選べ、'
+    note: '選ばなかった欄は盤の「その他」に畳む。メモ・コメント・期間・リンク・書きかけの作業の記録は、'
+      + '中身が入っていれば選ばなくても出す。ボタン（始める・今日はここまで・完了にする・削除）も選べ、'
       + '選ばなかったボタンは「その他」を開くと出る',
   },
   {
@@ -166,10 +171,10 @@ export function normalize(raw) {
     const v = checkValue(it.id, raw[it.id]);
     if (v !== undefined) out[it.id] = v;
   });
-  /* 2026-11-13c〜d で置いた boardShow には下のボタンが選ぶものに無かった。
-     そのまま読むとボタンが全部畳まれるので、印（boardShowV）の無い古い値にはボタンを足す */
+  /* 前の版（boardShowV が 3 でない）で置いた boardShow は、新しい既定に替える（2026-11-18 ユーザーの決定。
+     前は「名前だけ」を既定にしていて、その値を置いた端末が多い。並びと言葉も替わったので、そのまま読むと畳まれすぎる） */
   if (Array.isArray(raw.boardShow) && raw.boardShowV !== BOARD_SHOW_V) {
-    out.boardShow = checkValue('boardShow', out.boardShow.concat(BOARD_ACTS));
+    out.boardShow = BOARD_SHOW_DEF.slice();
   }
   return out;
 }
