@@ -526,3 +526,62 @@ body:not(.pref-all-tools) .is-extra:not(.show-extra .is-extra) { display: none !
 @media (hover: none) and (pointer: coarse) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
 }
+
+/* ---------- 利用者のアイコンと利用者の札（2026-11-18 ユーザーの決定「4 つとも案どおり」。js/userchip.js）----------
+   左上（left:10px）に 44px の丸。3 つの app（bubble・gantt・diary）で同じ場所・同じ大きさ。≡ はその右どなり（left:62px） */
+.userbtn {
+  position: absolute; z-index: 30; top: calc(10px + var(--safe-t)); left: 10px;
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  width: 44px; height: 44px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 24px; line-height: 1; color: var(--text);
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 2px 10px rgba(0,0,0,.08);
+  background: var(--surface-2);
+  transition: transform .1s, box-shadow .12s;
+}
+.userbtn.is-empty { font-size: 20px; border: 1.5px dashed var(--text-3); box-shadow: none; background: color-mix(in srgb, var(--surface) 90%, transparent); filter: grayscale(1); opacity: .8; }
+.userbtn:active { transform: scale(.95); }
+.userbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.userbtn.is-open { box-shadow: 0 0 0 3px var(--bub-edge); }
+body.is-dragging .userbtn { opacity: .25; pointer-events: none; }
+body:has(.focus) .userbtn { visibility: hidden; }
+html.has-userbtn .menubtn { left: 62px; }
+
+.uc-back { position: fixed; inset: 0; z-index: 60; background: rgba(15,20,25,.35); }
+.uc-card {
+  position: absolute; left: max(10px, calc(50% - 205px)); top: calc(62px + var(--safe-t));
+  width: min(410px, calc(100% - 20px)); max-height: calc(100% - 80px - var(--safe-t)); overflow: auto;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: 8px 0 12px;
+}
+.uc-head { display: flex; align-items: center; gap: 8px; padding: 6px 14px 4px; font-size: 16px; }
+.uc-back-btn { appearance: none; border: 0; background: none; font: inherit; font-size: 22px; color: var(--text-2); cursor: pointer; width: 32px; height: 32px; }
+.uc-who { display: flex; align-items: center; gap: 12px; padding: 8px 14px; }
+.uc-big { width: 56px; height: 56px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 30px; flex: none; background: var(--surface-2); }
+.uc-nm { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.uc-nm b { font-size: 17px; }
+.uc-nm small, .uc-tx small { color: var(--text-2); font-size: 12px; }
+.uc-apps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px 14px 10px; }
+.uc-app { border: 1px solid var(--line-strong); border-radius: 12px; padding: 8px 4px; text-align: center; font-size: 13px; color: var(--text); text-decoration: none; display: block; }
+.uc-app i { display: block; font-style: normal; font-size: 22px; }
+.uc-app.is-cur { border: 2px solid var(--bub-edge); }
+.uc-app.is-off { opacity: .45; pointer-events: none; }
+.uc-row { appearance: none; font: inherit; color: inherit; background: none; border: 0; border-top: 1px solid var(--line); width: 100%;
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-height: 46px; text-align: left; cursor: pointer; }
+.uc-row:hover { background: var(--surface-2); }
+.uc-ic { width: 28px; height: 28px; border-radius: 8px; background: var(--surface-2); display: inline-flex; align-items: center; justify-content: center; font-size: 15px; flex: none; }
+.uc-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.uc-tx b { font-weight: 500; }
+.uc-note { font-size: 12.5px; color: var(--text-2); margin: 6px 14px; }
+.uc-sec { font-size: 12px; font-weight: 700; color: var(--text-2); margin: 14px 14px 4px; letter-spacing: .05em; }
+.uc-wide { display: block; width: calc(100% - 28px); margin: 6px 14px; }
+.uc-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 8px 14px; }
+.uc-preset { appearance: none; border: 0; cursor: pointer; width: 56px; height: 56px; border-radius: 50%; font-size: 28px; margin: auto; display: inline-flex; align-items: center; justify-content: center; }
+.uc-preset.is-on { box-shadow: 0 0 0 3px var(--bub-edge); }
+.uc-preset:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.uc-devices { padding: 0 14px; }
+.uc-device { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.uc-card > .btn.main { margin: 10px 14px 0; }
+.uc-code { padding: 6px 14px; display: flex; flex-direction: column; }
+.uc-num { font-size: 28px; letter-spacing: .12em; font-variant-numeric: tabular-nums; }

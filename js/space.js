@@ -30,7 +30,7 @@ import { sync } from './sync.js';
 import { toast } from './ui.js';
 import { findSea, addSea, updateSea, removeSea, boxKey, COLORS, colorMark, NAME_MAX, cleanId } from './spacelist.js';
 import { isPersonal, personalId, regionOfSpace, defaultRegionId, allSeas, serverRegions } from './regions.js';
-import { meInfo, myRole, serverLogin, seaKind, ME_EVENT } from './me.js';
+import { myRole, serverLogin, seaKind, ME_EVENT } from './me.js';
 import { seaOp } from './seaadmin.js';
 import { setSeaRegion } from './spacelist.js';
 
@@ -106,22 +106,8 @@ function renderSeg() {
 }
 renderSeg();
 strip.appendChild(seg);
-/* ログイン中の利用者（2026-11-18。モック 2「入った後は右上に ログイン中の利用者 を常に出す」） */
-const meChip = document.createElement('span');
-meChip.className = 'space-me';
-meChip.dataset.name = 'ログイン中の利用者';
-function renderMe() {
-  const me = serverLogin() ? meInfo() : null;
-  meChip.hidden = !me;
-  /* 帯は 30px で、右には状態の字もあるので、名前の頭 1 字の丸にする（名前は title と読み上げ） */
-  meChip.textContent = me ? (Array.from(me.user.name || '?')[0] || '?') : '';
-  meChip.title = me ? me.user.name + ' でログイン中' : '';
-  if (me) meChip.setAttribute('aria-label', me.user.name + ' でログイン中'); else meChip.removeAttribute('aria-label');
-  root.classList.toggle('has-me', !!me);
-}
-renderMe();
-strip.appendChild(meChip);
-window.addEventListener(ME_EVENT, () => { renderMe(); renderSeg(); });
+/* ログイン中の利用者は、左上の利用者のアイコン（js/userchip.js。2026-11-18 ユーザーの決定「4 つとも案どおり」）。帯には出さない */
+window.addEventListener(ME_EVENT, () => { renderSeg(); });
 /* 版（2026-10-25 利用者の指示）。帯の左端に小さく。update のあと新しい版に入れ替わったかを見るため。
    正本は sw.js の VERSION（js/version.js が写しを持つ） */
 if (window.BUBBLES_VERSION) {

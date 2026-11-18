@@ -48,6 +48,8 @@ import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js'
 import { loadPrefs, PREFS_EVENT } from './prefs.js';
 import { actorFor, fetchMe, seaMembers, myRole, userName, initialOf, meInfo } from './me.js';
 import { moveTargets, openMoveSea } from './movesea.js';
+import { mountUserChip } from './userchip.js';
+import { loadAppUrls } from './apps.js';
 import { sync } from './sync.js';
 
 /* 招待のリンク（https://<サーバー>/#invite=<コード>。2026-11-18）。コードを預けて設定の「海」を開く。
@@ -196,6 +198,9 @@ gear.addEventListener('click', () => {
 
 function syncGear() {
   const open = !!(current && UNDER_GEAR.has(current.id));
+  /* サーバーあり版では、⚙ は右上に置かない（2026-11-18 ユーザーの決定。設定は利用者の札から）。
+     設定を開いている間だけ、閉じるための ✕ として出す（戻り先を覚えている） */
+  gear.hidden = !isSolo() && !open;
   gearIc.textContent = open ? '✕' : '⚙';
   gear.classList.toggle('is-open', open);
   gear.setAttribute('aria-label', open ? '設定を閉じる' : '設定');
@@ -205,6 +210,9 @@ function syncGear() {
 const appRoot = document.querySelector('.app');
 if (appRoot) appRoot.appendChild(gear);
 syncGear();
+/* 左上の利用者のアイコンと利用者の札（2026-11-18。js/userchip.js。サーバーあり版だけ） */
+if (!isSolo() && appRoot) mountUserChip(appRoot);
+loadAppUrls().catch(() => {});
 
 /* ---- 引き出し（左上の ≡。F7・利用者の指示 2026-09-24。呼び名は 2026-09-25 に「引き出し」と決めた）----
 

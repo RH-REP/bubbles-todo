@@ -9,6 +9,8 @@ import { store, SPACE_KEY } from '../store.js';
 import { isOn, setOn, isSfxOn, setSfxOn, playSfx } from '../sound.js';
 import { isAffinityOn, setAffinityOn } from '../related.js';
 import { sync, checkUrl } from '../sync.js';
+import { open as openUserCard, paintAvatar } from '../userchip.js';
+import { meInfo as meNow, serverLogin as loggedIn, ME_EVENT as ME_EV } from '../me.js';
 import { passkeySupported, registerPasskey, loginPasskey, logoutPasskey, authMode, makeMoveKey,
   requestRegistration, requestStatus } from '../passkey.js';
 import { deviceLabel } from '../device.js';
@@ -276,7 +278,7 @@ export default {
     }
 
     /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
-    const gLook = group('音と表示を変える', '画面（全体・海・今日・リスト・盤・引き出し）を選んで、音と表示を変える');
+    const gLook = group('表示と音', '全体・海・今日・リスト・盤・引き出しごとに');
     /* 「AI を使う」ではなく「AI を使う設定をする」（Issue #45）。ヘルプそのものは上の1行へ分けた */
     /* サーバーあり版では作らない（AI の機能を出さない。2026-11-17 Issue #78 の返事「AI機能と設定の関連を削除して」） */
     const gAi = aiOn() ? group('AI を使う設定をする', 'API キー・モデル・先の予定') : null;
@@ -323,20 +325,29 @@ export default {
       pageRow.appendChild(b);
       return b;
     });
+    /* 2026-11-18（ユーザーの決定「4 つとも案どおり」）: 「どの画面を変えるか」を選ぶ段をやめ、画面ごとの見出しで縦に並べる。
+       項目は data-pages の最初の画面の見出しの下へ動かす（prefsBox は描き直すたびに新しい項目を作るので、そのたびに並べ直す）。
+       上の pageRow（選ぶボタン）は作るが置かない */
+    void pageRow; void pageHint;
+    const lookSecs = new Map();
+    const lookRows = [];
     const applyLookPage = () => {
-      pageBtns.forEach(b => b.setAttribute('aria-pressed', b.dataset.page === lookPage ? 'true' : 'false'));
-      gLook.querySelectorAll('[data-pages]').forEach(n => {
-        n.hidden = n.dataset.pages.split(' ').indexOf(lookPage) < 0;
+      PAGES.forEach(([pid, name]) => {
+        if (!lookSecs.has(pid)) {
+          const s = el('div', 'look-sec');
+          s.dataset.page = pid;
+          const h = el('h4', 'look-h', name);
+          h.style.cssText = 'margin:14px 0 4px;font-size:13.5px';
+          s.appendChild(h);
+          lookSecs.set(pid, s);
+        }
       });
-      const nm = (PAGES.find(p => p[0] === lookPage) || ['', ''])[1];
-      pageHint.textContent = '「' + nm + '」を変える項目だけを出している。'
-        + (lookPage === 'all' ? 'きっかけ・すきまの画面には、今は変えられる項目が無い。' : '');
+      lookSecs.forEach(s => s.querySelectorAll(':scope > .prefs-item').forEach(n => n.remove()));
+      const first = (n) => (n.dataset.pages || 'all').split(' ')[0];
+      lookRows.forEach(n => { const s = lookSecs.get(first(n)) || lookSecs.get('all'); s.appendChild(n); });
+      gLook.querySelectorAll('.prefs-ctl > [data-pages]').forEach(n => { const s = lookSecs.get(first(n)) || lookSecs.get('all'); s.appendChild(n); });
+      lookSecs.forEach(s => { gLook.appendChild(s); s.hidden = s.children.length <= 1; });
     };
-    const pageLb = el('p', 'prefs-pages-lb', 'どの画面を変える？');   /* 説明ではなく問いなので .note にしない（ⓘ の裏に隠さない） */
-    pageLb.style.cssText = 'margin:8px 0 4px;font-size:13.5px;font-weight:600';
-    gLook.appendChild(pageLb);
-    gLook.appendChild(pageRow);
-    gLook.appendChild(pageHint);
 
     /* --- 音 --- */
     const soundRow = el('label', 'setrow');
@@ -351,6 +362,7 @@ export default {
     soundRow.appendChild(cb);
     soundRow.appendChild(el('span', null, '完了したときに音を鳴らす'));
     gLook.appendChild(soundRow);
+    lookRows.push(soundRow);
 
     /* 効果音（2026-11-07 利用者の指示 Issue #18）。完了音とは別のスイッチ */
     const sfxRow = el('label', 'setrow');
@@ -366,6 +378,7 @@ export default {
     sfxRow.appendChild(sfxCb);
     sfxRow.appendChild(el('span', null, '泡を足す・はじめた・タブに置くときに小さく鳴らす'));
     gLook.appendChild(sfxRow);
+    lookRows.push(sfxRow);
     const sndNote = el(
       'p', 'note',
       '完了の音は自分で「完了」を押したときだけ。消す・戻すときには鳴らない。'
@@ -374,6 +387,7 @@ export default {
     );
     sndNote.dataset.pages = 'all';
     gLook.appendChild(sndNote);
+    lookRows.push(sndNote);
 
     /* 似ている泡を近くに寄せる（2026-11-07 Issue #23）。端末にだけ置く */
     const affRow = el('label', 'setrow');
@@ -388,6 +402,7 @@ export default {
     affRow.appendChild(affCb);
     affRow.appendChild(el('span', null, '似ている泡（名前が似ている・同じタグ）を、海と今日でゆっくり近くに寄せる'));
     gLook.appendChild(affRow);
+    lookRows.push(affRow);
 
     /* --- この端末の表示（2026-11-10。Issue #36。js/prefs.js）--- */
     gLook.appendChild(prefsBox(() => applyLookPage()));
@@ -678,8 +693,52 @@ export default {
        上の確認用の操作とは別の箱にし、いちばん下に置く */
     gEtc.appendChild(resetAllBox());
 
-    /* 並び: 個人で使うもの → AI → 他の人と → 引っ越しと版 → その他 */
-    groups.forEach(d => box.appendChild(d));
+    /* 並び: 個人で使うもの → AI → 他の人と → 引っ越しと版 → その他（サーバーなし版）。
+       サーバーあり版は 2026-11-18 ユーザーの決定（「4 つとも案どおり」。モック docs/spec/mock/settings.html）:
+         利用者・app・端末（3 つの app で共通の節）→ bubble（ふだん使う順: 海・タグ・ふりかえる・表示と音・記録・チャット）→ そのほか（畳む）
+       「他の人と一緒に使う」の共有の海の面と「自分の端末どうしで使う」は外した（海の設定・わたしの端末と重なっていた） */
+    if (isSolo()) {
+      groups.forEach(d => box.appendChild(d));
+    } else {
+      const sec = (title, note) => {
+        const h = el('p', 'set-sec');
+        h.style.cssText = 'display:flex;justify-content:space-between;margin:18px 2px 6px;font-size:12px;font-weight:700;letter-spacing:.05em;color:var(--text-2)';
+        h.appendChild(el('span', null, title));
+        if (note) { const n = el('span', null, note); n.style.fontWeight = '500'; h.appendChild(n); }
+        return h;
+      };
+      box.appendChild(sec('利用者・app・端末', '3 つの app で同じ'));
+      box.appendChild(commonRows());
+      box.appendChild(sec('bubble', 'ふだん使う順'));
+      seasEl.open = false;
+      box.appendChild(seasEl);
+      const gTagEl = groups.find(d => (d.querySelector('.nm') || {}).textContent === 'タグを編集する');
+      if (gTagEl) { gTagEl.querySelector('.nm').textContent = 'タグ'; box.appendChild(gTagEl); }
+      box.appendChild(go);
+      box.appendChild(gLook);
+      gSave.querySelector('.nm').textContent = '記録';
+      box.appendChild(gSave);
+      /* チャット（サーバーの海の仲間と）。共有の海の面は出さない */
+      shareHub.hidden = true;
+      gShare.querySelector('.nm').textContent = 'この海のチャット';
+      gShare.querySelector('.sub').textContent = 'サーバーの海の仲間と話す';
+      box.appendChild(gShare);
+      const etc = document.createElement('details');
+      etc.className = 'set-more set-etc';
+      const es = document.createElement('summary');
+      const et = el('span', 'tx');
+      et.appendChild(el('span', 'nm', 'そのほか'));
+      et.appendChild(el('span', 'sub', '使い方・版を確かめる・不具合を調べる・初期化'));
+      es.appendChild(et);
+      etc.appendChild(es);
+      etc.appendChild(help);
+      if (aiOn()) etc.appendChild(ask);
+      etc.appendChild(gVer);
+      etc.appendChild(gEtc);
+      box.appendChild(etc);
+      /* 利用者の札の［はじめての端末］から: 海の欄のログインを開く */
+      window.addEventListener('bubbles:open-login', () => { seasEl.open = true; if (typeof seasEl.openServer === 'function') seasEl.openServer(); });
+    }
 
     /* 説明の文は ⓘ を押すまで畳む（Issue #40 の返事）。あとから描き直す節（ブロックチェーンなど）にも付くよう見張る */
     watchInfo(box);
@@ -696,6 +755,44 @@ export default {
     if (this._taglist) renderTags(this._taglist);
   },
 };
+
+/* 3 つの app で共通の節（利用者・わたしの端末・app。2026-11-18 ユーザーの決定。取り決め §7.1）。中身は利用者の札（js/userchip.js） */
+function commonRows() {
+  const wrap = document.createElement('div');
+  wrap.className = 'set-common';
+  wrap.dataset.name = '3 つの app で共通の節';
+  const mk = (cls, title, sub, page) => {
+    const b = el('button', 'gorow ' + cls);
+    b.type = 'button';
+    const tx = el('span', 'tx');
+    /* 利用者の名前は利用者が入れた字なので、textContent で入れる（el は innerHTML） */
+    const nm = el('span', 'nm'); nm.textContent = title;
+    const sb = el('span', 'sub'); sb.textContent = sub;
+    tx.appendChild(nm);
+    tx.appendChild(sb);
+    b.appendChild(tx);
+    const ar = el('span', 'ar', '›');
+    ar.setAttribute('aria-hidden', 'true');
+    b.appendChild(ar);
+    b.addEventListener('click', () => openUserCard(page));
+    return b;
+  };
+  const draw = () => {
+    wrap.textContent = '';
+    const me = loggedIn() ? meNow() : null;
+    const u = mk('set-user', me ? me.user.name : 'ログインしていない', me ? 'アイコン・名前を変える' : 'ログイン・はじめての端末', me ? 'avatar' : 'main');
+    const av = el('span', 'set-av');
+    av.style.cssText = 'width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:20px;margin-right:10px;flex:none;background:var(--surface-2)';
+    paintAvatar(av, me && me.user);
+    u.insertBefore(av, u.firstChild);
+    wrap.appendChild(u);
+    if (me) wrap.appendChild(mk('set-devices', 'わたしの端末', '一覧・外す・＋ 端末を足す', 'devices'));
+    wrap.appendChild(mk('set-apps', 'app', 'bubble ・ gantt ・ diary', 'main'));
+  };
+  draw();
+  window.addEventListener(ME_EV, draw);
+  return wrap;
+}
 
 /* ---- 説明の文を ⓘ の裏へ（2026-11-11。Issue #40 の返事）----
    > デフォルトで表示されてる文字による説明も info ボタンを押すかエラーが出るまで非表示にできない？

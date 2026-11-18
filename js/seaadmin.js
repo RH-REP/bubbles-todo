@@ -41,3 +41,19 @@ export async function myDevices() {
 export async function removeDevice(name, confirm = false) {
   return (await call('/api/passkey/devices/remove', { name, confirm })).devices || [];
 }
+
+/* 利用者のアイコン（2026-11-18）。プリセットの一覧 → [{id, emoji, color}] */
+export async function listAvatars() {
+  const L = serverLogin();
+  const base = (L && L.url ? L.url : location.origin).replace(/\/$/, '');
+  const res = await fetch(base + '/api/avatars', { cache: 'no-store' });
+  if (res.status !== 200) throw new Error('アイコンの一覧を読めなかった（' + res.status + '）');
+  return (await res.json()).presets || [];
+}
+
+/* 自分のアイコンを選ぶ → /api/me の形（控えも新しくする） */
+export async function setAvatar(preset) {
+  const me = await call('/api/passkey/avatar', { preset });
+  saveMe(me);
+  return me;
+}

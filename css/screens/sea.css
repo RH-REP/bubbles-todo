@@ -1234,3 +1234,6 @@ body.is-dragging .sea-cal { opacity: .25; pointer-events: none; }
 .cal-cell[data-lv="4"] { background: var(--cal-l4); }
 .cal-empty { margin: 8px 2px; font-size: 13px; color: var(--text-2); line-height: 1.8; }
 .cal-foot { margin: 10px 2px 0; font-size: 12.5px; color: var(--text-2); }
+
+/* 利用者のアイコンが左上に来たので（2026-11-18。≡ は left:62px）、面の名前はさらに右（≡ の右どなり）へ */
+html.has-userbtn .sea-face-name { left: 114px; max-width: min(36%, calc(100% - 280px)); }

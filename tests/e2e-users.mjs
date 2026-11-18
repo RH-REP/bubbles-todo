@@ -14,7 +14,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,7 @@ import { createServer } from 'node:net';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const SHOTS = process.env.SHOTS || '';   /* フォルダを置けば、利用者の札・アイコンを選ぶ・設定を明るい／暗いで撮る */
 const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
 const tmp = mkdtempSync(join(tmpdir(), 'bubbles-e2e-users-'));
@@ -121,7 +122,9 @@ try {
     const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
     assert.deepEqual(m.filter(x => x.sea === SEA).map(x => [x.user, x.role]), [[yukiId, 'owner']], '作った人が持ち主');
     await yuki.until(`return [...document.querySelectorAll('.space-seg button')].some(b => b.textContent === '👥 家族の買い物')`);
-    assert.equal(await yuki.js(`return document.querySelector('.space-me').textContent + '|' + document.querySelector('.space-me').title`), 'ゆ|ゆき でログイン中');
+    assert.equal(await yuki.js(`return document.querySelector('.userbtn').title`), 'ゆき でログイン中');
+    assert.equal(await yuki.js(`return document.querySelector('.userbtn').textContent === (await import('/js/me.js')).meInfo().user.avatar.emoji`), true,
+      '左上の利用者のアイコンに、サーバーの avatar の絵文字');
     await yuki.js(`[...document.querySelectorAll('.sp-sea')].find(r => /家族の買い物/.test(r.textContent)).querySelector('.sp-gear').click();`);
     await yuki.until(`return /ゆき（あなた）\\s*持ち主/.test(document.querySelector('.sp-members')?.textContent || '')`);
     await yuki.js(`const i = document.querySelector('input[aria-label="招く人の呼び名"]'); i.value = 'りょう'; i.closest('form').requestSubmit();`);
@@ -234,6 +237,58 @@ try {
     const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
     assert.deepEqual(m.filter(x => x.sea === SEA).map(x => x.user), [yukiId]);
   });
+
+  await step('左上の利用者のアイコン: ≡ は右どなり、⚙ は右上に無い。札に app の切り替え・設定・わたしの端末、#avatar でアイコンを変え、#devices で端末の一覧', async () => {
+    await yuki.go(origin + '/');
+    await yuki.until(`return !!document.querySelector('.userbtn') && !!document.querySelector('.menubtn')`);
+    const pos = await yuki.js(`const a = document.querySelector('.userbtn').getBoundingClientRect(), m = document.querySelector('.menubtn').getBoundingClientRect(),
+      app = document.querySelector('.app').getBoundingClientRect(), g = document.querySelector('.gearbtn');
+      return [Math.round(a.left - app.left), Math.round(a.width), Math.round(m.left - app.left), !!(g && !g.hidden && g.offsetParent)]`);
+    assert.deepEqual(pos, [10, 44, 62, false], '利用者のアイコン 10px・44px、≡ 62px、⚙ は出ていない');
+    await yuki.js(`document.querySelector('.userbtn').click();`);
+    await yuki.until(`return !!document.querySelector('.uc-card .uc-apps')`);
+    const apps = await yuki.js(`return [...document.querySelectorAll('.uc-app')].map(a => a.textContent.trim() + '|' + (a.getAttribute('href') || (a.classList.contains('is-cur') ? 'cur' : '')))`);
+    assert.deepEqual(apps, ['🫧bubble|cur', '📊gantt|http://127.0.0.1:8766', '📔diary|http://127.0.0.1:8780']);
+    await yuki.js(`[...document.querySelectorAll('.uc-row')].find(b => /設定/.test(b.textContent)).click();`);
+    await yuki.until(`return document.getElementById('pane-settings')?.classList.contains('is-active') && !document.querySelector('.uc-card')`);
+    const order = await yuki.js(`return [...document.querySelectorAll('#pane-settings .set-sec > span:first-child, #pane-settings .set-common .nm, #pane-settings .sea-panel > summary .nm, #pane-settings .set-etc > summary .nm')].map(n => n.textContent)`);
+    assert.deepEqual(order, ['利用者・app・端末', 'ゆき', 'わたしの端末', 'app', 'bubble', '海', 'そのほか'], '設定の並び（共通の節 → bubble → そのほか）');
+    assert.equal(await yuki.js(`const g = document.querySelector('.gearbtn'); return !!(g && !g.hidden)`), true, '設定を開いている間だけ ✕ で閉じられる');
+    await yuki.go(origin + '/#avatar');
+    await yuki.until(`return document.querySelectorAll('.uc-card .uc-preset').length === 16`);
+    await yuki.js(`document.querySelector('.uc-preset[data-preset="owl"]').click();`);
+    await yuki.until(`return document.querySelector('.userbtn').textContent === '🦉'`);
+    const u = JSON.parse(readFileSync(join(data, 'users.json'), 'utf8')).find(x => x.id === yukiId);
+    assert.equal(u.avatar, 'owl', 'サーバーに残る');
+    assert.equal(await yuki.js(`return location.hash`), '', '#avatar は URL から消す');
+    await yuki.go(origin + '/#devices');
+    await yuki.until(`return /iPhone/.test(document.querySelector('.uc-card .uc-devices')?.textContent || '')`);
+  });
+
+  if (SHOTS) {
+    const shot = async (name) => { const s = await yuki.send('Page.captureScreenshot', { format: 'png' }); writeFileSync(join(SHOTS, name + '.png'), Buffer.from(s.result.data, 'base64')); };
+    for (const mode of ['light', 'dark']) {
+      await yuki.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: mode }] });
+      await yuki.go(origin + '/');
+      await yuki.until(`return !!document.querySelector('.userbtn')`);
+      await sleep(800);
+      await shot(mode + '-home');
+      await yuki.js(`document.querySelector('.userbtn').click();`);
+      await yuki.until(`return !!document.querySelector('.uc-card .uc-apps')`);
+      await sleep(300);
+      await shot(mode + '-card');
+      await yuki.js(`document.querySelector('.uc-card .btn').click();`);
+      await yuki.until(`return document.querySelectorAll('.uc-preset').length === 16`);
+      await sleep(300);
+      await shot(mode + '-avatar');
+      await yuki.go(origin + '/');
+      await yuki.until(`return !!document.querySelector('.userbtn')`);
+      await yuki.js(`document.querySelector('.userbtn').click(); [...document.querySelectorAll('.uc-row')].find(b => /設定/.test(b.textContent)).click();`);
+      await yuki.until(`return document.getElementById('pane-settings')?.classList.contains('is-active')`);
+      await sleep(500);
+      await shot(mode + '-settings');
+    }
+  }
 
   await step('CSP に止められた読み込みや、画面のエラーが無い', async () => {
     await sleep(300);
