@@ -252,6 +252,19 @@ try {
       '置いた値はそのまま（読むときに替える）');
   });
 
+  await step('画面の上（2026-11-19 取り決め §7.1 v1.3）: ログインしていなければ左上は空の丸で、押すとログインの札（設定の行は無い）。右上の「!」の左どなりに ⚙', async () => {
+    await openApp();
+    const got = await js(`const u = document.querySelector('.userbtn'), g = document.querySelector('.gearbtn'), app = document.querySelector('.app').getBoundingClientRect();
+      u.click(); await new Promise(r => setTimeout(r, 200));
+      const card = document.querySelector('.uc-card');
+      return { empty: u.classList.contains('is-empty'), login: !!card && /パスキーでログイン/.test(card.textContent),
+        rows: card ? [...card.querySelectorAll('.uc-row .uc-tx b')].map(b => b.textContent) : null,
+        gear: !g.hidden && !!g.offsetParent, gr: Math.round(app.right - g.getBoundingClientRect().right) }`);
+    assert.deepEqual(got, { empty: true, login: true, rows: ['招待で登録する', '番号で足す', '登録を頼む'], gear: true, gr: 62 });
+    await js(`document.querySelector('.userbtn').click(); document.querySelector('.gearbtn').click();`);
+    await until(`return document.getElementById('pane-settings')?.classList.contains('is-active')`);
+  });
+
   await step('画面のエラーが無い', async () => { assert.deepEqual(problems, []); });
 } catch (e) {
   console.log('FAIL - ' + (e && e.message || e));

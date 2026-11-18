@@ -86,11 +86,11 @@ async function openChrome(name) {
   return { send, js, until, problems, go: (url) => send('Page.navigate', { url }) };
 }
 
-/* 設定を開き、海の欄を開く（2026-11-18 から ⚙ は右上に無い。利用者の札の［設定］から） */
+/* 設定を開き、海の欄を開く（2026-11-19 から右上の ⚙ から。取り決め §7.1 v1.3） */
 async function openSet(c) {
   await c.until(`return !!document.querySelector('.userbtn')`);
   await c.js(`if (!document.getElementById('pane-settings')?.classList.contains('is-active')) {
-    document.querySelector('.userbtn').click(); [...document.querySelectorAll('.uc-row')].find(b => /設定/.test(b.textContent)).click(); }`);
+    document.querySelector('.gearbtn').click(); }`);
   await c.until(`return document.getElementById('pane-settings')?.classList.contains('is-active') && !!document.querySelector('.sea-panel')`);
   await c.js(`document.querySelector('.sea-panel').open = true;`);
 }
@@ -278,22 +278,26 @@ try {
     assert.deepEqual(m.filter(x => x.sea === SEA).map(x => x.user), [yukiId]);
   });
 
-  await step('左上の利用者のアイコン: ≡ は右どなり、⚙ は右上に無い。札に app の切り替え・設定・わたしの端末、#avatar でアイコンを変え、#devices で端末の一覧', async () => {
+  await step('左上の利用者のアイコン・≡ は右どなり、右上は「!」と左どなりの ⚙（2026-11-19）。札に設定の行は無く、⚙ で設定。#avatar でアイコンを変え、#devices で端末の一覧', async () => {
     await yuki.go(origin + '/');
     await yuki.until(`return !!document.querySelector('.userbtn') && !!document.querySelector('.menubtn')`);
     const pos = await yuki.js(`const a = document.querySelector('.userbtn').getBoundingClientRect(), m = document.querySelector('.menubtn').getBoundingClientRect(),
-      app = document.querySelector('.app').getBoundingClientRect(), g = document.querySelector('.gearbtn');
-      return [Math.round(a.left - app.left), Math.round(a.width), Math.round(m.left - app.left), !!(g && !g.hidden && g.offsetParent)]`);
-    assert.deepEqual(pos, [10, 44, 62, false], '利用者のアイコン 10px・44px、≡ 62px、⚙ は出ていない');
+      app = document.querySelector('.app').getBoundingClientRect(), gb = document.querySelector('.gearbtn'), g = gb.getBoundingClientRect(),
+      f = document.getElementById('fbBtn')?.getBoundingClientRect();
+      return [Math.round(a.left - app.left), Math.round(a.width), Math.round(m.left - app.left), !gb.hidden && !!gb.offsetParent, Math.round(app.right - g.right), Math.round(g.width),
+        f ? f.left >= g.right : null, gb.textContent.trim()]`);
+    assert.deepEqual(pos, [10, 44, 62, true, 62, 44, true, '⚙'], '利用者のアイコン 10px・44px、≡ 62px、⚙ は右から 62px・44px で「!」の左');
     await yuki.js(`document.querySelector('.userbtn').click();`);
     await yuki.until(`return !!document.querySelector('.uc-card .uc-apps')`);
     const apps = await yuki.js(`return [...document.querySelectorAll('.uc-app')].map(a => a.textContent.trim() + '|' + (a.getAttribute('href') || (a.classList.contains('is-cur') ? 'cur' : '')))`);
     assert.deepEqual(apps, ['🫧bubble|cur', '📊gantt|http://127.0.0.1:8766', '📔diary|http://127.0.0.1:8780']);
-    await yuki.js(`[...document.querySelectorAll('.uc-row')].find(b => /設定/.test(b.textContent)).click();`);
+    assert.deepEqual(await yuki.js(`return [...document.querySelectorAll('.uc-card .uc-row')].map(b => b.querySelector('.uc-tx b').textContent)`),
+      ['わたしの端末', 'ログアウト'], '札に設定の行は無い');
+    await yuki.js(`document.querySelector('.userbtn').click(); document.querySelector('.gearbtn').click();`);
     await yuki.until(`return document.getElementById('pane-settings')?.classList.contains('is-active') && !document.querySelector('.uc-card')`);
     const order = await yuki.js(`return [...document.querySelectorAll('#pane-settings .set-sec > span:first-child, #pane-settings .set-common .nm, #pane-settings .sea-panel > summary .nm, #pane-settings .set-etc > summary .nm')].map(n => n.textContent)`);
     assert.deepEqual(order, ['利用者・app・端末', 'ゆき', 'わたしの端末', 'app', 'bubble', '海', 'そのほか'], '設定の並び（共通の節 → bubble → そのほか）');
-    assert.equal(await yuki.js(`const g = document.querySelector('.gearbtn'); return !!(g && !g.hidden)`), true, '設定を開いている間だけ ✕ で閉じられる');
+    assert.equal(await yuki.js(`const g = document.querySelector('.gearbtn'); return !!(g && !g.hidden)`), true, '設定を開いている間は ✕ で閉じられる');
     await yuki.go(origin + '/#avatar');
     await yuki.until(`return document.querySelectorAll('.uc-card .uc-preset').length === 16`);
     await yuki.js(`document.querySelector('.uc-preset[data-preset="owl"]').click();`);
@@ -353,7 +357,7 @@ try {
       await shot(mode + '-avatar');
       await yuki.go(origin + '/');
       await yuki.until(`return !!document.querySelector('.userbtn')`);
-      await yuki.js(`document.querySelector('.userbtn').click(); [...document.querySelectorAll('.uc-row')].find(b => /設定/.test(b.textContent)).click();`);
+      await yuki.js(`document.querySelector('.gearbtn').click();`);
       await yuki.until(`return document.getElementById('pane-settings')?.classList.contains('is-active')`);
       await sleep(500);
       await shot(mode + '-settings');

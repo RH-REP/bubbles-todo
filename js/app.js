@@ -199,9 +199,10 @@ gear.addEventListener('click', () => {
 
 function syncGear() {
   const open = !!(current && UNDER_GEAR.has(current.id));
-  /* サーバーあり版では、⚙ は右上に置かない（2026-11-18 ユーザーの決定。設定は利用者の札から）。
-     設定を開いている間だけ、閉じるための ✕ として出す（戻り先を覚えている） */
-  gear.hidden = !isSolo() && !open;
+  /* 2026-11-19 ユーザーの指示「左上はログインアイコン、右上あたりに歯車（設定）にデザイン統一して」（取り決め §7.1 v1.3）:
+     どちらの版でも ⚙ を右上（「!」の左どなり、right:62px）に出す。設定を開いている間は、閉じるための ✕ （戻り先を覚えている）。
+     前の決まり（2026-11-18「⚙ は右上に置かない。設定は利用者の札から」）はやめた */
+  gear.hidden = false;
   gearIc.textContent = open ? '✕' : '⚙';
   gear.classList.toggle('is-open', open);
   gear.setAttribute('aria-label', open ? '設定を閉じる' : '設定');

@@ -99,7 +99,7 @@ async function step(name, fn) { await fn(); pass++; console.log('ok   - ' + name
 
 /* 設定の「記録」→［書き出す|読み込む］→［ファイル］の欄を出す。→ その欄（wrap）を探す式 */
 async function openFilePane(mode) {
-  await js(`document.querySelector('.userbtn').click(); [...document.querySelectorAll('.uc-row')].find(b => /設定/.test(b.textContent)).click();`);
+  await js(`document.querySelector('.gearbtn').click();`);
   await until(`return document.getElementById('pane-settings')?.classList.contains('is-active')`);
   await js(`const g = [...document.querySelectorAll('#pane-settings details')].find(d => (d.querySelector('summary .nm') || {}).textContent === '記録'); g.open = true;
     const btn = (t) => [...g.querySelectorAll('button')].find(b => b.textContent.trim() === t && b.offsetParent);

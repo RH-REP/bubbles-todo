@@ -3,10 +3,11 @@
 
      左上（left:10px）に 44px の丸。user.avatar の color に emoji（無ければ名前の頭 1 字）。ログインしていなければ点線の 👤。
      押すと利用者の札:
-       ログイン中   … 名前とアイコン［変える］、app の切り替え（bubble・gantt・diary）、設定、わたしの端末、ログアウト
-       していない   … パスキーでログイン、はじめての端末（招待で登録・番号で足す・登録を頼む → 設定の「海」のログインの欄）、設定
+       ログイン中   … 名前とアイコン［変える］、app の切り替え（bubble・gantt・diary）、わたしの端末、ログアウト
+       していない   … パスキーでログイン、はじめての端末（招待で登録・番号で足す・登録を頼む → 設定の「海」のログインの欄）
+     2026-11-19（取り決め §7.1 v1.3）: 設定の行は外した。設定は右上の ⚙（「!」の左どなり）から（2 か所にしない）
      札の中の画面: アイコンを選ぶ（#avatar で開く）・わたしの端末（#devices で開く）
-   ≡（引き出し）はこの右どなり（left:62px。css/base.css の html.has-userbtn）。⚙ は右上に置かない（札の［設定］から）。 */
+   ≡（引き出し）はこの右どなり（left:62px。css/base.css の html.has-userbtn）。⚙ は右上（right:62px。js/app.js の gearbtn）。 */
 import { meInfo, serverLogin, fetchMe, saveMe, ME_EVENT } from './me.js';
 import { myDevices, removeDevice, listAvatars, setAvatar } from './seaadmin.js';
 import { loginPasskey, logoutPasskey, makeDeviceCode, authMode } from './passkey.js';
@@ -122,7 +123,6 @@ function render(card, page) {
   who.appendChild(ch);
   card.appendChild(who);
   card.appendChild(appSwitch());
-  card.appendChild(row('⚙', '設定', null, () => goSettings()));
   card.appendChild(row('📱', 'わたしの端末', '一覧・外す・＋ 端末を足す', () => render(card, 'devices')));
   card.appendChild(row('↩', 'ログアウト', null, logout));
 }
@@ -164,7 +164,6 @@ function renderLoggedOut(card) {
   card.appendChild(row('✉', '招待で登録する', 'リンクかコードを持っている人', () => goSettings('bubbles:open-login')));
   card.appendChild(row('#', '番号で足す', '自分のほかの端末に出した 6 桁', () => goSettings('bubbles:open-login')));
   card.appendChild(row('✋', '登録を頼む', 'サーバーの管理者に認めてもらう', () => goSettings('bubbles:open-login')));
-  card.appendChild(row('⚙', '設定', 'ログインしなくても使える設定', () => goSettings()));
 }
 
 /* このページのサーバーにパスキーでログインする（設定の「海」の［パスキーでログイン］と同じ） */
