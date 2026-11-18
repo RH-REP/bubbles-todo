@@ -33,7 +33,7 @@ const origin = `http://localhost:${port}`;
 const server = spawn('python3', [join(ROOT, 'server.py'), '--port', String(port), '--data-dir', data,
   '--auth', 'passkey', '--origin', origin], { stdio: ['ignore', 'ignore', 'pipe'],
   /* 2 つの端末が同じ 127.0.0.1 から要求するので、接続元ごとの要求の上限（既定 1 分 120）を上げる */
-  env: Object.assign({}, process.env, { BUBBLE_TODO_MAX_REQUESTS: '2000' }) });
+  env: Object.assign({}, process.env, { BUBBLE_TODO_MAX_REQUESTS: '2000', BUBBLE_TODO_MAX_STATIC: '5000' }) });
 let serverLog = '';
 server.stderr.on('data', d => { serverLog += d; });
 const procs = [server];
@@ -86,6 +86,14 @@ async function openChrome(name) {
   return { send, js, until, problems, go: (url) => send('Page.navigate', { url }) };
 }
 
+/* 設定を開き、海の欄を開く（2026-11-18 から ⚙ は右上に無い。利用者の札の［設定］から） */
+async function openSet(c) {
+  await c.until(`return !!document.querySelector('.userbtn')`);
+  await c.js(`if (!document.getElementById('pane-settings')?.classList.contains('is-active')) {
+    document.querySelector('.userbtn').click(); [...document.querySelectorAll('.uc-row')].find(b => /設定/.test(b.textContent)).click(); }`);
+  await c.until(`return document.getElementById('pane-settings')?.classList.contains('is-active') && !!document.querySelector('.sea-panel')`);
+  await c.js(`document.querySelector('.sea-panel').open = true;`);
+}
 const button = (t) => `[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith(${JSON.stringify(t)}))`;
 let pass = 0;
 async function step(name, fn) { await fn(); pass++; console.log('ok   - ' + name); }
@@ -104,7 +112,12 @@ try {
     await yuki.js(`document.querySelector('input[aria-label="表示名"]').value = 'ゆき';
       document.querySelector('input[aria-label="招待コード"]').closest('form').querySelector('input[aria-label="この端末の呼び名"]').value = 'iPhone';
       document.querySelector('input[aria-label="招待コード"]').closest('form').requestSubmit();`);
-    await yuki.until(`return /「ゆき」でログイン中（iPhone）/.test(document.querySelector('.sp-who')?.textContent || '')`);
+    /* 登録すると個人を 1 つにまとめて読み直す（2026-11-18）。左上の利用者のアイコンと、覚えた端末の呼び名で見る */
+    await yuki.until(`return document.querySelector('.userbtn')?.title === 'ゆき でログイン中'`, 15000);
+    /* ログインのあとは読み直す。読み直しの途中で読まないよう、覚えた呼び名が出るまで待つ */
+    await yuki.until(`return (await import('/js/sync.js')).sync.config().passkey?.name === 'iPhone'`, 15000);
+    assert.deepEqual(await yuki.js(`return (await import('/js/regions.js')).allSeas().filter(s => s.personal).map(s => s.name)`), ['個人'], '個人は 1 つ');
+    await openSet(yuki);
     assert.equal(await yuki.js(`return location.hash`), '', 'リンクのコードは URL から消す');
     yukiId = JSON.parse(readFileSync(join(data, 'users.json'), 'utf8'))[0].id;
     assert.match(yukiId, /^u_[0-9a-f]{8}$/);
@@ -139,7 +152,10 @@ try {
     await ryo.js(`document.querySelector('input[aria-label="表示名"]').value = 'りょう';
       document.querySelector('input[aria-label="招待コード"]').closest('form').querySelector('input[aria-label="この端末の呼び名"]').value = 'Mac';
       document.querySelector('input[aria-label="招待コード"]').closest('form').requestSubmit();`);
-    await ryo.until(`return /「りょう」でログイン中（Mac）/.test(document.querySelector('.sp-who')?.textContent || '')`);
+    await ryo.until(`return document.querySelector('.userbtn')?.title === 'りょう でログイン中'`, 15000);
+    /* ログインのあとは読み直す。読み直しの途中で読まないよう、覚えた呼び名が出るまで待つ */
+    await ryo.until(`return (await import('/js/sync.js')).sync.config().passkey?.name === 'Mac'`, 15000);
+    await openSet(ryo);
     const users = JSON.parse(readFileSync(join(data, 'users.json'), 'utf8'));
     ryoId = users.find(u => u.name === 'りょう').id;
     const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
@@ -227,8 +243,8 @@ try {
     await ryo.until(`return !!${button('この海を出る')}`);
     assert.equal(await ryo.js(`return !!document.querySelector('select[aria-label="りょう の役割"]') || !!${button('この海を消す')}`), false,
       '持ち主でない人には役割・消すが出ない');
-    await ryo.js(`${button('この海を出る')}.click();`);
-    await ryo.js(`${button('もう一度押すと出る')}.click();`);
+    /* 2 度押す（設定の「海」は同期で描き直すことがあり、1 度目と 2 度目の間に描き直すと最初からになるので、同じボタンを続けて押す） */
+    await ryo.js(`const b = ${button('この海を出る')}; b.click(); b.click();`);
     for (let i = 0; i < 50; i++) {
       const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
       if (!m.some(x => x.sea === SEA && x.user === ryoId)) break;

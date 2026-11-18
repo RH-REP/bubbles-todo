@@ -2007,8 +2007,10 @@ def main(argv=None):
         if any(moved.values()):
             print(f"利用者へ移した: 利用者 {moved['users']}・パスキー {moved['passkeys']}・海の仲間 {moved['members']}", flush=True)
         oauth = oauth_server.OAuth(data_dir, origin, passkeys, oauth_server.client_hosts_from(args.oauth_client_host))
-        # 要求の数の上限（接続元ごと 1 分。既定 120）。試しで 2 つの端末を同じ 127.0.0.1 から動かすときだけ上げる（2026-11-18）
-        guard = Guard(max_requests=int(os.environ.get('BUBBLE_TODO_MAX_REQUESTS', '120')))
+        # 要求の数の上限（接続元ごと 1 分。既定 120、画面のファイルは 600）。試しで 2 つの端末を同じ 127.0.0.1 から動かし、
+        # ログインのたびに読み直すときだけ上げる（2026-11-18）
+        guard = Guard(max_requests=int(os.environ.get('BUBBLE_TODO_MAX_REQUESTS', '120')),
+                      max_static=int(os.environ.get('BUBBLE_TODO_MAX_STATIC', '600')))
         cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy, guard=guard,
                      allow_origins=args.allow_origin or (), passkeys=passkeys,
                      stores=SeaStores(data_dir), devices=Devices(max_active=args.max_devices, window=args.device_window),

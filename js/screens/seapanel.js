@@ -18,6 +18,7 @@ import { sync } from '../sync.js';
 import { registerPasskey, loginPasskey, logoutPasskey, authMode, passkeySupported,
   requestRegistration, requestStatus, makeInvite, makeDeviceCode, acceptInvite, peekInvite } from '../passkey.js';
 import { fetchMe, saveMe, meInfo, ME_EVENT } from '../me.js';
+import { finishLogin, logoutFlow, AFTER_KEY } from '../loginflow.js';
 import { seaOp, myDevices, removeDevice } from '../seaadmin.js';
 import { COLORS, colorMark, addSea, updateSea, removeSea, setSeaRegion, boxKey } from '../spacelist.js';
 import { allSeas, regionConf } from '../regions.js';
@@ -562,16 +563,20 @@ export function seaPanel(opts = {}) {
     const line = el('p', 'note'); line.setAttribute('aria-live', 'polite');
     const busy = async (b, fn) => { b.disabled = true; try { await fn(); } catch (e) { line.textContent = (e && e.message) || '失敗した'; } finally { b.disabled = false; } };
     const done = async (out) => {
-      const r = ensureServer(url);
-      if (!r || !sync.usePasskeySessionRegion(r.id, url, out)) throw new Error('ログインを覚えられなかった');
+      /* 個人の海を 1 つにする（2026-11-18。js/loginflow.js。合わせた・入れ替えたら読み直す） */
+      const fin = await finishLogin(url, out);
+      const r = { id: fin.rid };
       saveReq(null);
       loginOpen = false;
       await pullSeas(loginState());
       await fetchMe();
       if (out.joinedLink) { dropLink(); pendingInvite = ''; linkInfo = null; }
-      toast('「' + out.name + '」でログインした');
-      /* 開いている海がサーバーの海なら、読み直して合わせ始める */
-      if (findRegionOfCur(r.id)) location.reload(); else paint();
+      toast('「' + ((out.user && out.user.name) || out.name) + '」でログインした');
+      /* 個人を合わせた・開いている海がサーバーの海なら、読み直して合わせ始める */
+      if (fin.reload || findRegionOfCur(r.id)) {
+        try { if (!sessionStorage.getItem(AFTER_KEY)) sessionStorage.setItem(AFTER_KEY, '「' + ((out.user && out.user.name) || out.name) + '」でログインした'); } catch (e) { /* 出せなくてもよい */ }
+        location.reload();
+      } else paint();
     };
     const inBtn = btn('パスキーでログイン', 'btn main');
     inBtn.dataset.name = 'パスキーでログインボタン';
@@ -751,13 +756,10 @@ export function seaPanel(opts = {}) {
       const out = btn('ログアウト');
       out.addEventListener('click', async () => {
         out.disabled = true;
-        const old = st.session;
-        if (st.region && st.region.id === sync.region().id) sync.dropPasskeySession();
-        else if (st.region) sync.configureRegion(st.region.id, st.url, '', '');
-        if (old) await logoutPasskey(st.url, old);
-        saveMe(null);
-        toast('ログアウトした（どの海の記録もこの端末に残っている）');
-        paint();
+        /* 個人の写しを残すか聞く（2026-11-18。js/loginflow.js） */
+        if (!(await logoutFlow(true))) { out.disabled = false; return; }
+        try { sessionStorage.setItem(AFTER_KEY, 'ログアウトした'); } catch (e) { /* 出せなくてもログアウトしてある */ }
+        location.reload();
       });
       who.appendChild(out);
       wrap.appendChild(who);

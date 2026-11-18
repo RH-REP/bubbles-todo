@@ -490,6 +490,17 @@ export const sync = {
       passkeyValid: !!(c.session && Number(c.sessionExpires) * 1000 > Date.now()) };
   },
   ready,
+  /* まだ送っていない泡の数（2026-11-18「個人はオフラインでも使える」）。最後に合わせた時刻より新しい印の泡。
+     合わせていない間（オフライン・ログインしていない）に書いた分。つながって合わせると 0 に戻る */
+  pending() {
+    const seen = readSeen() || 0;
+    let n = 0;
+    try {
+      const st = store.exportState();
+      Object.entries((st && st.stamps) || {}).forEach(([k, v]) => { if (k.startsWith('todo:') && Array.isArray(v) && Number(v[0]) > seen) n++; });
+    } catch (e) { return 0; }
+    return n;
+  },
   /* 読むだけかを決め直す（2026-11-18。/api/me で役割が変わったとき。js/app.js・seapanel.js） */
   relock() { store.setReadOnly((status.state !== 'syncing' && guestLocked(status.state)) || viewerLock()); },
   /* 持ち主の鍵（どの海にも入れる）を持っているか */

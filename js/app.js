@@ -214,6 +214,11 @@ syncGear();
 /* 左上の利用者のアイコンと利用者の札（2026-11-18。js/userchip.js。サーバーあり版だけ） */
 if (!isSolo() && appRoot) mountUserChip(appRoot);
 loadAppUrls().catch(() => {});
+/* ログイン・ログアウトのあと読み直したときの知らせ（1 回だけ。js/loginflow.js） */
+try {
+  const after = sessionStorage.getItem('bubble_todo_after_login');
+  if (after) { sessionStorage.removeItem('bubble_todo_after_login'); setTimeout(() => toast(after, null, 6000), 400); }
+} catch (e) { /* 出せなくてもよい */ }
 /* jump（#sea=<海>&todo=<id>。2026-11-18 取り決め §7.2）。サーバーあり版だけ */
 if (!isSolo()) setTimeout(mountJump, 0);
 

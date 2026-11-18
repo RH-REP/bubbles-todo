@@ -39,6 +39,7 @@ import { signNote, holdWallet } from '../notesign.js';
 import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { seaPanel, loginState } from './seapanel.js';
+import { personalBackups, mergeBackup } from '../oneserver.js';
 import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupFileName, buildBackup } from '../folderbackup.js';
 import {
   hasKey, isKeyLocked, isKeyPlain, keyTail, keyLock, keyOpen, lockNow, saveKeyLocked, lockPlainKey, removeKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
@@ -626,6 +627,8 @@ export default {
     inChoice.add('file', 'ファイル', [fileFormats('in')]);
     inChoice.add('server', 'サーバー', [serverPane('in')]);
     if (chainOn) inChoice.add('chain', 'ブロックチェーン', [chainPane('in')]);
+    /* 個人の控え（合わせる・入れ替える前に取ったもの）。読み込むの欄の下に、控えがあるときだけ出す（2026-11-18） */
+    gSave.appendChild(personalBackupBox(gSave));
     /* --- 自分のほかの端末と合わせる（Issue #52。2026-11-16 Issue #74 で「自分の端末どうしで使う」へ移した）。
        サーバーなし版にはサーバーの欄を出さない。サーバーあり版にはブロックチェーンの欄を出さない（Issue #78） --- */
     if (!isSolo()) syncWrap.appendChild(serverPane('sync'));
@@ -5200,3 +5203,55 @@ if (typeof document !== 'undefined' && isSolo()) {
    読むための鍵（rk）がある海だけ。ファイルの下で始める（上の定数を先に作ってから） */
 /* サーバーあり版では見張らない（チェーンの読み込みも、その上の直の通信 WebRTC も始めない。2026-11-17 Issue #78） */
 if (typeof document !== 'undefined' && isSolo()) startSharedWatch();
+
+/* 個人の控え（2026-11-18 決定「合わせる前に控えを取り、設定の『記録』で戻せる」。モック docs/spec/mock/personal.html）。
+   ［今の個人に重ねる］は記録ごとに新しいほうを残す（消さない・置き換えない）。重ねるのは開いている個人の海だけ。
+   前の利用者の控え（別の利用者に替わった時より前のもの）は、ログイン中は重ねない（ほかの人の泡を今の人のサーバーの個人へ送らないため）。利用者の字は textContent で入れる */
+function personalBackupBox(owner) {
+  const w = document.createElement('div');
+  w.className = 'pbk';
+  w.dataset.name = '個人の控え';
+  const KIND = { unify: 'ログインで合わせる前', person: '前の版で入れ替える前', user: '別の利用者に替わる前' };
+  const fmt = (ms) => { const d = new Date(ms); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+  const paint = () => {
+    w.textContent = '';
+    const list = personalBackups();
+    w.hidden = !list.length;
+    if (!list.length) return;
+    const h = document.createElement('p');
+    h.className = 'prefs-pages-lb';
+    h.textContent = '個人の控え（' + list.length + '）';
+    w.appendChild(h);
+    const p = document.createElement('p');
+    p.className = 'note';
+    p.textContent = '合わせる・入れ替える前に取った、個人の海の前の中身。［今の個人に重ねる］は記録ごとに新しいほうを残す（今の泡は消さない）。';
+    w.appendChild(p);
+    const here = isPersonal(store.space());
+    const login = !!loggedIn();
+    list.forEach(b => {
+      const r = document.createElement('div');
+      r.className = 'row';
+      r.style.cssText = 'align-items:center;gap:8px;margin:4px 0';
+      const t = document.createElement('span');
+      t.style.flex = '1';
+      t.textContent = fmt(b.at) + '　' + (KIND[b.kind] || '') + '・泡 ' + b.n;
+      r.appendChild(t);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn';
+      btn.textContent = '今の個人に重ねる';
+      const blocked = !here ? '個人の海を開いてから' : (b.other && login) ? 'ログアウトしてから（前の利用者の控え）' : '';
+      if (blocked) { btn.disabled = true; btn.title = blocked; }
+      btn.addEventListener('click', () => {
+        const got = mergeBackup(b.key, store.exportState(), !!loggedIn());
+        if (!got || !store.applyState(got)) { toast('重ねられなかった'); return; }
+        toast('控え（' + fmt(b.at) + '）を今の個人に重ねた');
+      });
+      r.appendChild(btn);
+      w.appendChild(r);
+    });
+  };
+  paint();
+  if (owner) owner.addEventListener('toggle', () => { if (owner.open) paint(); });
+  return w;
+}

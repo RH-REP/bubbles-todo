@@ -10,7 +10,8 @@
 import { meInfo, serverLogin, fetchMe, saveMe, ME_EVENT } from './me.js';
 import { myDevices, removeDevice, listAvatars, setAvatar } from './seaadmin.js';
 import { loginPasskey, logoutPasskey, makeDeviceCode, authMode } from './passkey.js';
-import { ensureServer, theServer } from './oneserver.js';
+import { theServer } from './oneserver.js';
+import { finishLogin, logoutFlow, AFTER_KEY } from './loginflow.js';
 import { regionConf } from './regions.js';
 import { sync } from './sync.js';
 import { toast } from './ui.js';
@@ -177,24 +178,17 @@ async function loginHere() {
     url = location.origin;
   }
   const out = await loginPasskey(url);
-  const r = ensureServer(url);
-  if (!r || !sync.usePasskeySessionRegion(r.id, url, out)) throw new Error('ログインを覚えられなかった');
-  await fetchMe();
-  toast('「' + ((out.user && out.user.name) || out.name) + '」でログインした');
+  await finishLogin(url, out);      /* 個人の海を 1 つにする（2026-11-18。js/loginflow.js） */
+  try { if (!sessionStorage.getItem(AFTER_KEY)) sessionStorage.setItem(AFTER_KEY, '「' + ((out.user && out.user.name) || out.name) + '」でログインした'); } catch (e) { /* 出せなくてもログインしてある */ }
   location.reload();
 }
 
-async function logout() {
-  const L = serverLogin();
-  if (!L) { close(); return; }
-  const c = regionConf(L.rid) || {};
-  if (L.rid === sync.region().id) sync.dropPasskeySession();
-  else sync.configureRegion(L.rid, c.url, '', '');
-  await logoutPasskey(L.url, L.session);
-  saveMe(null);
-  toast('ログアウトした（どの海の記録もこの端末に残っている）');
+/* ログアウト（個人の写しを残すか聞く。2026-11-18。js/loginflow.js）。ask:false は聞かずに残す（今の端末を外したとき） */
+async function logout(ask = true) {
   close();
-  paint();
+  if (!(await logoutFlow(ask))) return;
+  try { sessionStorage.setItem(AFTER_KEY, 'ログアウトした'); } catch (e) { /* 出せなくてもログアウトしてある */ }
+  location.reload();
 }
 
 let presets = null;
@@ -261,7 +255,7 @@ function renderDevices(card) {
         rm.disabled = true;
         try {
           const rest = await removeDevice(d.name, !!d.current);
-          if (d.current) { await logout(); return; }
+          if (d.current) { await logout(false); return; }
           line.textContent = '「' + d.name + '」を外した（その端末の通行証も止まった）';
           draw(rest);
         } catch (e) { line.textContent = (e && e.message) || '外せなかった'; rm.disabled = false; }

@@ -361,7 +361,7 @@ function stateText(a, b) { stateA.textContent = a; stateB.textContent = b || '';
 
 const app = document.querySelector('.app') || document.body;
 app.appendChild(strip);
-if (!isPersonal(SPACE)) app.appendChild(stateEl);
+app.appendChild(stateEl);   /* 個人の海も、サーバーと合わせるときは出す（paint が決める。2026-11-18） */
 
 /* サーバーから海の一覧が届いて変わったとき（名前・色・ほかの端末で消した海） */
 sync.onSeas(() => {
@@ -404,15 +404,27 @@ function paint() {
   /* 色を抜くのは、招かれた海で読むだけの間だけ（書ける海は、届かなくてもふだんの色） */
   root.classList.toggle('is-off', store.readOnly());
   lockInputs();
-  if (isPersonal(SPACE)) return;
+  /* 個人の海もサーバーと合わせるときは状態の字を出す（2026-11-18「個人はオフラインでも使える」）。この端末だけの個人は出さない */
+  const srvPersonal = isPersonal(SPACE) && REGION !== 'local' && serverRegions().some(r => r.id === REGION);
+  if (isPersonal(SPACE) && !srvPersonal) return;
   const st = sync.status();
   const seen = sync.seenAt();
+  if (srvPersonal && !sync.ready()) {
+    /* 写しを残してログアウトした（ログインしていなくても読める・書ける） */
+    stateEl.hidden = settingsOpen();
+    stateEl.classList.add('is-off');
+    stateText('ログイン', 'していない');
+    return;
+  }
   stateEl.hidden = !sync.ready() || settingsOpen();
   stateEl.classList.toggle('is-off', st.state === 'error' || st.state === 'outdated');
+  /* まだ送っていない泡の数（つながったら送る） */
+  const n = typeof sync.pending === 'function' ? sync.pending() : 0;
+  const unsent = n > 0 && st.state !== 'ok' ? '未送信 ' + n : '';
   if (st.state === 'ok') stateText('合わせた', hhmm(st.at));
-  else if (st.state === 'outdated') stateText('同期を止めた（古い版）', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
-  else if (st.state === 'error') stateText('繋がっていない', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
-  else stateText('合わせている…');
+  else if (st.state === 'outdated') stateText(unsent || '同期を止めた（古い版）', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
+  else if (st.state === 'error') stateText(unsent || '繋がっていない', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
+  else stateText(unsent || '合わせている…', unsent ? '合わせている…' : '');
 }
 
 sync.on(paint);
