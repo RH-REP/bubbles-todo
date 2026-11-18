@@ -2904,6 +2904,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (lastPlace) place(lastPlace.cx, lastPlace.cy, lastPlace.d);
   }
 
+  /* 見るだけ（viewer）の海（2026-11-18）。盤のボタンと欄を押せなくし、そう書く（押しても仲間に届かないため） */
+  if (ask(a, 'readOnly') === true) {
+    root.classList.add('is-readonly');
+    root.querySelectorAll('button, input, textarea, select').forEach(n => { n.disabled = true; });
+    const ro = el('p', 'bc-readonly', ask(a, 'readOnlyWhy') || '見るだけの海なので、変えられない');
+    ro.dataset.name = '見るだけの印';
+    root.insertBefore(ro, root.firstChild);
+  }
+
   return {
     root, place,
     /* タグは最後に書く。書いた瞬間に画面が組み直されるので、
@@ -3668,6 +3677,23 @@ export function openMenu(node, handlers = {}) {
     });
     box.appendChild(btn);
   });
+
+  /* 海を移す（2026-11-18。モック 6）。預け先に moveTargets があり、移せる海があるときだけ。
+     どの海へ移すか・新しく見える人を聞く画面は預け先（js/movesea.js）が出す */
+  const mid = node.dataset.id;
+  const targets = mid ? ask(centerAdapter, 'moveTargets', mid) : null;
+  if (Array.isArray(targets) && targets.length) {
+    const mv = el('button', 'mi mi-movesea');
+    mv.type = 'button';
+    mv.setAttribute('role', 'menuitem');
+    mv.appendChild(el('span', 'mi-tx', '海を移す…'));
+    mv.addEventListener('click', () => { closeMenu(); ask(centerAdapter, 'openMoveSea', mid); });
+    box.insertBefore(mv, box.querySelector('.mi-delete') || null);
+  }
+  /* 見るだけの海では、どの操作も押せない（詳細は開ける） */
+  if (ask(centerAdapter, 'readOnly') === true) {
+    box.querySelectorAll('.mi').forEach(b => { if (!b.classList.contains('mi-detail')) b.disabled = true; });
+  }
 
   /* 上下で動ける。閉じるのは Escape */
   box.addEventListener('keydown', ev => {

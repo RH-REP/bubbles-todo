@@ -17,8 +17,9 @@ import { SPACE_KEY } from '../store.js';
 import { sync } from '../sync.js';
 import { registerPasskey, loginPasskey, logoutPasskey, authMode, passkeySupported,
   requestRegistration, requestStatus, makeInvite, makeDeviceCode, acceptInvite, peekInvite } from '../passkey.js';
-import { fetchMe, saveMe, meInfo } from '../me.js';
-import { COLORS, colorMark, addSea, updateSea, removeSea, setSeaRegion } from '../spacelist.js';
+import { fetchMe, saveMe, meInfo, ME_EVENT } from '../me.js';
+import { seaOp, myDevices, removeDevice } from '../seaadmin.js';
+import { COLORS, colorMark, addSea, updateSea, removeSea, setSeaRegion, boxKey } from '../spacelist.js';
 import { allSeas, regionConf } from '../regions.js';
 import { theServer, serverUrl, ensureServer, canUnify, unifyPersonal, applyServerSeas } from '../oneserver.js';
 
@@ -136,59 +137,135 @@ export function seaPanel(opts = {}) {
     const g = el('div', 'sp-gearbox');
     g.style.cssText = 'margin:0 0 10px 24px;padding:8px 10px;border-left:2px solid var(--line)';
     const server = onServer(s, st);
-    if (!s.personal && !server) {
+    const me = meInfo();
+    const sea = server && me ? me.seas.find(x => x && x.id === s.id) : null;
+    const role = s.personal ? 'owner' : (sea ? sea.role : null);
+    const owner = role === 'owner';
+    const note = (t2) => { const p = text('p', 'note', t2); g.appendChild(p); return p; };
+    const line = el('p', 'note'); line.setAttribute('aria-live', 'polite');
+    const fail = (e) => { line.textContent = (e && e.message) || 'できなかった'; };
+    const refresh = async () => { await pullSeas(loginState()); await fetchMe(); try { sync.relock(); } catch (e) { /* 次に合わせたとき */ } paint(); };
+    /* 名前・色（この端末の海はいつも。サーバーの海は持ち主だけ。2026-11-18「海の管理は作成者が行う」） */
+    if (!s.personal && (!server || owner)) {
       const f = el('form', 'tagadd');
+      f.dataset.name = '海の名前と色';
       const nm = document.createElement('input');
       nm.type = 'text'; nm.maxLength = 16; nm.value = s.name; nm.setAttribute('aria-label', '海の名前');
       const col = colorSelect(s.color);
       const save = el('button', 'btn'); save.type = 'submit'; save.textContent = '名前・色を変える';
       f.appendChild(nm); f.appendChild(col); f.appendChild(save);
-      f.addEventListener('submit', (ev) => {
+      f.addEventListener('submit', async (ev) => {
         ev.preventDefault();
+        if (!nm.value.trim()) { toast('名前を入れる'); return; }
+        if (server) {
+          save.disabled = true;
+          try { await seaOp('update', { sea: s.id, name: nm.value, color: col.value }); updateSea(s.id, { name: nm.value, color: col.value }); toast('変えた（仲間の画面にも届く）'); await refresh(); }
+          catch (e) { fail(e); } finally { save.disabled = false; }
+          return;
+        }
         if (!updateSea(s.id, { name: nm.value, color: col.value })) { toast('名前を入れる'); return; }
         toast('変えた'); paint();
       });
       g.appendChild(f);
     }
-    const note = (t) => { const p = text('p', 'note', t); g.appendChild(p); return p; };
     if (s.personal) {
-      note(server ? 'サーバーの個人。ログインした人の端末どうしだけで合わせる（ほかの人には見えない）。' : 'この端末の個人。');
+      note(server ? 'サーバーの個人の海。あなたの端末どうしだけで合わせる（ほかの人には見えない）。' : 'この端末の個人。');
     } else if (!server) {
-      /* サーバーに置くのは管理者（VM の sea-add）。この海の ID を渡す */
-      note('この端末だけの海。サーバーに置くには、サーバーの管理者が VM でこの海の ID を使って海を作り、入れる端末を決める。'
-        + '済んだら、ログインしてこの欄を開き直すと、この海がサーバーの海になる（中身は開いたときに送る）。');
-      const id = text('p', null, s.id);
-      id.dataset.name = '海の ID';
-      id.style.cssText = 'font-family:ui-monospace,monospace;user-select:all;margin:2px 0';
-      g.appendChild(id);
-      const cmd = text('p', 'note', 'VM で: sea-add "' + s.name + '" ' + s.id + ' のあと passkey-space <端末の名前> add ' + s.id);
-      cmd.style.userSelect = 'all';
-      g.appendChild(cmd);
+      if (st.live) {
+        /* この端末の海をサーバーの共有の海にする（作った人が持ち主。2026-11-18） */
+        note('この端末だけの海。サーバーの共有の海にすると、あなたが持ち主になり、仲間をリンクで招ける（中身は開いたときに送る）。');
+        const up = btn('👥 サーバーの共有の海にする');
+        up.dataset.name = '共有の海にするボタン';
+        up.addEventListener('click', async () => {
+          up.disabled = true;
+          try {
+            await seaOp('create', { id: s.id, name: s.name, color: s.color });
+            setSeaRegion(s.id, st.region.id);
+            toast('「' + s.name + '」をサーバーの共有の海にした（あなたが持ち主）');
+            if (s.id === cur) location.reload(); else await refresh();
+          } catch (e) { fail(e); up.disabled = false; }
+        });
+        const r = el('div', 'row'); r.appendChild(up); g.appendChild(r);
+      } else {
+        note('この端末だけの海。ログインすると、サーバーの共有の海にできる。');
+      }
     } else {
-      note('サーバーの海。名前・色は、サーバーの管理者が VM で決める。仲間を招けるのは、この海の持ち主。');
+      note(owner ? 'サーバーの共有の海。あなたが持ち主（名前・色・仲間・消すを決める）。'
+        : 'サーバーの共有の海。名前・色・仲間は持ち主が決める（あなたは「' + (ROLE_LABEL[role] || role || '?') + '」）。');
+    }
+    if (server && st.live && !s.personal) g.appendChild(membersBox(s, refresh, fail));
+    if (server && st.live) g.appendChild(s.personal ? deviceBox(st) : inviteBox(s, st));
+    if (server && st.live && !s.personal) g.appendChild(leaveBox(s, owner, sea, refresh, fail));
+    if (server && !s.personal) {
       const back = btn('この端末へ戻す（合わせるのをやめる）');
       back.addEventListener('click', () => {
         if (!setSeaRegion(s.id, 'local')) { toast('変えられなかった'); return; }
         toast('この端末の海にした（この端末の中身は残る。サーバーの中身も消さない）');
         if (s.id === cur) location.reload(); else paint();
       });
-      const r = el('div', 'row'); r.appendChild(back); g.appendChild(r);
+      const r = el('div', 'row'); r.style.marginTop = '8px'; r.appendChild(back); g.appendChild(r);
     }
-    if (server && st.live && !s.personal) g.appendChild(membersBox(s));
-    if (server && st.live) g.appendChild(s.personal ? deviceBox(st) : inviteBox(s, st));
-    /* 消す（この端末の海だけ。2度押す。記録の箱は残し、一覧に消した印を付ける） */
-    if (!s.personal && !server) {
-      const del = btn('この海を消す');
+    /* 消す（この端末の海・持ち主のサーバーの海。2 度押す） */
+    if (!s.personal && (!server || (owner && st.live))) {
+      const del = btn(server ? 'この海を消す（仲間もみな外れる）' : 'この海を消す');
+      del.dataset.name = '海を消すボタン';
       let armed = false;
-      del.addEventListener('click', () => {
+      del.addEventListener('click', async () => {
         if (!armed) { armed = true; del.textContent = 'もう一度押すと消す'; return; }
+        if (server) {
+          del.disabled = true;
+          try { await seaOp('remove', { sea: s.id }); setSeaRegion(s.id, 'local'); }
+          catch (e) { fail(e); del.disabled = false; return; }
+        }
         if (!removeSea(s.id)) { toast('消せなかった'); return; }
         toast('「' + s.name + '」を消した');
         if (s.id === cur) goTo('me'); else { openGear = null; paint(); }
       });
       const r = el('div', 'row'); r.style.marginTop = '8px'; r.appendChild(del); g.appendChild(r);
     }
+    g.appendChild(line);
     return g;
+  }
+
+  /* この海を出る（2026-11-18。モック 5）。持ち主は、ほかの仲間に持ち主を渡してから出る。仲間がいなければ消すかを聞く */
+  function leaveBox(s, owner, sea, refresh, fail) {
+    const w = el('div', 'sp-leave');
+    w.style.marginTop = '8px';
+    const me = meInfo();
+    const others = sea && Array.isArray(sea.members) ? sea.members.filter(m => me && m.id !== me.user.id) : [];
+    const out = async () => {
+      setSeaRegion(s.id, 'local');
+      removeSea(s.id);
+      toast('「' + s.name + '」を出た（この端末の写しは消した）');
+      try { localStorage.removeItem(boxKey(s.id)); } catch (e) { /* 一覧からは外れている */ }
+      if (s.id === cur) goTo('me'); else { openGear = null; await refresh(); }
+    };
+    if (owner && !others.length) {
+      w.appendChild(text('p', 'note', 'ほかに仲間がいないので、出るならこの海を消す（下の［この海を消す］）。'));
+      return w;
+    }
+    let pick = null;
+    if (owner) {
+      w.appendChild(text('p', 'note', '持ち主が出るときは、先にほかの仲間に持ち主を渡す。'));
+      pick = document.createElement('select');
+      pick.setAttribute('aria-label', '持ち主を渡す人');
+      others.forEach(m => { const o = document.createElement('option'); o.value = m.id; o.textContent = (m.name || m.id) + 'に渡す'; pick.appendChild(o); });
+      w.appendChild(pick);
+    }
+    const b = btn(owner ? '持ち主を渡して出る' : 'この海を出る');
+    b.dataset.name = '海を出るボタン';
+    let armed = false;
+    b.addEventListener('click', async () => {
+      if (!armed) { armed = true; b.textContent = 'もう一度押すと出る'; return; }
+      b.disabled = true;
+      try {
+        if (owner) await seaOp('transfer', { sea: s.id, user: pick.value });
+        await seaOp('leave', { sea: s.id });
+        await out();
+      } catch (e) { fail(e); b.disabled = false; }
+    });
+    const r = el('div', 'row'); r.appendChild(b); w.appendChild(r);
+    return w;
   }
 
   /* 個人を1つにまとめる（2026-11-16「端末個人とサーバー個人に分かれるのは？ 統合…」「『個人』の横あたりにサーバーに統合ボタンが欲しい」）。
@@ -207,21 +284,92 @@ export function seaPanel(opts = {}) {
     return b;
   }
 
-  /* 海の仲間（2026-11-18。モック 5）。/api/me の控えから出す（入れるかどうかはサーバーが決める） */
-  function membersBox(s) {
+  /* 海の仲間（2026-11-18。モック 5）。/api/me の控えから出す（入れるかどうかはサーバーが決める）。
+     持ち主は、ほかの仲間の役割（書ける・見るだけ）を変え、外せる */
+  function membersBox(s, refresh, fail) {
     const w = el('div', 'sp-members');
     w.dataset.name = '仲間の一覧';
     const me = meInfo();
     const sea = me && me.seas.find(x => x && x.id === s.id);
     if (!sea || !Array.isArray(sea.members)) return w;
+    const owner = sea.role === 'owner';
     w.appendChild(text('p', 'prefs-pages-lb', '仲間'));
     sea.members.forEach(m => {
-      const row = el('div');
-      row.style.cssText = 'display:flex;justify-content:space-between;gap:8px;padding:2px 0';
-      row.appendChild(text('span', null, (m.name || m.id) + (me.user.id === m.id ? '（あなた）' : '')));
-      row.appendChild(text('span', 'note', ROLE_LABEL[m.role] || m.role));
+      const row = el('div', 'sp-member');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0';
+      const mine = me.user.id === m.id;
+      row.appendChild(text('span', null, (m.name || m.id) + (mine ? '（あなた）' : '')));
+      if (owner && !mine && m.role !== 'owner') {
+        const box = el('span');
+        box.style.cssText = 'display:flex;gap:6px;align-items:center';
+        const sel = document.createElement('select');
+        sel.setAttribute('aria-label', (m.name || m.id) + ' の役割');
+        [['editor', '書ける'], ['viewer', '見るだけ']].forEach(([v, lb]) => { const o = document.createElement('option'); o.value = v; o.textContent = lb; if (v === m.role) o.selected = true; sel.appendChild(o); });
+        sel.addEventListener('change', async () => {
+          sel.disabled = true;
+          try { await seaOp('role', { sea: s.id, user: m.id, role: sel.value }); toast('役割を変えた'); await refresh(); }
+          catch (e) { fail(e); sel.disabled = false; }
+        });
+        const kick = btn('外す');
+        kick.setAttribute('aria-label', (m.name || m.id) + ' を外す');
+        let armed = false;
+        kick.addEventListener('click', async () => {
+          if (!armed) { armed = true; kick.textContent = 'もう一度'; return; }
+          kick.disabled = true;
+          try { await seaOp('kick', { sea: s.id, user: m.id }); toast('外した（次の要求から入れない）'); await refresh(); }
+          catch (e) { fail(e); kick.disabled = false; }
+        });
+        box.appendChild(sel); box.appendChild(kick);
+        row.appendChild(box);
+      } else {
+        row.appendChild(text('span', 'note', ROLE_LABEL[m.role] || m.role));
+      }
       w.appendChild(row);
     });
+    return w;
+  }
+
+  /* わたしの端末（2026-11-18。モック 3）。端末の呼び名・最後に使った日・この端末。外すとその端末の通行証も止まる。
+     今の端末を外すときは確かめ、外したらこの端末はログアウトする */
+  let devList = null;
+  function devicesBox(st) {
+    const w = el('div', 'sp-devices');
+    w.dataset.name = '端末の一覧';
+    w.style.cssText = 'margin:6px 0 10px;padding:6px 10px;border:1px solid var(--line);border-radius:10px';
+    w.appendChild(text('p', 'prefs-pages-lb', 'わたしの端末'));
+    const line = el('p', 'note'); line.setAttribute('aria-live', 'polite');
+    if (!devList) {
+      w.appendChild(text('p', 'note', '読んでいる…'));
+      myDevices().then(d => { devList = d; if (wrap.isConnected) paint(); }).catch(e => { line.textContent = (e && e.message) || '読めなかった'; });
+    } else {
+      devList.forEach(d => {
+        const row = el('div', 'sp-device');
+        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0';
+        const last = d.last_used ? new Date(d.last_used * 1000) : null;
+        row.appendChild(text('span', null, (d.current ? '📱 ' : '') + d.name + (d.current ? '（この端末）' : '')
+          + '・' + (last ? (last.getMonth() + 1) + '/' + last.getDate() + ' に使った' : 'まだ使っていない')));
+        const rm = btn('外す');
+        rm.setAttribute('aria-label', d.name + ' を外す');
+        let armed = false;
+        rm.addEventListener('click', async () => {
+          if (!armed) { armed = true; rm.textContent = d.current ? 'この端末を外す（ログアウトする）' : 'もう一度押すと外す'; return; }
+          rm.disabled = true;
+          try {
+            devList = await removeDevice(d.name, !!d.current);
+            if (d.current) {
+              if (st.region && st.region.id === sync.region().id) sync.dropPasskeySession();
+              else if (st.region) sync.configureRegion(st.region.id, st.url, '', '');
+              saveMe(null);
+              toast('この端末を外した（ログアウトした）');
+            } else toast('「' + d.name + '」を外した（その端末の通行証も止まった）');
+            paint();
+          } catch (e) { line.textContent = (e && e.message) || '外せなかった'; rm.disabled = false; }
+        });
+        row.appendChild(rm);
+        w.appendChild(row);
+      });
+    }
+    w.appendChild(line);
     return w;
   }
 
@@ -366,10 +514,34 @@ export function seaPanel(opts = {}) {
     const col = colorSelect('moss');
     const b = el('button', 'btn'); b.type = 'submit'; b.textContent = '＋ 海をつくる';
     f.appendChild(nm); f.appendChild(col); f.appendChild(b);
-    f.addEventListener('submit', (ev) => {
+    /* ログインしていれば、サーバーの共有の海としても作れる（作った人が持ち主。2026-11-18） */
+    const st = loginState();
+    let shared = null;
+    if (st.live) {
+      const lb = el('label', 'sp-shared');
+      shared = document.createElement('input');
+      shared.type = 'checkbox';
+      shared.setAttribute('aria-label', '共有の海にする');
+      lb.appendChild(shared);
+      lb.appendChild(document.createTextNode(' 👥 共有の海にする'));
+      f.appendChild(lb);
+    }
+    f.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const e = addSea(nm.value, col.value, Date.now(), 'local');
       if (!e) { toast('名前を入れる'); return; }
+      if (shared && shared.checked) {
+        b.disabled = true;
+        try {
+          await seaOp('create', { id: e.id, name: e.name, color: e.color });
+          setSeaRegion(e.id, st.region.id);
+          await pullSeas(loginState()); await fetchMe();
+          toast('「' + e.name + '」を共有の海としてつくった（あなたが持ち主）');
+        } catch (err) { toast('サーバーに置けなかった（この端末の海としてつくった）: ' + ((err && err.message) || '')); }
+        finally { b.disabled = false; }
+        paint();
+        return;
+      }
       toast('「' + e.name + '」をつくった（この端末の海）');
       paint();
     });
@@ -589,6 +761,7 @@ export function seaPanel(opts = {}) {
       });
       who.appendChild(out);
       wrap.appendChild(who);
+      wrap.appendChild(devicesBox(st));
     }
     const seas = allSeas();
     const srvSeas = seas.filter(s => onServer(s, st) && !(s.personal && st.live && st.spaces.indexOf('me') < 0));
@@ -630,6 +803,7 @@ export function seaPanel(opts = {}) {
   const st0 = loginState();
   if (st0.live) pullSeas(st0).then(ok => { if (ok) paint(); });
   sync.onSeas(() => { if (wrap.isConnected) paint(); });
+  window.addEventListener(ME_EVENT, () => { if (wrap.isConnected) paint(); });
   /* 招待のリンクで開いたとき、だれから・どの海への招待かを読む（コードは画面に出さない） */
   if (pendingInvite) {
     const base = serverUrl(location.origin, 'passkey') || location.origin;

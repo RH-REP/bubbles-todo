@@ -29,12 +29,19 @@ export function meInfo(st = ls()) {
   } catch (e) { return null; }
 }
 
+/* 控えが変わったら、画面（海の帯の名前・👥）に知らせる */
+export const ME_EVENT = 'bubbles:me';
+function tell() {
+  try { if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new CustomEvent(ME_EVENT)); } catch (e) { /* 無くてよい */ }
+}
+
 export function saveMe(json, st = ls()) {
   if (!st) return false;
   try {
-    if (!json) { st.removeItem(ME_KEY); return true; }
+    if (!json) { st.removeItem(ME_KEY); tell(); return true; }
     if (!json.user || !validUser(json.user.id) || !Array.isArray(json.seas)) return false;
     st.setItem(ME_KEY, JSON.stringify({ at: Date.now(), user: json.user, seas: json.seas }));
+    tell();
     return true;
   } catch (e) { return false; }
 }
@@ -94,6 +101,16 @@ export function myRole(spaceId, st = ls()) {
   if (!me || !sid) return null;
   const s = me.seas.find(x => x && x.id === sid);
   return s ? s.role || null : null;
+}
+
+/* その海の種類（'personal' | 'shared'）。サーバーの海でない・知らなければ null */
+export function seaKind(spaceId, st = ls()) {
+  const me = meInfo(st);
+  const sid = serverSeaOf(spaceId, st);
+  if (!me || !sid) return null;
+  if (sid === 'me') return 'personal';
+  const s = me.seas.find(x => x && x.id === sid);
+  return s ? s.kind || null : null;
 }
 
 /* 利用者の番号 → 名前（知らなければ ''） */

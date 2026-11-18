@@ -205,5 +205,82 @@ class UsersTest(unittest.TestCase):
         self.assertEqual(code, 429, '全体で 20 回外れたら、正しい番号でもしばらく断る')
 
 
+    # --- 海の管理は作成者が行う（2026-11-18 ユーザーの決定。前の「VM だけ」を置き換えた） ---
+    def sea(self, session, op, **body):
+        return self.req('POST', '/api/sea/' + op, body, {'Authorization': 'Bearer ' + session})
+
+    def test_owner_manages_sea_from_app(self):
+        yuki = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('ゆき', ['me']))[1]
+        ryo = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('りょう', ['me']))[1]
+        sora = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('そら', ['me']))[1]
+        Y, R_, S = yuki['user']['id'], ryo['user']['id'], sora['user']['id']
+        self.assertEqual(self.sea('nope', 'create', name='家族')[0], 401)
+        code, me, _ = self.sea(yuki['session'], 'create', name='家族の買い物', color='sand', id='sfam01')
+        self.assertEqual(code, 200, me)
+        fam = next(s for s in me['seas'] if s['id'] == 'sfam01')
+        self.assertEqual((fam['name'], fam['role'], fam['color']), ('家族の買い物', 'owner', '#b07a1c'), '作った人が持ち主')
+        self.assertEqual(self.sea(ryo['session'], 'create', name='x', id='sfam01')[0], 409, '同じ ID はもうある')
+        self.assertEqual(self.sea(yuki['session'], 'create', name='', color='sand')[0], 409)
+        self.assertEqual(self.sea(yuki['session'], 'create', name='x', color='red')[0], 409)
+        self.pk.set_member('sfam01', R_, 'editor')
+        self.pk.set_member('sfam01', S, 'editor')
+        # 名前・色は持ち主だけ
+        self.assertEqual(self.sea(ryo['session'], 'update', sea='sfam01', name='乗っ取り')[0], 403)
+        code, me, _ = self.sea(yuki['session'], 'update', sea='sfam01', name='家族', color='moss')
+        self.assertEqual([(s['name'], s['color']) for s in me['seas'] if s['id'] == 'sfam01'], [('家族', '#3f8a4a')])
+        # 端末の一覧の合わせ（/api/spaces）でも、持ち主の海だけ書き換えられる
+        hr = {'Authorization': 'Bearer ' + ryo['session']}
+        self.req('POST', '/api/spaces', {'spaces': [{'id': 'sfam01', 'name': '乗っ取り', 'color': 'ink', 'at': 10 ** 13, 'alive': 1}]}, hr)
+        self.assertEqual(next(r for r in server.SeaList(self.dir).read() if r['id'] == 'sfam01')['name'], '家族')
+        hy = {'Authorization': 'Bearer ' + yuki['session']}
+        self.req('POST', '/api/spaces', {'spaces': [{'id': 'sfam01', 'name': '家族の海', 'color': 'moss', 'at': 10 ** 13, 'alive': 1}]}, hy)
+        self.assertEqual(next(r for r in server.SeaList(self.dir).read() if r['id'] == 'sfam01')['name'], '家族の海')
+        # 役割を変える・外す
+        self.assertEqual(self.sea(ryo['session'], 'role', sea='sfam01', user=S, role='viewer')[0], 403)
+        code, me, _ = self.sea(yuki['session'], 'role', sea='sfam01', user=S, role='viewer')
+        self.assertEqual(self.pk.roles_of(S)['sfam01'], 'viewer')
+        self.assertEqual(self.sea(yuki['session'], 'role', sea='sfam01', user=S, role='owner')[0], 409, '持ち主は渡すで')
+        self.assertEqual(self.sea(yuki['session'], 'role', sea='sfam01', user=Y, role='viewer')[0], 409, '自分は変えない')
+        self.assertEqual(self.put(sora['session'], 'sfam01')[0], 403, '見るだけになった')
+        self.assertEqual(self.sea(yuki['session'], 'kick', sea='sfam01', user=S)[0], 200)
+        self.assertEqual(self.data(sora['session'], 'sfam01')[0], 403, '外されたら次の要求から入れない')
+        self.assertEqual(self.sea(yuki['session'], 'kick', sea='sfam01', user=S)[0], 409, 'もう仲間でない')
+        # 持ち主は渡してから出る
+        code, out, _ = self.sea(yuki['session'], 'leave', sea='sfam01')
+        self.assertEqual((code, out['error']), (409, 'owner'))
+        self.assertEqual(self.sea(yuki['session'], 'transfer', sea='sfam01', user=R_)[0], 200)
+        self.assertEqual((self.pk.roles_of(R_)['sfam01'], self.pk.roles_of(Y)['sfam01']), ('owner', 'editor'))
+        self.assertEqual(self.sea(yuki['session'], 'leave', sea='sfam01')[0], 200, '書ける人は出られる')
+        self.assertNotIn('sfam01', self.pk.roles_of(Y))
+        code, out, _ = self.sea(ryo['session'], 'leave', sea='sfam01')
+        self.assertEqual((code, out['error']), (409, 'last'), 'ひとりの持ち主は、出るなら消す')
+        # 消す
+        self.assertEqual(self.sea(yuki['session'], 'remove', sea='sfam01')[0], 404, '仲間でない海は見えない')
+        code, me, _ = self.sea(ryo['session'], 'remove', sea='sfam01')
+        self.assertEqual(code, 200)
+        self.assertNotIn('sfam01', [s['id'] for s in me['seas']])
+        self.assertEqual(self.pk.members_of('sfam01'), [])
+        self.assertIn('サーバーの海はありません', self.cli('sea-list').stdout)
+
+    def test_my_devices_list_and_remove(self):
+        a = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('iPhone', ['me']))[1]
+        b = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('Mac', ['me'], person=a['person']))[1]
+        other = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('ほかの人', ['me']))[1]
+        hdr = {'Authorization': 'Bearer ' + a['session']}
+        code, out, _ = self.req('POST', '/api/passkey/devices', {}, hdr)
+        self.assertEqual(code, 200)
+        self.assertEqual(sorted((d['name'], d['current']) for d in out['devices']), [('Mac', False), ('iPhone', True)],
+                         '自分の端末だけ。今の端末に印')
+        self.assertEqual(self.req('POST', '/api/passkey/devices/remove', {'name': 'ほかの人'}, hdr)[0], 404, 'ほかの人の端末は外せない')
+        code, out, _ = self.req('POST', '/api/passkey/devices/remove', {'name': 'iPhone'}, hdr)
+        self.assertEqual((code, out['error']), (409, 'current'), '今の端末は確かめてから')
+        code, out, _ = self.req('POST', '/api/passkey/devices/remove', {'name': 'Mac'}, hdr)
+        self.assertEqual([d['name'] for d in out['devices']], ['iPhone'])
+        self.assertEqual(self.data(b['session'], 'me')[0], 401, '外した端末の通行証は止まる')
+        self.assertEqual(self.req('POST', '/api/passkey/devices/remove', {'name': 'iPhone', 'confirm': True}, hdr)[0], 200)
+        self.assertEqual(self.data(a['session'], 'me')[0], 401)
+        self.assertEqual(self.data(other['session'], 'me')[0], 200)
+
+
 if __name__ == '__main__':
     unittest.main()

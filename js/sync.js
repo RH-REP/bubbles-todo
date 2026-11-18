@@ -66,6 +66,7 @@ import { mergeState, sameStamps } from './merge.js';
 import { mergeSeas, seaName } from './spacelist.js';
 import { regionOfSpace, defaultRegionId, findRegion, confKeyOf, isPersonal, serverSpace, entriesOf, regionConf } from './regions.js';
 import { applyServerSeas } from './oneserver.js';
+import { myRole } from './me.js';
 
 const PUSH_DELAY = 1500;      /* 保存してから送るまで。続けて打っている間はまとめる */
 const POLL_MS = 20000;        /* 開いている間、ほかの端末の書き換えを見に行く間隔 */
@@ -196,6 +197,11 @@ export function normalizeUrl(raw) {
    （手元に海の記録が無いので、書いても重ねる元が無い）。書いたものは、サーバーが戻ったとき・
    直の通信・控えのファイルで、ほかの記録と同じく「記録ごとに新しいほう」で合わさる */
 export const GUEST_OFFLINE_MS = 24 * 60 * 60 * 1000;
+/* 見るだけ（viewer）の海（2026-11-18）。書いても仲間に届かない（サーバーが 403）ので、画面から書けなくする */
+function viewerLock() {
+  try { return myRole(store.space()) === 'viewer'; } catch (e) { return false; }
+}
+
 function guestLocked(state) {
   if (!guest() || state === 'ok') return false;
   const seen = readSeen();
@@ -206,7 +212,7 @@ function setStatus(state, message) {
   status = { state, at: Date.now(), message: message || '' };
   /* 招かれて入った海は、合わせられた直後だけ書ける。合わせている最中は前のまま。
      長く届かないときは書ける（guestLocked） */
-  if (state !== 'syncing') store.setReadOnly(guestLocked(state));
+  if (state !== 'syncing') store.setReadOnly(guestLocked(state) || viewerLock());
   listeners.forEach(fn => { try { fn(status); } catch (e) { /* 通知で落とさない */ } });
 }
 
@@ -484,6 +490,8 @@ export const sync = {
       passkeyValid: !!(c.session && Number(c.sessionExpires) * 1000 > Date.now()) };
   },
   ready,
+  /* 読むだけかを決め直す（2026-11-18。/api/me で役割が変わったとき。js/app.js・seapanel.js） */
+  relock() { store.setReadOnly((status.state !== 'syncing' && guestLocked(status.state)) || viewerLock()); },
   /* 持ち主の鍵（どの海にも入れる）を持っているか */
   owner: ownerKey,
   /* 海の一覧をサーバーと合わせる。一覧が変わったら onSeas の相手に知らせる */
@@ -526,6 +534,6 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
 }
 /* 招かれて入った海は、合わせるまでは読むだけ（最後に合わせてから長く経っていれば書ける） */
-if (guest()) store.setReadOnly(guestLocked('idle'));
+if (guest() || viewerLock()) store.setReadOnly(guestLocked('idle') || viewerLock());
 if (ready()) syncNow();
 else syncSeas();   /* この海の鍵が無くても、入れる海の一覧は取りに行く（招かれた人が海を知るため） */

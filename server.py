@@ -791,15 +791,135 @@ def make_handler(spaces, cfg: Config = None):
             if body is None:
                 return
             owner, allowed, roles = w
-            # パスキーの形では、端末から一覧は書き換えない（海の管理は VM の sea-add など。2026-11-16）。
+            # パスキーの形では、端末から書き換えられるのは、その利用者が持ち主（owner）の海の名前・色・消した印だけ
+            # （2026-11-18 ユーザーの決定「海の管理は作成者が行う」。前は VM だけ。2026-11-16）。
             # 入れる海だけを返し、端末が鍵の入れる置き場を新しくできるよう access も返す
-            rows = cfg.sea_list.merge(body.get('spaces')) if owner else cfg.sea_list.read()
+            if owner:
+                rows = cfg.sea_list.merge(body.get('spaces'))
+            elif cfg.auth == 'passkey' and isinstance(body.get('spaces'), list):
+                mine = [e for e in body['spaces'] if isinstance(e, dict) and roles.get(e.get('id')) == 'owner']
+                rows = cfg.sea_list.merge(mine) if mine else cfg.sea_list.read()
+            else:
+                rows = cfg.sea_list.read()
             if not owner:
                 rows = [r for r in rows if r['id'] in allowed]
             out = {'spaces': rows, 'access': allowed}
             if roles:
                 out['roles'] = roles
             return self.send_json(200, out)
+
+        def sea_admin(self, path):
+            """海の管理（2026-11-18 ユーザーの決定「海の管理は作成者が行う」）。端末の通行証だけ（OAuth の通行証では受けない）。
+            POST /api/sea/create {id?, name, color}     共有の海を作る（作った人が owner）
+                 /api/sea/update {sea, name?, color?}  名前・色（owner）
+                 /api/sea/remove {sea}                 消す（owner。一覧に消した印を付け、仲間を外す。記録の置き場は残す）
+                 /api/sea/role   {sea, user, role}     仲間の役割を editor / viewer に（owner）
+                 /api/sea/kick   {sea, user}           仲間を外す（owner）
+                 /api/sea/transfer {sea, user}         持ち主を渡す（owner。渡した人は editor になる）
+                 /api/sea/leave  {sea}                 海を出る（owner は、ほかの仲間がいれば先に渡す。いなければ消す）
+            答えは GET /api/me と同じ形（入れる海と仲間）。断りは 403 scope・404 sea・409 {error, message}"""
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            info = self.session()
+            if not info:
+                return self.deny('sea-admin')
+            body = self.read_json()
+            if body is None:
+                return
+            pk, sl, uid = cfg.passkeys, cfg.sea_list, info['user']
+            if sl is None:
+                return self.send_json(404, {'error': 'not found'})
+            op = path[len('/api/sea/'):]
+            now = int(time.time() * 1000)
+            rows = {r['id']: r for r in sl.read()}
+
+            def put(e):
+                cur = rows.get(e['id'])
+                e['at'] = max(now, (cur['at'] + 1) if cur else 0)
+                sl.merge([e])
+
+            def answer():
+                fresh = pk.session_info(self.bearer()) or info
+                return self.send_json(200, me_of(pk, sl, fresh))
+
+            def conflict(err, msg):
+                return self.send_json(409, {'error': err, 'message': msg})
+
+            if op == 'create':
+                name = clean_name(body.get('name'))[:16]
+                color = str(body.get('color') or 'magma')
+                if not name:
+                    return conflict('name', '海の名前を入れる')
+                if color not in SEA_COLORS:
+                    return conflict('color', '色は ' + '・'.join(SEA_COLORS))
+                sid = str(body.get('id') or '')
+                if sid:
+                    if not valid_space(sid) or sid in ('me', 'share'):
+                        return conflict('id', '海の ID が違う')
+                    if (sid in rows and rows[sid].get('alive', 1)) or pk.members_of(sid):
+                        return conflict('taken', 'この ID の海はもうサーバーにある')
+                else:
+                    sid = new_sea_id(now)
+                    while sid in rows:
+                        sid = new_sea_id(now)
+                put({'id': sid, 'name': name, 'color': color, 'alive': 1})
+                pk.set_member(sid, uid, 'owner')
+                log_event('sea-created', self.ip(), f'sea={sid}')
+                return answer()
+            sea = str(body.get('sea') or '')
+            role = info['roles'].get(sea) if sea != 'me' else None
+            if not role or (sea not in rows and sea != 'share'):
+                return self.send_json(404, {'error': 'sea'})
+            others = [m for m in pk.members_of(sea) if m['user'] != uid]
+            if op == 'leave':
+                if role == 'owner':
+                    if others:
+                        return conflict('owner', '持ち主は、ほかの仲間に持ち主を渡してから出る')
+                    return conflict('last', 'ほかに仲間がいない。出るなら、この海を消す')
+                pk.remove_member(sea, uid)
+                log_event('sea-left', self.ip(), f'sea={sea}')
+                return answer()
+            if role != 'owner':
+                return self.send_json(403, {'error': 'scope', 'message': 'この海の持ち主だけができる'})
+            if op == 'update':
+                cur = dict(rows.get(sea) or {'id': sea, 'name': '共有', 'color': 'magma', 'alive': 1})
+                if 'name' in body:
+                    name = clean_name(body.get('name'))[:16]
+                    if not name:
+                        return conflict('name', '海の名前を入れる')
+                    cur['name'] = name
+                if 'color' in body:
+                    if body.get('color') not in SEA_COLORS:
+                        return conflict('color', '色は ' + '・'.join(SEA_COLORS))
+                    cur['color'] = body['color']
+                put({'id': sea, 'name': cur['name'], 'color': cur['color'], 'alive': 1})
+                return answer()
+            if op == 'remove':
+                cur = rows.get(sea) or {'id': sea, 'name': '共有', 'color': 'magma'}
+                put({'id': sea, 'name': cur['name'], 'color': cur['color'], 'alive': 0})
+                for m in pk.members_of(sea):
+                    pk.remove_member(sea, m['user'])
+                log_event('sea-removed', self.ip(), f'sea={sea}')
+                return answer()
+            target = str(body.get('user') or '')
+            if target == uid or not any(m['user'] == target for m in others):
+                return conflict('user', 'この海の、ほかの仲間を選ぶ')
+            if op == 'role':
+                if body.get('role') not in ('editor', 'viewer'):
+                    return conflict('role', '役割は editor（書ける）か viewer（見るだけ）。持ち主は「持ち主を渡す」で')
+                pk.set_member(sea, target, body['role'])
+                return answer()
+            if op == 'kick':
+                pk.remove_member(sea, target)
+                log_event('sea-kicked', self.ip(), f'sea={sea}')
+                return answer()
+            if op == 'transfer':
+                pk.set_member(sea, target, 'owner')
+                pk.set_member(sea, uid, 'editor')
+                log_event('sea-transferred', self.ip(), f'sea={sea}')
+                return answer()
+            return self.send_json(404, {'error': 'not found'})
 
         def check_assertion(self, cred):
             """パスキーの署名を確かめる（/api/passkey/login と /oauth/approve で同じ）。
@@ -1131,6 +1251,8 @@ def make_handler(spaces, cfg: Config = None):
                 return self.mcp() if path == '/mcp' else self.oauth_post(path)
             if path == '/api/spaces':
                 return self.seas()
+            if cfg.auth == 'passkey' and path.startswith('/api/sea/'):
+                return self.sea_admin(path)
             if cfg.auth != 'passkey' or not path.startswith('/api/passkey/'):
                 return self.send_json(404, {'error': 'not found'})
             if cfg.guard.auth_blocked(self.ip()):
@@ -1279,6 +1401,26 @@ def make_handler(spaces, cfg: Config = None):
                         return self.deny('invite-accept')
                     log_event('invite-accepted', self.ip())
                     return self.send_json(200, dict(self.who_am_i(self.bearer()), joined=[s for s, _ in seas]))
+                if path in ('/api/passkey/devices', '/api/passkey/devices/remove'):
+                    # わたしの端末（2026-11-18。モック 3）。自分のパスキーの一覧と、外す。今の端末は confirm が要る
+                    info = self.session()
+                    if not info:
+                        return self.deny('devices')
+                    mine = [r for r in pk.passkeys() if r.get('user') == info['user']]
+                    if path.endswith('/remove'):
+                        name = str(body.get('name') or '')
+                        row = next((r for r in mine if r['name'] == name), None)
+                        if not row:
+                            return self.send_json(404, {'error': 'device'})
+                        if row['id'] == info['cred_id'] and body.get('confirm') is not True:
+                            return self.send_json(409, {'error': 'current', 'message': 'いま使っている端末。外すとこの端末はログアウトする'})
+                        pk.remove_passkey(name)
+                        cfg.devices.leave(row['id'])
+                        log_event('device-removed', self.ip())
+                        mine = [r for r in pk.passkeys() if r.get('user') == info['user']]
+                    return self.send_json(200, {'devices': [
+                        {'name': r['name'], 'created': r.get('created'), 'last_used': r.get('last_used'),
+                         'current': r['id'] == info['cred_id']} for r in mine]})
                 if path == '/api/passkey/device':
                     # 端末を足す番号（2026-11-18。10 分・1 回）。ログインしている端末が出し、新しい端末が入れる
                     info = self.session()
@@ -1635,6 +1777,18 @@ def oauth_command(data_dir: Path, cmd: str, name: str) -> int:
 
 
 SEA_COLORS = ('magma', 'moss', 'dusk', 'sand', 'ink')   # js/spacelist.js の COLORS
+
+
+def new_sea_id(now_ms=None) -> str:
+    """新しい海の ID（js/spacelist.js の newId と同じ形: s ＋ 時刻の 36 進 ＋ 4 字）"""
+    import string
+    n = int(now_ms if now_ms is not None else time.time() * 1000)
+    d = string.digits + string.ascii_lowercase
+    out = ''
+    while n:
+        n, r = divmod(n, 36)
+        out = d[r] + out
+    return 's' + (out or '0') + ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(4))
 
 
 def sea_command(data_dir: Path, args) -> int:

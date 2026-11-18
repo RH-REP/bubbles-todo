@@ -47,6 +47,8 @@ import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js'
 /* この端末の表示（Issue #36）。起動時の画面・タブの並び・body の印（pref-wind・pref-hide-tags） */
 import { loadPrefs, PREFS_EVENT } from './prefs.js';
 import { actorFor, fetchMe, seaMembers, myRole, userName, initialOf, meInfo } from './me.js';
+import { moveTargets, openMoveSea } from './movesea.js';
+import { sync } from './sync.js';
 
 /* 招待のリンク（https://<サーバー>/#invite=<コード>。2026-11-18）。コードを預けて設定の「海」を開く。
    使うのは js/screens/seapanel.js（ログインしていれば「この海に入る」、していなければ登録）。サーバーへは送らない（# の後ろ） */
@@ -734,7 +736,11 @@ function whoMark(item) {
   if (!item.assignee) return null;
   return { text: initialOf(item.assignee), mine, label: '担当: ' + (userName(item.assignee) || '?') };
 }
-fetchMe().then(j => { if (j && typeof store.notify === 'function') store.notify(); });
+fetchMe().then(j => {
+  if (!j) return;
+  if (typeof sync.relock === 'function') sync.relock();     /* 見るだけの海なら読むだけに（役割が変わったときも） */
+  if (typeof store.notify === 'function') store.notify();
+});
 
 setCenterHandler({
   firstStep:    (id) => (has('firstStepOf') ? store.firstStepOf(id) : ''),
@@ -850,6 +856,13 @@ setCenterHandler({
   setAssignee:  (id, uid) => (has('setAssignee') ? store.setAssignee(id, uid) : false),
   userName:     (uid) => userName(uid),
   whoMark:      (item) => whoMark(item),
+  /* 海を移す（2026-11-18。モック 6）。長押しのメニューの［海を移す…］ */
+  moveTargets:  (id) => moveTargets(id),
+  openMoveSea:  (id) => openMoveSea(id),
+  /* 読むだけ（見るだけの海・招かれた海で合わせられていない間）。盤とメニューを押せなくする */
+  readOnly:     () => (has('readOnly') ? store.readOnly() : false),
+  readOnlyWhy:  () => (myRole(store.space()) === 'viewer' ? '見るだけの海なので、変えられない（役割は持ち主が変える）'
+    : '繋がると書ける（いまは最後に見たものを出している）'),
   /* お気に入りの印（F7）。盤の ☆ が読み書きする。無ければ盤は ☆ を出さない */
   isFav:        (id) => (has('isFav') ? store.isFav(id) : false),
   setFav:       (id, on) => (has('setFav') ? store.setFav(id, on) : false),

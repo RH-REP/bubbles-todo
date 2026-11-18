@@ -107,13 +107,19 @@ try {
     assert.match(yukiId, /^u_[0-9a-f]{8}$/);
   });
 
-  await step('VM で共有の海を作ってゆきを持ち主にすると、海の ⚙ に仲間の一覧と［リンクを作る］が出る', async () => {
-    cli('sea-add', '家族の買い物', '--sea-id', 'sfam01', '--color', 'sand');
-    cli('member-set', 'sfam01', yukiId, 'owner');
-    await yuki.go(origin + '/');
-    await yuki.until(`return !!document.querySelector('.gearbtn')`);
-    await yuki.js(`const g = document.querySelector('.gearbtn'); if (!g.classList.contains('is-open')) g.click();`);
-    await yuki.until(`return [...document.querySelectorAll('.sp-sea')].some(r => /家族の買い物/.test(r.textContent))`);
+  let SEA = '';
+  await step('ゆき: app から共有の海を作ると持ち主になり、帯に 👥 と右上に名前の丸、⚙ に仲間と［リンクを作る］が出る', async () => {
+    await yuki.until(`return !!document.querySelector('.sea-panel input[aria-label="新しい海の名前"]')`);
+    await yuki.js(`const f = document.querySelector('.sea-panel input[aria-label="新しい海の名前"]').closest('form');
+      f.querySelector('input[aria-label="新しい海の名前"]').value = '家族の買い物';
+      f.querySelector('input[aria-label="共有の海にする"]').checked = true; f.requestSubmit();`);
+    await yuki.until(`return [...document.querySelectorAll('.sp-sea')].some(r => /家族の買い物/.test(r.textContent) && /サーバー/.test(r.textContent))`);
+    const seas = JSON.parse(readFileSync(join(data, 'seas.json'), 'utf8'));
+    SEA = seas.find(s => s.name === '家族の買い物').id;
+    const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
+    assert.deepEqual(m.filter(x => x.sea === SEA).map(x => [x.user, x.role]), [[yukiId, 'owner']], '作った人が持ち主');
+    await yuki.until(`return [...document.querySelectorAll('.space-seg button')].some(b => b.textContent === '👥 家族の買い物')`);
+    assert.equal(await yuki.js(`return document.querySelector('.space-me').textContent + '|' + document.querySelector('.space-me').title`), 'ゆ|ゆき でログイン中');
     await yuki.js(`[...document.querySelectorAll('.sp-sea')].find(r => /家族の買い物/.test(r.textContent)).querySelector('.sp-gear').click();`);
     await yuki.until(`return /ゆき（あなた）\\s*持ち主/.test(document.querySelector('.sp-members')?.textContent || '')`);
     await yuki.js(`const i = document.querySelector('input[aria-label="招く人の呼び名"]'); i.value = 'りょう'; i.closest('form').requestSubmit();`);
@@ -132,28 +138,28 @@ try {
     const users = JSON.parse(readFileSync(join(data, 'users.json'), 'utf8'));
     ryoId = users.find(u => u.name === 'りょう').id;
     const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
-    assert.deepEqual(m.filter(x => x.sea === 'sfam01').map(x => [x.user, x.role]).sort(), [[ryoId, 'editor'], [yukiId, 'owner']].sort());
+    assert.deepEqual(m.filter(x => x.sea === SEA).map(x => [x.user, x.role]).sort(), [[ryoId, 'editor'], [yukiId, 'owner']].sort());
     assert.equal(await ryo.js(`return !!document.querySelector('.sp-link')`), false, '使った招待は消える');
   });
 
   await step('りょう: 家族の買い物に泡を足すと、サーバーの記録に足した人が入る', async () => {
     await ryo.until(`return [...document.querySelectorAll('.sp-sea')].some(r => /家族の買い物/.test(r.textContent))`);
-    await ryo.js(`localStorage.setItem('bubble_todo_space', 'sfam01'); location.reload();`);
+    await ryo.js(`localStorage.setItem('bubble_todo_space', '${SEA}'); location.reload();`);
     await sleep(1500);
-    await ryo.until(`return (await import('/js/store.js')).store.space() === 'sfam01'`);
+    await ryo.until(`return (await import('/js/store.js')).store.space() === '${SEA}'`);
     await ryo.until(`return !!(await import('/js/me.js')).meInfo()`);
     await ryo.js(`(await import('/js/store.js')).store.add('牛乳');`);
-    const f = join(data, 'seas', 'sfam01', 'state.json');
+    const f = join(data, 'seas', SEA, 'state.json');
     for (let i = 0; i < 80 && !(existsSync(f) && readFileSync(f, 'utf8').includes('牛乳')); i++) await sleep(100);
     const t = JSON.parse(readFileSync(f, 'utf8')).data.doc.todos.find(x => x.text === '牛乳');
     assert.equal(t.added_by, ryoId);
   });
 
   await step('ゆき: 担当をりょうにすると泡に「り」の丸が出て、盤に担当の欄が出る', async () => {
-    await yuki.js(`localStorage.setItem('bubble_todo_space', 'sfam01'); location.reload();`);
+    await yuki.js(`localStorage.setItem('bubble_todo_space', '${SEA}'); location.reload();`);
     await sleep(1500);
     await yuki.until(`return (await import('/js/store.js')).store.all().some(t => t.text === '牛乳')`, 15000);
-    await yuki.until(`return !!(await import('/js/me.js')).seaMembers('sfam01')`);
+    await yuki.until(`return !!(await import('/js/me.js')).seaMembers('${SEA}')`);
     await yuki.js(`const { store } = await import('/js/store.js'); const t = store.all().find(x => x.text === '牛乳');
       store.setAssignee(t.id, ${JSON.stringify(ryoId)});`);
     await yuki.until(`return [...document.querySelectorAll('.bub .who')].some(w => !w.hidden && w.textContent === 'り')`);
@@ -162,6 +168,69 @@ try {
     await yuki.until(`return !!document.querySelector('.bc-who select')`);
     assert.equal(await yuki.js(`return document.querySelector('.bc-who select').value`), ryoId);
     assert.match(await yuki.js(`return document.querySelector('.bc-who').textContent`), /足した: りょう/);
+  });
+
+  await step('ゆき: りょうを見るだけにすると、りょうの画面では書けず、盤とメニューが押せない', async () => {
+    await yuki.js(`document.querySelector('.bub-center') && document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      const g = document.querySelector('.gearbtn'); if (!g.classList.contains('is-open')) g.click();`);
+    await yuki.until(`return [...document.querySelectorAll('.sp-sea')].some(r => /家族の買い物/.test(r.textContent))`);
+    await yuki.js(`const r = [...document.querySelectorAll('.sp-sea')].find(r => /家族の買い物/.test(r.textContent));
+      if (!document.querySelector('.sp-members')) r.querySelector('.sp-gear').click();`);
+    await yuki.until(`return !!document.querySelector('select[aria-label="りょう の役割"]')`);
+    await yuki.js(`const s = document.querySelector('select[aria-label="りょう の役割"]'); s.value = 'viewer'; s.dispatchEvent(new Event('change'));`);
+    for (let i = 0; i < 50; i++) {
+      const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
+      if (m.some(x => x.sea === SEA && x.user === ryoId && x.role === 'viewer')) break;
+      await sleep(100);
+    }
+    await ryo.js(`location.reload();`);
+    await sleep(1500);
+    await ryo.until(`return (await import('/js/store.js')).store.readOnly() === true`);
+    assert.equal(await ryo.js(`return (await import('/js/store.js')).store.add('書けないはず')`), null);
+    await ryo.until(`return [...document.querySelectorAll('input')].some(i => i.placeholder === '見るだけの海' && i.disabled)`);
+    await ryo.js(`const n = [...document.querySelectorAll('.bub')].find(b => /牛乳/.test(b.textContent));
+      (await import('/js/bubble.js')).centerBubble(n);`);
+    await ryo.until(`return !!document.querySelector('.bub-center .bc-readonly')`);
+    assert.equal(await ryo.js(`return [...document.querySelectorAll('.bub-center button')].every(b => b.disabled)`), true);
+  });
+
+  await step('ゆき: 泡を個人の海へ移すとき、りょうの画面から消えることを出し、移すと共有の海から消える', async () => {
+    const id = await yuki.js(`return (await import('/js/store.js')).store.all().find(x => x.text === '牛乳').id`);
+    await yuki.js(`(await import('/js/movesea.js')).openMoveSea(${JSON.stringify(id)});`);
+    await yuki.until(`return [...document.querySelectorAll('.move-sheet .move-to')].length > 0`);
+    const targets = await yuki.js(`return [...document.querySelectorAll('.move-sheet .move-to')].map(b => b.textContent)`);
+    assert.ok(targets.length >= 1, '移せる海がある: ' + targets);
+    await yuki.js(`[...document.querySelectorAll('.move-sheet .move-to')][0].click();`);
+    await yuki.until(`return [...document.querySelectorAll('.move-sheet .move-note')].some(p => /りょう の画面から消えます/.test(p.textContent))`);
+    await yuki.js(`[...document.querySelectorAll('.move-sheet button')].find(b => b.textContent === '移す').click();`);
+    await yuki.until(`return !(await import('/js/store.js')).store.all().some(x => x.text === '牛乳')`);
+    const f = join(data, 'seas', SEA, 'state.json');
+    for (let i = 0; i < 80; i++) {
+      const t = JSON.parse(readFileSync(f, 'utf8')).data.doc.todos.find(x => x.text === '牛乳');
+      if (t && t.trashed) break;
+      await sleep(100);
+    }
+    assert.equal(JSON.parse(readFileSync(f, 'utf8')).data.doc.todos.find(x => x.text === '牛乳').trashed, true, '共有の海では消えた印');
+  });
+
+  await step('わたしの端末の一覧に「この端末」が出て、りょうは海を出られる', async () => {
+    await yuki.js(`const g = document.querySelector('.gearbtn'); if (!g.classList.contains('is-open')) g.click();`);
+    await yuki.until(`return /iPhone（この端末）/.test(document.querySelector('.sp-devices')?.textContent || '')`);
+    await ryo.js(`const g = document.querySelector('.gearbtn'); if (!g.classList.contains('is-open')) g.click();`);
+    await ryo.until(`return [...document.querySelectorAll('.sp-sea')].some(r => /家族の買い物/.test(r.textContent))`);
+    await ryo.js(`[...document.querySelectorAll('.sp-sea')].find(r => /家族の買い物/.test(r.textContent)).querySelector('.sp-gear').click();`);
+    await ryo.until(`return !!${button('この海を出る')}`);
+    assert.equal(await ryo.js(`return !!document.querySelector('select[aria-label="りょう の役割"]') || !!${button('この海を消す')}`), false,
+      '持ち主でない人には役割・消すが出ない');
+    await ryo.js(`${button('この海を出る')}.click();`);
+    await ryo.js(`${button('もう一度押すと出る')}.click();`);
+    for (let i = 0; i < 50; i++) {
+      const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
+      if (!m.some(x => x.sea === SEA && x.user === ryoId)) break;
+      await sleep(100);
+    }
+    const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
+    assert.deepEqual(m.filter(x => x.sea === SEA).map(x => x.user), [yukiId]);
   });
 
   await step('CSP に止められた読み込みや、画面のエラーが無い', async () => {

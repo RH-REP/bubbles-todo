@@ -1689,3 +1689,7 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
   border: 1px solid var(--line-strong); background: transparent; color: var(--text);
 }
 .bh-edit-box .ok { border-color: var(--bub-edge); background: var(--surface); }
+
+/* 見るだけの海の盤（2026-11-18） */
+.bub-center .bc-readonly { margin: 0 0 6px; font-size: 12.5px; color: var(--text-2); }
+.bub-center.is-readonly button:disabled, .bub-center.is-readonly input:disabled, .bub-center.is-readonly textarea:disabled { opacity: .55; }

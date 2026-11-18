@@ -2042,6 +2042,37 @@ export const store = {
     persist(); emit();
     return true;
   },
+  /* 泡を別の海へ移す（2026-11-18。モック 6「移すとき」）。移す先の海の箱（localStorage）に写しを入れて印を付け、
+     この海では消した印（墓石）にする（仲間の画面からも消える）。移す先の海は、開いたときにサーバーと合わせる。
+     タグ・アンカー・枠は海ごとのものなので外す（移す先には無い）。担当・足した人・終えた人は残す。
+     -> 移したか（id が無い・同じ海・箱に書けない なら false） */
+  moveOut(id, target) {
+    const t = store.get(id);
+    if (!t || !target || target === SPACE) return false;
+    const key = boxKey(target);
+    if (!key || key === KEY) return false;
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { raw = null; }
+    const doc = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? Object.assign({}, raw) : {};
+    const st = (doc.stamps && typeof doc.stamps === 'object') ? Object.assign({}, doc.stamps) : {};
+    delete doc.stamps;
+    if (!Array.isArray(doc.todos)) doc.todos = [];
+    const prev = new Map();
+    recordsOf(doc).forEach((v, k) => prev.set(k, JSON.stringify(v)));
+    const copy = JSON.parse(JSON.stringify(t));
+    delete copy.today;
+    Object.assign(copy, { tags: [], anchors: [], anchorAt: {}, gapSlots: [], gapAt: {}, slots: [], gap: false, plan: false });
+    delete copy.project;
+    doc.todos = doc.todos.filter(x => !(x && x.id === copy.id));
+    doc.todos.push(copy);
+    stampChanges(prev, doc, st, Date.now());
+    try { localStorage.setItem(key, JSON.stringify(Object.assign({}, doc, { stamps: st }))); } catch (e) { return false; }
+    t.trashed = true;
+    t.trashedAt = Date.now();
+    persist(); emit();
+    return true;
+  },
+
   /* {assignee, added_by, done_by}（無い欄は null） */
   whoOf(id) {
     const t = findAny(id);
@@ -3461,7 +3492,7 @@ export const store = {
    口を足したらここにも足す（tests/sync.test.mjs が、persist() を呼ぶ口の漏れを見る） */
 export const WRITE_METHODS = [
   'add', 'remove', 'untrash', 'complete', 'uncomplete', 'restore', 'setDay', 'setToday', 'setHold', 'setHoldUntil',
-  'setFav', 'setAssignee', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
+  'setFav', 'setAssignee', 'moveOut', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
