@@ -125,9 +125,11 @@ try {
   });
 
   await step('招待コードで登録すると、この端末の個人の泡はサーバーの個人へ合わさり、個人は 1 つ（2026-11-18）', async () => {
-    await js(`const i = document.querySelector('.sea-panel input[aria-label="招待コード"]'); i.value = ${JSON.stringify(invite)};
+    await js(`window.__beforeLogin = 1; const i = document.querySelector('.sea-panel input[aria-label="招待コード"]'); i.value = ${JSON.stringify(invite)};
       i.closest('form').requestSubmit();`);
-    await sleep(2500);
+    /* 合わせたら画面を読み直す。読み直しを待ってから次の手を打つ */
+    await until(`return window.__beforeLogin !== 1 && document.readyState === 'complete'`, 15000).catch(() => {});
+    await sleep(500);
     await until(`return !!(await import('/js/me.js')).meInfo()`, 15000);
     const creds = (await send('WebAuthn.getCredentials', { authenticatorId })).result.credentials;
     assert.equal(creds.length, 1, '仮のパスキーの置き場に1つ入った');
@@ -197,6 +199,30 @@ try {
     assert.match(s, /この端末で直した/);
   });
 
+  await step('bubble にログイン済みなら、gantt の「bubble でログイン」はパスキーの操作なしで戻る（取り決め §7.2。2026-11-18）', async () => {
+    const seen = [];
+    const onMsg = e => { const d = JSON.parse(e.data); if (d.method === 'Network.requestWillBeSent') seen.push(d.params.request.url); };
+    ws.addEventListener('message', onMsg);
+    await send('Network.enable');
+    const q = new URLSearchParams({ response_type: 'code', client_id: 'gantt', redirect_uri: 'http://127.0.0.1:8766/auth/callback',
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256', state: 'e2e' });
+    const mark = serverLog.length;
+    await send('Page.navigate', { url: origin + '/oauth/authorize?' + q });
+    for (let i = 0; i < 80 && !seen.some(u => u.startsWith('http://127.0.0.1:8766/auth/callback?')); i++) await sleep(100);
+    ws.removeEventListener('message', onMsg);
+    await send('Network.disable');
+    const back = seen.find(u => u.startsWith('http://127.0.0.1:8766/auth/callback?'));
+    assert.ok(back, 'gantt の戻る先へ移った: ' + seen.slice(-3).join(' '));
+    const bq = new URL(back).searchParams;
+    assert.ok(bq.get('code') && bq.get('state') === 'e2e', 'code と state が付く');
+    const log = serverLog.slice(mark);
+    assert.match(log, /oauth-approved ip=\S+ session/, '端末の通行証で許した');
+    assert.ok(!seen.some(u => /\/api\/passkey\/login\/options/.test(u)), 'パスキーの問題を取りに行っていない（パスキーの操作なし）');
+    assert.doesNotMatch(log, /auth-fail/, '失敗も無い');
+    await send('Page.navigate', { url: origin + '/' });
+    await until(`return !!document.querySelector('.userbtn')`, 15000);
+  });
+
   await step('ログアウトしたあと、パスキーでログインし直せる（Face ID のつもりの確かめつき）', async () => {
     await openSettings();
     await js(`${button('ログアウト')}.click();`);
@@ -213,8 +239,10 @@ try {
     await until(`return !!${button('サーバーにログイン')}`);
     await js(`${button('サーバーにログイン')}.click();`);
     await until(`return !!${button('パスキーでログイン')}`);
-    await js(`${button('パスキーでログイン')}.click();`);
-    await sleep(1500);
+    await js(`window.__beforeLogin = 1; ${button('パスキーでログイン')}.click();`);
+    /* ログインのあと画面を読み直すことがある（2026-11-18）。読み直しの途中で次の手を打たないよう、読み直しを待つ */
+    for (let i = 0; i < 40 && await js(`return window.__beforeLogin === 1`).catch(() => false); i++) await sleep(100);
+    await until(`return document.readyState === 'complete' && /でログイン中/.test(document.querySelector('.userbtn')?.title || '')`, 15000);
     await until(`return (await import('/js/sync.js')).sync.config().passkey?.name === '自分のスマホ'`);
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
     const f = join(data, 'state.json');

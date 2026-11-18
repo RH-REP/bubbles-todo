@@ -1,5 +1,6 @@
 /* claude.ai の接続の許可の画面（2026-11-17。server.py の GET /oauth/authorize が出す画面の動き）。
    「パスキーでログインして許可」: 持ち主のパスキーで署名し、/oauth/approve へ送る。通れば戻る先（claude.ai）へ移る。
+   前もって登録した相手（gantt・diary。data-pre）は、この端末で bubble にログイン済みなら、開いてすぐ通行証で許して戻る（2026-11-18）。
    「断る」: /oauth/deny へ送り、戻る先へ「断った」を持って移る。
    画面の中の文（相手の名前・戻る先）はサーバーが書く。ここは押したときの動きだけ（CSP で中に書いたスクリプトは動かないため）。
    js/passkey.js を読み込まない: service worker は passkey.js を箱に入れており、前の版に戻している間（rollback）は
@@ -59,10 +60,10 @@ const WHY = {
   429: '失敗が続いたので、しばらく待ってからにする',
 };
 
-async function send(path, body) {
-  const res = await fetch(path, {
-    method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
+async function send(path, body, session) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (session) headers.Authorization = 'Bearer ' + session;
+  const res = await fetch(path, { method: 'POST', cache: 'no-store', headers, body: JSON.stringify(body) });
   let json = null;
   try { json = await res.json(); } catch (e) { /* 中身が無い */ }
   if (res.status !== 200 || !json || typeof json.redirect !== 'string') {
@@ -77,8 +78,37 @@ function busy(on, text) {
   msg.textContent = text || '';
 }
 
+/* この端末の bubble のログイン（端末の通行証）。同じ住所のサーバーに向けた、期限内のものだけ（js/sync.js の
+   bubble_todo_sync・bubble_todo_sync_<繋ぎ先> の箱。sessionExpires は秒）。無ければ '' */
+function deviceSession() {
+  const now = Date.now();
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !/^bubble_todo_sync(_[\w.-]+)?$/.test(k)) continue;
+      let o = null;
+      try { o = JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { o = null; }
+      if (!o || typeof o !== 'object' || typeof o.session !== 'string' || !o.session) continue;
+      if (!(Number(o.sessionExpires) * 1000 > now)) continue;
+      let origin = '';
+      try { origin = new URL(String(o.url || '')).origin; } catch (e) { origin = ''; }
+      if (origin === location.origin) return o.session;
+    }
+  } catch (e) { /* 読めなければパスキーで */ }
+  return '';
+}
+
 if (box && ok && no) {
   const request = box.dataset.request;
+  /* 前もって登録した相手（gantt・diary）で、この端末が bubble にログイン済みなら、パスキーの操作なしで戻る
+     （2026-11-18 取り決め §7.2）。通らなければ（切れた・取り消した）今までどおりパスキーのボタンで */
+  const session = box.dataset.pre === '1' ? deviceSession() : '';
+  if (session) {
+    busy(true, 'bubble のログインで戻る…');
+    send('/oauth/approve', { request, session: true }, session)
+      .then(url => location.assign(url))
+      .catch(() => busy(false, 'この端末のログインが切れていた。パスキーでログインする'));
+  }
   ok.addEventListener('click', async () => {
     busy(true, '');
     try {

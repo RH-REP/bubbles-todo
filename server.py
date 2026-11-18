@@ -102,7 +102,8 @@ claude.ai の接続（2026-11-17。OAuth 2.1。oauth_server.py。パスキーの
     GET  /.well-known/oauth-authorization-server   許可のサーバーの案内（RFC 8414）
     GET  /.well-known/oauth-protected-resource[/mcp] /mcp の案内（RFC 9728）
     GET  /oauth/authorize    許可の画面（相手の名乗り＝client_id の住所の JSON を確かめてから出す。PKCE S256 だけ）
-    POST /oauth/approve {request, credential} 持ち主のパスキーで許す → {redirect}   POST /oauth/deny {request} → {redirect}
+    POST /oauth/approve {request, credential} 持ち主のパスキーで許す → {redirect}
+                             {request, session: true}＋Authorization: Bearer <端末の通行証> 前もって登録した相手（gantt・diary）だけ。パスキーの操作なしで許す（2026-11-18）   POST /oauth/deny {request} → {redirect}
     POST /oauth/token        code・更新の札 → 通行証（ba_…・1 時間）と更新の札（bf_…・30 日。使うたびに替わる）
     POST /mcp                Authorization: Bearer ba_…（まだ道具は無い。JSON-RPC の断りを返す）
     相手の住所の名前は --oauth-client-host（何度でも。環境変数 BUBBLE_TODO_OAUTH_CLIENT_HOSTS。既定 claude.ai）
@@ -1067,8 +1068,28 @@ def make_handler(spaces, cfg: Config = None):
                     return self.send_json(400, {'error': 'expired'})
                 log_event('oauth-denied', self.ip())
                 return self.send_json(200, {'redirect': url})
-            if not cfg.oauth.peek(rid):
+            pend = cfg.oauth.peek(rid)
+            if not pend:
                 return self.send_json(400, {'error': 'expired'})
+            # 前もって登録した相手（gantt・diary）だけは、この端末のログイン（端末の通行証。Authorization: Bearer）で許せる
+            # （2026-11-18 ユーザーの指示「直して」。取り決め §7.2「bubble でログイン済みならパスキーの操作なしで戻る」）。
+            # 秘書（claude.ai などの名乗りの相手）は今までどおりパスキーの署名だけ。通行証が切れていれば 401（画面はパスキーへ戻る）
+            if body.get('session') is True:
+                if not pend.get('pre'):
+                    log_event('oauth-session-not-pre', self.ip())
+                    return self.send_json(403, {'error': 'passkey required'})
+                info = cfg.passkeys.session_info(self.bearer())
+                if not info:
+                    return self.deny('oauth-session')
+                row = cfg.passkeys.find_passkey(info.get('cred_id'))
+                user = cfg.passkeys.find_user(info.get('user'))
+                if not row or not user:
+                    return self.deny('oauth-session')
+                url = cfg.oauth.approve(rid, row, user)
+                if not url:
+                    return self.send_json(400, {'error': 'expired'})
+                log_event('oauth-approved', self.ip(), 'session')
+                return self.send_json(200, {'redirect': url})
             try:
                 row = self.check_assertion(body.get('credential') or {})
             except (pc.VerifyError, ValueError, KeyError, TypeError, AttributeError) as e:

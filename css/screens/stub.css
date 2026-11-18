@@ -127,6 +127,14 @@
   background: var(--surface); color: var(--text);
 }
 .stub .tagadd input::placeholder { color: var(--text-2); }
+/* 登録の欄（設定の「海」の「初めての端末」「自分の 2 台目の端末」。2026-11-18「登録の欄が窮屈」）。
+   欄を縦に並べ、欄ごとに名前を上に出す（430px の列で 3 つ並べると入れた字が切れたため） */
+.stub .tagadd.sp-reg { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 16px; }
+.stub .sp-reg .sp-field { display: flex; flex-direction: column; gap: 4px; }
+.stub .sp-reg .sp-field > span { font-size: 13px; font-weight: 600; color: var(--text-2); padding-left: 4px; }
+.stub .sp-reg .sp-field > small { font-size: 12px; color: var(--text-2); padding-left: 4px; }
+.stub .sp-reg input { flex: none; width: 100%; }
+.stub .sp-reg > .btn { align-self: flex-start; }
 
 /* 色の点は白地の上だと輪郭が消える（明テーマで 1.68:1）。細い縁を入れて形を保つ */
 .stub .tagdot { box-shadow: inset 0 0 0 1px var(--line-strong); }

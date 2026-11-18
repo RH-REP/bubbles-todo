@@ -90,6 +90,7 @@ export function seaPanel(opts = {}) {
   let pollTimer = 0;
   let pendingInvite = readLink();   /* 招待のリンクのコードか、「招待コードを受け取る」に貼られたサーバーの招待コード（fillInvite） */
   let linkInfo = null;              /* 招待の中身（peekInvite。だれから・どの海へ） */
+  let leaveArmed = null;            /* 「この海を出る」を 1 度押した海の ID */
   let deviceShown = null;           /* 「端末を足す」で出した番号 {code, expires} */
   if (pendingInvite) loginOpen = true;
 
@@ -255,9 +256,11 @@ export function seaPanel(opts = {}) {
     }
     const b = btn(owner ? '持ち主を渡して出る' : 'この海を出る');
     b.dataset.name = '海を出るボタン';
-    let armed = false;
+    /* 1 度押した印は箱の外に持つ（同期で描き直しても、2 度目の押しが 1 度目に戻らないように。2026-11-18） */
+    if (leaveArmed === s.id) b.textContent = 'もう一度押すと出る';
     b.addEventListener('click', async () => {
-      if (!armed) { armed = true; b.textContent = 'もう一度押すと出る'; return; }
+      if (leaveArmed !== s.id) { leaveArmed = s.id; b.textContent = 'もう一度押すと出る'; return; }
+      leaveArmed = null;
       b.disabled = true;
       try {
         if (owner) await seaOp('transfer', { sea: s.id, user: pick.value });
@@ -374,6 +377,18 @@ export function seaPanel(opts = {}) {
     return w;
   }
 
+  /* 登録の欄 1 つ: 名前を上に、欄を下に（2026-11-18「登録の欄が窮屈」）。名前と添え書きは textContent */
+  function field(name, input, hint) {
+    const lb = document.createElement('label');
+    lb.className = 'sp-field';
+    const t = document.createElement('span');
+    t.textContent = name;
+    lb.appendChild(t);
+    lb.appendChild(input);
+    if (hint) { const h = document.createElement('small'); h.textContent = hint; lb.appendChild(h); }
+    return lb;
+  }
+
   /* 端末を足す（2026-11-18。モック 3）。ログイン中の端末で番号（10 分・1 回）を出し、新しい端末の［番号で足す］に入れる */
   function deviceBox(st) {
     const w = el('div', 'sp-invite');
@@ -388,7 +403,8 @@ export function seaPanel(opts = {}) {
       b.disabled = true;
       try {
         deviceShown = await makeDeviceCode(st.url, st.session);
-        paintCode();
+        /* 待っている間に同期で描き直していたら、この箱はもう画面に無い。描き直した箱は deviceShown を出すので、描き直す */
+        if (w.isConnected) paintCode(); else paint();
       } catch (e) { out.textContent = (e && e.message) || '番号を出せなかった'; }
       finally { b.disabled = false; }
     });
@@ -609,11 +625,12 @@ export function seaPanel(opts = {}) {
       rr.appendChild(drop);
       w.appendChild(rr);
     } else {
-      const f = el('form', 'tagadd');
+      const f = el('form', 'tagadd sp-reg');
       const nm = document.createElement('input');
-      nm.type = 'text'; nm.maxLength = 40; nm.placeholder = 'この端末の呼び名（例 自分のスマホ）'; nm.setAttribute('aria-label', 'この端末の呼び名');
+      nm.type = 'text'; nm.maxLength = 40; nm.placeholder = '例 自分のスマホ'; nm.setAttribute('aria-label', 'この端末の呼び名');
       const ask = el('button', 'btn'); ask.type = 'submit'; ask.textContent = '登録を頼む';
-      f.appendChild(nm); f.appendChild(ask);
+      f.appendChild(field('この端末の呼び名', nm, '招待コードが無いとき。持ち主が認めたら使える'));
+      f.appendChild(ask);
       f.addEventListener('submit', (ev) => {
         ev.preventDefault();
         const name = nm.value.trim();
@@ -626,8 +643,7 @@ export function seaPanel(opts = {}) {
       });
       w.appendChild(f);
       /* 招待コード（リンクで開いたときは入っている）。表示名はまだ利用者でない人のとき（新しい利用者の名前）。2026-11-18 */
-      const inv = el('form', 'tagadd');
-      inv.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+      const inv = el('form', 'tagadd sp-reg');
       const code = document.createElement('input');
       code.type = 'text'; code.autocomplete = 'off'; code.placeholder = '招待コード（ABCD-EFGH-JKLM）'; code.setAttribute('aria-label', '招待コード');
       code.value = pendingInvite;
@@ -640,7 +656,11 @@ export function seaPanel(opts = {}) {
       dname.dataset.name = '端末の呼び名の欄';
       const reg = el('button', 'btn'); reg.type = 'submit'; reg.textContent = '招待コードで登録';
       reg.dataset.name = 'パスキーを作るボタン';
-      inv.appendChild(code); inv.appendChild(uname); inv.appendChild(dname); inv.appendChild(reg);
+      code.placeholder = 'ABCD-EFGH-JKLM'; uname.placeholder = '例 りょう'; dname.placeholder = '例 iPhone';
+      inv.appendChild(field('招待コード', code));
+      inv.appendChild(field('表示名', uname, 'はじめての人だけ。ほかの人に見える名前'));
+      inv.appendChild(field('この端末の呼び名', dname, 'わたしの端末の一覧に出る'));
+      inv.appendChild(reg);
       inv.addEventListener('submit', (ev) => {
         ev.preventDefault();
         if (!code.value.trim()) { line.textContent = '招待コードを入れる'; return; }
@@ -654,14 +674,16 @@ export function seaPanel(opts = {}) {
       w.appendChild(inv);
       /* 2 台目からは「番号で足す」（ログイン中の端末の［＋ 端末を足す］で出した 6 桁。10 分・1 回） */
       w.appendChild(text('p', 'prefs-pages-lb', '自分の 2 台目の端末'));
-      const dev = el('form', 'tagadd');
-      dev.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+      const dev = el('form', 'tagadd sp-reg');
       const num = document.createElement('input');
       num.type = 'text'; num.inputMode = 'numeric'; num.autocomplete = 'one-time-code'; num.placeholder = '番号（6 桁）'; num.setAttribute('aria-label', 'つなぐ番号');
       const dn2 = document.createElement('input');
       dn2.type = 'text'; dn2.maxLength = 40; dn2.placeholder = 'この端末の呼び名（例 Mac）'; dn2.setAttribute('aria-label', 'この端末の呼び名（番号）');
       const add = el('button', 'btn'); add.type = 'submit'; add.textContent = '番号で足す';
-      dev.appendChild(num); dev.appendChild(dn2); dev.appendChild(add);
+      num.placeholder = '例 123456'; dn2.placeholder = '例 Mac';
+      dev.appendChild(field('番号（6 桁）', num, 'ログイン中の端末の［＋ 端末を足す］で出る'));
+      dev.appendChild(field('この端末の呼び名', dn2));
+      dev.appendChild(add);
       dev.addEventListener('submit', (ev) => {
         ev.preventDefault();
         const n = num.value.replace(/\D/g, '');

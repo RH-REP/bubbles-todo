@@ -488,6 +488,43 @@ class OAuthTest(unittest.TestCase):
         self.assertFalse(self.guard.auth_blocked('127.0.0.1'))
         self.assertNotIn('auth-fail', self.err.getvalue()[mark:], '期限切れは失敗に数えない')
 
+    def test_pre_registered_clients_accept_the_device_session(self):
+        """bubble でログイン済みの端末なら、gantt・diary へはパスキーの操作なしで戻る（2026-11-18 取り決め §7.2）。秘書は今までどおり"""
+        me = self.owner()
+        verifier, challenge = pkce()
+        q = {'response_type': 'code', 'client_id': 'gantt', 'redirect_uri': 'http://127.0.0.1:8766/auth/callback',
+             'code_challenge': challenge, 'code_challenge_method': 'S256', 'state': 's9'}
+        st, h, b = self.raw('GET', '/oauth/authorize?' + urlencode(q))
+        page = b.decode('utf-8')
+        self.assertIn('data-pre="1"', page)
+        rid = re.search(r'data-request="([^"]+)"', page).group(1)
+        # 通行証が無い・違う → 401（画面はパスキーへ戻る）。頼みは残る
+        self.assertEqual(self.jpost('/oauth/approve', {'request': rid, 'session': True})[0], 401)
+        self.assertEqual(self.jpost('/oauth/approve', {'request': rid, 'session': True},
+                                    {'Authorization': 'Bearer nope'})[0], 401)
+        st, out = self.jpost('/oauth/approve', {'request': rid, 'session': True}, {'Authorization': 'Bearer ' + me.session})
+        self.assertEqual(st, 200, out)
+        back = parse_qs(urlsplit(out['redirect']).query)
+        self.assertEqual(back['state'], ['s9'])
+        self.secrets.append(back['code'][0])
+        st, tok = self.token(grant_type='authorization_code', code=back['code'][0], redirect_uri=q['redirect_uri'],
+                             client_id='gantt', code_verifier=verifier)
+        self.assertEqual(st, 200, tok)
+        g = json.loads((Path(self.dir) / 'oauth.json').read_text())['grants'][-1]
+        self.assertEqual((g['client_id'], g['user']), ('gantt', self.pk.users()[0]['id']), '許可の利用者は通行証の利用者')
+        # 秘書（名乗りの相手）は通行証では許せない
+        st, h, page2, _ = self.authorize()
+        self.assertNotIn('data-pre', page2)
+        rid2 = re.search(r'data-request="([^"]+)"', page2).group(1)
+        self.assertEqual(self.jpost('/oauth/approve', {'request': rid2, 'session': True},
+                                    {'Authorization': 'Bearer ' + me.session})[0], 403)
+        # ログアウトした（使えなくなった）通行証は 401
+        self.assertEqual(self.jpost('/api/passkey/logout', {}, {'Authorization': 'Bearer ' + me.session})[0], 200)
+        st, h, b = self.raw('GET', '/oauth/authorize?' + urlencode(q))
+        rid3 = re.search(r'data-request="([^"]+)"', b.decode('utf-8')).group(1)
+        self.assertEqual(self.jpost('/oauth/approve', {'request': rid3, 'session': True},
+                                    {'Authorization': 'Bearer ' + me.session})[0], 401)
+
     def test_pre_registered_clients_are_strict(self):
         me = self.owner()
         verifier, challenge = pkce()

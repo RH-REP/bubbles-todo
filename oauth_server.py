@@ -628,9 +628,10 @@ class OAuth:
                           '<p class="small">この画面を閉じて、接続を始めたところ（claude.ai など）からやり直してください。</p>')
 
     def login_page(self, rid, c):
-        """前もって登録した相手（gantt・diary）。許可の画面は出さず、パスキーでログインしたら戻す"""
+        """前もって登録した相手（gantt・diary）。許可の画面は出さず、パスキーでログインしたら戻す。
+        この端末で bubble にログインしていれば、画面（js/oauth-authorize.js）が通行証で許してすぐ戻る（data-pre。2026-11-18）"""
         e = html.escape
-        body = (f'<div id="oauth" data-request="{e(rid)}">'
+        body = (f'<div id="oauth" data-request="{e(rid)}" data-pre="1">'
                 f'<h1>{e(c["name"])} に bubble でログイン</h1>'
                 f'<p class="what">bubble のパスキーでログインすると、{e(c["name"])} に戻ります。</p>'
                 '<div class="btns"><button id="ok" type="button">パスキーでログイン</button>'

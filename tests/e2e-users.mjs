@@ -108,6 +108,21 @@ try {
     await yuki.go(origin + '/#invite=' + code1);
     await yuki.until(`return !!document.querySelector('.sea-panel input[aria-label="表示名"]')`);
     assert.equal(await yuki.js(`return document.querySelector('.sea-panel input[aria-label="招待コード"]').value`), code1);
+    /* 登録の欄は縦に並び、欄ごとに名前が付く（2026-11-18「登録の欄が窮屈」。375px の画面） */
+    const lay = await yuki.js(`const f = document.querySelector('.sea-panel input[aria-label="招待コード"]').closest('form');
+      const ins = [...f.querySelectorAll('input')].map(i => i.getBoundingClientRect());
+      return { names: [...f.querySelectorAll('.sp-field > span')].map(n => n.textContent),
+        minW: Math.round(Math.min(...ins.map(r => r.width))), stacked: ins.every((r, i) => i === 0 || r.top >= ins[i - 1].bottom) }`);
+    assert.deepEqual(lay.names, ['招待コード', '表示名', 'この端末の呼び名']);
+    assert.ok(lay.stacked && lay.minW >= 280, '縦に並び、欄の幅が足りる: ' + JSON.stringify(lay));
+    const dev = await yuki.js(`const f = document.querySelector('.sea-panel input[aria-label="つなぐ番号"]').closest('form');
+      return [...f.querySelectorAll('.sp-field > span')].map(n => n.textContent)`);
+    assert.deepEqual(dev, ['番号（6 桁）', 'この端末の呼び名']);
+    if (process.env.E2E_SHOT) {
+      await yuki.js(`document.querySelector('.sea-panel').open = true; await new Promise(r => setTimeout(r, 300)); document.querySelector('.sea-panel input[aria-label="招待コード"]').closest('form').scrollIntoView({ block: 'center' });`);
+      const shot = await yuki.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(process.env.E2E_SHOT, Buffer.from(shot.result.data, 'base64'));
+    }
     await yuki.until(`return /招待/.test(document.querySelector('.sp-link')?.textContent || '')`);
     await yuki.js(`document.querySelector('input[aria-label="表示名"]').value = 'ゆき';
       document.querySelector('input[aria-label="招待コード"]').closest('form').querySelector('input[aria-label="この端末の呼び名"]').value = 'iPhone';
@@ -243,8 +258,10 @@ try {
     await ryo.until(`return !!${button('この海を出る')}`);
     assert.equal(await ryo.js(`return !!document.querySelector('select[aria-label="りょう の役割"]') || !!${button('この海を消す')}`), false,
       '持ち主でない人には役割・消すが出ない');
-    /* 2 度押す（設定の「海」は同期で描き直すことがあり、1 度目と 2 度目の間に描き直すと最初からになるので、同じボタンを続けて押す） */
-    await ryo.js(`const b = ${button('この海を出る')}; b.click(); b.click();`);
+    /* 2 度押す。間に描き直しても、1 度押した印は残る（2026-11-18） */
+    await ryo.js(`${button('この海を出る')}.click();`);
+    await ryo.until(`return !!${button('もう一度押すと出る')}`);
+    await ryo.js(`${button('もう一度押すと出る')}.click();`);
     for (let i = 0; i < 50; i++) {
       const m = JSON.parse(readFileSync(join(data, 'members.json'), 'utf8'));
       if (!m.some(x => x.sea === SEA && x.user === ryoId)) break;
