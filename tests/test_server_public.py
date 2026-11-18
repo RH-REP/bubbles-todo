@@ -209,8 +209,9 @@ class PublicServerTest(unittest.TestCase):
         self.assertEqual((code, got['spaces'], got['person']), (200, ['shome123'], None))
         self.assertTrue(got['link'].endswith('/#invite=' + got['code']), '招待のリンク')
         self.assertEqual(invite(mom['session'], name='父', sea='share')[0], 403, '入れない海には招けない')
-        self.assertEqual(invite(mom['session'], name='父', sea='me', newPerson=True)[1]['person'], 1,
-                         '新しい人の印は聞き流す（自分の端末の招待になる）')
+        # 2026-11-18 から: 1 番の人（スーパーユーザー）の newPerson は、新しい利用者の招待（前は聞き流して自分の端末の招待にしていた）
+        code, got, _ = invite(mom['session'], name='父', sea='me', newPerson=True)
+        self.assertEqual((code, got['spaces'], got['person']), (200, ['me'], None), '新しい利用者の招待')
         self.assertEqual(invite('nope', name='x', sea='me')[0], 401)
         self.assertEqual(invite(mom['session'], name='', sea='me')[0], 409)
         for i in range(4):   # 「父」と合わせて 5（タブレットの招待は使ったので数えない）

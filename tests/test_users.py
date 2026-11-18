@@ -173,6 +173,45 @@ class UsersTest(unittest.TestCase):
         self.assertEqual(self.req('POST', '/api/passkey/invite', {'name': 'x', 'sea': 'sfam01', 'role': 'owner'}, hdr)[0], 409,
                          '持ち主の役割では招けない（editor か viewer）')
 
+    # --- スーパーユーザーが新しい利用者を招く（2026-11-18） ---
+    def test_superuser_invites_new_user(self):
+        self.req('POST', '/api/spaces', {})
+        yuki = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('ゆきのスマホ', ['me']))[1]
+        ryo = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('りょう', ['me']))[1]
+        self.assertEqual(yuki['person'], 1)
+        yh = {'Authorization': 'Bearer ' + yuki['session']}
+        rh = {'Authorization': 'Bearer ' + ryo['session']}
+        self.assertTrue(self.me(yuki['session'])[1]['user'].get('admin'), 'だれにも付いていなければ 1 番の人')
+        self.assertNotIn('admin', self.me(ryo['session'])[1]['user'])
+        # スーパーユーザーは、海なしで新しい利用者を招ける（リンクつき）
+        code, inv, _ = self.req('POST', '/api/passkey/invite', {'name': 'そら', 'sea': 'me', 'newPerson': True}, yh)
+        self.assertEqual(code, 200, inv)
+        self.assertTrue(inv['link'].startswith(self.origin + '/#invite='))
+        code, peek, _ = self.req('POST', '/api/passkey/invite/peek', {'invite': inv['code']})
+        self.assertEqual((code, peek['seas']), (200, []))
+        code, opts, _ = self.req('POST', '/api/passkey/register/options', {'invite': inv['code'], 'userName': 'そら', 'deviceName': 'Pixel'})
+        code, sora, _ = self.req('POST', '/api/passkey/register',
+                                 {'credential': FakeAuthenticator('localhost', self.origin).create(opts['publicKey'])})
+        self.assertEqual(code, 200, sora)
+        self.assertEqual((sora['user']['name'], sora['roles']), ('そら', {'me': 'owner'}), '自分の個人の海だけ')
+        self.assertNotIn(sora['person'], (yuki['person'], ryo['person']))
+        self.assertNotIn(sora['user']['id'], (yuki['user']['id'], ryo['user']['id']), '招いた人の 2 台目ではなく、新しい利用者')
+        # スーパーユーザーでない人は 403。名前が無ければ 409
+        self.assertEqual(self.req('POST', '/api/passkey/invite', {'name': 'x', 'sea': 'me', 'newPerson': True}, rh)[0], 403)
+        self.assertEqual(self.req('POST', '/api/passkey/invite', {'name': '', 'sea': 'me', 'newPerson': True}, yh)[0], 409)
+        # VM で替える。最後の 1 人は外せない
+        out = self.cli('admin-add', ryo['user']['id'])
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertTrue(self.me(ryo['session'])[1]['user'].get('admin'))
+        self.assertTrue(self.me(yuki['session'])[1]['user'].get('admin'), '1 番の人は書き出されて残る')
+        self.assertEqual(self.cli('admin-remove', yuki['user']['id']).returncode, 0)
+        self.assertNotIn('admin', self.me(yuki['session'])[1]['user'])
+        self.assertEqual(self.req('POST', '/api/passkey/invite', {'name': 'x', 'sea': 'me', 'newPerson': True}, yh)[0], 403)
+        bad = self.cli('admin-remove', ryo['user']['id'])
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn('1 人もいなくなる', bad.stderr)
+        self.assertIn('りょう', self.cli('admin-list').stdout)
+
     # --- 端末を足す番号 ---
     def test_add_device_number(self):
         a = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('iPhone', ['me', 'share']))[1]

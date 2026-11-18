@@ -353,6 +353,22 @@ try {
     }
   }
 
+  await step('スーパーユーザー（1 番の人のゆき）だけ、個人の海の ⚙ に［新しい利用者を招く］が出て、海なしの招待のリンクを作れる（2026-11-18）', async () => {
+    for (const [c, admin] of [[yuki, true], [ryo, false]]) {
+      await c.go(origin + '/');
+      await c.until(`return !!document.querySelector('.userbtn') && !!(await import('/js/me.js')).meInfo()`, 15000);
+      await openSet(c);
+      await c.js(`[...document.querySelectorAll('.sp-sea')].find(r => /個人/.test(r.textContent)).querySelector('.sp-gear').click();`);
+      await c.until(`return !!document.querySelector('[data-name="端末を足す"]')`);
+      assert.equal(await c.js(`return !!document.querySelector('[data-name="新しい利用者を招く"]')`), admin, (admin ? 'ゆき' : 'りょう') + 'の画面');
+    }
+    await yuki.js(`const f = document.querySelector('[data-name="新しい利用者を招く"] form'); f.querySelector('input').value = 'そら'; f.requestSubmit();`);
+    await yuki.until(`return /#invite=/.test(document.querySelector('[data-name="新しい利用者を招く"] [data-name="招待のリンク"]')?.textContent || '')`);
+    const inv = JSON.parse(readFileSync(join(data, 'invites.json'), 'utf8')).filter(r => r.name === 'そら');
+    assert.equal(inv.length, 1);
+    assert.deepEqual([inv[0].new_user, inv[0].spaces, inv[0].seas], [true, ['me'], undefined], '新しい利用者・海なし');
+  });
+
   await step('CSP に止められた読み込みや、画面のエラーが無い', async () => {
     await sleep(300);
     assert.deepEqual([...yuki.problems, ...ryo.problems], []);

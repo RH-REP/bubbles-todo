@@ -26,7 +26,7 @@ function test(name, fn) {
   }
 }
 
-const { consolidate, theServer, serverUrl, ensureServer, canUnify, unifyPersonal, applyServerSeas, loginPlan, applyLogin, replacePersonal, logoutPersonal, OWNER_KEY, personalBackups, mergeBackup } = await import(new URL('../js/oneserver.js', import.meta.url).href);
+const { consolidate, theServer, serverUrl, ensureServer, canUnify, unifyPersonal, applyServerSeas, loginPlan, applyLogin, replacePersonal, logoutPersonal, OWNER_KEY, personalBackups, mergeBackup, bootUnify, serverPersonalBox } = await import(new URL('../js/oneserver.js', import.meta.url).href);
 const { regionList, regionOfSpace } = await import(new URL('../js/regions.js', import.meta.url).href);
 const { seaList } = await import(new URL('../js/spacelist.js', import.meta.url).href);
 
@@ -217,6 +217,31 @@ test('控え: 設定の「記録」に新しい順に並び、今の個人に重
   assert.deepEqual(got.doc.todos.map(t => t.text).sort(), ['今の泡', '端末の泡1', '端末の泡2'], '替わったあとの控えは重ねられる');
   assert.equal(mergeBackup('bubble_todo_v1_before_user_8000', cur, false).doc.todos.length, 3, 'ログアウト中なら重ねられる');
   assert.equal(mergeBackup('bubble_todo_ai_key', cur, false), null, '控えでない箱は読まない');
+});
+
+test('前の版からログインしていた端末: 開いたときに個人を 1 つにする（ログインし直さなくても）', () => {
+  freshLogin();
+  mem.set('bubble_todo_me_v1', JSON.stringify({ user: { id: 'u_aaaaaaaa', name: 'ゆき' }, seas: [] }));
+  assert.equal(allSeas().filter(s => s.personal).length, 2, '前: 個人と個人（サーバー）が並ぶ');
+  assert.equal(bootUnify(9100), 2);
+  assert.equal(allSeas().filter(s => s.personal).length, 1, '後: 個人は 1 つ');
+  assert.ok(mem.get('bubble_todo_v1_before_unify_9100'), '合わせる前の控え');
+  assert.equal(mem.get(OWNER_KEY), 'u_aaaaaaaa');
+  assert.equal(bootUnify(9200), 0, '2 回目は何もしない');
+});
+
+test('開いたとき: 通行証が切れている・別の人の写しなら合わせない', () => {
+  freshLogin();
+  mem.set('bubble_todo_sync', JSON.stringify({ url: 'https://a.example', session: 'S', sessionExpires: 1 }));
+  assert.equal(bootUnify(9100), 0, '切れていれば合わせない');
+  freshLogin();
+  mem.set('bubble_todo_me_v1', JSON.stringify({ user: { id: 'u_bbbbbbbb' }, seas: [] }));
+  mem.set(OWNER_KEY, 'u_aaaaaaaa');
+  mem.set(serverPersonalBox(), JSON.stringify({ todos: [{ id: 'z1', text: '前の人の泡', createdAt: 1 }], stamps: { 'todo:z1': [5, 1] } }));
+  assert.equal(loginPlan('u_bbbbbbbb').kind, 'other');
+  const keys = [...mem.keys()].sort().join();
+  assert.equal(bootUnify(9100), 0, '別の人の写しなら合わせない');
+  assert.equal([...mem.keys()].sort().join(), keys, '何も書き換えない');
 });
 
 console.log(`\n${pass} passed, ${failed.length} failed`);

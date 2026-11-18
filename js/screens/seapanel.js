@@ -197,6 +197,8 @@ export function seaPanel(opts = {}) {
     }
     if (server && st.live && !s.personal) g.appendChild(membersBox(s, refresh, fail));
     if (server && st.live) g.appendChild(s.personal ? deviceBox(st) : inviteBox(s, st));
+    /* スーパーユーザーだけ、個人の海の ⚙ に［新しい利用者を招く］（2026-11-18 ユーザーの指示） */
+    if (server && st.live && s.personal) { const me = meInfo(); if (me && me.user && me.user.admin) g.appendChild(newUserBox(st)); }
     if (server && st.live && !s.personal) g.appendChild(leaveBox(s, owner, sea, refresh, fail));
     if (server && !s.personal) {
       const back = btn('この端末へ戻す（合わせるのをやめる）');
@@ -455,18 +457,58 @@ export function seaPanel(opts = {}) {
       out.textContent = '';
       try {
         const got = await makeInvite(st.url, st.session, { name: nm.value.trim() || '招待', sea: s.id, role: role.value });
-        const link = got.link || (st.url.replace(/\/$/, '') + '/#invite=' + got.code);
-        const p = text('p', null, link);
-        p.style.cssText = 'font-family:ui-monospace,monospace;font-size:13px;overflow-wrap:anywhere;user-select:all;margin:4px 0';
-        out.appendChild(p);
-        out.appendChild(text('p', 'note', '24 時間・1 回だけ。相手に、チャットの外の道で渡す。'
-          + '開いた人がまだ利用者でなければ登録の画面になり、その人の個人の海「わたし」もできる。'));
-        const cp = btn('リンクを写す');
-        cp.addEventListener('click', async () => {
-          try { await navigator.clipboard.writeText(link); toast('写した'); }
-          catch (e) { try { getSelection().selectAllChildren(p); toast(document.execCommand('copy') ? '写した' : '選んだので ⌘C で'); } catch (_) { toast('リンクを長押しして写す'); } }
-        });
-        out.appendChild(cp);
+        showLink(out, st, got, '24 時間・1 回だけ。相手に、チャットの外の道で渡す。'
+          + '開いた人がまだ利用者でなければ登録の画面になり、その人の個人の海「わたし」もできる。');
+        nm.value = '';
+      } catch (e) {
+        out.appendChild(text('p', 'note', (e && e.message) || '作れなかった'));
+      } finally { b.disabled = false; }
+    });
+    return w;
+  }
+
+  /* 作った招待のリンクを出す（写すボタンつき）。リンクは textContent */
+  function showLink(out, st, got, note) {
+    const link = got.link || (st.url.replace(/\/$/, '') + '/#invite=' + got.code);
+    const p = text('p', null, link);
+    p.dataset.name = '招待のリンク';
+    p.style.cssText = 'font-family:ui-monospace,monospace;font-size:13px;overflow-wrap:anywhere;user-select:all;margin:4px 0';
+    out.appendChild(p);
+    out.appendChild(text('p', 'note', note));
+    const cp = btn('リンクを写す');
+    cp.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(link); toast('写した'); }
+      catch (e) { try { getSelection().selectAllChildren(p); toast(document.execCommand('copy') ? '写した' : '選んだので ⌘C で'); } catch (_) { toast('リンクを長押しして写す'); } }
+    });
+    out.appendChild(cp);
+  }
+
+  /* 新しい利用者を招く（スーパーユーザーだけ。2026-11-18 ユーザーの指示「新規ユーザーの登録を、スーパーユーザー（私）から招待できるように」）。
+     海なしで、その人だけの個人の海を持つ新しい利用者を登録する招待のリンク（24 時間・1 回）。サーバーの VM の invite-add <名前> me と同じ */
+  function newUserBox(st) {
+    const w = el('div', 'sp-invite');
+    w.dataset.name = '新しい利用者を招く';
+    w.style.marginTop = '12px';
+    w.appendChild(text('p', 'prefs-pages-lb', '新しい利用者を招く（スーパーユーザー）'));
+    const f = el('form', 'tagadd sp-reg');
+    const nm = document.createElement('input');
+    nm.type = 'text'; nm.maxLength = 40; nm.placeholder = '例 そら'; nm.setAttribute('aria-label', '招く利用者の呼び名');
+    f.appendChild(field('招く人の呼び名', nm, '登録の画面で、本人が表示名を直せる'));
+    const b = el('button', 'btn'); b.type = 'submit'; b.textContent = '招待のリンクを作る';
+    f.appendChild(b);
+    w.appendChild(f);
+    const out = el('div');
+    out.setAttribute('aria-live', 'polite');
+    w.appendChild(out);
+    f.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      if (!nm.value.trim()) { out.textContent = '招く人の呼び名を入れる'; return; }
+      b.disabled = true;
+      out.textContent = '';
+      try {
+        const got = await makeInvite(st.url, st.session, { name: nm.value.trim(), sea: 'me', newPerson: true });
+        showLink(out, st, got, '24 時間・1 回だけ。開いた人は新しい利用者として登録され、その人だけの個人の海「わたし」ができる'
+          + '（あなたの海や記録は見えない）。共有の海に入れるときは、その海の ⚙ の［仲間を招く］で。');
         nm.value = '';
       } catch (e) {
         out.appendChild(text('p', 'note', (e && e.message) || '作れなかった'));

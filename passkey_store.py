@@ -339,6 +339,44 @@ class PasskeyStore:
             self._write('users.json', users)
         return name
 
+    # --- スーパーユーザー（2026-11-18 ユーザーの指示「新規ユーザーの登録を、スーパーユーザー（私）から招待できるように」） ---
+    # users.json の行の admin: true。だれにも付いていなければ、サーバーを立てた 1 番の人（person 1）がスーパーユーザー。
+    # できるのは「新しい利用者を app から招く」ことだけ（ほかの人の海・記録には入れない。2026-11-16 の「全ての海に入れる人はいない」は変えない）
+    def is_admin(self, uid) -> bool:
+        users = self.users()
+        u = next((x for x in users if x['id'] == uid), None) if isinstance(uid, str) else None
+        if not u:
+            return False
+        if any(x.get('admin') is True for x in users):
+            return u.get('admin') is True
+        return u['person'] == OWNER
+
+    def admins(self):
+        users = self.users()
+        flagged = [u for u in users if u.get('admin') is True]
+        return flagged or [u for u in users if u['person'] == OWNER]
+
+    def set_admin(self, who: str, on: bool) -> dict:
+        """who は利用者の番号（u_…）か名前。→ その利用者の行。最後の 1 人は外せない"""
+        with self.lock:
+            users = self.users()
+            hit = [u for u in users if u['id'] == who] or [u for u in users if u['name'] == who]
+            if len(hit) != 1:
+                raise ValueError(f'利用者「{who}」が見つからないか、同じ名前が 2 人いる（user-list の番号で指す）')
+            u = hit[0]
+            if not any(x.get('admin') is True for x in users):
+                for x in users:              # 前の決まり（1 番の人）を書き出してから変える
+                    if x['person'] == OWNER:
+                        x['admin'] = True
+            if on:
+                u['admin'] = True
+            else:
+                if sum(1 for x in users if x.get('admin') is True) <= 1 and u.get('admin') is True:
+                    raise ValueError('スーパーユーザーが 1 人もいなくなる（先にほかの人を admin-add する）')
+                u.pop('admin', None)
+            self._write('users.json', users)
+        return u
+
     def members(self):
         return [m for m in self._read('members.json') if isinstance(m, dict) and m.get('role') in ROLES
                 and valid_space(m.get('sea')) and m.get('sea') != 'me' and USER_RE.match(str(m.get('user', '')))]
@@ -561,7 +599,15 @@ class PasskeyStore:
         raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(12))
         row = {'name': clean_name(name) or by, 'code_hash': _sha(raw), 'expires': self.clock() + INVITE_TTL,
                'created': self.clock(), 'by': by}
-        if sea == 'me':
+        if sea == 'me' and new_person:
+            # 新しい利用者（その人だけの個人の海を持つ）を招く。スーパーユーザーだけ（2026-11-18）
+            if not self.is_admin(uid):
+                raise PermissionError('新しい利用者を招けるのはスーパーユーザーだけ')
+            if not clean_name(name):
+                raise ValueError('招く人の呼び名を入れる')
+            row.update(new_user=True, spaces=['me'])
+            person = None
+        elif sea == 'me':
             if not clean_name(name):
                 raise ValueError('足す端末の呼び名を入れる')
             if self.count_user(uid) >= self.max_per_space:

@@ -289,3 +289,22 @@ export function mergeBackup(key, current, loggedIn, st = ls()) {
   if (!raw) return null;
   return mergeState(current || { doc: {}, stamps: {} }, stateOf(raw));
 }
+
+/* 開いたとき（js/oneserver-boot.js）: 前の版のうちにログインしていた端末も、個人を 1 つにする（2026-11-18）。
+   ログインのとき（js/loginflow.js の finishLogin）にしか合わせていなかったので、版を上げる前からログインしていた端末では
+   「個人」と「個人（サーバー）」が並んだままだった。通行証が生きていて、合わせる先がこの端末で前にログインした人と同じ（か、まだ覚えていない）ときだけ合わせる。
+   別の人の写しなら合わせない（次にログインし直したとき、loginflow が聞く）→ 合わせた泡の数（合わせなければ 0。合わせて泡が 0 なら -1） */
+export function bootUnify(now = Date.now(), st = ls()) {
+  if (!st) return 0;
+  const r = theServer(st);
+  if (!r) return 0;
+  const c = regionConf(r.id, st);
+  if (!c || !c.session || !(Number(c.sessionExpires) * 1000 > Date.now())) return 0;
+  let uid = '';
+  try { const me = JSON.parse(st.getItem('bubble_todo_me_v1') || 'null'); uid = (me && me.user && me.user.id) || ''; } catch (e) { uid = ''; }
+  const plan = loginPlan(uid || undefined, st);
+  if (plan.kind !== 'merge') return 0;
+  const before = canUnify(st);
+  const n = applyLogin(uid || undefined, plan, now, st);
+  return n > 0 ? n : (before && !canUnify(st) ? -1 : 0);
+}

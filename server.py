@@ -635,6 +635,8 @@ def me_of(pk, sea_list, info):
     user = {'id': info.get('user'), 'name': info.get('name', '')}
     if info.get('avatar'):
         user['avatar'] = info['avatar']      # 2026-11-18。足しただけ（3 つの app の左上のアイコン）
+    if pk.is_admin(info.get('user')):
+        user['admin'] = True                 # 2026-11-18。足しただけ（スーパーユーザーにだけ［新しい利用者を招く］を出す）
     return {'user': user, 'seas': seas}
 
 
@@ -1698,6 +1700,16 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
             seas = '・'.join(f"{space_label(s)}（{ROLE_LABEL[r]}）" for s, r in roles.items() if s != 'me') or 'なし'
             keys = '・'.join(r['name'] for r in pk.passkeys() if r.get('user') == u['id']) or 'なし'
             print(f"{u['id']}\t{u['name']}\t個人 {u['person']}\tパスキー: {keys}\t共有の海: {seas}")
+    elif cmd in ('admin-list', 'admin-add', 'admin-remove'):
+        # スーパーユーザー（app から新しい利用者を招ける人）。2026-11-18
+        if cmd != 'admin-list':
+            try:
+                u = pk.set_admin(name.strip(), cmd == 'admin-add')
+            except ValueError as e:
+                raise SystemExit(str(e)) from None
+            print(f"{u['name']}（{u['id']}）を" + ('スーパーユーザーにしました' if cmd == 'admin-add' else 'スーパーユーザーから外しました'), flush=True)
+        for u in pk.admins():
+            print(f"{u['id']}\t{u['name']}\t個人 {u['person']}" + ('' if u.get('admin') is True else '\t（だれにも付いていないので 1 番の人）'))
     elif cmd == 'user-rename':
         try:
             got = pk.rename_user(name.strip(), value)
@@ -1994,7 +2006,8 @@ def main(argv=None):
                              'machine-add', 'machine-list', 'machine-remove',
                              'sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space',
                              'oauth-list', 'oauth-revoke',
-                             'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate'],
+                             'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate',
+                             'admin-list', 'admin-add', 'admin-remove'],
                     help='serve（既定）か、合言葉・パスキーの操作')
     ap.add_argument('name', nargs='?', default='',
                     help='share-add / share-remove / invite-add / passkey-remove の名前、request-ok / request-no の字、limit-set の数')
@@ -2028,7 +2041,8 @@ def main(argv=None):
         return machine_command(data_dir, args.command, args.name, args.space, args.read_only, args.key_file)
     if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person', 'move-remove',
                         'request-list', 'request-ok', 'request-no', 'limit', 'limit-set',
-                        'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate'):
+                        'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate',
+                        'admin-list', 'admin-add', 'admin-remove'):
         if args.command in ('request-ok', 'request-no') and not args.name.strip():
             raise SystemExit(f'端末の画面に出ている字を入れてください（例: {args.command} ABC-DEF。request-list で見られる）')
         if args.command == 'limit-set' and not args.name.strip():
