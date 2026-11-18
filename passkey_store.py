@@ -54,6 +54,23 @@ ROLES = ('owner', 'editor', 'viewer')       # 海の仲間の役割
 MEMBER_MAX = 50                             # 1 つの海の仲間の数の上限
 DEVICE_TTL = 600                            # 端末を足す番号（10 分・1 回）
 DEVICE_LEN = 6
+# 利用者のアイコン（2026-11-18 ユーザーの指示「左上にはuserアイコンをつけて、全てのアプリで同じユーザーでログインしていることがわかる様に
+# （初期はランダムで、自分でプリセットからつけられる）」）。絵文字と背景の色の組。画像は使わない。id は変えない（users.json に残る）
+AVATARS = (
+    ('fox', '🦊', '#e8833a'), ('cat', '🐱', '#e0a526'), ('dog', '🐶', '#b07a1c'), ('bear', '🐻', '#8d6e63'),
+    ('panda', '🐼', '#6b6b6b'), ('rabbit', '🐰', '#e57fa3'), ('frog', '🐸', '#3f8a4a'), ('owl', '🦉', '#7a52b8'),
+    ('whale', '🐳', '#2f7bbf'), ('octopus', '🐙', '#c2412d'), ('penguin', '🐧', '#455a64'), ('turtle', '🐢', '#2e8b74'),
+    ('bee', '🐝', '#c99a06'), ('sunflower', '🌻', '#c98a00'), ('cactus', '🌵', '#5b8c3a'), ('mushroom', '🍄', '#b5473a'),
+)
+AVATAR_IDS = tuple(a[0] for a in AVATARS)
+
+
+def avatar_info(preset):
+    """プリセットの id → {preset, emoji, color}。知らない id は None"""
+    a = next((x for x in AVATARS if x[0] == preset), None)
+    return {'preset': a[0], 'emoji': a[1], 'color': a[2]} if a else None
+
+
 SPACES = ('me', 'share')   # 前の版からある置き場（ほかに名前を付けた海。valid_space）
 SEA_RE = re.compile(r'^s[0-9a-z]{3,23}$')
 
@@ -265,7 +282,8 @@ class PasskeyStore:
             uid = 'u_' + secrets.token_hex(4)
         if person is None:
             person = self._next_person(users)
-        row = {'id': uid, 'name': clean_name(name) or f'個人 {person}', 'person': int(person), 'created': self.clock()}
+        row = {'id': uid, 'name': clean_name(name) or f'個人 {person}', 'person': int(person), 'created': self.clock(),
+               'avatar': secrets.choice(AVATAR_IDS)}      # 初めはランダム（2026-11-18）
         users.append(row)
         return row
 
@@ -273,6 +291,40 @@ class PasskeyStore:
         legacy = {p for p in (person_of(r) for r in self._read('passkeys.json') + self._read('invites.json')) if p is not None}
         got = {u['person'] for u in users} | legacy
         return (max(got) + 1) if got else OWNER
+
+    def avatar_of(self, u):
+        """利用者の行 → アイコン {preset, emoji, color}。持っていない行（移す前）は番号から決まった 1 つ"""
+        got = avatar_info((u or {}).get('avatar'))
+        if got:
+            return got
+        h = int(hashlib.sha256(str((u or {}).get('id', '')).encode('utf-8')).hexdigest(), 16)
+        return avatar_info(AVATAR_IDS[h % len(AVATAR_IDS)])
+
+    def set_avatar(self, uid, preset):
+        """自分のアイコンをプリセットから選ぶ → {preset, emoji, color}"""
+        if preset not in AVATAR_IDS:
+            raise ValueError('アイコンはプリセットから選ぶ（' + '・'.join(AVATAR_IDS) + '）')
+        with self.lock:
+            users = self.users()
+            u = next((x for x in users if x['id'] == uid), None)
+            if not u:
+                raise ValueError(f'利用者 {uid} はいません')
+            u['avatar'] = preset
+            self._write('users.json', users)
+        return avatar_info(preset)
+
+    def fill_avatars(self) -> int:
+        """アイコンを持たない利用者（2026-11-18 より前に移した人）に、ランダムに 1 つ配る → 配った数"""
+        with self.lock:
+            users = self.users()
+            n = 0
+            for u in users:
+                if u.get('avatar') not in AVATAR_IDS:
+                    u['avatar'] = secrets.choice(AVATAR_IDS)
+                    n += 1
+            if n:
+                self._write('users.json', users)
+        return n
 
     def rename_user(self, uid, name) -> str:
         name = clean_name(name)
@@ -351,6 +403,8 @@ class PasskeyStore:
         ・行の spaces の海 → 海の仲間（editor）。持ち主の無い海は、1 番の人がいればその人、いなければ最初の仲間を owner に
         → {'users': 作った数, 'passkeys': 移した行の数, 'members': 足した数}"""
         out = {'users': 0, 'passkeys': 0, 'members': 0}
+        if any(u.get('avatar') not in AVATAR_IDS for u in self.users()):
+            self.fill_avatars()
         with self.lock:
             rows = self._read('passkeys.json')
             if all(USER_RE.match(str(r.get('user', ''))) for r in rows):
@@ -807,7 +861,7 @@ class PasskeyStore:
         """利用者 → 通行証の答えと同じ形 {user, name, person, spaces, roles, cred_id, owner}"""
         roles = self.roles_of(u['id'])
         return {'user': u['id'], 'name': u['name'], 'person': u['person'], 'spaces': list(roles), 'roles': roles,
-                'cred_id': cred_id, 'owner': False}
+                'cred_id': cred_id, 'owner': False, 'avatar': self.avatar_of(u)}
 
     def session_info(self, tok: str):
         """端末の通行証 → {user, name, person, spaces, roles, cred_id, owner}。期限切れ・取り消し済みなら None。

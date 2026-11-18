@@ -131,7 +131,7 @@ import oauth_server
 from filelock import DirLock
 import passkey_crypto as pc
 from guard import Devices, Guard
-from passkey_store import PasskeyStore, valid_space, space_label, person_label, person_of, OWNER, clean_name
+from passkey_store import PasskeyStore, valid_space, space_label, person_label, person_of, OWNER, clean_name, AVATARS
 
 ROOT = Path(__file__).resolve().parent
 # 配るのは app 本体だけ。.git・.env・data/・DEV_NOTES などは出さない
@@ -599,11 +599,15 @@ def me_of(pk, sea_list, info):
         r = rows.get(sea) or {}
         if r and not r.get('alive', 1):
             continue
-        members = [{'id': m['user'], 'name': users.get(m['user'], {}).get('name', ''), 'role': m['role']}
+        members = [{'id': m['user'], 'name': users.get(m['user'], {}).get('name', ''), 'role': m['role'],
+                    'avatar': pk.avatar_of(users.get(m['user']))}
                    for m in pk.members_of(sea)]
         seas.append({'id': sea, 'name': r.get('name') or ('共有' if sea == 'share' else sea), 'kind': 'shared',
                      'role': role, 'color': SEA_HEX.get(r.get('color'), SEA_HEX['magma']), 'members': members})
-    return {'user': {'id': info.get('user'), 'name': info.get('name', '')}, 'seas': seas}
+    user = {'id': info.get('user'), 'name': info.get('name', '')}
+    if info.get('avatar'):
+        user['avatar'] = info['avatar']      # 2026-11-18。足しただけ（3 つの app の左上のアイコン）
+    return {'user': user, 'seas': seas}
 
 
 def make_handler(spaces, cfg: Config = None):
@@ -948,7 +952,8 @@ def make_handler(spaces, cfg: Config = None):
             """入ったあとに端末へ返す {spaces, person, owner, user, roles}"""
             info = cfg.passkeys.session_info(tok) or {}
             return {'spaces': info.get('spaces', []), 'person': info.get('person'), 'owner': bool(info.get('owner')),
-                    'user': {'id': info.get('user'), 'name': info.get('name', '')}, 'roles': info.get('roles', {})}
+                    'user': {'id': info.get('user'), 'name': info.get('name', ''), 'avatar': info.get('avatar')},
+                    'roles': info.get('roles', {})}
 
         def me(self):
             """GET /api/me（2026-11-18 取り決め §2）→ {user, seas}。共有の海には仲間（id・名前・役割）も付ける"""
@@ -1181,6 +1186,9 @@ def make_handler(spaces, cfg: Config = None):
                 return self.send_json(200, {'mode': cfg.auth, 'rp_id': cfg.rp_id if cfg.auth == 'passkey' else ''})
             if path == '/api/me' and cfg.auth == 'passkey':
                 return self.me()
+            if path == '/api/avatars' and cfg.auth == 'passkey':
+                # 利用者のアイコンのプリセット（2026-11-18）。だれが読んでもよい（絵文字と色だけ）
+                return self.send_json(200, {'presets': [{'id': a, 'emoji': e, 'color': c} for a, e, c in AVATARS]})
             if path == '/api/data':
                 sp = self.authed_space()
                 if not sp:
@@ -1421,6 +1429,16 @@ def make_handler(spaces, cfg: Config = None):
                     return self.send_json(200, {'devices': [
                         {'name': r['name'], 'created': r.get('created'), 'last_used': r.get('last_used'),
                          'current': r['id'] == info['cred_id']} for r in mine]})
+                if path == '/api/passkey/avatar':
+                    # 自分のアイコンをプリセットから選ぶ（2026-11-18）→ /api/me と同じ形
+                    info = self.session()
+                    if not info:
+                        return self.deny('avatar')
+                    try:
+                        pk.set_avatar(info['user'], str(body.get('preset') or ''))
+                    except ValueError as e:
+                        return self.send_json(409, {'error': 'avatar', 'message': str(e)})
+                    return self.send_json(200, me_of(pk, cfg.sea_list, pk.session_info(self.bearer()) or info))
                 if path == '/api/passkey/device':
                     # 端末を足す番号（2026-11-18。10 分・1 回）。ログインしている端末が出し、新しい端末が入れる
                     info = self.session()
@@ -1964,7 +1982,9 @@ def main(argv=None):
         if any(moved.values()):
             print(f"利用者へ移した: 利用者 {moved['users']}・パスキー {moved['passkeys']}・海の仲間 {moved['members']}", flush=True)
         oauth = oauth_server.OAuth(data_dir, origin, passkeys, oauth_server.client_hosts_from(args.oauth_client_host))
-        cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy,
+        # 要求の数の上限（接続元ごと 1 分。既定 120）。試しで 2 つの端末を同じ 127.0.0.1 から動かすときだけ上げる（2026-11-18）
+        guard = Guard(max_requests=int(os.environ.get('BUBBLE_TODO_MAX_REQUESTS', '120')))
+        cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy, guard=guard,
                      allow_origins=args.allow_origin or (), passkeys=passkeys,
                      stores=SeaStores(data_dir), devices=Devices(max_active=args.max_devices, window=args.device_window),
                      sea_list=SeaList(data_dir), min_schema=args.min_schema, machines=MachineKeys(data_dir), oauth=oauth)

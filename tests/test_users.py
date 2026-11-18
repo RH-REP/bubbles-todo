@@ -9,6 +9,7 @@
 """
 import base64
 import json
+import re
 import subprocess
 import sys
 import unittest
@@ -105,14 +106,14 @@ class UsersTest(unittest.TestCase):
         code, out, _ = self.req('POST', '/api/passkey/register',
                                 {'credential': FakeAuthenticator('localhost', self.origin).create(opts['publicKey'])})
         self.assertEqual(code, 200)
-        self.assertEqual(out['user'], {'id': uid, 'name': 'りょう'})
+        self.assertEqual((out['user']['id'], out['user']['name']), (uid, 'りょう'))
         self.assertEqual(out['name'], 'iPhone', '端末の呼び名は招待の名前')
         code, me, _ = self.me(out['session'])
         self.assertEqual(code, 200)
-        self.assertEqual(me['user'], {'id': uid, 'name': 'りょう'})
+        self.assertEqual((me['user']['id'], me['user']['name']), (uid, 'りょう'))
         self.assertEqual([(s['id'], s['kind'], s['role']) for s in me['seas']],
                          [('me', 'personal', 'owner'), ('share', 'shared', 'editor')])
-        self.assertEqual(me['seas'][1]['members'], [{'id': uid, 'name': 'りょう', 'role': 'editor'}])
+        self.assertEqual([(m['id'], m['name'], m['role']) for m in me['seas'][1]['members']], [(uid, 'りょう', 'editor')])
         self.assertEqual(self.req('GET', '/api/me')[0], 401)
         self.assertEqual(self.req('GET', '/api/me', headers={'Authorization': 'Bearer nope'})[0], 401)
 
@@ -280,6 +281,42 @@ class UsersTest(unittest.TestCase):
         self.assertEqual(self.req('POST', '/api/passkey/devices/remove', {'name': 'iPhone', 'confirm': True}, hdr)[0], 200)
         self.assertEqual(self.data(a['session'], 'me')[0], 401)
         self.assertEqual(self.data(other['session'], 'me')[0], 200)
+
+
+    # --- 利用者のアイコン（2026-11-18） ---
+    def test_avatar_presets_random_start_and_change(self):
+        code, got, _ = self.req('GET', '/api/avatars')
+        self.assertEqual(code, 200)
+        self.assertEqual(len(got['presets']), 16)
+        ids = [p['id'] for p in got['presets']]
+        self.assertEqual(len(set(ids)), 16)
+        self.assertTrue(all(re.fullmatch(r'#[0-9a-f]{6}', p['color']) and p['emoji'] for p in got['presets']))
+        a = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('りょう', ['me', 'share']))[1]
+        self.assertIn(a['user']['avatar']['preset'], ids, '新しい利用者はランダムに 1 つ持つ（登録の答えにも出る）')
+        code, me, _ = self.me(a['session'])
+        av = me['user']['avatar']
+        self.assertEqual(set(av), {'preset', 'emoji', 'color'})
+        self.assertIn(av['preset'], ids)
+        self.assertEqual(set(me['seas'][1]['members'][0]['avatar']), {'preset', 'emoji', 'color'}, '仲間のアイコンも出る')
+        hdr = {'Authorization': 'Bearer ' + a['session']}
+        code, me2, _ = self.req('POST', '/api/passkey/avatar', {'preset': 'owl'}, hdr)
+        self.assertEqual((code, me2['user']['avatar']), (200, {'preset': 'owl', 'emoji': '🦉', 'color': '#7a52b8'}))
+        self.assertEqual(self.me(a['session'])[1]['user']['avatar']['preset'], 'owl', '自分で選んだものが残る')
+        self.assertEqual(self.req('POST', '/api/passkey/avatar', {'preset': 'dragon'}, hdr)[0], 409, 'プリセットの外は選べない')
+        self.assertEqual(self.req('POST', '/api/passkey/avatar', {'preset': 'owl'})[0], 401)
+
+    def test_users_without_avatar_get_one(self):
+        rows = [{'id': 'a', 'name': '古い人', 'spaces': ['me'], 'person': 1, 'alg': -7, 'public_key': '', 'sign_count': 0,
+                 'created': 1, 'last_used': None}]
+        (self.dir / 'passkeys.json').write_text(json.dumps(rows))
+        self.pk.migrate()
+        users = json.loads((self.dir / 'users.json').read_text())
+        self.assertIn(users[0]['avatar'], [x[0] for x in __import__('passkey_store').AVATARS], '移した利用者にも配る')
+        del users[0]['avatar']                                   # 前の版で移した（アイコンの無い）利用者
+        (self.dir / 'users.json').write_text(json.dumps(users))
+        self.assertIsNotNone(self.pk.avatar_of(self.pk.users()[0]), '持っていなくても答えは出る')
+        self.pk.migrate()
+        self.assertIn('avatar', json.loads((self.dir / 'users.json').read_text())[0], '次に移すとき配る')
 
 
 if __name__ == '__main__':

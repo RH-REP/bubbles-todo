@@ -30,7 +30,9 @@ const data = join(tmp, 'data');
 const port = await freePort();
 const origin = `http://localhost:${port}`;
 const server = spawn('python3', [join(ROOT, 'server.py'), '--port', String(port), '--data-dir', data,
-  '--auth', 'passkey', '--origin', origin], { stdio: ['ignore', 'ignore', 'pipe'] });
+  '--auth', 'passkey', '--origin', origin], { stdio: ['ignore', 'ignore', 'pipe'],
+  /* 2 つの端末が同じ 127.0.0.1 から要求するので、接続元ごとの要求の上限（既定 1 分 120）を上げる */
+  env: Object.assign({}, process.env, { BUBBLE_TODO_MAX_REQUESTS: '2000' }) });
 let serverLog = '';
 server.stderr.on('data', d => { serverLog += d; });
 const procs = [server];

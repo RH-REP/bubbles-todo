@@ -767,6 +767,9 @@ bash tests/server-setup.test.sh
     移す先の海の箱に写し（タグ・アンカー・枠は外す）、ここでは消した印にする（`store.moveOut`）。移す先は開いたときに合わせる。見るだけの海へは移せない
   - **わたしの端末**（設定の「海」のログイン中の札の下）: 端末の呼び名・最後に使った日・この端末。［外す］でそのパスキーと通行証を止める（今の端末は確かめてから。外すとログアウト。`POST /api/passkey/devices`・`devices/remove`）
   - ログイン中の利用者は、海の帯の右端に名前の頭 1 字の丸（名前は title と読み上げ。帯は 30px で、右に状態の字もあるため 1 字にした）。共有の海の帯の名前に 👥 と海の色の点
+  - **利用者のアイコン**（2026-11-18 ユーザーの指示。3 つの app の左上に同じ形で出す）: 絵文字と背景の色の組 16 個のプリセット（`passkey_store.py` の `AVATARS`）。
+    新しい利用者と移した利用者にはランダムに 1 つ。`/api/me` の `user.avatar`（と仲間の `avatar`）、`GET /api/avatars`、`POST /api/passkey/avatar {preset}`。
+    app の画面（左上のアイコン・利用者の札・設定の作り直し）は、モック `docs/spec/mock/settings.html`（docs/spec はこの repo に入らない）でユーザーの OK を待っている
   - 担当の無い泡には、泡の上に「だれでも」を出さない（漂う泡の数だけ 4 字が並び、海が読みにくくなるため。盤の担当の欄には「だれでも」と出る）
   - VM の操作（困ったときの道）：`user-list`・`user-rename <利用者の番号> <名前>`・`member-set <海> <利用者の番号> <owner|editor|viewer>`・`member-remove <海> <利用者の番号>`・`users-migrate`。`passkey-space` はその端末の利用者を仲間にする・外す（editor）。`sea-list` に仲間と役割が出る
   - 機械の鍵は切り替えの日まで残す（今の gantt・diary が使っている）
