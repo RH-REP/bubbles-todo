@@ -102,6 +102,15 @@ function todayDow(key) {
 
 /* 長い文を札に出すときの丸め。文字数は書記素ではなくコード点で数える
    （絵文字を割らないための Array.from。既存の trim と同じやり方） */
+/* 作業記録の 1 行目（2026-11-19）。記録の next（次にやること）に入れる。空なら '' */
+function firstLineOf(t) {
+  return String(t == null ? '' : t).split('\n').map(x => x.trim()).find(Boolean) || '';
+}
+/* 作業記録の欄から積んだ記録か（did の 1 行目が next と同じ）。それなら 1 つの文として出す */
+function isRecordStep(s) {
+  return !!s && !!String(s.did || '').trim() && firstLineOf(s.did) === String(s.next || '').trim();
+}
+
 function trimTx(t, n) {
   const a = Array.from(String(t == null ? '' : t));
   return a.length > n ? a.slice(0, n).join('') + '…' : a.join('');
@@ -841,7 +850,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let detailView = null, detailEdit = null, detailNote = null;   /* 読む面と [編集]（Issue #16） */
   let detailClose = null, detailSave = null, detailCancel = null; /* 書く面の [保存]／[キャンセル]（Issue #35） */
   let detailDraft = '';
-  let detailInline = null;      /* 盤のその場のメモの欄（2026-11-18） */
+  let detailInline = null;      /* 盤のその場の作業記録の欄（2026-11-18。11-19 にメモ → 作業記録） */
+  let dhead = null;             /* 作業記録の見出しの行（［履歴を見る ›］［全体を開く ›］を置く） */
+  let rec0 = '';                /* 最後に書いた作業記録（変わったときだけ書き、記録に積む） */
+  /* 2026-11-19: 次の一手・作業の記録（作業メモ）の欄は盤に出さない（作業記録 1 つにまとめた）。
+     欄は組むが置かない。置かない間は、次の一手・書きかけを盤から書かない（作業記録の側が書く） */
+  const stepOnBoard = false;
   let detailBase = '';          /* 書く面に入った時点の本文。[キャンセル] でここへ戻す */
   let syncSpanRow = null;       /* 盤の「期間」（Issue #34）。本文が変わったら読み直す */
   /* ひとこと（Issue #25）。入口と別の面。[書く] で1件ずつ積む（書き換えない） */
@@ -939,21 +953,25 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      ・記録には積まない。閉じるとき（面の [閉じる]・盤を閉じる・[OK]）に書き替える
      預け先に setDetail が無い版では出さない。 */
   if (fields && typeof (a || {}).setDetail === 'function') {
-    detailDraft = String(ask(a, 'detail', id) || '');
-    /* 2026-11-18（モック task-start.html）: 「本文」→「メモ」。別の面を開かず、その場の 2 行の欄で書く。
-       長い本文・リンクの読み・AI は、今までの面（［全体を開く ›］）で */
+    /* 2026-11-19 ユーザーの指示「次の一手、メモ、作業記録を作業記録（ただし今のメモの位置）に一つにして、履歴が確認できる様にして」:
+       欄は 1 つ（作業記録）。中身は本文（detail）に持ち、書き替えるたびに記録（steps）へ 1 件積む（saveDetail）。
+       本文が空で次の一手だけある前の泡は、次の一手を初めの中身として出す（触らなければ書かない） */
+    detailDraft = String(ask(a, 'detail', id) || '') || String(ask(a, 'firstStep', id) || '');
+    rec0 = detailDraft;
+    /* 2026-11-18（モック task-start.html）: 別の面を開かず、その場の欄で書く。
+       長い中身・リンクの読み・AI は、今までの面（［全体を開く ›］）で */
     const drow = el('div', 'bc-row bc-stack');
-    const dhead = el('div', 'bc-lb-row');
-    dhead.appendChild(el('span', 'bc-lb', 'メモ'));
+    dhead = el('div', 'bc-lb-row');
+    dhead.appendChild(el('span', 'bc-lb', '作業記録'));
     detailBtn = el('button', 'bc-detail-open bc-link-btn');
     detailBtn.type = 'button';
     detailBtn.addEventListener('click', ev => { ev.preventDefault(); openDetail(); });
     dhead.appendChild(detailBtn);
     drow.appendChild(dhead);
     detailInline = el('textarea', 'bc-in bc-memo-in');
-    detailInline.rows = 2;
-    detailInline.placeholder = '例 保険証を持っていく';
-    detailInline.setAttribute('aria-label', 'メモ');
+    detailInline.rows = 3;
+    detailInline.placeholder = '例 予約の電話をかける。保険証を持っていく';
+    detailInline.setAttribute('aria-label', '作業記録');
     detailInline.value = detailDraft;
     detailInline.addEventListener('input', () => { detailDraft = detailInline.value; if (syncSpanRow) syncSpanRow(); });
     drow.appendChild(detailInline);
@@ -1690,7 +1708,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     wrap.appendChild(lb);
     wrap.appendChild(stepIn);
     foldPart(wrap, 'step', false);
-    fields.appendChild(wrap);
+    if (stepOnBoard) fields.appendChild(wrap);
     /* 書きかけがあればそちら、無ければいまの「次の一手」 */
     stepIn.value = String((draft && draft.next) || ask(a, 'firstStep', id) || '');
 
@@ -1706,7 +1724,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       mrow.appendChild(mlb);
       mrow.appendChild(memoBtn);
       foldPart(mrow, 'memo', !!memoDraft.trim());   /* 書きかけがあれば畳まない */
-      fields.appendChild(mrow);
+      if (stepOnBoard) fields.appendChild(mrow);
       syncMemoBtn();
     }
 
@@ -1771,12 +1789,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        左寄せの文字だけにして、要約している「作業メモ」のすぐ下へ置く */
     histBtn = el('button', 'bc-hist-open');
     histBtn.type = 'button';
-    histBtn.textContent = '作業の記録を見る ›';
+    histBtn.textContent = '履歴を見る ›';   /* 2026-11-19 作業記録の見出しの行に置く */
     histBtn.setAttribute('aria-expanded', 'false');
     histBtn.addEventListener('click', ev => { ev.preventDefault(); openHistory(); });
-    foldPart(histBtn, 'hist', false);
-    /* 作業メモの行のすぐ下へ。要約しているものの隣に置く */
-    if (memoBtn && memoBtn.parentElement && memoBtn.parentElement.parentElement === fields) {
+    histBtn.classList.add('bc-link-btn');
+    /* 2026-11-19: 作業記録の見出しの行、［全体を開く ›］の前へ */
+    if (dhead) {
+      dhead.insertBefore(histBtn, detailBtn || null);
+    } else if (memoBtn && memoBtn.parentElement && memoBtn.parentElement.parentElement === fields) {
       fields.insertBefore(histBtn, memoBtn.parentElement.nextSibling);
     } else {
       fields.appendChild(histBtn);
@@ -1789,6 +1809,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   }
 
   /* ---- 並べ直す（2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」。モック docs/spec/mock/task-start.html）----
+     2026-11-19: 次にやること・作業の記録はメモの位置の「作業記録」1 つにまとめた（step・memo・hist の欄は置かない。履歴は作業記録の見出しの行）。
      上から: 名前 → 次にやること → ［始める］［今日はここまで］［完了にする］ → 担当・コメント（共有の海） → メモ → 日付（やる日・期間・海に戻す日） → タグ
      → 中身のあるリンク・書きかけの作業の記録 → 「その他」 → まれなもの（お気に入り・優先度・リンク・作業の記録・飛び先・削除）。
      欄そのものは上で組んだまま。ここでは置く順と、畳むかどうかだけを決める */
@@ -1905,7 +1926,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      ——そちらには積む先が無いので、控えても行き場が無い */
   function saveStep() {
     clearTimeout(stepTimer); stepTimer = 0;
-    if (!stepIn) return;
+    if (!stepIn || !stepOnBoard) return;
     if (!canCommit) { ask(a, 'setFirstStep', id, stepIn.value.trim()); return; }
     const did = memoDraft;
     const next = stepIn.value;
@@ -1929,7 +1950,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (saveName()) did = true;                      /* 名前 */
     if (saveDetail()) did = true;                    /* 本文 */
 
-    if (!stepIn) return did ? '書き留めた' : null;
+    if (!stepIn || !stepOnBoard) { if (did) syncHistBtn(); return did ? '書き留めた' : null; }
     const next = stepIn.value.trim();
     if (!canCommit) { ask(a, 'setFirstStep', id, next); return '書き留めた'; }
 
@@ -1957,7 +1978,16 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function saveDetail() {
     if (!detailBtn) return false;
     if (detailPane && !detailPane.hidden && detailArea) detailDraft = detailArea.value;
-    return ask(a, 'setDetail', id, detailDraft) === true;
+    /* 2026-11-19 作業記録: 変わったときだけ書き、記録（steps）へ 1 件積む＝履歴になる。
+       記録の next には 1 行目を入れる（集中画面・一覧の「次にやること」に出る）。空にしたときは積まない */
+    const v = detailDraft.trim();
+    if (v === rec0.trim()) return false;
+    ask(a, 'setDetail', id, v);
+    if (v && canCommit) ask(a, 'commitStep', id, { did: v, next: firstLineOf(v) });
+    rec0 = detailDraft;
+    syncDetailBtn();                              /* ［全体を開く ›］は中身があるときだけ */
+    syncHistBtn();
+    return true;
   }
 
   function saveUrl() {
@@ -2066,7 +2096,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
     const head = el('div', 'bh-head');
     const ttl = el('span', 'bh-title');
-    ttl.textContent = '作業の記録';
+    ttl.textContent = '作業記録の履歴';   /* 2026-11-19 */
     histClose = el('button', 'bh-close');
     histClose.type = 'button';
     histClose.textContent = '閉じる';
@@ -2232,7 +2262,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailBtn.textContent = '全体を開く ›';
     detailBtn.hidden = !t;
     detailBtn.classList.toggle('is-empty', !t);
-    detailBtn.setAttribute('aria-label', 'メモの全体を開く（読む・書く）');
+    detailBtn.setAttribute('aria-label', '作業記録の全体を開く（読む・書く）');
     if (detailInline && document.activeElement !== detailInline && detailInline.value !== detailDraft) detailInline.value = detailDraft;
     if (syncSpanRow) syncSpanRow();
   }
@@ -2268,11 +2298,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function buildDetail() {
     detailPane = el('div', 'bc-memo bc-detail');
     detailPane.setAttribute('role', 'group');
-    detailPane.setAttribute('aria-label', '本文');
+    detailPane.setAttribute('aria-label', '作業記録');
     detailPane.hidden = true;
 
     const head = el('div', 'bm-head');
-    head.appendChild(el('span', 'bm-title', '本文'));
+    head.appendChild(el('span', 'bm-title', '作業記録'));
     const btns = el('div', 'bm-btns');
     detailEdit = el('button', 'bm-close bm-edit', '編集');
     detailEdit.type = 'button';
@@ -3101,8 +3131,13 @@ export function fillStepList(ul, rows, onEdit) {
       w.appendChild(v);
       li.appendChild(w);
     };
-    line('作業の記録', s && s.did);
-    line('次にやること', s && s.next);
+    /* 2026-11-19: 作業記録の欄から積んだもの（1 行目＝次にやること）は 1 つの文として出す。前の形の記録は両方 */
+    if (isRecordStep(s)) {
+      line('作業記録', s.did);
+    } else {
+      line('作業記録', s && s.did);
+      line('次にやること', s && s.next);
+    }
     ul.appendChild(li);
   });
   return ul;
@@ -3135,15 +3170,17 @@ function openStepEdit(step, onEdit) {
     const w = el('label', 'fld');
     w.appendChild(el('span', 'k', label));
     const ta = el('textarea', 'v');
-    ta.rows = label === '作業の記録' ? 4 : 2;
+    ta.rows = label === '作業記録' ? 4 : 2;
     ta.value = String(value == null ? '' : value);
     ta.placeholder = ph;
     w.appendChild(ta);
     box.appendChild(w);
     return ta;
   };
-  const didIn = mk('作業の記録', step && step.did, '書いていなくてもよい');
-  const nextIn = mk('次にやること', step && step.next, '次にどこから始めるか');
+  /* 2026-11-19: 作業記録の欄から積んだものは、1 つの欄で直す（1 行目が次にやることになる） */
+  const merged = isRecordStep(step);
+  const didIn = mk('作業記録', step && step.did, merged ? '' : '書いていなくてもよい');
+  const nextIn = merged ? null : mk('次にやること', step && step.next, '次にどこから始めるか');
 
   const why = el('p', 'why', '');
   why.hidden = true;
@@ -3157,12 +3194,12 @@ function openStepEdit(step, onEdit) {
   ok.type = 'button';
   ok.addEventListener('click', ev => {
     ev.preventDefault();
-    const next = nextIn.value.trim();
+    const next = merged ? firstLineOf(didIn.value) : nextIn.value.trim();
     if (!next) {
       /* 断らずに理由を出す。命令形にはしない（§0） */
-      why.textContent = '記録には次にやることが要る';
+      why.textContent = merged ? '空の記録にはできない' : '記録には次にやることが要る';
       why.hidden = false;
-      nextIn.focus({ preventScroll: true });
+      (nextIn || didIn).focus({ preventScroll: true });
       return;
     }
     if (onEdit(step.at, { did: didIn.value, next }) === false) {

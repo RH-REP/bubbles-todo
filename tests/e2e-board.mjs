@@ -3,10 +3,12 @@
      node tests/e2e-board.mjs
 
    本物の Chrome（headless。前に出して、動きの描画を止めない）と、試し用の置き場の server.py で確かめる:
-   1. 開いた時点で、次にやること・始める・今日はここまで・完了にする・メモ・日付・タグが見え、［書き留める］は無い
+   1. 開いた時点で、始める・今日はここまで・完了にする・作業記録・日付・タグが見え、［書き留める］・次にやること・作業の記録の欄は無い
+      （2026-11-19 ユーザーの指示: 次の一手・メモ・作業記録を、メモの位置の作業記録 1 つに）
    2. 個人の海ではコメント（前のひとこと）を出さない
    3. まれなもの（お気に入り・優先度・リンク・作業の記録・削除）は「その他」の中。開くと出る
-   4. 打ち終えた欄から離れると保存し、「保存した」と出す（次にやること・メモ）
+   4. 作業記録から離れると保存し、「保存した」と出す。書き替えるたびに履歴に積み、［履歴を見る ›］で古い順に読める。1 行目が次にやること
+   4b. 本文が無く次の一手だけある前の泡は、次の一手を作業記録の初めの中身として出す
    5. 前の版で置いた「名前だけ」の設定は、新しい既定に替わる
    6. 優先度は、押した札をもう一度押すと印が外れる（［印を外す］は無い） */
 import assert from 'node:assert/strict';
@@ -87,14 +89,15 @@ try {
   await openApp();
   await js(`const { store } = await import('/js/store.js'); store.add('歯医者の予約をする');`);
 
-  await step('開いた時点で、次にやること・始める・今日はここまで・完了にする・メモ・日付・タグが見え、［書き留める］は無い', async () => {
+  await step('開いた時点で、始める・今日はここまで・完了にする・作業記録・日付・タグが見え、［書き留める］・次にやること・作業の記録の欄は無い', async () => {
     await openBoard('歯医者');
     const got = await js(`${VIS} const f = document.querySelector('.bc-fields');
       const txt = s => [...f.querySelectorAll(s)].filter(vis).map(n => n.textContent.trim());
       return { lbs: txt('.bc-lb'), acts: txt('.bc-act'), more: txt('.bc-more'), name: vis(f.querySelector('.bc-name-in')),
         ok: !!f.querySelector('.bc-act-ok') || /書き留め/.test(f.textContent), start: vis(f.querySelector('.bc-act-start')) }`);
     assert.equal(got.name, true, '名前（題）');
-    for (const l of ['次にやること', 'メモ', '日付', 'タグ']) assert.ok(got.lbs.includes(l), l + ' が見える: ' + got.lbs);
+    for (const l of ['作業記録', '日付', 'タグ']) assert.ok(got.lbs.includes(l), l + ' が見える: ' + got.lbs);
+    for (const l of ['次にやること', 'メモ', '作業の記録']) assert.ok(!got.lbs.includes(l), l + ' の欄は無い: ' + got.lbs);
     assert.deepEqual(got.acts, ['始める5 分のタイマー', '今日はここまで', '✓ 完了にする']);
     assert.equal(got.ok, false, '［書き留める］は無い');
     assert.deepEqual(got.more, ['その他 ▾']);
@@ -111,7 +114,7 @@ try {
     const open = await js(`${VIS} const f = document.querySelector('.bc-fields');
       const after = [...f.children].slice([...f.children].indexOf(f.querySelector('.bc-more')) + 1).filter(vis).map(n => n.dataset.part).filter(Boolean);
       return { after, chat: vis(f.querySelector('.bc-chat')), del: f.querySelector('[data-part="del"]')?.textContent }`);
-    assert.deepEqual(open.after, ['fav', 'prio', 'url', 'memo', 'del'], '「その他」の中の並び');
+    assert.deepEqual(open.after, ['fav', 'prio', 'url', 'del'], '「その他」の中の並び');
     assert.equal(open.chat, false, '「その他」を開いてもコメントは出ない（個人の海）');
     assert.equal(open.del, '削除');
   });
@@ -124,16 +127,46 @@ try {
     assert.deepEqual(got, { on: 'true', off: 'false', clear: false, note: false });
   });
 
-  await step('打ち終えた欄から離れると保存し、「保存した」と出す（次にやること・メモ）。盤は閉じない', async () => {
-    await js(`const f = document.querySelector('.bc-fields');
-      const step = [...f.querySelectorAll('.bc-stack')].find(r => /次にやること/.test(r.textContent)).querySelector('input');
-      step.focus(); step.value = '予約の電話をかける'; step.dispatchEvent(new Event('input', { bubbles: true })); step.blur();`);
-    await until(`return document.querySelector('.bc-saved')?.textContent === '保存した'`);
-    assert.equal(await js(`const { store } = await import('/js/store.js'); return store.firstStepOf(store.all().find(t => t.text === '歯医者の予約をする').id)`), '予約の電話をかける');
-    await js(`const m = document.querySelector('.bc-fields .bc-memo-in'); m.focus(); m.value = '保険証を持っていく';
+  await step('作業記録から離れると保存し「保存した」と出す。書き替えるたびに履歴に積み、［履歴を見る ›］で読める。1 行目が次にやること', async () => {
+    const write = (t) => js(`const m = document.querySelector('.bc-fields .bc-memo-in'); m.focus(); m.value = ${JSON.stringify(t)};
       m.dispatchEvent(new Event('input', { bubbles: true })); m.blur();`);
-    await until(`return (async () => { const { store } = await import('/js/store.js'); return store.detailOf(store.all().find(t => t.text === '歯医者の予約をする').id) === '保険証を持っていく'; })()`);
+    const of = (fn) => js(`const { store } = await import('/js/store.js'); const id = store.all().find(t => t.text === '歯医者の予約をする').id; return store.${fn}(id);`);
+    assert.equal(await js(`${VIS} return vis(document.querySelector('.bc-fields .bc-hist-open'))`), false, '記録が無い間は［履歴を見る ›］を出さない');
+    await write('予約の電話をかける\n保険証を持っていく');
+    await until(`return document.querySelector('.bc-saved')?.textContent === '保存した'`);
+    assert.equal(await of('detailOf'), '予約の電話をかける\n保険証を持っていく');
+    assert.equal(await of('firstStepOf'), '予約の電話をかける', '1 行目が次にやること');
+    await write('電話した。木曜 10 時\n保険証を持っていく');
+    await until(`return (async () => { const { store } = await import('/js/store.js'); return store.stepsOf(store.all().find(t => t.text === '歯医者の予約をする').id).length === 2; })()`);
+    assert.equal(await of('firstStepOf'), '電話した。木曜 10 時');
+    await write('電話した。木曜 10 時\n保険証を持っていく');   /* 同じ中身では積まない */
+    await sleep(300);
+    assert.equal((await of('stepsOf')).length, 2, '変わっていなければ積まない');
+    /* 見出しの行の［履歴を見る ›］ */
+    const head = await js(`${VIS} const h = document.querySelector('.bc-fields .bc-memo-in').parentElement.querySelector('.bc-lb-row');
+      return [...h.children].filter(vis).map(n => n.textContent.trim())`);
+    assert.deepEqual(head, ['作業記録', '履歴を見る ›', '全体を開く ›']);
+    await js(`document.querySelector('.bc-fields .bc-hist-open').click();`);
+    await until(`return !!document.querySelector('.bc-hist:not([hidden]) .bh-item')`);
+    const hist = await js(`return { title: document.querySelector('.bc-hist .bh-title').textContent,
+      items: [...document.querySelectorAll('.bc-hist .bh-item')].map(li => [...li.querySelectorAll('.bh-line')].map(l => l.querySelector('.bh-k').textContent + ':' + l.querySelector('.bh-v').textContent)) }`);
+    assert.equal(hist.title, '作業記録の履歴');
+    assert.deepEqual(hist.items, [['作業記録:予約の電話をかける\n保険証を持っていく'], ['作業記録:電話した。木曜 10 時\n保険証を持っていく']], '古い順に、1 つの文として');
+    await js(`document.querySelector('.bc-hist .bh-close').click();`);
     assert.ok(await js(`return !!document.querySelector('.bc-fields .bc-act-start')`), '盤は開いたまま');
+  });
+
+  await step('本文が無く次の一手だけある前の泡は、次の一手を作業記録の初めの中身として出す（触らなければ書かない）', async () => {
+    await js(`const { store } = await import('/js/store.js'); store.add('前の形の泡');
+      const id = store.all().find(t => t.text === '前の形の泡').id; store.setFirstStep(id, '書類をそろえる');`);
+    await sleep(300);
+    await openApp();                       /* 前の盤を閉じてから開く */
+    await openBoard('前の形の泡');
+    assert.equal(await js(`return document.querySelector('.bc-fields .bc-memo-in').value`), '書類をそろえる');
+    await js(`document.querySelector('.bc-fields .bc-memo-in').focus(); document.querySelector('.bc-fields .bc-memo-in').blur();`);
+    await sleep(300);
+    assert.equal(await js(`const { store } = await import('/js/store.js'); const id = store.all().find(t => t.text === '前の形の泡').id;
+      return store.detailOf(id) + '|' + store.stepsOf(id).length`), '|0');
   });
 
   await step('前の版で置いた「名前だけ」の設定は、新しい既定に替わる（始めるが見える）', async () => {
