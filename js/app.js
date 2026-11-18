@@ -50,6 +50,7 @@ import { actorFor, fetchMe, seaMembers, myRole, userName, initialOf, meInfo } fr
 import { moveTargets, openMoveSea } from './movesea.js';
 import { mountUserChip } from './userchip.js';
 import { loadAppUrls } from './apps.js';
+import { mountJump, jumpLinks } from './jump.js';
 import { sync } from './sync.js';
 
 /* 招待のリンク（https://<サーバー>/#invite=<コード>。2026-11-18）。コードを預けて設定の「海」を開く。
@@ -213,6 +214,8 @@ syncGear();
 /* 左上の利用者のアイコンと利用者の札（2026-11-18。js/userchip.js。サーバーあり版だけ） */
 if (!isSolo() && appRoot) mountUserChip(appRoot);
 loadAppUrls().catch(() => {});
+/* jump（#sea=<海>&todo=<id>。2026-11-18 取り決め §7.2）。サーバーあり版だけ */
+if (!isSolo()) setTimeout(mountJump, 0);
 
 /* ---- 引き出し（左上の ≡。F7・利用者の指示 2026-09-24。呼び名は 2026-09-25 に「引き出し」と決めた）----
 
@@ -864,6 +867,8 @@ setCenterHandler({
   setAssignee:  (id, uid) => (has('setAssignee') ? store.setAssignee(id, uid) : false),
   userName:     (uid) => userName(uid),
   whoMark:      (item) => whoMark(item),
+  /* 飛び先のリンク（gantt でこの期間を見る・diary で終えた日を見る。取り決め §7.3） */
+  jumpLinks:    (id) => (isSolo() ? [] : jumpLinks(id)),
   /* 海を移す（2026-11-18。モック 6）。長押しのメニューの［海を移す…］ */
   moveTargets:  (id) => moveTargets(id),
   openMoveSea:  (id) => openMoveSea(id),

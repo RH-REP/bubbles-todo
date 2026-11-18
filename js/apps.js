@@ -50,3 +50,15 @@ export async function loadAppUrls(base = (typeof location !== 'undefined' ? loca
   } catch (e) { /* そのまま */ }
   return appUrls();
 }
+
+/* '#sea=<海>&todo=<id>' → {sea, todo} か null */
+export function parseJump(hash) {
+  const m = /^#(.*)$/.exec(String(hash || ''));
+  if (!m) return null;
+  const q = new URLSearchParams(m[1]);
+  const sea = q.get('sea');
+  if (!sea || !/^[0-9a-z._-]{1,40}$/i.test(sea)) return null;
+  const todo = q.get('todo');
+  return { sea, todo: todo && /^[0-9a-zA-Z_-]{1,64}$/.test(todo) ? todo : null };
+}
+

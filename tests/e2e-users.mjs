@@ -265,6 +265,36 @@ try {
     await yuki.until(`return /iPhone/.test(document.querySelector('.uc-card .uc-devices')?.textContent || '')`);
   });
 
+  await step('jump: ほかの海から #sea=<海>&todo=<id> で開くと、その海に替わって泡の盤が開き、盤に gantt・diary への飛び先が出る', async () => {
+    /* 共有の海に期間のある泡を作ってサーバーへ送る */
+    await yuki.js(`localStorage.setItem('bubble_todo_space', ${JSON.stringify(SEA)}); location.reload();`);
+    await sleep(1500);
+    await yuki.until(`return (await import('/js/store.js')).store.space() === ${JSON.stringify(SEA)}`);
+    const id = await yuki.js(`const { store } = await import('/js/store.js'); const t = store.add('ガントの泡');
+      store.setSpan(t.id, '2026-11-20', '2026-11-22'); return t.id;`);
+    /* 個人の海へ移ってから飛ぶ */
+    await yuki.js(`const { allSeas } = await import('/js/regions.js'); const p = allSeas().find(s => s.personal && s.rid !== 'local') || allSeas().find(s => s.personal);
+      localStorage.setItem('bubble_todo_space', p.id); location.reload();`);
+    await sleep(1500);
+    await yuki.until(`return (await import('/js/store.js')).store.space() !== ${JSON.stringify(SEA)}`);
+    await yuki.go(origin + '/#sea=' + SEA + '&todo=' + id);
+    await sleep(1500);
+    await yuki.until(`return (await import('/js/store.js')).store.space() === ${JSON.stringify(SEA)}`, 15000);
+    await yuki.until(`return !!document.querySelector('.bub-center .bc-jump')`, 15000);
+    const hrefs = await yuki.js(`return [...document.querySelectorAll('.bub-center .bc-jump-a')].map(a => a.textContent + '|' + a.getAttribute('href'))`);
+    assert.deepEqual(hrefs, ['📊 gantt でこの期間を見る|http://127.0.0.1:8766/?date=2026-11-20&todo=' + id]);
+    assert.equal(await yuki.js(`return location.hash`), '', '#sea= は URL から消す');
+    /* 終えると diary への飛び先も出る */
+    await yuki.js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); (await import('/js/store.js')).store.complete(${JSON.stringify(id)});`);
+    const links = await yuki.js(`return (await import('/js/jump.js')).jumpLinks(${JSON.stringify(id)}).map(l => l.href)`);
+    assert.equal(links.length, 2);
+    assert.match(links[1], /^http:\/\/127\.0\.0\.1:8780\/#\d{4}-\d{2}-\d{2}$/);
+    /* 入れない海 */
+    await yuki.go(origin + '/#sea=snotmine1&todo=x');
+    await yuki.until(`return /入れない海です/.test(document.body.textContent)`);
+    assert.equal(await yuki.js(`return (await import('/js/store.js')).store.space()`), SEA, '入れない海には替えない');
+  });
+
   if (SHOTS) {
     const shot = async (name) => { const s = await yuki.send('Page.captureScreenshot', { format: 'png' }); writeFileSync(join(SHOTS, name + '.png'), Buffer.from(s.result.data, 'base64')); };
     for (const mode of ['light', 'dark']) {

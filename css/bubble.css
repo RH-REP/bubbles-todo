@@ -1693,3 +1693,9 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
 /* 見るだけの海の盤（2026-11-18） */
 .bub-center .bc-readonly { margin: 0 0 6px; font-size: 12.5px; color: var(--text-2); }
 .bub-center.is-readonly button:disabled, .bub-center.is-readonly input:disabled, .bub-center.is-readonly textarea:disabled { opacity: .55; }
+
+/* 飛び先のリンク（2026-11-18 取り決め §7.3） */
+.bub-center .bc-jump { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.bub-center .bc-jump-a { display: inline-flex; align-items: center; min-height: 32px; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text-2); font-size: 12.5px; text-decoration: none; }
+.bub-center .bc-jump-a:hover { color: var(--text); border-color: var(--bub-edge); }

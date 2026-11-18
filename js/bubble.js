@@ -2904,6 +2904,23 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (lastPlace) place(lastPlace.cx, lastPlace.cy, lastPlace.d);
   }
 
+  /* 飛び先のリンク（2026-11-18 取り決め §7.3）。期間のある泡は gantt、終えた泡は diary。同じタブで移る。
+     見るだけの海でも押せる（a は下の disabled の対象でない） */
+  const jl = ask(a, 'jumpLinks', id);
+  if (Array.isArray(jl) && jl.length) {
+    const box = el('div', 'bc-jump');
+    box.dataset.name = '飛び先のリンク';
+    jl.forEach(j => {
+      const link = document.createElement('a');
+      link.className = 'bc-jump-a';
+      link.href = j.href;
+      link.textContent = j.label;
+      link.dataset.name = j.name || j.label;
+      box.appendChild(link);
+    });
+    (fields || root).appendChild(box);
+  }
+
   /* 見るだけ（viewer）の海（2026-11-18）。盤のボタンと欄を押せなくし、そう書く（押しても仲間に届かないため） */
   if (ask(a, 'readOnly') === true) {
     root.classList.add('is-readonly');

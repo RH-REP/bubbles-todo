@@ -319,5 +319,19 @@ class UsersTest(unittest.TestCase):
         self.assertIn('avatar', json.loads((self.dir / 'users.json').read_text())[0], '次に移すとき配る')
 
 
+    # --- 3 つの app の住所の根（2026-11-18 取り決め §7.2） ---
+    def test_api_apps(self):
+        code, got, _ = self.req('GET', '/api/apps')
+        self.assertEqual((code, got), (200, {'bubble': self.origin}), '決めていなければ bubble だけ（画面が住所から決める）')
+        self.httpd.RequestHandlerClass = server.make_handler({}, server.Config(
+            auth='passkey', origin=self.origin, rp_id='localhost', guard=self.guard, passkeys=self.pk,
+            stores=server.SeaStores(self.dir), sea_list=server.SeaList(self.dir),
+            app_urls=server.parse_app_urls(['gantt=https://gantt.example.org/', 'diary=https://diary.example.org'])))
+        code, got, _ = self.req('GET', '/api/apps')
+        self.assertEqual(got, {'bubble': self.origin, 'gantt': 'https://gantt.example.org', 'diary': 'https://diary.example.org'})
+        with self.assertRaises(SystemExit):
+            server.parse_app_urls(['gantt=javascript:alert(1)'])
+
+
 if __name__ == '__main__':
     unittest.main()

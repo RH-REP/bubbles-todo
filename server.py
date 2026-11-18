@@ -540,7 +540,7 @@ class Config:
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
                  guard=None, passkeys=None, stores=None, require_uv=True, devices=None, sea_list=None,
-                 min_schema=1, machines=None, oauth=None):
+                 min_schema=1, machines=None, oauth=None, app_urls=None):
         self.auth, self.origin, self.rp_id = auth, origin, rp_id
         self.trust_proxy = trust_proxy
         self.allow_origins = set(allow_origins)
@@ -553,6 +553,7 @@ class Config:
         self.min_schema = int(min_schema)     # 受け付ける最も古い記録の形の版（X-Bubbles-Schema）
         self.machines = machines              # 機械の鍵（MachineKeys）。パスキーの形だけで効く
         self.oauth = oauth                    # claude.ai の接続（oauth_server.OAuth）。パスキーの形だけで効く
+        self.app_urls = dict(app_urls or {})  # 3 つの app の住所の根（2026-11-18 取り決め §7.2。GET /api/apps）
 
 
 class DeviceCodeGuard:
@@ -1186,6 +1187,9 @@ def make_handler(spaces, cfg: Config = None):
                 return self.send_json(200, {'mode': cfg.auth, 'rp_id': cfg.rp_id if cfg.auth == 'passkey' else ''})
             if path == '/api/me' and cfg.auth == 'passkey':
                 return self.me()
+            if path == '/api/apps' and cfg.auth == 'passkey':
+                # 3 つの app の住所の根（2026-11-18 取り決め §7.2 の app_urls）。だれが読んでもよい（住所だけ）
+                return self.send_json(200, dict({'bubble': cfg.origin}, **cfg.app_urls))
             if path == '/api/avatars' and cfg.auth == 'passkey':
                 # 利用者のアイコンのプリセット（2026-11-18）。だれが読んでもよい（絵文字と色だけ）
                 return self.send_json(200, {'presets': [{'id': a, 'emoji': e, 'color': c} for a, e, c in AVATARS]})
@@ -1797,6 +1801,24 @@ def oauth_command(data_dir: Path, cmd: str, name: str) -> int:
 SEA_COLORS = ('magma', 'moss', 'dusk', 'sand', 'ink')   # js/spacelist.js の COLORS
 
 
+def parse_app_urls(items):
+    """['gantt=https://…', 'diary=…'] → {'gantt': 'https://…'}（2026-11-18 取り決め §7.2）。名前は gantt・diary・bubble だけ、
+    住所は http(s) の根だけ（道・問い・# は落とす）。合わないものは止める"""
+    from urllib.parse import urlsplit
+    out = {}
+    for it in items or []:
+        it = (it or '').strip()
+        if not it:
+            continue
+        name, _, url = it.partition('=')
+        name = name.strip()
+        u = urlsplit(url.strip())
+        if name not in ('bubble', 'gantt', 'diary') or u.scheme not in ('http', 'https') or not u.netloc:
+            raise SystemExit(f'--app-url は gantt=https://… の形（名前は bubble・gantt・diary）: {it}')
+        out[name] = f'{u.scheme}://{u.netloc}'
+    return out
+
+
 def new_sea_id(now_ms=None) -> str:
     """新しい海の ID（js/spacelist.js の newId と同じ形: s ＋ 時刻の 36 進 ＋ 4 字）"""
     import string
@@ -1935,6 +1957,9 @@ def main(argv=None):
     ap.add_argument('--color', default='magma', help='sea-add の水の色（magma・moss・dusk・sand・ink）')
     ap.add_argument('--key-file', default='',
                     help='machine-add で、鍵を画面に出さずにこのファイルへ書く（600。親のフォルダが無ければ 700 で作る。あれば上書きしない）')
+    ap.add_argument('--app-url', action='append', default=None,
+                    help='3 つの app の住所の根（何度でも。例 --app-url gantt=https://gantt.example.org。'
+                         '既定は環境変数 BUBBLE_TODO_APP_URLS（gantt=…,diary=…）。無ければ画面が住所から決める）')
     ap.add_argument('--oauth-client-host', action='append', default=None,
                     help='claude.ai の接続で受ける相手の住所の名前（何度でも。既定は環境変数 '
                          'BUBBLE_TODO_OAUTH_CLIENT_HOSTS（コンマで）か claude.ai）')
@@ -1987,7 +2012,8 @@ def main(argv=None):
         cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy, guard=guard,
                      allow_origins=args.allow_origin or (), passkeys=passkeys,
                      stores=SeaStores(data_dir), devices=Devices(max_active=args.max_devices, window=args.device_window),
-                     sea_list=SeaList(data_dir), min_schema=args.min_schema, machines=MachineKeys(data_dir), oauth=oauth)
+                     sea_list=SeaList(data_dir), min_schema=args.min_schema, machines=MachineKeys(data_dir), oauth=oauth,
+                     app_urls=parse_app_urls(args.app_url or os.environ.get('BUBBLE_TODO_APP_URLS', '').split(',')))
         spaces = {}
     else:
         cfg = Config(auth='token', trust_proxy=args.trust_proxy,
