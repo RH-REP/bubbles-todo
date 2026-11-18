@@ -16,7 +16,7 @@ test('どの項目も、どの画面を変えるか（PAGES）のどれかに入
 });
 
 test('盤の既定と、前の版で置いた値（2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」）', () => {
-  const def = ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'tags'];
+  const def = ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'repeat', 'tags'];
   /* 毎回・ときどき使うものは畳まない。［書き留める］（ok）は選ぶものから外した */
   assert.deepEqual(defaults().boardShow, def);
   assert.equal(checkValue('boardShow', ['ok', 'name']).includes('ok'), false);
@@ -32,6 +32,10 @@ test('盤の既定と、前の版で置いた値（2026-11-18 ユーザーの決
   assert.deepEqual(loadPrefs(m2).boardShow, ['name', 'start', 'done', 'detail']);
   assert.deepEqual(normalize(loadPrefs(m2)).boardShow, ['name', 'start', 'done', 'detail']);
   /* 2026-11-19: 次にやること（step）を出すと選んでいた今の版の値は、作業記録（detail）を出す */
+  /* 2026-11-19: 版 3 の値はそのまま読み、期間を出すと選んでいればくりかえしも出す */
+  const m4 = mem();
+  m4.setItem(PREFS_KEY, JSON.stringify({ boardShow: ['name', 'span', 'start'], boardShowV: 3 }));
+  assert.deepEqual(loadPrefs(m4).boardShow, ['name', 'start', 'span', 'repeat']);
   const m3 = mem();
   m3.setItem(PREFS_KEY, JSON.stringify({ boardShow: ['name', 'step', 'start', 'done'], boardShowV: 3 }));
   assert.deepEqual(loadPrefs(m3).boardShow, ['name', 'start', 'done', 'detail']);
@@ -40,7 +44,7 @@ test('盤の既定と、前の版で置いた値（2026-11-18 ユーザーの決
 test('盤にはじめから出す欄（Issue #49。set の項目）', () => {
   const d = defaults().boardShow;
   /* 既定（2026-11-18 ユーザーの決定。前は 2026-11-17 Issue #78 の返事で名前だけ） */
-  assert.deepEqual(d, ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'tags']);
+  assert.deepEqual(d, ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'repeat', 'tags']);
   /* 知らない値は落とし、並びは選ぶものの順にそろえる。空でもよい */
   assert.deepEqual(checkValue('boardShow', ['url', 'name', 'xx', 'name']), ['name', 'url']);   /* 並びは BOARD_PARTS の順 */
   assert.deepEqual(checkValue('boardShow', []), []);

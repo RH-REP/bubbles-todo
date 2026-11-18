@@ -35,14 +35,15 @@ export const BOARD_PARTS = [
   ['name', '名前'],
   /* 下のボタン（Issue #49 の返事）。畳むと「その他」を開いたときに出る。完了した泡の「海にもどす」は done と同じ扱い */
   ['start', '始める'], ['ended', '今日はここまで'], ['done', '完了にする'],
-  ['notes', 'コメント'], ['detail', '作業記録'], ['days', 'やる日'], ['span', '期間'], ['tags', 'タグ'],
+  ['notes', 'コメント'], ['detail', '作業記録'], ['days', 'やる日'], ['span', '期間'], ['repeat', 'くりかえし'], ['tags', 'タグ'],
   ['fav', 'お気に入り'], ['prio', '優先度'], ['url', 'リンク'],
   ['del', '削除'],
 ];
 /* 「少なめにする」で選ぶ欄（取りかかるのに要るものだけ） */
 export const BOARD_SHOW_FEW = ['name', 'start', 'done', 'detail'];
-/* 3 … 2026-11-18 の作り直し。前の版で置いた値（名前だけ、など）は新しい既定に替える（決めてほしいこと 1 の答え） */
-const BOARD_SHOW_V = 3;
+/* 3 … 2026-11-18 の作り直し。前の版で置いた値（名前だけ、など）は新しい既定に替える（決めてほしいこと 1 の答え）
+   4 … 2026-11-19 くりかえしの札を足した。3 の値はそのまま読み、期間を出すと選んでいればくりかえしも出す */
+const BOARD_SHOW_V = 4;
 export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
 /* 既定で出す欄（Issue #40 までの姿。お気に入り・優先度・リンクは畳む）。
    期間（開始日・終了日）は 2026-11-16 Issue #76「サーバーなし版のTODOの期限の設定がサーバーあり版と異なる？」で既定に足した。
@@ -54,7 +55,8 @@ export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
 /* 2026-11-18 ユーザーの決定（モック task-start.html の決めてほしいこと 1。上の Issue #78 の「1つにして」を置き換える）:
    毎回使うもの（次にやること・始める・今日はここまで・完了にする）と、ときどき使うもの（メモ・日付・タグ）は畳まない。
    コメントは共有の海でだけ出る（個人の海では、書いたものが無ければ出さない。js/bubble.js）。まれなものは「その他」 */
-const BOARD_SHOW_DEF = ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'tags'];
+/* 2026-11-19 ユーザーの決定「7 つとも案どおり」（モック docs/spec/mock/dates.html）: くりかえしを日付の段の 3 つ目の札に（既定で出す） */
+const BOARD_SHOW_DEF = ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'repeat', 'tags'];
 
 /* 設定の「音と表示を変える」で、先に選ぶ「どの画面を変えるか」（Issue #49 の返事）。
    各項目の pages に、その項目が効く画面を書く（2つ以上の画面に効くものは両方に出る）。
@@ -175,7 +177,10 @@ export function normalize(raw) {
   });
   /* 前の版（boardShowV が 3 でない）で置いた boardShow は、新しい既定に替える（2026-11-18 ユーザーの決定。
      前は「名前だけ」を既定にしていて、その値を置いた端末が多い。並びと言葉も替わったので、そのまま読むと畳まれすぎる） */
-  if (Array.isArray(raw.boardShow) && raw.boardShowV !== BOARD_SHOW_V) {
+  if (Array.isArray(raw.boardShow) && raw.boardShowV === 3 && Array.isArray(out.boardShow)) {
+    if (out.boardShow.includes('span') && !out.boardShow.includes('repeat')) out.boardShow = checkValue('boardShow', out.boardShow.concat('repeat'));
+  }
+  if (Array.isArray(raw.boardShow) && raw.boardShowV !== BOARD_SHOW_V && raw.boardShowV !== 3) {
     out.boardShow = BOARD_SHOW_DEF.slice();
   } else if (Array.isArray(raw.boardShow) && Array.isArray(out.boardShow)
     && raw.boardShow.some(p => p === 'step' || p === 'memo') && !out.boardShow.includes('detail')) {

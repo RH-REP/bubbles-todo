@@ -1755,3 +1755,49 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
 .bub-center .bc-lb-row .bc-lb { margin-right: auto; }
 .bub-center .bc-lb-row .bc-hist-open { margin-right: 14px; }
 .bub-center .bh-v { white-space: pre-wrap; }
+
+/* 2026-11-19 やる日・期間・くりかえし（モック docs/spec/mock/dates.html「7 つとも案どおり」）
+   日付の段は 3 列の札。開いた中身は段の幅いっぱい。暦は月の名前つきの同じ形（js/monthcal.js） */
+.bub-center .bc-dates-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head { padding: 6px 20px 6px 9px; min-height: 50px; min-width: 0; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head::after { right: 7px; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head .bc-cal-sum { font-size: 13px; letter-spacing: -.2px; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head[aria-expanded="true"] { border-color: var(--bub-edge); box-shadow: inset 0 0 0 1px var(--bub-edge); }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-date-note { order: 2; padding: 0 2px; border: 0; background: none; margin: 0; font-size: 12px; color: var(--text-2); }
+.bub-center .bc-cal-body { display: flex; flex-direction: column; gap: 6px; }
+.bub-center .bc-cal-body[hidden] { display: none; }
+.bub-center .bc-mcal { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px 6px 6px; }
+.bub-center .bc-mcal-hd { display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 600; }
+.bub-center .bc-mcal-nav { appearance: none; -webkit-appearance: none; font: inherit; font-size: 20px; line-height: 1; min-width: 44px; min-height: 36px; border: 0; background: none; color: var(--text-2); cursor: pointer; }
+.bub-center .bc-mcal-nav:disabled { opacity: .3; cursor: default; }
+.bub-center .bc-mcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.bub-center .bc-mcal .bc-cal-d { min-height: 40px; border: 0; border-radius: 8px; background: transparent; position: relative; }
+.bub-center .bc-mcal .bc-cal-d.is-out { color: var(--text-2); }
+.bub-center .bc-mcal .bc-cal-d.is-past { border: 0; color: var(--text-2); }
+.bub-center .bc-mcal .bc-cal-d.is-band { background: color-mix(in srgb, var(--bub-edge) 22%, transparent); border-radius: 0; }
+.bub-center .bc-mcal .bc-cal-d.is-bs { border-radius: 8px 0 0 8px; }
+.bub-center .bc-mcal .bc-cal-d.is-be { border-radius: 0 8px 8px 0; }
+.bub-center .bc-mcal .bc-cal-d.is-bs.is-be { border-radius: 8px; }
+.bub-center .bc-mcal .bc-cal-d.is-bs, .bub-center .bc-mcal .bc-cal-d.is-be { font-weight: 700; background: color-mix(in srgb, var(--bub-edge) 45%, transparent); }
+.bub-center .bc-mcal .bc-cal-d.is-on { background: var(--today-fill-hot); box-shadow: inset 0 0 0 1.5px var(--today-edge); border-radius: 50%; font-weight: 700; }
+.bub-center .bc-mcal .bc-cal-d.is-today:not(.is-on) { box-shadow: inset 0 0 0 1.5px var(--bub-edge); }
+.bub-center .bc-mcal .bc-cal-d.is-rep::after { content: ''; position: absolute; left: 50%; bottom: 4px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--bub-edge); }
+.bub-center .bc-cal-legend { margin: 0 2px; font-size: 11.5px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.bub-center .bc-cal-legend .lg { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: -1px; }
+.bub-center .bc-cal-legend .lg-on { background: var(--today-fill-hot); box-shadow: inset 0 0 0 1.5px var(--today-edge); }
+.bub-center .bc-cal-legend .lg-rep { width: 6px; height: 6px; background: var(--bub-edge); }
+.bub-center .bc-cal-legend .lg-band { width: 14px; border-radius: 2px; background: color-mix(in srgb, var(--bub-edge) 22%, transparent); }
+.bub-center .bc-seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.bub-center .bc-seg[hidden] { display: none; }
+.bub-center .bc-seg-b { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px; flex: 1 1 0; min-width: 0; min-height: 40px; padding: 4px; border: 0; border-left: 1px solid var(--line); background: none; color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bub-center .bc-seg-b:first-child { border-left: 0; }
+.bub-center .bc-seg-b[aria-pressed="true"] { background: var(--bub-edge); color: #fff; font-weight: 600; }
+.bub-center .bc-seg-b:disabled { opacity: .45; cursor: default; }
+.bub-center .bc-rep-sl { margin: 4px 2px 0; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.bub-center .bc-rep-sl[hidden] { display: none; }
+.bub-center .bc-dows { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.bub-center .bc-dows[hidden] { display: none; }
+.bub-center .bc-dow { appearance: none; -webkit-appearance: none; font: inherit; font-size: 14px; aspect-ratio: 1; min-height: 38px; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--text); cursor: pointer; }
+.bub-center .bc-dow[aria-pressed="true"] { background: var(--bub-edge); border-color: var(--bub-edge); color: #fff; font-weight: 700; }
+.bub-center .bc-rep-next { margin: 4px 2px 0; font-size: 13.5px; font-weight: 600; }
+.bub-center .bc-rep-next[hidden], .bub-center .bc-rep-until[hidden], .bub-center .bc-date-note[hidden] { display: none; }

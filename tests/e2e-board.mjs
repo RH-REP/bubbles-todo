@@ -10,7 +10,10 @@
    4. 作業記録から離れると保存し、「保存した」と出す。書き替えるたびに履歴に積み、［履歴を見る ›］で古い順に読める。1 行目が次にやること
    4b. 本文が無く次の一手だけある前の泡は、次の一手を作業記録の初めの中身として出す
    5. 前の版で置いた「名前だけ」の設定は、新しい既定に替わる
-   6. 優先度は、押した札をもう一度押すと印が外れる（［印を外す］は無い） */
+   6. 優先度は、押した札をもう一度押すと印が外れる（［印を外す］は無い）
+   7. 日付の段（2026-11-19「7 つとも案どおり」。モック docs/spec/mock/dates.html）: やる日・期間・くりかえしの 3 つの札。
+      1 つを開くとほかは閉じる。やる日は月の名前つきの暦と早く選ぶ札、期間は［開始日］［終了日］と同じ形の暦、
+      くりかえしは 毎週＋曜日 で先の回を出し、閉じるときに書く（盤は閉じない・今日の海へ移らない間は盤のまま） */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -102,7 +105,7 @@ try {
     assert.equal(got.ok, false, '［書き留める］は無い');
     assert.deepEqual(got.more, ['その他 ▾']);
     const heads = await js(`return [...document.querySelectorAll('.bc-dates .bc-cal-head')].filter(n => n.offsetParent).map(n => n.textContent.replace(/\\s+/g, ''))`);
-    assert.deepEqual(heads, ['やる日未定', '期間未定']);
+    assert.deepEqual(heads, ['やる日未定', '期間未定', 'くりかえしなし']);
   });
 
   await step('個人の海ではコメントを出さない。まれなものは「その他」の中で、開くと出る', async () => {
@@ -167,6 +170,78 @@ try {
     await sleep(300);
     assert.equal(await js(`const { store } = await import('/js/store.js'); const id = store.all().find(t => t.text === '前の形の泡').id;
       return store.detailOf(id) + '|' + store.stepsOf(id).length`), '|0');
+  });
+
+  await step('日付の段: 3 つの札。やる日は月の名前つきの暦（前の月へは戻れない）と早く選ぶ札。1 つを開くとほかは閉じる', async () => {
+    await openApp();
+    await js(`const { store } = await import('/js/store.js'); store.add('架空のゴミ出し'); store.add('架空の請求書');`);
+    await openBoard('架空のゴミ出し');
+    const tile = (i) => js(`document.querySelectorAll('.bc-dates .bc-cal-head')[${i}].click()`);
+    const exp = () => js(`return [...document.querySelectorAll('.bc-dates .bc-date-box:not([hidden]) > .bc-cal-head')].map(h => h.getAttribute('aria-expanded'))`);
+    await tile(0);
+    const cal = await js(`const b = document.querySelector('.bc-cal .bc-cal-body'); return { hidden: b.hidden, ttl: b.querySelector('.bc-mcal-ttl').textContent,
+      prev: b.querySelector('.bc-mcal-nav').disabled, today: b.querySelector('.bc-cal-d.is-today')?.dataset.key, quick: [...b.querySelectorAll('.bc-cal-quick button')].map(x => x.textContent) }`);
+    const now = await js(`const { store } = await import('/js/store.js'); return store.todayKey()`);
+    assert.equal(cal.hidden, false);
+    assert.equal(cal.ttl, Number(now.slice(0, 4)) + '年' + Number(now.slice(5, 7)) + '月');
+    assert.equal(cal.prev, true, '前の月へは戻れない（過ぎた日は変えられない）');
+    assert.equal(cal.today, now);
+    assert.deepEqual(cal.quick, ['今日', '明日', '今度の土曜', '未定にする']);
+    await js(`[...document.querySelectorAll('.bc-cal-quick button')].find(b => b.textContent === '明日').click()`);
+    const tomorrow = await js(`const { store } = await import('/js/store.js'); return store.dayAfter ? store.dayAfter(1) : null`);
+    const sum = await js(`return document.querySelector('.bc-cal .bc-cal-sum').textContent`);
+    if (tomorrow) assert.equal(sum, Number(tomorrow.slice(5, 7)) + '/' + Number(tomorrow.slice(8, 10)));
+    await tile(2);
+    assert.deepEqual(await exp(), ['false', 'false', 'true'], 'くりかえしを開くと、やる日は閉じる');
+    await js(`[...document.querySelectorAll('.bc-cal-quick button')].find(b => b.textContent === '明日')?.click()`);   /* 外す（閉じていても札は同じもの） */
+  });
+
+  await step('くりかえし: 毎週＋曜日で先の 3 回を出し、閉じるときに書く。今日がその曜日ならやる日は今日', async () => {
+    const now = await js(`const { store } = await import('/js/store.js'); return store.todayKey()`);
+    await js(`[...document.querySelectorAll('.bc-rep .bc-seg-b')].find(b => b.textContent === '毎週').click()`);
+    const s1 = await js(`const r = document.querySelector('.bc-rep'); return { sum: r.querySelector('.bc-cal-sum').textContent,
+      dows: [...r.querySelectorAll('.bc-dow')].filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent),
+      next: r.querySelector('.bc-rep-next').textContent, board: !!document.querySelector('.bc-fields .bc-act-start') }`);
+    const dn = '日月火水木金土'[new Date(now + 'T12:00:00').getDay()];
+    assert.equal(s1.sum, '毎週 ' + dn, '既定の曜日は今日の曜日');
+    assert.deepEqual(s1.dows, [dn]);
+    assert.match(s1.next, /^次の回　\d+\/\d+（.）・\d+\/\d+（.）・\d+\/\d+（.）$/);
+    assert.equal(s1.board, true, '盤は開いたまま（書くのは閉じるとき）');
+    assert.equal(await js(`const { store } = await import('/js/store.js'); return store.repeatOf(store.all().find(t => t.text === '架空のゴミ出し').id)`), null, 'まだ書かない');
+    /* 曜日を足す（今日でない曜日） */
+    const other = '日月火水木金土'[(new Date(now + 'T12:00:00').getDay() + 4) % 7];
+    await js(`[...document.querySelectorAll('.bc-rep .bc-dow')].find(b => b.textContent === ${JSON.stringify(other)}).click()`);
+    assert.match(await js(`return document.querySelector('.bc-rep .bc-cal-sum').textContent`), /^毎週 .・.$/);
+    /* 盤を閉じる（flush） */
+    await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await until(`return !document.querySelector('.bc-fields .bc-act-start')`);
+    const got = await js(`const { store } = await import('/js/store.js'); const id = store.all().find(t => t.text === '架空のゴミ出し').id;
+      return { r: store.repeatOf(id), days: store.daysOf(id) }`);
+    assert.equal(got.r.every, 'week');
+    assert.equal(got.r.of, 'day');
+    assert.equal(got.r.dows.length, 2);
+    assert.deepEqual(got.days, [now], '今日がその曜日なので、やる日は今日');
+  });
+
+  await step('期間: ［開始日］［終了日］を押してから同じ形の暦の日を押す。帯で出て、くりかえしの「期間」が選べるようになる', async () => {
+    await openApp();
+    await openBoard('架空の請求書');
+    await js(`document.querySelectorAll('.bc-dates .bc-cal-head')[1].click()`);
+    const keys = await js(`return [...document.querySelectorAll('.bc-span .bc-cal-d:not(.is-out)')].map(b => b.dataset.key)`);
+    const [k1, k2] = [keys[keys.length - 6], keys[keys.length - 2]];
+    await js(`document.querySelector('.bc-span .bc-cal-d[data-key="${k1}"]').click()`);
+    await js(`document.querySelector('.bc-span .bc-cal-d[data-key="${k2}"]').click()`);
+    const got = await js(`return { band: document.querySelectorAll('.bc-span .bc-cal-d.is-band').length, seg: [...document.querySelectorAll('.bc-span .bc-seg-b')].map(b => b.getAttribute('aria-pressed')),
+        sum: document.querySelector('.bc-span .bc-cal-sum').textContent, ofSpan: [...document.querySelectorAll('.bc-rep .bc-seg-b')].find(b => b.textContent === '期間').disabled }`);
+    const md = k => Number(k.slice(5, 7)) + '/' + Number(k.slice(8, 10));
+    assert.equal(got.band, 5);
+    assert.deepEqual(got.seg, ['false', 'true'], '開始日を選んだら、終了日へ移る');
+    assert.equal(got.sum, md(k1) + '–' + md(k2));
+    assert.equal(got.ofSpan, false, '期間を選ぶと、くりかえしの「期間」が選べる');
+    await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await until(`return !document.querySelector('.bc-fields .bc-act-start')`);
+    assert.deepEqual(await js(`const { store } = await import('/js/store.js'); return store.spanOf(store.all().find(t => t.text === '架空の請求書').id)`),
+      { start: k1, due: k2 }, '閉じるときに書く');
   });
 
   await step('前の版で置いた「名前だけ」の設定は、新しい既定に替わる（始めるが見える）', async () => {

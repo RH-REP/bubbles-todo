@@ -4211,7 +4211,7 @@ await test('毎月くりかえす: 期間が無いと付けられない。付け
   assert.equal(store.setRepeat(t.id, true), false, '期間が無い');
   store.setSpan(t.id, '2026-08-25', '2026-09-03');
   assert.equal(store.setRepeat(t.id, true), true);
-  assert.deepEqual(store.repeatOf(t.id), { every: 'month', from: '2026-08-25', to: '2026-09-03' });
+  assert.deepEqual(store.repeatOf(t.id), { every: 'month', step: 1, of: 'span', from: '2026-08-25', to: '2026-09-03' });
   assert.equal(saved().todos.find(x => x.id === t.id).ext.bubble.repeat.every, 'month');
   assert.equal(store.setRepeat(t.id, true), false, '二度付けても変わらない');
 });
@@ -4230,7 +4230,7 @@ await test('毎月くりかえす: 完了で月をまたぐ期間の写しがで
   assert.equal(c.due, '2026-10-03');
   assert.equal(c.detail, '本文');
   assert.equal(c.done, false);
-  assert.deepEqual(store.repeatOf(c.id), { every: 'month', from: '2026-08-25', to: '2026-09-03' });
+  assert.deepEqual(store.repeatOf(c.id), { every: 'month', step: 1, of: 'span', from: '2026-08-25', to: '2026-09-03' });
   store.complete(t.id);
   assert.equal(store.all().length, before + 1, '完了済みをもう一度完了しても増えない');
   store.uncomplete(t.id);
@@ -4296,6 +4296,84 @@ await test('毎月くりかえす: 期間を外すとくりかえしも外れる
   store.setSpan(t.id, '', '');
   assert.equal(store.repeatOf(t.id), null);
   assert.deepEqual(store.get(t.id).ext, { gantt: { goal: '架空' } });
+});
+
+/* ---- くりかえし: 毎週・2 週ごと・やる日・終わりの日（2026-11-19「7 つとも案どおり」） ---- */
+
+await test('毎週 月・木 のやる日: 付けると今日以上の最初の回がやる日に入る（今日 2026-08-20 は木曜）', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空のゴミ出し');
+  assert.equal(store.setRepeat(t.id, { every: 'week', of: 'day', dows: [] }), false, '曜日が要る');
+  assert.equal(store.setRepeat(t.id, { every: 'week', of: 'day', dows: [1, 4] }), true);
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-20']);
+  assert.deepEqual(store.repeatOf(t.id), { every: 'week', step: 1, of: 'day', from: '2026-08-20', dows: [1, 4], at: '2026-08-20' });
+  assert.equal(store.setRepeat(t.id, { every: 'week', of: 'day', dows: [4, 1] }), false, '同じ決まりなら書かない');
+  const saved1 = saved().todos.find(x => x.id === t.id).ext.bubble.repeat;
+  assert.equal(saved1.of, 'day');
+});
+
+await test('毎週のやる日: 完了すると次の回の泡ができ、取り消すと消える。前の回は完了のまま', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空のゴミ出し');
+  store.setRepeat(t.id, { every: 'week', of: 'day', dows: [1, 4] });
+  const before = store.all().length;
+  store.complete(t.id);
+  const c = store.all().find(x => x.id !== t.id && x.text === '架空のゴミ出し');
+  assert.ok(c);
+  assert.equal(store.all().length, before + 1);
+  assert.deepEqual(store.daysOf(c.id), ['2026-08-24'], '次の月曜');
+  assert.equal(store.repeatOf(c.id).at, '2026-08-24');
+  assert.equal(store.get(t.id).done, true);
+  store.uncomplete(t.id);
+  assert.equal(store.get(c.id), null, '手を付けていない写しは消える（回の日だけ入っている）');
+});
+
+await test('毎週のやる日: やらずに回が過ぎたら、同じ泡のやる日が次の回へ進む（泡は増えない）', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空のゴミ出し');
+  store.setRepeat(t.id, { every: 'week', of: 'day', dows: [1, 4] });
+  const before = store.all().length;
+  setNow(ms(2026, 8, 22, 10, 0));                              /* 土曜。8/20 の回は過ぎた */
+  store.rollover();
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-20', '2026-08-24'], '過ぎた日は記録として残し、次の回を足す');
+  assert.equal(store.repeatOf(t.id).at, '2026-08-24');
+  assert.equal(store.all().length, before);
+  setNow(NOW);
+});
+
+await test('2 週ごと・終わりの日: 終わりの日を過ぎたら次の回を作らない', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空の当番');
+  store.setRepeat(t.id, { every: 'week', step: 2, of: 'day', dows: [4], until: '2026-09-01' });
+  store.complete(t.id);
+  const c = store.all().find(x => x.id !== t.id && x.text === '架空の当番');
+  assert.equal(c, undefined, '次の回 9/3 は終わりの日 9/1 の後なので作らない');
+});
+
+await test('毎月のやる日（第 3 木曜）と、くりかえしを外すと先の回の日も外れる', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空の定例');
+  store.setDay(t.id, '2026-08-25', true);                      /* 自分で置いた日 */
+  store.setRepeat(t.id, { every: 'month', of: 'day', nth: 3, dow: 4 });
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-20', '2026-08-25'], '8/20 は第 3 木曜');
+  store.setRepeat(t.id, { every: 'month', of: 'day', mday: 31 });
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-25', '2026-08-31'], '前の回の日を外して、新しい回の日を足す');
+  store.setRepeat(t.id, null);
+  assert.deepEqual(store.daysOf(t.id), ['2026-08-25'], '自分で置いた日は残る');
+  assert.equal(store.repeatOf(t.id), null);
+});
+
+await test('期間を毎週ずらす: 完了で次の週の期間の写し。期間を直すと元が替わる', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空の週の作業');
+  store.setSpan(t.id, '2026-08-17', '2026-08-21');
+  assert.equal(store.setRepeat(t.id, { every: 'week', of: 'span' }), true);
+  store.complete(t.id);
+  const c = store.all().find(x => x.id !== t.id && x.text === '架空の週の作業');
+  assert.equal(c.start, '2026-08-24');
+  assert.equal(c.due, '2026-08-28');
+  store.setSpan(c.id, '2026-08-25', '2026-08-27');
+  assert.equal(store.repeatOf(c.id).from, '2026-08-25');
 });
 
 /* ============================================================ */
