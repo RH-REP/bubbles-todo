@@ -3,13 +3,14 @@
 
    形（ext.bubble.repeat。bubble だけが読む欄）:
      { every: 'week'|'month', step: 1|2, of: 'span'|'day', from: 'YYYY-MM-DD', to?, n, at?, next?,
-       dows?: [0..6], mday?: 1..31, nth?: 1..5, dow?: 0..6, until?: 'YYYY-MM-DD' }
+       dows?: [0..6], mdays?: [1..31], nth?: 1..5, dow?: 0..6, until?: 'YYYY-MM-DD' }
      of: 'span' … 期間（start・due）を、間隔ぶんずらす。from・to は元の期間、n は元から何回目か
                   （毎回「元 + n 回」で出すので、月末でつぶれた日がずれていかない）。前の「毎月くりかえす」はこれ
      of: 'day'  … やる日（days）を次の回へ送る。from は数え始めの日（2 週ごとの「どの週か」を決める）、
                   at はいまの回の日
        every 'week'  … dows の曜日（いくつでも）。step 2 なら from の週から 1 週おき
-       every 'month' … mday 日（月の長さでつぶす）か、nth 回目の dow 曜日（5 は最終。きっかけの日にちと同じ数え方）
+       every 'month' … mdays の日（いくつでも。2026-11-19「毎月の繰り返しを複数日付を選べる様にして」。月の長さでつぶす）か、
+                       nth 回目の dow 曜日（5 は最終。きっかけの日にちと同じ数え方）。前の形の mday（1 つ）は mdays として読む
      until … この日より後の回は作らない（任意）
    前の形 { every: 'month', from, to, n } は of: 'span', step: 1 として読む（書き替えない）。 */
 
@@ -67,9 +68,10 @@ export function normalizeRepeat(raw) {
       if (!dows.length) return null;
       out.dows = dows;
     } else {
-      const mday = Math.floor(Number(raw.mday));
+      const src = Array.isArray(raw.mdays) ? raw.mdays : (raw.mday != null ? [raw.mday] : []);
+      const mdays = [...new Set(src.map(x => Math.floor(Number(x))).filter(x => x >= 1 && x <= 31))].sort((a, b) => a - b);
       const nth = Math.floor(Number(raw.nth)), dow = Math.floor(Number(raw.dow));
-      if (mday >= 1 && mday <= 31) out.mday = mday;
+      if (mdays.length) out.mdays = mdays;
       else if (nth >= 1 && nth <= LAST && dow >= 0 && dow <= 6) { out.nth = nth; out.dow = dow; }
       else return null;
     }
@@ -119,7 +121,7 @@ export function occursOn(r, key) {
     return w % r.step === 0;
   }
   const day = Number(key.slice(8, 10));
-  if (r.mday) return day === Math.min(r.mday, lastDayOfMonth(key));
+  if (r.mdays) { const last = lastDayOfMonth(key); return r.mdays.some(m => day === Math.min(m, last)); }
   if (dw !== r.dow) return false;
   if (r.nth === LAST) return day + 7 > lastDayOfMonth(key);
   return Math.ceil(day / 7) === r.nth;
@@ -168,7 +170,7 @@ export function repeatLabel(r) {
   const iv = r.every === 'month' ? '毎月' : (r.step === 2 ? '2 週ごと' : '毎週');
   if (r.of === 'span') return iv + '（期間）';
   if (r.every === 'week') return iv + ' ' + r.dows.map(d => DOW_NAMES[d]).join('・');
-  return iv + ' ' + (r.mday ? r.mday + ' 日' : nthLabel(r.nth) + ' ' + DOW_NAMES[r.dow] + '曜');
+  return iv + ' ' + (r.mdays ? r.mdays.join('・') + ' 日' : nthLabel(r.nth) + ' ' + DOW_NAMES[r.dow] + '曜');
 }
 
 /* 'M/D（曜）' */

@@ -244,6 +244,34 @@ try {
       { start: k1, due: k2 }, '閉じるときに書く');
   });
 
+  await step('くりかえし（2026-11-19）: 期間のある泡でも、毎週なら曜日を出し、押すとやる日を曜日でくりかえす。毎月は日にちをいくつでも選べる', async () => {
+    await openApp();
+    await openBoard('架空の請求書');
+    await js(`document.querySelectorAll('.bc-dates .bc-cal-head')[2].click()`);
+    const seg = (t) => `[...document.querySelectorAll('.bc-rep .bc-seg-b')].find(b => b.textContent === ${JSON.stringify(t)})`;
+    await js(`${seg('毎週')}.click()`);
+    const w = await js(`${VIS} return { dow: vis(document.querySelector('.bc-rep .bc-dows')), of: ${seg('期間')}.getAttribute('aria-pressed'),
+      note: document.querySelector('.bc-rep .bc-span-note:not([hidden])')?.textContent || '' }`);
+    assert.deepEqual([w.dow, w.of], [true, 'true'], '期間をくりかえしていても曜日を出す');
+    assert.match(w.note, /曜日を押すと/);
+    await js(`[...document.querySelectorAll('.bc-rep .bc-dow')].find(b => b.textContent === '月').click()`);
+    assert.equal(await js(`return ${seg('やる日')}.getAttribute('aria-pressed')`), 'true', '曜日を押すとやる日のくりかえし');
+    assert.equal(await js(`return document.querySelector('.bc-rep .bc-cal-sum').textContent`), '毎週 月');
+    /* 毎月: 日にちをいくつでも */
+    await js(`${seg('毎月')}.click()`);
+    await js(`${seg('日にち')}.click()`);
+    assert.equal(await js(`${VIS} return vis(document.querySelector('.bc-rep .bc-mdays'))`), true);
+    for (const n of [5, 20]) await js(`[...document.querySelectorAll('.bc-rep .bc-mday')].find(b => b.textContent === '${n}').click()`);
+    const sum = await js(`return document.querySelector('.bc-rep .bc-cal-sum').textContent`);
+    assert.match(sum, /^毎月 (\d+・)*5・(\d+・)*20(・\d+)* 日$/);
+    await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await until(`return !document.querySelector('.bc-fields .bc-act-start')`);
+    const r = await js(`const { store } = await import('/js/store.js'); return store.repeatOf(store.all().find(t => t.text === '架空の請求書').id)`);
+    assert.equal(r.every, 'month');
+    assert.equal(r.of, 'day');
+    assert.ok(r.mdays.includes(5) && r.mdays.includes(20), JSON.stringify(r));
+  });
+
   await step('前の版で置いた「名前だけ」の設定は、新しい既定に替わる（始めるが見える）', async () => {
     await openApp({ boardShow: ['name'], boardShowV: 2 });
     await openBoard('歯医者');

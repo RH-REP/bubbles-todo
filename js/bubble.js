@@ -1616,9 +1616,10 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         b.textContent = tx;
         b.addEventListener('click', ev => {
           ev.preventDefault();
-          const cur = new Set(draft.dows || []);
+          /* 2026-11-19「毎週は曜日で指定できるように」: 期間をくりかえしているときに曜日を押すと、やる日を曜日でくりかえす形に替える */
+          const cur = new Set(draft.of === 'day' ? (draft.dows || []) : []);
           if (cur.has(i)) { if (cur.size > 1) cur.delete(i); } else cur.add(i);   /* 1 つは残す */
-          draft = Object.assign({}, draft, { dows: [...cur] });
+          draft = Object.assign({}, draft, { of: 'day', dows: [...cur] });
           apply();
         });
         dowBox.appendChild(b);
@@ -1627,12 +1628,35 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       body.appendChild(dowBox);
       const mdLb = el('p', 'bc-rep-sl', '毎月の日');
       body.appendChild(mdLb);
-      const mdSeg = segOf('毎月の日', [['mday', ''], ['nth', '']], v => {
+      const mdSeg = segOf('毎月の日', [['mdays', '日にち'], ['nth', '']], v => {
         const k = anchor();
-        draft = Object.assign({}, draft, v === 'mday' ? { mday: Number(k.slice(8, 10)), nth: undefined, dow: undefined }
-          : { mday: undefined, nth: nthOf(k), dow: dowOf(k) });
+        draft = Object.assign({}, draft, { of: 'day' }, v === 'mdays'
+          ? { mdays: (draft.of === 'day' && draft.mdays && draft.mdays.length) ? draft.mdays : [Number(k.slice(8, 10))], nth: undefined, dow: undefined }
+          : { mdays: undefined, nth: nthOf(k), dow: dowOf(k) });
         apply();
       });
+      /* 2026-11-19「毎月の繰り返しを複数日付を選べる様にして」: 日にち（1〜31）をいくつでも。月に無い日（31 日など）はその月の終わりの日 */
+      const mdBox = el('div', 'bc-mdays');
+      mdBox.dataset.name = '毎月の日にち（いくつでも）';
+      const mdBtns = Array.from({ length: 31 }, (_, j) => {
+        const n = j + 1;
+        const b = el('button', 'bc-mday');
+        b.type = 'button';
+        b.textContent = String(n);
+        b.setAttribute('aria-label', '毎月 ' + n + ' 日');
+        b.addEventListener('click', ev => {
+          ev.preventDefault();
+          const cur = new Set(draft.of === 'day' ? (draft.mdays || []) : []);
+          if (cur.has(n)) { if (cur.size > 1) cur.delete(n); } else cur.add(n);   /* 1 つは残す */
+          draft = Object.assign({}, draft, { of: 'day', mdays: [...cur].sort((x, y) => x - y), nth: undefined, dow: undefined });
+          apply();
+        });
+        mdBox.appendChild(b);
+        return b;
+      });
+      body.appendChild(mdBox);
+      const mdNote = el('p', 'bc-span-note', '');
+      body.appendChild(mdNote);
       sl('終わりの日');
       const untilSeg = segOf('終わりの日', [['none', '決めない'], ['pick', '日を選ぶ…']], v => {
         if (v === 'none') { draft = Object.assign({}, draft, { until: undefined }); untilIn.hidden = true; apply(); return; }
@@ -1661,7 +1685,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         const k = anchor();
         const fut = (ask(a, 'days', id) || []).some(d => d >= todayK);
         const of = (spanFields() && !fut) ? 'span' : 'day';
-        return { every: 'week', step: 1, of, dows: [dowOf(k)], mday: Number(k.slice(8, 10)) };
+        return { every: 'week', step: 1, of, dows: [dowOf(k)], mdays: [Number(k.slice(8, 10))] };
       }
       /* 選んだら下書きに入れて描き直す。書くのは閉じるとき（saveRepeat） */
       function apply() {
@@ -1669,7 +1693,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         if (cfg) {
           cfg = Object.assign({}, cfg);
           if (cfg.of === 'day' && cfg.every === 'week' && !(cfg.dows || []).length) cfg.dows = [dowOf(anchor())];
-          if (cfg.of === 'day' && cfg.every === 'month' && !cfg.mday && !cfg.nth) cfg.mday = Number(anchor().slice(8, 10));
+          if (cfg.of === 'day' && cfg.every === 'month' && !(cfg.mdays || []).length && !cfg.nth) cfg.mdays = [Number(anchor().slice(8, 10))];
           if (cfg.every === 'month') cfg.step = 1;
           if (cfg.of === 'span' && !spanFields()) cfg.of = 'day';
         }
@@ -1697,15 +1721,21 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         ofSeg.bs[1].disabled = !hasSpan;
         ofSeg.bs[1].title = hasSpan ? '' : '期間を決めると選べる';
         ivSeg.set(!draft ? 'none' : (d.every === 'month' ? 'm' : (d.step === 2 ? 'w2' : 'w1')));
-        const showDow = !!draft && d.of === 'day' && d.every === 'week';
+        /* 曜日・毎月の日は、毎週・2 週ごと・毎月を選んだらいつも出す（期間をくりかえしている間は印を付けず、押すとやる日のくりかえしになる） */
+        const showDow = !!draft && d.every === 'week';
         dowLb.hidden = dowBox.hidden = !showDow;
-        dowBtns.forEach((b, i) => b.setAttribute('aria-pressed', (d.dows || []).indexOf(i) >= 0 ? 'true' : 'false'));
-        const showMd = !!draft && d.of === 'day' && d.every === 'month';
+        dowBtns.forEach((b, i) => b.setAttribute('aria-pressed', d.of === 'day' && (d.dows || []).indexOf(i) >= 0 ? 'true' : 'false'));
+        const showMd = !!draft && d.every === 'month';
         mdLb.hidden = mdSeg.s.hidden = !showMd;
         const k = anchor();
-        mdSeg.bs[0].textContent = '毎月 ' + (d.mday || Number(k.slice(8, 10))) + ' 日';
-        mdSeg.bs[1].textContent = '毎月 ' + nthLabel(d.nth || nthOf(k)) + ' ' + DOW_NAMES[d.dow != null ? d.dow : dowOf(k)] + '曜';
-        mdSeg.set(d.nth ? 'nth' : 'mday');
+        mdSeg.bs[1].textContent = nthLabel(d.nth || nthOf(k)) + ' ' + DOW_NAMES[d.dow != null ? d.dow : dowOf(k)] + '曜';
+        mdSeg.set(d.of !== 'day' ? '' : (d.nth ? 'nth' : 'mdays'));
+        mdBox.hidden = !(showMd && d.of === 'day' && !d.nth);
+        mdBtns.forEach((b, j) => b.setAttribute('aria-pressed', (d.mdays || []).indexOf(j + 1) >= 0 ? 'true' : 'false'));
+        mdNote.textContent = (showDow || showMd) && d.of === 'span'
+          ? (showDow ? '曜日を押すと、期間ではなくやる日を曜日でくりかえす。' : '日にちを押すと、期間ではなくやる日を日にちでくりかえす。')
+          : (!mdBox.hidden && (d.mdays || []).some(n => n > 28) ? '29〜31 日が無い月は、その月の終わりの日。' : '');
+        mdNote.hidden = !mdNote.textContent;
         ofSeg.s.hidden = !draft;
         ofSeg.s.previousSibling.hidden = !draft;
         untilSeg.s.hidden = untilSeg.s.previousSibling.hidden = !draft;

@@ -36,6 +36,14 @@ test('毎月 31 日は月の長さでつぶす・第 3 木曜・最終金曜', (
   assert.equal(nthOf('2026-10-30'), 5);
 });
 
+test('毎月 いくつかの日（2026-11-19「毎月の繰り返しを複数日付を選べる様にして」）。前の形 mday も読む', () => {
+  const r = normalizeRepeat({ every: 'month', of: 'day', from: '2026-11-01', mdays: [20, 5, 31, 5] });
+  assert.deepEqual(r.mdays, [5, 20, 31]);
+  assert.deepEqual(upcoming(r, '2026-11-01', 6), ['2026-11-05', '2026-11-20', '2026-11-30', '2026-12-05', '2026-12-20', '2026-12-31']);
+  assert.equal(repeatLabel(r), '毎月 5・20・31 日');
+  assert.deepEqual(normalizeRepeat({ every: 'month', of: 'day', from: '2026-11-01', mday: 19 }).mdays, [19]);
+});
+
 test('終わりの日より後の回は作らない', () => {
   const r = normalizeRepeat({ every: 'week', of: 'day', from: '2026-11-19', dows: [4], until: '2026-12-01' });
   assert.deepEqual(upcoming(r, '2026-11-19', 5), ['2026-11-19', '2026-11-26']);
@@ -58,7 +66,7 @@ test('札の言葉', () => {
   assert.equal(repeatLabel(null), 'なし');
   assert.equal(repeatLabel(normalizeRepeat({ every: 'week', of: 'day', from: '2026-11-19', dows: [1, 4] })), '毎週 月・木');
   assert.equal(repeatLabel(normalizeRepeat({ every: 'week', step: 2, of: 'day', from: '2026-11-19', dows: [3] })), '2 週ごと 水');
-  assert.equal(repeatLabel(normalizeRepeat({ every: 'month', of: 'day', from: '2026-11-19', mday: 19 })), '毎月 19 日');
+  assert.equal(repeatLabel(normalizeRepeat({ every: 'month', of: 'day', from: '2026-11-19', mdays: [19] })), '毎月 19 日');
   assert.equal(repeatLabel(normalizeRepeat({ every: 'month', of: 'day', from: '2026-11-19', nth: 3, dow: 4 })), '毎月 第 3 木曜');
   assert.equal(repeatLabel(normalizeRepeat({ every: 'month', from: '2026-11-25', to: '2026-12-03' })), '毎月（期間）');
   assert.equal(mdw('2026-11-23'), '11/23（月）');

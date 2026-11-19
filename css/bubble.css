@@ -1801,3 +1801,8 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
 .bub-center .bc-dow[aria-pressed="true"] { background: var(--bub-edge); border-color: var(--bub-edge); color: #fff; font-weight: 700; }
 .bub-center .bc-rep-next { margin: 4px 2px 0; font-size: 13.5px; font-weight: 600; }
 .bub-center .bc-rep-next[hidden], .bub-center .bc-rep-until[hidden], .bub-center .bc-date-note[hidden] { display: none; }
+/* 毎月の日にち（2026-11-19「毎月の繰り返しを複数日付を選べる様にして」） */
+.bub-center .bc-mdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.bub-center .bc-mdays[hidden] { display: none; }
+.bub-center .bc-mday { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13.5px; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); cursor: pointer; }
+.bub-center .bc-mday[aria-pressed="true"] { background: var(--bub-edge); border-color: var(--bub-edge); color: #fff; font-weight: 700; }

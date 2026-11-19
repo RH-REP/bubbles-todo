@@ -1556,7 +1556,7 @@ function writeRepeat(t, r) {
     if (v.of === 'span') out.to = v.to;
     if (v.every === 'week' || v.of === 'day' || v.until) {
       out.step = v.step; out.of = v.of;
-      ['dows', 'mday', 'nth', 'dow', 'at', 'until'].forEach(k => { if (v[k] !== undefined) out[k] = v[k]; });
+      ['dows', 'mdays', 'nth', 'dow', 'at', 'until'].forEach(k => { if (v[k] !== undefined) out[k] = v[k]; });
     }
     if (v.next) out.next = v.next;
     b.repeat = out;
@@ -2523,7 +2523,7 @@ export const store = {
   },
 
   /* くりかえし（Issue #60。2026-11-19 毎週・2 週ごと・やる日・終わりの日を足した）。
-     { every, step, of, from, to?, dows?, mday?, nth?, dow?, until?, at? } か null（くりかえさない・泡が無い） */
+     { every, step, of, from, to?, dows?, mdays?, nth?, dow?, until?, at? } か null（くりかえさない・泡が無い） */
   repeatOf(id) {
     const r = repeatOfItem(store.get(id));
     if (!r) return null;
@@ -2536,7 +2536,7 @@ export const store = {
   /* くりかえしを付ける・直す・外す。
        false / null … 外す（of 'day' なら、まだ来ていない回の日もやる日から外す）
        true         … 前の「毎月くりかえす」（いまの期間を毎月）
-       { every: 'week'|'month', step?, of: 'span'|'day', dows?, mday?, nth?, dow?, until? }
+       { every: 'week'|'month', step?, of: 'span'|'day', dows?, mdays?（前の mday も読む）, nth?, dow?, until? }
          of 'span' は期間（start・due）があるときだけ。いまの期間を元にする
          of 'day'  は今日から数える。今日以上の最初の回をやる日に足す
      -> 変えたか */
@@ -2570,7 +2570,7 @@ export const store = {
       if (!r) return false;
     }
     /* 同じ決まりなら書かない（回の日・数えた回は比べない） */
-    const sig = x => x && JSON.stringify([x.every, x.step, x.of, x.dows, x.mday, x.nth, x.dow, x.until || null, x.of === 'span' ? [x.from, x.to] : null]);
+    const sig = x => x && JSON.stringify([x.every, x.step, x.of, x.dows, x.mdays, x.nth, x.dow, x.until || null, x.of === 'span' ? [x.from, x.to] : null]);
     if (sig(cur) === sig(r)) return false;
     dropAt();
     if (cur && cur.next) r.next = cur.next;
