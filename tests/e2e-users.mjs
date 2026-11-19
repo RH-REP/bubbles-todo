@@ -380,6 +380,49 @@ try {
     assert.deepEqual([inv[0].new_user, inv[0].spaces, inv[0].seas], [true, ['me'], undefined], '新しい利用者・海なし');
   });
 
+  await step('記録のバックアップ（2026-11-19）: ［今バックアップを取る］でサーバーに預け、一覧の［戻す］で上書きか追加かを聞く。上書きは今の記録をサーバーに控えてから入れ替える', async () => {
+    await yuki.go(origin + '/');
+    await yuki.until(`return !!document.querySelector('.gearbtn')`);
+    await yuki.js(`window.confirm = () => false;`);   /* 出ても止まらない（出さない作り） */
+    await yuki.js(`(await import('/js/store.js')).store.add('控えにある泡');`);
+    await yuki.js(`document.querySelector('.gearbtn').click();`);
+    await yuki.until(`return document.getElementById('pane-settings')?.classList.contains('is-active')`);
+    const rec = `[...document.querySelectorAll('#pane-settings details')].find(d => (d.querySelector('summary .nm') || {}).textContent === '記録')`;
+    await yuki.js(`const g = ${rec}; g.open = true; g.dispatchEvent(new Event('toggle'));`);
+    await yuki.until(`return !!document.querySelector('.pbk button[data-name="今バックアップを取る"]')`);
+    /* 設定を開いている間に同期が回り続けない（2026-11-19 に直した。前は共有の海で 1 秒に約 100 回読んでいた） */
+    await yuki.js(`window.__n = 0; const f0 = window.fetch; window.fetch = (u, o) => { if (/\\/api\\/data$/.test(String(u))) window.__n++; return f0(u, o); };`);
+    await sleep(2000);
+    assert.ok(await yuki.js(`return window.__n`) <= 3, '設定を開いている 2 秒の /api/data は 3 回まで');
+    await yuki.js(`document.querySelector('.pbk button[data-name="今バックアップを取る"]').click();`);
+    await yuki.until(`return document.querySelectorAll('.pbk .pbk-srv .pbk-row').length === 1`);
+    assert.match(await yuki.js(`return document.querySelector('.pbk .pbk-srv .pbk-row span').textContent`), /手で取った・海 \d+・泡 \d+/);
+    /* 預けた後に泡を足す → 上書きで戻すと消える */
+    await yuki.js(`(await import('/js/store.js')).store.add('後で足した泡');`);
+    await yuki.js(`document.querySelector('.pbk .pbk-srv .pbk-row button').click();`);
+    await yuki.until(`return !!document.querySelector('.bh-edit-box[aria-label="サーバーのバックアップから戻す"]')`);
+    const btns = await yuki.js(`return [...document.querySelectorAll('.bh-edit-box .row button')].map(b => b.textContent)`);
+    assert.deepEqual(btns, ['やめる', '上書きする', '追加する']);
+    await yuki.js(`[...document.querySelectorAll('.bh-edit-box .row button')].find(b => b.textContent === '上書きする').click();`);
+    await yuki.until(`return /入れ替えた/.test(document.querySelector('.pbk-say')?.textContent || '')`);
+    const got = await yuki.js(`const { store } = await import('/js/store.js'); return store.all().map(t => t.text)`);
+    assert.ok(got.includes('控えにある泡'), '控えの泡は残る');
+    assert.ok(!got.includes('後で足した泡'), '控えに無い泡は消える（上書き）');
+    assert.match(await yuki.js(`return document.querySelector('.pbk-say').textContent`), /今の記録をサーバーに控えた（.*上書きの前）/);
+    await yuki.until(`return document.querySelectorAll('.pbk .pbk-srv .pbk-row').length === 2`);
+    assert.match(await yuki.js(`return document.querySelector('.pbk .pbk-srv .pbk-row span').textContent`), /上書きの前/, '上書きの前の控えがいちばん上');
+    /* 合わせても戻ってこない（サーバーの記録も入れ替わる） */
+    await yuki.js(`await (await import('/js/sync.js')).sync.syncNow();`);
+    await sleep(500);
+    await yuki.js(`await (await import('/js/sync.js')).sync.syncNow();`);
+    assert.ok(!(await yuki.js(`return (await import('/js/store.js')).store.all().map(t => t.text)`)).includes('後で足した泡'), '合わせても戻らない');
+    /* 上書きの前の控えから「追加」で戻すと、消えた泡が戻る */
+    await yuki.js(`document.querySelector('.pbk .pbk-srv .pbk-row button').click();`);
+    await yuki.until(`return !!document.querySelector('.bh-edit-box')`);
+    await yuki.js(`[...document.querySelectorAll('.bh-edit-box .row button')].find(b => b.textContent === '追加する').click();`);
+    await yuki.until(`return (await import('/js/store.js')).store.all().some(t => t.text === '後で足した泡')`);
+  });
+
   await step('CSP に止められた読み込みや、画面のエラーが無い', async () => {
     await sleep(300);
     assert.deepEqual([...yuki.problems, ...ryo.problems], []);

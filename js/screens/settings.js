@@ -39,7 +39,9 @@ import { signNote, holdWallet } from '../notesign.js';
 import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { seaPanel, loginState } from './seapanel.js';
-import { personalBackups, mergeBackup } from '../oneserver.js';
+import { personalBackups, backupState } from '../oneserver.js';
+import { canServerBackup, saveServerBackup, listServerBackups, getServerBackup } from '../serverbackup.js';
+import { replaceState, addState } from '../merge.js';
 import { collectApps, deliverApps } from '../appbundles.js';
 import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupFileName, buildBackup } from '../folderbackup.js';
 import {
@@ -520,7 +522,8 @@ export default {
       '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。すべての海が1つのファイルに入る。',
       '・フォルダ（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く（記録だけ。鍵は入らない）。読み込むときは「ファイル」から選ぶ。',
       chainOn ? '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。' : '',
-      'どれから読み込んでも、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
+      '読み込むときは、上書き（今の記録をサーバーに控えてから、読み込んだもので丸ごと入れ替える）か、追加（今の記録に重ねる。記録ごとに新しいほうが残る）かを聞く。',
+      '・サーバーのバックアップ… ログインしていれば、［今バックアップを取る］でサーバーに預ける（新しい 30 個まで）。下の「バックアップ」の一覧から戻す。',
     ].filter(Boolean).forEach(t => gSave.appendChild(el('p', 'note', t)));
     /* 問いなので .note にしない（ⓘ の裏に隠さない） */
     gSave.appendChild(el('p', 'prefs-pages-lb', '何をする？'));
@@ -594,6 +597,24 @@ export default {
         } finally { now.disabled = false; }
       });
       r.appendChild(now);
+      /* 押して取るバックアップ（2026-11-19「能動的なバックアップを追加して」）。書き出すの欄だけ。一覧と戻すは下の「バックアップ」 */
+      if (mode === 'out') {
+        const take = el('button', 'btn', '今バックアップを取る');
+        take.type = 'button';
+        take.dataset.name = '今バックアップを取る';
+        take.addEventListener('click', async () => {
+          if (!canServerBackup()) { st.textContent = 'サーバーのバックアップは、ログインすると使える。'; return; }
+          take.disabled = true;
+          st.textContent = '預けている…';
+          try {
+            const m = await takeServerBackup('手で取った');
+            st.textContent = 'サーバーに預けた（' + backupWhen(m.at) + '・海 ' + m.seas + '・泡 ' + m.todos + '）。戻すときは「読み込む」の下の「バックアップ」から。';
+            window.dispatchEvent(new CustomEvent('bubbles:server-backups'));
+          } catch (e) { st.textContent = '預けられなかった: ' + ((e && e.message) || e); }
+          finally { take.disabled = false; }
+        });
+        r.appendChild(take);
+      }
       const b = el('button', 'btn', 'ログインの欄を開く');
       b.type = 'button';
       b.addEventListener('click', goServer);
@@ -1330,9 +1351,10 @@ function moveBox(mode) {
       fileText = '';
       const info = moveSummary(p);
       const at = info.at ? new Date(info.at).toLocaleString() : '不明';
-      if (!window.confirm('このファイルから読み込む？\n' + f.name + '\n書き出した時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
-        + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + appsLine(info) + '\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
-      restore(p);
+      const mode = await askReplaceOrAdd('このファイルから読み込む', [f.name, '書き出した時刻: ' + at + (info.device ? '（' + info.device + '）' : ''),
+        '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + appsLine(info).replace(/\n/g, '・')]);
+      if (!mode) return;
+      await restore(p, mode);
       return;
     }
     passForm.hidden = false;
@@ -1354,9 +1376,10 @@ function moveBox(mode) {
     passGo.disabled = false;
     const info = moveSummary(p);
     const at = info.at ? new Date(info.at).toLocaleString() : '不明';
-    if (!window.confirm('この端末に戻す？\n書き出した時刻: ' + at + (info.device ? '（' + info.device + '）' : '')
-      + '\n海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + appsLine(info) + '\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
-    restore(p);
+    const mode = await askReplaceOrAdd('この端末に戻す', ['書き出した時刻: ' + at + (info.device ? '（' + info.device + '）' : ''),
+      '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + appsLine(info).replace(/\n/g, '・')]);
+    if (!mode) return;
+    await restore(p, mode);
     passForm.hidden = true;
     passIn.value = '';
     fileText = '';
@@ -1367,10 +1390,12 @@ function moveBox(mode) {
   joinRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
   wrap.appendChild(joinRow);
 
-  function restore(p) {
-    const got = importIntoDevice(p, { askLocal: true });
+  async function restore(p, mode = 'add') {
+    let said = '';
+    if (mode === 'replace') { line.textContent = '今の記録を控えている…'; said = await backupBeforeReplace(); }
+    const got = importIntoDevice(p, { askLocal: true, replace: mode === 'replace', add: mode === 'add' });
     const n = got.n;
-    line.textContent = '海 ' + n + ' つの記録を戻した。';
+    line.textContent = (said ? said + '。' : '') + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '入れ替えた。' : '戻した（今の記録に重ねた）。');
     /* ほかの app の束は、その app へ渡す（日記は diary の /api/import。bubble の記録には入れない。2026-11-18 §8.3） */
     if (p.apps) {
       deliverApps(p.apps).then(lines => { if (lines.length) line.textContent += lines.join('。') + '。'; })
@@ -1654,6 +1679,10 @@ function mergeIntoDevice(p, opts) { return importIntoDevice(p, opts).n; }
    （いくつあっても記録ごとに重ねる）、作った海はこの端末だけの海になる。サーバーの海域は足さない・どこへも送らない。
    断ると前のとおりサーバーの海として入る（サーバーなし版では、開くとサーバーに繋ぐページへ移る） */
 function importIntoDevice(p, opts = {}) {
+  /* 上書き（2026-11-19）: 読み込んだ海の記録で、この端末のその海を丸ごと入れ替える（js/merge.js の replaceState）。読み込んだものに無い海には触らない */
+  /* 追加（opts.add）: 重ねたうえで、読み込んだものにあって今は消えている泡も戻す（js/merge.js の addState）。どちらでもなければ前のとおり重ねる */
+  const combine = opts.replace ? ((local, fromFile) => (fromFile ? replaceState(local, fromFile) : local))
+    : opts.add ? ((local, fromFile) => (fromFile ? addState(local, fromFile) : local)) : mergeBox;
   if (p && Array.isArray(p.regions) && p.regions.length) {
     const fileServers = serverRegionsInFile(p.regions);
     const toLocal = !!(opts.askLocal && isSolo() && fileServers.length
@@ -1665,7 +1694,7 @@ function importIntoDevice(p, opts = {}) {
     if (toLocal) {
       fileServers.forEach(r => { map[r.id] = 'local'; });
       const r = remapPayload(p, map, undefined, mergeBox);
-      const n = mergeBoxes({ seas: r.seas, boxes: r.boxes });
+      const n = mergeBoxes({ seas: r.seas, boxes: r.boxes }, combine);
       return { n, map, added };
     }
     /* 入れる先: 開いている海のサーバー。開いている海が この端末だけ なら、前からの個人のサーバーか、最初に足したサーバー
@@ -1682,10 +1711,10 @@ function importIntoDevice(p, opts = {}) {
       locals.forEach(k => { map[k] = here.id; });
     }
     const r = remapPayload(p, map);
-    const n = mergeBoxes({ seas: r.seas, boxes: r.boxes });
+    const n = mergeBoxes({ seas: r.seas, boxes: r.boxes }, combine);
     return { n, map, added };
   }
-  return { n: mergeBoxes(p), map: {}, added: [] };
+  return { n: mergeBoxes(p, combine), map: {}, added: [] };
 }
 
 /* ファイルの海域の一覧のうち、サーバーと合わせるもの（住所のあるもの。importRegions が付け替えられるもの） */
@@ -1693,18 +1722,18 @@ function serverRegionsInFile(fileRegions) {
   return (fileRegions || []).filter(r => r && r.id !== 'local' && r.kind !== 'local' && String(r.url || ''));
 }
 
-function mergeBoxes(p) {
+function mergeBoxes(p, combine = mergeBox) {
   mergeSeas(p.seas || []);
   let n = 0;
   Object.keys(p.boxes || {}).forEach(id => {
     if (id !== 'me' && !ID_RE.test(id) && !PERSONAL_RE.test(id)) return;
     const fromFile = p.boxes[id];
     if (id === store.space()) {
-      store.applyState(mergeBox(store.exportState(), fromFile));
+      store.applyState(combine(store.exportState(), fromFile));
     } else {
       let raw = null;
       try { raw = JSON.parse(localStorage.getItem(boxKey(id)) || 'null'); } catch (e) { raw = null; }
-      try { localStorage.setItem(boxKey(id), JSON.stringify(stateToBox(mergeBox(boxToState(raw), fromFile)))); } catch (e) {
+      try { localStorage.setItem(boxKey(id), JSON.stringify(stateToBox(combine(boxToState(raw), fromFile)))); } catch (e) {
         toast('入りきらない（端末の空きが足りない）');
         return;
       }
@@ -1879,7 +1908,9 @@ function sigOfBox(b) {
   return s.length.toString(36) + '.' + h.toString(36);
 }
 function seaStateById(id) {
-  if (id === store.space()) { try { store.flush(); } catch (e) { /* 読むのは止めない */ } return store.exportState(); }
+  /* 読むだけなので保存しない（2026-11-19）。前は store.flush() を呼んでいて、保存の知らせ（store.onPersist）で同期がもう 1 回走り、
+     同期の知らせでここがまた呼ばれる、の繰り返しになっていた（共有の海で設定を開いている間、1 秒に約 100 回 /api/data を読み、サーバーの回数の上限に当たる） */
+  if (id === store.space()) return store.exportState();
   try { return boxToState(JSON.parse(localStorage.getItem(boxKey(id)) || 'null')); } catch (e) { return null; }
 }
 function pendingNotesIn(st) {
@@ -3863,7 +3894,9 @@ function chainBox(opts = {}) {
   /* この端末で書いた、まだ署名の無いひとこと（その海の分）に署名する（Issue #68 の返事「TODOのメッセージを送る時に…その場で同期しないのであれば不要なのでは？」）。
      開いている海は store.signedNotes で置き換え（記録の印も付く）、ほかの海は箱を直に書き換えて印を進める。署名した数 */
   function seaStateOf(id) {
-    if (id === store.space()) { try { store.flush(); } catch (e) { /* 読むのは止めない */ } return store.exportState(); }
+    /* 読むだけなので保存しない（2026-11-19）。前は store.flush() を呼んでいて、保存の知らせ（store.onPersist）で同期がもう 1 回走り、
+     同期の知らせでここがまた呼ばれる、の繰り返しになっていた（共有の海で設定を開いている間、1 秒に約 100 回 /api/data を読み、サーバーの回数の上限に当たる） */
+  if (id === store.space()) return store.exportState();
     try { return boxToState(JSON.parse(localStorage.getItem(boxKey(id)) || 'null')); } catch (e) { return null; }
   }
   const pendingOf = (st, dev) => (st && st.doc && Array.isArray(st.doc.notes) ? st.doc.notes : [])
@@ -4329,14 +4362,15 @@ function chainBox(opts = {}) {
     const p = await openMemos(parts, recordKey);
     const s = moveSummary(p);
     const at = s.at ? new Date(s.at).toLocaleString() : '不明';
-    if (!window.confirm('このバックアップをこの端末に復元する？\n保存した時刻: ' + at + (s.device ? '（' + s.device + '）' : '')
-      + (s.regions.length ? '\n同期の先 ' + s.regions.join('・') : '')
-      + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。'
-      + (s.regions.length ? '\nサーバーの鍵は入っていない（設定の「海」の［サーバーにログイン］で入り直す）。' : ''))) {
+    const mode = await askReplaceOrAdd('このバックアップをこの端末に復元する', ['保存した時刻: ' + at + (s.device ? '（' + s.device + '）' : ''),
+      (s.regions.length ? '同期の先 ' + s.regions.join('・') + '・' : '') + '海 ' + s.seas + ' つ・todo ' + s.todos + ' 件',
+      s.regions.length ? 'サーバーの鍵は入っていない（設定の「海」の［サーバーにログイン］で入り直す）。' : '']);
+    if (!mode) {
       line.textContent = 'やめた';
       return true;
     }
-    const n = mergeIntoDevice(p, { askLocal: true });
+    if (mode === 'replace') line.textContent = (await backupBeforeReplace()) + '。';
+    const n = mergeIntoDevice(p, { askLocal: true, replace: mode === 'replace', add: mode === 'add' });
     /* 読み込んだ控えは「新しい記録がある」の知らせに出さない（Issue #52。js/chainwatch.js） */
     if (address === cfg.address) markChainSeen(parts[0].id);
     line.textContent = '海 ' + n + ' つの記録を戻した。';
@@ -5213,55 +5247,212 @@ if (typeof document !== 'undefined' && isSolo()) {
 /* サーバーあり版では見張らない（チェーンの読み込みも、その上の直の通信 WebRTC も始めない。2026-11-17 Issue #78） */
 if (typeof document !== 'undefined' && isSolo()) startSharedWatch();
 
-/* 個人の控え（2026-11-18 決定「合わせる前に控えを取り、設定の『記録』で戻せる」。モック docs/spec/mock/personal.html）。
-   ［今の個人に重ねる］は記録ごとに新しいほうを残す（消さない・置き換えない）。重ねるのは開いている個人の海だけ。
-   前の利用者の控え（別の利用者に替わった時より前のもの）は、ログイン中は重ねない（ほかの人の泡を今の人のサーバーの個人へ送らないため）。利用者の字は textContent で入れる */
+/* この端末のすべての海の控え（サーバーのバックアップ・上書きの前の控え。フォルダの控えと同じ形）。2026-11-19 */
+function deviceBackupPayload() {
+  const rids = regionList().map(r => r.id);
+  const picked = pickForPayload(rids, collectBoxes(), allEntries());
+  return buildBackup({ boxes: picked.boxes, seas: picked.seas, at: Date.now(), device: deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1),
+    regions: regionsPayload(rids) });
+}
+
+/* 今の記録をサーバーに預ける（押して取るバックアップ。2026-11-19「能動的なバックアップを追加して」）→ 一覧の 1 行 */
+async function takeServerBackup(label) {
+  try { store.flush(); } catch (e) { /* 預けるのは止めない */ }
+  const p = deviceBackupPayload();
+  return saveServerBackup(p, label || '', p.device);
+}
+
+/* 上書きの前に、今の記録をサーバーに控える（2026-11-19「古いものをサーバーにバックアップをとって、新しいデータを完全に差し替える」）。
+   ログインしていない・届かないときは、この端末にファイルで書き出す（控えを取らずに入れ替えない）→ 知らせる文 */
+async function backupBeforeReplace() {
+  if (canServerBackup()) {
+    try {
+      const m = await takeServerBackup('上書きの前');
+      window.dispatchEvent(new CustomEvent('bubbles:server-backups'));
+      return '今の記録をサーバーに控えた（' + backupWhen(m.at) + '・上書きの前）';
+    } catch (e) { /* 下のファイルへ */ }
+  }
+  const p = deviceBackupPayload();
+  const name = moveFileName(p.at).replace('bubbles-move', 'bubbles-backup-before-replace');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(p, null, 1) + '\n'], { type: 'application/json' }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  return 'サーバーに控えられなかったので、今の記録をファイル（' + name + '）に書き出した';
+}
+
+function backupWhen(ms) {
+  const d = new Date(ms);
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+/* 上書きか追加かを聞く（2026-11-19「読み出したものは上書きするか追加するかきいて」）→ 'replace' | 'add' | null（やめる）。
+   板の形は泡の記録を直す板（css/bubble.css の .bh-edit-*）と同じ */
+function askReplaceOrAdd(title, lines) {
+  return new Promise(resolve => {
+    const back = el('div', 'bh-edit-back');
+    const box = el('div', 'bh-edit-box');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-label', title);
+    box.dataset.name = '上書きか追加かを聞く板';
+    const tt = el('p', 'tt');
+    tt.textContent = title + '？';
+    box.appendChild(tt);
+    (lines || []).filter(Boolean).forEach(t => { const p = el('p', 'why'); p.textContent = t; box.appendChild(p); });
+    const how = el('p', 'why');
+    how.textContent = '上書き … 今の記録をサーバーに控えてから（ログインしていなければファイルに書き出してから）、読み込んだもので丸ごと入れ替える（読み込んだものに無い泡は消える）。'
+      + '追加 … 今の記録に足す（今の泡は消さない。両方にある泡は新しく書き換えたほうが残り、読み込んだものにあって今は無い泡は戻る）。';
+    box.appendChild(how);
+    const row = el('div', 'row');
+    const done = (v) => { back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const mk = (tx, cls, v) => { const b = el('button', cls); b.type = 'button'; b.textContent = tx; b.dataset.v = v || ''; b.addEventListener('click', () => done(v)); row.appendChild(b); return b; };
+    mk('やめる', 'ca', null);
+    mk('上書きする', 'ca', 'replace');
+    const add = mk('追加する', 'ok', 'add');
+    box.appendChild(row);
+    const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); done(null); } };
+    document.addEventListener('keydown', onKey, true);
+    back.addEventListener('pointerdown', ev => { if (ev.target === back) done(null); });
+    back.appendChild(box);
+    document.body.appendChild(back);
+    add.focus({ preventScroll: true });
+  });
+}
+
+/* バックアップ（2026-11-19。前の「個人の控え」の場所）。
+   ・サーバー（ログイン中）: ［今バックアップを取る］と、預けたものの一覧（新しい順）。［戻す］で上書きか追加かを聞く
+   ・この端末の控え（合わせる・入れ替える前に取った個人の海の前の中身。2026-11-18）: 同じく［戻す］
+   前は控えを［今の個人に重ねる］の 1 通りだけだった（「重ねる」と「戻す」の 2 段）。今は戻すときに上書きか追加かを聞く */
 function personalBackupBox(owner) {
   const w = document.createElement('div');
   w.className = 'pbk';
-  w.dataset.name = '個人の控え';
+  w.dataset.name = 'バックアップ';
   const KIND = { unify: 'ログインで合わせる前', person: '前の版で入れ替える前', user: '別の利用者に替わる前' };
-  const fmt = (ms) => { const d = new Date(ms); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
-  const paint = () => {
+  const fmt = backupWhen;
+  const rowOf = (text, onBack, blocked) => {
+    const r = document.createElement('div');
+    r.className = 'row pbk-row';
+    r.style.cssText = 'align-items:center;gap:8px;margin:4px 0';
+    const t = document.createElement('span');
+    t.style.flex = '1';
+    t.textContent = text;
+    r.appendChild(t);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn';
+    btn.textContent = '戻す';
+    if (blocked) { btn.disabled = true; btn.title = blocked; }
+    btn.addEventListener('click', async () => { btn.disabled = true; try { await onBack(); } finally { btn.disabled = !!blocked; } });
+    r.appendChild(btn);
+    return r;
+  };
+  const say = document.createElement('p');
+  say.className = 'note pbk-say';
+  say.setAttribute('aria-live', 'polite');
+  let seq = 0;
+  const paint = async () => {
+    const my = ++seq;
     w.textContent = '';
-    const list = personalBackups();
-    w.hidden = !list.length;
-    if (!list.length) return;
     const h = document.createElement('p');
     h.className = 'prefs-pages-lb';
-    h.textContent = '個人の控え（' + list.length + '）';
+    h.textContent = 'バックアップ';
     w.appendChild(h);
-    const p = document.createElement('p');
-    p.className = 'note';
-    p.textContent = '合わせる・入れ替える前に取った、個人の海の前の中身。［今の個人に重ねる］は記録ごとに新しいほうを残す（今の泡は消さない）。';
-    w.appendChild(p);
-    const here = isPersonal(store.space());
-    const login = !!loggedIn();
-    list.forEach(b => {
+    /* --- サーバー --- */
+    const sh = document.createElement('p');
+    sh.className = 'pbk-sub';
+    sh.textContent = 'サーバー';
+    w.appendChild(sh);
+    if (!canServerBackup()) {
+      const p = document.createElement('p');
+      p.className = 'pbk-none';
+      p.textContent = 'ログインすると、サーバーにバックアップを預けて、ここから戻せる。';
+      w.appendChild(p);
+    } else {
       const r = document.createElement('div');
       r.className = 'row';
-      r.style.cssText = 'align-items:center;gap:8px;margin:4px 0';
-      const t = document.createElement('span');
-      t.style.flex = '1';
-      t.textContent = fmt(b.at) + '　' + (KIND[b.kind] || '') + '・泡 ' + b.n;
-      r.appendChild(t);
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn';
-      btn.textContent = '今の個人に重ねる';
-      const blocked = !here ? '個人の海を開いてから' : (b.other && login) ? 'ログアウトしてから（前の利用者の控え）' : '';
-      if (blocked) { btn.disabled = true; btn.title = blocked; }
-      btn.addEventListener('click', () => {
-        const got = mergeBackup(b.key, store.exportState(), !!loggedIn());
-        if (!got || !store.applyState(got)) { toast('重ねられなかった'); return; }
-        toast('控え（' + fmt(b.at) + '）を今の個人に重ねた');
+      const take = document.createElement('button');
+      take.type = 'button';
+      take.className = 'btn';
+      take.textContent = '今バックアップを取る';
+      take.dataset.name = '今バックアップを取る';
+      take.addEventListener('click', async () => {
+        take.disabled = true;
+        say.textContent = '預けている…';
+        try { const m = await takeServerBackup('手で取った'); say.textContent = 'サーバーに預けた（' + fmt(m.at) + '・海 ' + m.seas + '・泡 ' + m.todos + '）'; paint(); }
+        catch (e) { say.textContent = '預けられなかった: ' + ((e && e.message) || e); }
+        finally { take.disabled = false; }
       });
-      r.appendChild(btn);
+      r.appendChild(take);
       w.appendChild(r);
-    });
+      const list = document.createElement('div');
+      list.className = 'pbk-list pbk-srv';
+      list.textContent = '読んでいる…';
+      w.appendChild(list);
+      listServerBackups().then(items => {
+        if (my !== seq) return;
+        list.textContent = '';
+        if (!items.length) { const p = document.createElement('p'); p.className = 'pbk-none'; p.textContent = 'まだ預けていない。'; list.appendChild(p); return; }
+        items.forEach(m => list.appendChild(rowOf(fmt(m.at) + '　' + (m.label || '') + '・海 ' + m.seas + '・泡 ' + m.todos, async () => {
+          say.textContent = '読んでいる…';
+          let got;
+          try { got = await getServerBackup(m.id); } catch (e) { say.textContent = '読めなかった: ' + ((e && e.message) || e); return; }
+          const info = moveSummary(got.payload);
+          const mode = await askReplaceOrAdd('サーバーのバックアップから戻す', [fmt(m.at) + '　' + (m.label || '') + (m.device ? '（' + m.device + '）' : ''),
+            '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件']);
+          if (!mode) { say.textContent = ''; return; }
+          const pre = mode === 'replace' ? (await backupBeforeReplace()) + '。' : '';
+          /* 同じ利用者が預けたもの。この端末だけの海はこの端末だけの海へ戻す（版をまたぐ引っ越しの問い askLocal は出さない） */
+          const n = mergeIntoDevice(got.payload, { replace: mode === 'replace', add: mode === 'add' });
+          say.textContent = pre + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '入れ替えた。' : '戻した（今の記録に重ねた）。');
+          toast(mode === 'replace' ? 'バックアップ（' + fmt(m.at) + '）で入れ替えた' : 'バックアップ（' + fmt(m.at) + '）を重ねた');
+          paint();
+        })));
+      }).catch(e => { if (my === seq) list.textContent = '一覧を読めなかった: ' + ((e && e.message) || e); });
+    }
+    /* --- この端末の控え --- */
+    const locals = personalBackups();
+    if (locals.length) {
+      const lh = document.createElement('p');
+      lh.className = 'pbk-sub';
+      lh.textContent = 'この端末の控え（' + locals.length + '）';
+      w.appendChild(lh);
+      const ln = document.createElement('p');
+      ln.className = 'note';
+      ln.textContent = '合わせる・入れ替える前に取った、個人の海の前の中身。';
+      w.appendChild(ln);
+      const here = isPersonal(store.space());
+      const login = !!loggedIn();
+      const llist = document.createElement('div');
+      llist.className = 'pbk-list pbk-local';
+      w.appendChild(llist);
+      locals.forEach(b => {
+        const blocked = !here ? '個人の海を開いてから' : (b.other && login) ? 'ログアウトしてから（前の利用者の控え）' : '';
+        llist.appendChild(rowOf(fmt(b.at) + '　' + (KIND[b.kind] || '') + '・泡 ' + b.n, async () => {
+          const mode = await askReplaceOrAdd('この端末の控えから個人の海に戻す', [fmt(b.at) + '　' + (KIND[b.kind] || '') + '・泡 ' + b.n]);
+          if (!mode) return;
+          let got;
+          const raw = backupState(b.key, !!loggedIn());
+          if (mode === 'replace') {
+            const pre = raw ? (await backupBeforeReplace()) + '。' : '';
+            got = raw ? replaceState(store.exportState(), raw) : null;
+            say.textContent = pre;
+          } else got = raw ? addState(store.exportState(), raw) : null;
+          if (!got || !store.applyState(got)) { toast('戻せなかった'); return; }
+          say.textContent += '控え（' + fmt(b.at) + '）' + (mode === 'replace' ? 'で個人の海を入れ替えた。' : 'を個人の海に重ねた。');
+          toast(mode === 'replace' ? '控えで入れ替えた' : '控えを重ねた');
+        }, blocked));
+      });
+    }
+    w.appendChild(say);
   };
-  paint();
+  /* 一覧はサーバーに聞くので、箱が開いているときだけ読む（閉じた設定の画面で何度も聞かない） */
+  const open = () => !owner || owner.open;
+  if (open()) paint();
   if (owner) owner.addEventListener('toggle', () => { if (owner.open) paint(); });
+  window.addEventListener('bubbles:server-backups', () => { if (w.isConnected && open()) paint(); });
   return w;
 }
 

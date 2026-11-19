@@ -509,6 +509,21 @@ bash tests/server-setup.test.sh
 
 ## サーバーで記録を共有する（前の節名「海域」）
 
+### 記録のバックアップ：サーバーのバックアップ、上書きか追加か（2026-11-19 ユーザーの指示。版 2026-11-19d）
+
+> バックアップから：古いものをサーバーにバックアップをとって、新しいデータを完全に差し替える機能を追加して／個人の控え（１）を重ねるのように２段階にするのではなく、読み出したものは上書きするか追加するかきいて／能動的なバックアップを追加して／今の控えにある場所に、サーバーバックアップをリストして、復元機能をつけて
+
+議事録・用語は `app_spec/self_management/bubble_todo/`（minutes/261119_バックアップと上書き・追加.md）。
+- **サーバー**（`server.py` の `Snapshots`）: `POST /api/snapshots {payload, label, device}`・`GET /api/snapshots`（新しい順・中身なし）・`GET /api/snapshots/<id>`。
+  ログインした利用者の個人の置き場（`snapshots/snap-<ms>-<hex>.json`、0600）。X-Bubbles-Space は見ず、いつも個人。新しい `SNAP_KEEP`（30）個だけ残す。書くたびの写し（`backup/state-*.json`）とは別
+- **画面**（`js/serverbackup.js`、`js/screens/settings.js` の `personalBackupBox`・`askReplaceOrAdd`・`backupBeforeReplace`・`takeServerBackup`）:
+  「記録」の前の「個人の控え」の場所を「バックアップ」の箱に。サーバー（［今バックアップを取る］と一覧の［戻す］）と、この端末の控え（［戻す］）。書き出す → サーバーにも［今バックアップを取る］
+- **読み込むときは上書きか追加かを聞く**（ファイル・ブロックチェーン・サーバーのバックアップ・この端末の控え）。
+  上書き＝今の記録をサーバーに預けてから（ログインしていなければ `bubbles-backup-before-replace-….json` に書き出してから）入れ替える（`js/merge.js` の `replaceState`。今の時刻の印を付け直し、無い記録には墓石。合わせても戻らない）。
+  追加＝重ねたうえで、読み込んだものにあって今は無い泡も戻す（`addState`）
+- **直したこと**: 設定を開いている間、共有の海で同期が回り続けていた（1 秒に約 100 回 `/api/data`）。チャットの未読を数えるところ（`seaStateById`）が `store.flush()` で保存し、その知らせで同期がもう 1 回走っていた。読むだけにした
+- テスト: `tests/replace.test.mjs`（4 件）、`tests/test_server.py`（`test_snapshots_save_list_get`）、`tests/e2e-users.mjs`（預ける・上書き・合わせても戻らない・追加で戻る・同期が回り続けない）、`e2e-apps`・`e2e-passkey` を新しい板・箱に合わせた
+
 ### 左上はログインのアイコン、右上に ⚙（2026-11-19 ユーザーの指示。版 2026-11-19c）
 
 > 変更：左上はログインアイコン、右上あたりに歯車（設定）にデザイン統一して

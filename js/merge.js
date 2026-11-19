@@ -175,3 +175,51 @@ export function sameStamps(a, b) {
   if (kx.length !== ky.length) return false;
   return kx.every(k => Array.isArray(y[k]) && y[k][0] === x[k][0] && y[k][1] === x[k][1]);
 }
+
+/* **上書き**（2026-11-19 ユーザーの指示「新しいデータを完全に差し替える」「読み出したものは上書きするか追加するかきいて」）。
+   cur（今の状態）を next（読み込んだ控え）で丸ごと置き換えた { doc, stamps } を返す。
+   ただ next をそのまま入れると、印が古いので、合わせたときにサーバー・ほかの端末の新しい記録が勝って戻ってくる。
+   そこで、next の記録には今の時刻（今ある印のどれよりも新しい時刻）の印を付け直し、
+   next に無い記録（今あるもの・印だけあるもの）には同じ時刻の墓石を付ける。これで合わせても next の中身が残る。
+   日付（lastDay）は進むだけ（新しいほう）。cur・next は書き換えない */
+export function replaceState(cur, next, at = Date.now()) {
+  const C = cur || { doc: {}, stamps: {} };
+  const N = next || { doc: {}, stamps: {} };
+  let top = Math.floor(Number(at)) || Date.now();
+  [C.stamps, N.stamps].forEach(st => Object.keys(st || {}).forEach(k => {
+    const s = st[k];
+    if (Array.isArray(s) && Number(s[0]) >= top) top = Number(s[0]) + 1;
+  }));
+  const rn = recordsOf(N.doc), rc = recordsOf(C.doc);
+  const stamps = {};
+  new Set([...Object.keys(C.stamps || {}), ...Object.keys(N.stamps || {}), ...rc.keys()])
+    .forEach(k => { if (!rn.has(k)) stamps[k] = [top, 0]; });
+  rn.forEach((_, k) => { stamps[k] = [top, 1]; });
+  const doc = buildDoc(rn, Object.assign({}, C.doc, N.doc));
+  const days = [C.doc && C.doc.lastDay, N.doc && N.doc.lastDay].filter(x => typeof x === 'string').sort();
+  doc.lastDay = days.length ? days[days.length - 1] : null;
+  return { doc, stamps };
+}
+
+/* **追加**（2026-11-19。上書きと対の、読み込んだものを今の記録に足す）。
+   ふつうに重ねる（mergeState。記録ごとに新しいほうが残る）うえで、読み込んだものにあって今は無い（消した・まだ無い）記録は、
+   今の時刻の印で戻す。印だけで重ねると、控えを取った後に消した泡は、消した印のほうが新しくて戻らないため。
+   並び・丸ごとの欄（order:・whole:）は重ねたままにする */
+export function addState(cur, add, at = Date.now()) {
+  const m = mergeState(cur, add);
+  const A = add || { doc: {}, stamps: {} };
+  const rm = recordsOf(m.doc), ra = recordsOf(A.doc);
+  let top = Math.floor(Number(at)) || Date.now();
+  Object.keys(m.stamps).forEach(k => { const s = m.stamps[k]; if (Array.isArray(s) && Number(s[0]) >= top) top = Number(s[0]) + 1; });
+  let changed = false;
+  ra.forEach((v, k) => {
+    if (k.startsWith('order:') || k.startsWith('whole:') || rm.has(k)) return;
+    rm.set(k, v);
+    m.stamps[k] = [top, 1];
+    changed = true;
+  });
+  if (!changed) return m;
+  const doc = buildDoc(rm, m.doc);
+  doc.lastDay = m.doc.lastDay;
+  return { doc, stamps: m.stamps };
+}

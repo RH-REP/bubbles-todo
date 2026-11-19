@@ -201,6 +201,72 @@ class Store:
             p.unlink(missing_ok=True)
 
 
+SNAP_KEEP = 30
+SNAP_ID_RE = re.compile(r'^[0-9]{13}-[0-9a-f]{8}$')
+
+
+class Snapshots:
+    """押して取るバックアップ（2026-11-19 ユーザーの指示「能動的なバックアップを追加して」「サーバーバックアップをリストして、復元機能をつけて」）。
+    置き場（海）のフォルダの snapshots/snap-<ms>-<hex>.json = {id, at, label, device, seas, todos, payload}（0600）。
+    payload は端末の控え（js/folderbackup.js の buildBackup の形。中は見ずに預かる。数えるのは一覧に出す数だけ）。
+    書くたびに作る自動の写し（backup/state-*.json）とは別。新しい SNAP_KEEP 個だけ残す"""
+
+    def __init__(self, store_dir: Path):
+        self.dir = store_dir / 'snapshots'
+        self.lock = DirLock(store_dir / '.lock-snap')
+
+    @staticmethod
+    def _count(payload):
+        boxes = payload.get('boxes') if isinstance(payload, dict) else None
+        if not isinstance(boxes, dict):
+            return 0, 0
+        n = 0
+        for b in boxes.values():
+            todos = ((b or {}).get('doc') or {}).get('todos') if isinstance(b, dict) else None
+            if isinstance(todos, list):
+                n += sum(1 for t in todos if isinstance(t, dict) and not t.get('trashed'))
+        return len(boxes), n
+
+    def save(self, payload, label='', device=''):
+        if not isinstance(payload, dict) or not isinstance(payload.get('boxes'), dict):
+            raise ValueError('payload')
+        seas, todos = self._count(payload)
+        with self.lock:
+            self.dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # 同じミリ秒に 2 つ預けても並びが崩れないよう、前のものより後の時刻にする（一覧は名前の順）
+            last = max((int(p.name[5:18]) for p in self.dir.glob('snap-*.json') if p.name[5:18].isdigit()), default=0)
+            at = max(int(time.time() * 1000), last + 1)
+            sid = f'{at}-{secrets.token_hex(4)}'
+            rec = {'id': sid, 'at': at, 'label': str(label or '')[:60], 'device': str(device or '')[:60],
+                   'seas': seas, 'todos': todos, 'payload': payload}
+            fd = os.open(self.dir / f'snap-{sid}.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(rec, f, ensure_ascii=False)
+            for p in sorted(self.dir.glob('snap-*.json'))[:-SNAP_KEEP]:
+                p.unlink(missing_ok=True)
+        return {k: rec[k] for k in ('id', 'at', 'label', 'device', 'seas', 'todos')}
+
+    def list(self):
+        out = []
+        for p in sorted(self.dir.glob('snap-*.json'), reverse=True) if self.dir.exists() else []:
+            try:
+                with p.open(encoding='utf-8') as f:
+                    rec = json.load(f)
+                out.append({k: rec.get(k) for k in ('id', 'at', 'label', 'device', 'seas', 'todos')})
+            except (OSError, ValueError):
+                continue
+        return out
+
+    def get(self, sid):
+        if not SNAP_ID_RE.match(str(sid or '')):
+            return None
+        p = self.dir / f'snap-{sid}.json'
+        if not p.exists():
+            return None
+        with p.open(encoding='utf-8') as f:
+            return json.load(f)
+
+
 SPACES = {
     # 置き場: (合言葉の環境変数, 合言葉のファイル, 記録のフォルダ（データの場所から）, 画面に出す名前)
     'me': ('BUBBLE_TODO_TOKEN', 'token.txt', '.', '個人'),
@@ -1050,6 +1116,46 @@ def make_handler(spaces, cfg: Config = None):
                 return self.deny('data')
             return sp
 
+        # --- 押して取るバックアップ（2026-11-19。Snapshots）。その人の個人の置き場だけ（X-Bubbles-Space は見ない） ---
+        def snap_space(self, write=False):
+            """個人（me）の置き場の Snapshots。入れなければ応答を返して None"""
+            saved = self.headers.get('X-Bubbles-Space')
+            try:
+                if saved is not None:
+                    self.headers.replace_header('X-Bubbles-Space', 'me')
+                sp = self.authed_space(write=write)
+            finally:
+                if saved is not None:
+                    self.headers.replace_header('X-Bubbles-Space', saved)
+            if not sp:
+                return None
+            return Snapshots(sp[1].dir)
+
+        def snapshots_get(self, path):
+            snaps = self.snap_space()
+            if snaps is None:
+                return
+            if path == '/api/snapshots':
+                return self.send_json(200, {'snapshots': snaps.list(), 'keep': SNAP_KEEP})
+            rec = snaps.get(path[len('/api/snapshots/'):])
+            if rec is None:
+                return self.send_json(404, {'error': 'not found'})
+            return self.send_json(200, rec)
+
+        def snapshots_post(self):
+            snaps = self.snap_space(write=True)
+            if snaps is None:
+                return
+            body = self.read_json()
+            if body is None:
+                return
+            try:
+                meta = snaps.save(body.get('payload'), body.get('label', ''), body.get('device', ''))
+            except (ValueError, AttributeError):
+                return self.send_json(400, {'error': 'bad body'})
+            log_event('snapshot', self.ip(), meta['id'])
+            return self.send_json(200, meta)
+
         def schema(self):
             """端末が言う記録の形の版（X-Bubbles-Schema）。無い・読めないときは 0"""
             v = (self.headers.get('X-Bubbles-Schema', '') or '').strip()
@@ -1262,6 +1368,8 @@ def make_handler(spaces, cfg: Config = None):
                     if sp[0] == 'me':
                         out['person'] = info.get('person')
                 return self.send_json(200, out)
+            if path == '/api/snapshots' or path.startswith('/api/snapshots/'):
+                return self.snapshots_get(path)
             if path.startswith('/api/'):
                 return self.send_json(404, {'error': 'not found'})
             return self.static(path)
@@ -1312,6 +1420,8 @@ def make_handler(spaces, cfg: Config = None):
                 return self.mcp() if path == '/mcp' else self.oauth_post(path)
             if path == '/api/spaces':
                 return self.seas()
+            if path == '/api/snapshots':
+                return self.snapshots_post()
             if cfg.auth == 'passkey' and path.startswith('/api/sea/'):
                 return self.sea_admin(path)
             if cfg.auth != 'passkey' or not path.startswith('/api/passkey/'):

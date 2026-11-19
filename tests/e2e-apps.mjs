@@ -147,6 +147,12 @@ try {
     const doc = await send('DOM.getDocument', { depth: -1 });
     const q = await send('DOM.querySelectorAll', { nodeId: doc.result.root.nodeId, selector: 'input[type=file][accept=".json,application/json"]' });
     for (const nodeId of q.result.nodeIds) await send('DOM.setFileInputFiles', { nodeId, files: [file] });
+    /* 2026-11-19 から、読み込むときに上書きか追加かを聞く（板）。追加を選ぶ */
+    await until(`return !!document.querySelector('.bh-edit-box[aria-label="このファイルから読み込む"]')`);
+    assert.deepEqual(await js(`return [...document.querySelector('.bh-edit-box').querySelectorAll('.row button')].map(b => b.textContent)`), ['やめる', '上書きする', '追加する']);
+    /* 試しはファイルの欄 2 つ（書き出す側の隠れた欄も）に同じファイルを渡すので、出た板はどれも「追加」 */
+    await sleep(300);
+    await js(`[...document.querySelectorAll('.bh-edit-box .row button')].filter(b => b.textContent === '追加する').forEach(b => b.click());`);
     await until(`return [...document.querySelectorAll('#pane-settings p')].some(p => /日記: 足した 0・新しくした 1・そのまま 1/.test(p.textContent))`);
     assert.ok(imported.length >= 1, 'diary に届いた');
     assert.deepEqual(imported[0], bundle, '束はそのまま渡す（知らない app は渡さない）');

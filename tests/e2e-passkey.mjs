@@ -303,13 +303,13 @@ try {
     assert.doesNotMatch(readFileSync(g, 'utf8'), /ほかの端末で直した|この端末で直した|ログアウト中に書いた/, '新しい人のサーバーの個人へ前の人の泡を送らない');
   });
 
-  await step('設定の「記録」に個人の控えが並び、前の利用者の控え（替わる前に取ったもの）はログイン中は重ねられない', async () => {
+  await step('設定の「記録」の「バックアップ」に、この端末の控えが並び、前の利用者の控え（替わる前に取ったもの）はログイン中は戻せない（2026-11-19 から［戻す］）', async () => {
     await openSettings();
-    await js(`const g = [...document.querySelectorAll('#pane-settings details')].find(d => d.querySelector('[data-name="個人の控え"]')); if (g) g.open = true;`);
-    await until(`return !!document.querySelector('[data-name="個人の控え"]:not([hidden]) button')`);
-    const rows = await js(`return [...document.querySelectorAll('[data-name="個人の控え"] .row')].map(r => [r.querySelector('span').textContent, r.querySelector('button').disabled])`);
+    await js(`const g = [...document.querySelectorAll('#pane-settings details')].find(d => d.querySelector('[data-name="バックアップ"]')); if (g) { g.open = true; g.dispatchEvent(new Event('toggle')); }`);
+    await until(`return !!document.querySelector('[data-name="バックアップ"] .pbk-local .pbk-row button')`);
+    const rows = await js(`return [...document.querySelectorAll('[data-name="バックアップ"] .pbk-local .pbk-row')].map(r => [r.querySelector('span').textContent, r.querySelector('button').disabled, r.querySelector('button').textContent])`);
     assert.ok(rows.some(([t]) => /別の利用者に替わる前/.test(t)), '別の利用者に替わる前の控えが並ぶ: ' + JSON.stringify(rows));
-    assert.ok(rows.every(([, d]) => d === true), 'どれも前の人の控えなので押せない: ' + JSON.stringify(rows));
+    assert.ok(rows.every(([, d, b]) => d === true && b === '戻す'), 'どれも前の人の控えなので押せない: ' + JSON.stringify(rows));
   });
 
   await step('CSP に止められた読み込みや、画面のエラーが無い', async () => {

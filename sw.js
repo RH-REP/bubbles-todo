@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-19c';
+const VERSION = '2026-11-19d';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -115,6 +115,7 @@ const ASSETS = [
   './js/prefs.js',         /* この端末の表示（2026-11-10 Issue #36） */
   './js/repeat.js',        /* くりかえしの日付の計算（2026-11-19） */
   './js/monthcal.js',      /* 盤の暦（2026-11-19） */
+  './js/serverbackup.js',  /* サーバーのバックアップ（2026-11-19） */
   './js/version.js',
   './js/sync.js',
   './js/me.js',          /* ログインしている利用者と海の仲間（2026-11-18） */

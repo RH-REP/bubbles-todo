@@ -290,6 +290,18 @@ export function mergeBackup(key, current, loggedIn, st = ls()) {
   return mergeState(current || { doc: {}, stamps: {} }, stateOf(raw));
 }
 
+/* 控えの中身そのもの → {doc, stamps}（上書きで戻すとき。2026-11-19）。重ねてよいかの決まりは mergeBackup と同じ → null */
+export function backupState(key, loggedIn, st = ls()) {
+  const m = key && BACKUP_RE.exec(key);
+  if (!m || !st) return null;
+  if (loggedIn) {
+    const b = personalBackups(st).find(x => x.key === key);
+    if (!b || b.other) return null;
+  }
+  const raw = st.getItem(key);
+  return raw ? stateOf(raw) : null;
+}
+
 /* 開いたとき（js/oneserver-boot.js）: 前の版のうちにログインしていた端末も、個人を 1 つにする（2026-11-18）。
    ログインのとき（js/loginflow.js の finishLogin）にしか合わせていなかったので、版を上げる前からログインしていた端末では
    「個人」と「個人（サーバー）」が並んだままだった。通行証が生きていて、合わせる先がこの端末で前にログインした人と同じ（か、まだ覚えていない）ときだけ合わせる。
