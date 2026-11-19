@@ -30,9 +30,11 @@ function fromB64u(str) {
 /* 画面に出す字。サーバーは理由を言わない（401・429 だけ）ので、ここで言い分ける */
 const WHY = {
   401: { register: '招待コード（または番号）が違うか、もう使われているか、期限が切れている', login: 'この端末のパスキーは登録されていないか、取り消されている',
-    status: '頼みが断られたか、期限（24 時間）が切れた。頼み直す' },
+    status: '頼みが断られたか、期限（24 時間）が切れた。頼み直す',
+    recover: '鍵が合わない（消したか、作り直した鍵かもしれない）' },
   429: { register: '失敗が続いたので、しばらく待ってからにする', login: '失敗が続いたので、しばらく待ってからにする',
-    request: '待っている頼みが多い。しばらくしてから、または持ち主に招待コードを頼む', status: 'しばらく待ってから' },
+    request: '待っている頼みが多い。しばらくしてから、または持ち主に招待コードを頼む', status: 'しばらく待ってから',
+    recover: '失敗が続いたので、しばらく（10 分ほど）待ってからにする' },
   409: { register: '登録はいっぱい。持ち主に、使わない端末を外すか上限を上げてもらう', login: '' },
   404: { request: 'このサーバーは「登録を頼む」を知らない（サーバーを新しくするか、招待コードを使う）' },
 };
@@ -75,10 +77,11 @@ function friendly(e, kind) {
    deviceName = この端末の呼び名。パスキーの user.id はサーバーが決める利用者の番号 */
 export async function registerPasskey(base, invite, opts = {}) {
   if (!passkeySupported()) throw new Error('このブラウザはパスキーを使えない');
-  const body = opts.device ? { device: String(opts.device) } : { invite };
+  /* 復元の鍵（2026-11-19）・端末を足す番号・招待コードのどれか */
+  const body = opts.recovery ? { recovery: String(opts.recovery) } : opts.device ? { device: String(opts.device) } : { invite };
   if (opts.userName) body.userName = String(opts.userName).trim().slice(0, 40);
   if (opts.deviceName) body.deviceName = String(opts.deviceName).trim().slice(0, 40);
-  const { publicKey: o } = await post(base, '/api/passkey/register/options', body, 'register');
+  const { publicKey: o } = await post(base, '/api/passkey/register/options', body, opts.recovery ? 'recover' : 'register');
   let cred;
   try {
     cred = await navigator.credentials.create({ publicKey: Object.assign({}, o, {
@@ -176,6 +179,15 @@ async function authed(base, session, path, body, what) {
 }
 
 /* 「端末を足す」の番号（2026-11-18。10 分・1 回）→ {code: '482 913', expires} */
+/* 復元の鍵を作る（2026-11-19。前の鍵は使えなくなる）→ {key, created}。鍵を受け取れるのはこのときだけ */
+export async function makeRecoveryKey(base, session) {
+  return authed(base, session, '/api/passkey/recovery', { action: 'make' }, '復元の鍵を作る');
+}
+/* 復元の鍵を消す → {ok, removed} */
+export async function removeRecoveryKey(base, session) {
+  return authed(base, session, '/api/passkey/recovery', { action: 'remove' }, '復元の鍵を消す');
+}
+
 export async function makeDeviceCode(base, session) {
   return authed(base, session, '/api/passkey/device', {}, '端末を足す');
 }

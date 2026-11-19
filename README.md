@@ -509,6 +509,25 @@ bash tests/server-setup.test.sh
 
 ## サーバーで記録を共有する（前の節名「海域」）
 
+### 復元の鍵（2026-11-19 ユーザーの指示。版 2026-11-19e）
+
+> 復元の鍵を作るよう bubble に頼んで　復元の鍵は削除するまで有効にして
+
+議事録・用語は `app_spec/self_management/bubble_todo/`（minutes/261119_復元の鍵.md）。パスキーを全部なくした人が、自分だけで同じ利用者に戻る道。
+- **鍵の形**: 引っ越しの鍵と同じ 32 種の字（A〜Z と 2〜9。I・O・0・1 を除く）× 24 字＝120 ビット。4 字ずつ - で区切る（`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`）。入れるときは小文字・区切りなしでもよい
+- **サーバー**（`passkey_store.py` の `add_recovery_key`・`remove_recovery_key`・`recovery_invite`・`recovery_used`、`server.py`）:
+  `recovery.json`（0600）に指紋（sha256）だけ。利用者 1 人に 1 つ、期限なし、使っても消えない。
+  `POST /api/passkey/recovery {action: make|remove}`（通行証が要る。鍵を返すのは make のときだけ）。
+  `POST /api/passkey/register/options {recovery, deviceName}` で鍵が合うと、その利用者の 10 分・1 回の招待（kind `recovery`）を作り、ふつうの登録の道でパスキーを足す。
+  いっぱいなら、いちばん長く使っていないパスキーを外す（`retire_for`。引っ越しの鍵と同じ考え）。
+  外れは接続元ごと（`auth-fail recovery`。fail2ban が読む）と全体（10 分に 20 回。`recovery-fail`・`recovery-blocked`）で止める。
+  `/api/me` の `user.recovery {created, lastUsed}`（鍵があるとき）と `user.recoveryNotice {at, device}`（鍵で足した端末でない端末に）。
+  VM: `recovery-list`・`recovery-remove <u_…>`
+- **画面**（`js/userchip.js`、`js/passkey.js`）: 「わたしの端末」の下に「復元の鍵」（作った日・最後に使った日、［復元の鍵を作る］/［作り直す］・［復元の鍵を消す］。作ったときだけ鍵と［写す］）。
+  ログインしていない札に「パスキーを全部なくした」→［復元の鍵で戻る］（鍵・この端末の呼び名 → パスキーを作ってログイン）。
+  ほかの端末には、次に開いたとき 1 回「復元の鍵で新しい端末が足されました」（見た時刻は `bubble_todo_recovery_seen_v1`）
+- テスト: `tests/test_users.py`（3 件。作る・戻る・何度でも・作り直し・消す・知らせ・いっぱい・当て推量・VM のコマンド）、`tests/e2e-users.mjs`（作る → パスキーと記録を消した端末で戻る → 知らせは 1 回）
+
 ### 記録のバックアップ：サーバーのバックアップ、上書きか追加か（2026-11-19 ユーザーの指示。版 2026-11-19d）
 
 > バックアップから：古いものをサーバーにバックアップをとって、新しいデータを完全に差し替える機能を追加して／個人の控え（１）を重ねるのように２段階にするのではなく、読み出したものは上書きするか追加するかきいて／能動的なバックアップを追加して／今の控えにある場所に、サーバーバックアップをリストして、復元機能をつけて

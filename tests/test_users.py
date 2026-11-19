@@ -245,6 +245,78 @@ class UsersTest(unittest.TestCase):
         self.assertEqual(code, 429, '全体で 20 回外れたら、正しい番号でもしばらく断る')
 
 
+    # --- 復元の鍵（2026-11-19 ユーザーの指示「復元の鍵は削除するまで有効にして」） ---
+    def recover(self, key, name='新しいiPhone'):
+        code, opts, _ = self.req('POST', '/api/passkey/register/options', {'recovery': key, 'deviceName': name})
+        if code != 200:
+            return code, opts
+        code, out, _ = self.req('POST', '/api/passkey/register',
+                                {'credential': FakeAuthenticator('localhost', self.origin).create(opts['publicKey'])})
+        return code, out
+
+    def test_recovery_key_restores_same_user_until_removed(self):
+        a = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('iPhone', ['me', 'share']))[1]
+        hdr = {'Authorization': 'Bearer ' + a['session']}
+        self.assertEqual(self.req('POST', '/api/passkey/recovery', {'action': 'make'})[0], 401, 'ログインが要る')
+        self.assertIsNone(self.me(a['session'])[1]['user'].get('recovery'))
+        code, got, _ = self.req('POST', '/api/passkey/recovery', {'action': 'make'}, hdr)
+        self.assertEqual(code, 200)
+        self.assertRegex(got['key'], r'^([0-9A-Z]{4}-){5}[0-9A-Z]{4}$')
+        raw = got['key'].replace('-', '')
+        self.assertNotIn(raw, (self.dir / 'recovery.json').read_text(), '鍵そのものは置かない')
+        self.assertEqual((self.dir / 'recovery.json').stat().st_mode & 0o777, 0o600)
+        me = self.me(a['session'])[1]['user']
+        self.assertEqual((me['recovery']['created'], me['recovery']['lastUsed']), (got['created'], None))
+        # 小文字・区切りなしでも通り、同じ利用者に戻る。使っても消えない（2 回目も通る）
+        code, b = self.recover(got['key'].lower().replace('-', ''))
+        self.assertEqual((code, b['user']['id'], b['name']), (200, a['user']['id'], '新しいiPhone'))
+        code, c = self.recover(got['key'], 'Mac')
+        self.assertEqual((code, c['user']['id']), (200, a['user']['id']), '削除するまで何度でも使える')
+        # 最後に使った日と、ほかの端末への知らせ（足した端末自身には出さない）
+        me_a = self.me(a['session'])[1]['user']
+        self.assertIsNotNone(me_a['recovery']['lastUsed'])
+        self.assertEqual(me_a['recoveryNotice']['device'], 'Mac')
+        self.assertNotIn('recoveryNotice', self.me(c['session'])[1]['user'])
+        # 作り直すと前の鍵は使えない
+        new = self.req('POST', '/api/passkey/recovery', {'action': 'make'}, hdr)[1]
+        self.assertEqual(self.recover(got['key'])[0], 401)
+        # 消すと使えない。知らせは残る
+        self.assertEqual(self.req('POST', '/api/passkey/recovery', {'action': 'remove'}, hdr)[1], {'ok': True, 'removed': True})
+        self.assertEqual(self.recover(new['key'])[0], 401)
+        me_a = self.me(a['session'])[1]['user']
+        self.assertNotIn('recovery', me_a)
+        self.assertIn('recoveryNotice', me_a)
+
+    def test_recovery_key_full_retires_oldest_and_guessing_is_stopped(self):
+        a = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('iPhone', ['me']))[1]
+        hdr = {'Authorization': 'Bearer ' + a['session']}
+        key = self.req('POST', '/api/passkey/recovery', {'action': 'make'}, hdr)[1]['key']
+        for n in ('Mac', 'iPad'):
+            self.assertEqual(self.recover(key, n)[0], 200)
+        self.assertEqual(self.pk.count_user(a['user']['id']), 3)
+        code, d = self.recover(key, 'Pixel')
+        self.assertEqual(code, 200, 'いっぱいでも、いちばん長く使っていないパスキーを外して足す')
+        names = sorted(r['name'] for r in self.pk.passkeys() if r.get('user') == a['user']['id'])
+        self.assertEqual(len(names), 3)
+        self.assertIn('Pixel', names)
+        self.guard.max_fails = 10 ** 6
+        for _ in range(20):
+            self.assertEqual(self.req('POST', '/api/passkey/register/options', {'recovery': 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA'})[0], 401)
+        self.assertEqual(self.req('POST', '/api/passkey/register/options', {'recovery': key})[0], 429,
+                         '全体で 20 回外れたら、正しい鍵でもしばらく断る')
+
+    def test_recovery_cli_list_and_remove(self):
+        a = self.register(FakeAuthenticator('localhost', self.origin), self.pk.add_invite('iPhone', ['me']))[1]
+        self.assertIn('ありません', self.cli('recovery-list').stdout)
+        self.req('POST', '/api/passkey/recovery', {'action': 'make'}, {'Authorization': 'Bearer ' + a['session']})
+        out = self.cli('recovery-list').stdout
+        self.assertIn(a['user']['id'], out)
+        self.assertIn('最後に使った日 まだ', out)
+        r = self.cli('recovery-remove', a['user']['id'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn(a['user']['id'], self.cli('recovery-list').stdout)
+        self.assertNotEqual(self.cli('recovery-remove', a['user']['id']).returncode, 0)
+
     # --- 海の管理は作成者が行う（2026-11-18 ユーザーの決定。前の「VM だけ」を置き換えた） ---
     def sea(self, session, op, **body):
         return self.req('POST', '/api/sea/' + op, body, {'Authorization': 'Bearer ' + session})

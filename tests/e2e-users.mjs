@@ -80,10 +80,11 @@ async function openChrome(name) {
   await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
   await send('WebAuthn.enable');
-  await send('WebAuthn.addVirtualAuthenticator', { options: {
+  const va = await send('WebAuthn.addVirtualAuthenticator', { options: {
     protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true,
     automaticPresenceSimulation: true } });
-  return { send, js, until, problems, go: (url) => send('Page.navigate', { url }) };
+  const authenticatorId = va.result && va.result.authenticatorId;
+  return { send, js, until, problems, authenticatorId, go: (url) => send('Page.navigate', { url }) };
 }
 
 /* 設定を開き、海の欄を開く（2026-11-19 から右上の ⚙ から。取り決め §7.1 v1.3） */
@@ -421,6 +422,42 @@ try {
     await yuki.until(`return !!document.querySelector('.bh-edit-box')`);
     await yuki.js(`[...document.querySelectorAll('.bh-edit-box .row button')].find(b => b.textContent === '追加する').click();`);
     await yuki.until(`return (await import('/js/store.js')).store.all().some(t => t.text === '後で足した泡')`);
+  });
+
+  await step('復元の鍵（2026-11-19）: わたしの端末で作ると 1 度だけ鍵が出る。パスキーを全部なくした端末で［復元の鍵で戻る］に入れると、同じ利用者に戻る', async () => {
+    await yuki.go(origin + '/#devices');
+    await yuki.until(`return !!document.querySelector('.uc-recovery [data-name="復元の鍵を作る"]')`);
+    assert.match(await yuki.js(`return document.querySelector('.uc-recovery .uc-note').textContent`), /まだ作っていない/);
+    await yuki.js(`document.querySelector('.uc-recovery [data-name="復元の鍵を作る"]').click();`);
+    await yuki.until(`return !!document.querySelector('.uc-recovery .uc-keytx')`);
+    const key = await yuki.js(`return document.querySelector('.uc-recovery .uc-keytx').textContent`);
+    assert.match(key, /^([0-9A-Z]{4}-){5}[0-9A-Z]{4}$/);
+    assert.match(await yuki.js(`return document.querySelector('.uc-recovery .uc-note').textContent`), /作った日 .*最後に使った日 まだ/);
+    assert.ok(await yuki.js(`return !!document.querySelector('.uc-recovery [data-name="復元の鍵を消す"]')`));
+    /* パスキーも記録も全部なくした端末にする（仮のパスキーを消し、端末の記録も消す） */
+    await yuki.send('WebAuthn.clearCredentials', { authenticatorId: yuki.authenticatorId });
+    await yuki.js(`localStorage.clear(); sessionStorage.clear();`);
+    await yuki.go(origin + '/');
+    await yuki.until(`return !!document.querySelector('.userbtn.is-empty')`);
+    await yuki.js(`document.querySelector('.userbtn').click();`);
+    await yuki.until(`return [...document.querySelectorAll('.uc-row')].some(b => /復元の鍵で戻る/.test(b.textContent))`);
+    await yuki.js(`[...document.querySelectorAll('.uc-row')].find(b => /復元の鍵で戻る/.test(b.textContent)).click();`);
+    await yuki.until(`return !!document.querySelector('.uc-form .uc-key')`);
+    /* 違う鍵は断る */
+    await yuki.js(`const f = document.querySelector('.uc-form'); f.querySelector('.uc-key').value = 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA'; f.requestSubmit();`);
+    await yuki.until(`return /鍵が合わない/.test(document.querySelector('.uc-card').textContent)`);
+    await yuki.js(`const f = document.querySelector('.uc-form'); f.querySelector('.uc-key').value = ${JSON.stringify(key.toLowerCase())}; f.querySelectorAll('.uc-in')[1].value = '新しいMac'; f.requestSubmit();`);
+    await sleep(1500);
+    await yuki.until(`return (await import('/js/me.js')).meInfo()?.user?.id === ${JSON.stringify(yukiId)}`, 15000);
+    const list = cli('recovery-list');
+    assert.match(list, new RegExp(yukiId + '.*作った日 .*最後に使った日 \\d{4}-'));
+    assert.match(cli('passkey-list'), /新しいMac/);
+    /* ほかの端末への知らせ: /api/me に recoveryNotice が来たら 1 回だけ出す（見た時刻を端末が覚える） */
+    await yuki.js(`const me = await import('/js/me.js'); const m = JSON.parse(localStorage.getItem('bubble_todo_me_v1')); m.user.recoveryNotice = { at: 2000000000, device: '知らない端末' }; me.saveMe(m);`);
+    await yuki.until(`return /復元の鍵で新しい端末が足されました（知らない端末/.test(document.querySelector('.toast')?.textContent || '')`);
+    await yuki.js(`document.querySelector('.toast')?.remove(); const me = await import('/js/me.js'); me.saveMe(JSON.parse(localStorage.getItem('bubble_todo_me_v1')));`);
+    await sleep(300);
+    assert.equal(await yuki.js(`return !!document.querySelector('.toast') && /復元の鍵で新しい/.test(document.querySelector('.toast').textContent)`), false, '2 度は出さない');
   });
 
   await step('CSP に止められた読み込みや、画面のエラーが無い', async () => {

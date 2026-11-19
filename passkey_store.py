@@ -12,6 +12,9 @@
                     ip は接続元の sha256 の頭 16 字（1つの接続元から頼める数を数えるためだけ）
                     端末が先に頼み、持ち主がサーバーで request-ok <確かめの字> で認める。
                     認めると、端末が持っている鍵（key。sha256 だけ置く）がそのまま招待コード（kind 'request'）になる
+    recovery.json   復元の鍵（2026-11-19）[{user, hash, created, last_used, notice}]
+                    鍵そのものは置かない（sha256 だけ）。利用者 1 人に 1 つ。期限は無く、使っても消えない（消すまで有効）。
+                    notice = 最後に鍵で端末を足したときの {at, cred, device}（ほかの端末に知らせる。鍵を消しても残す）
     limits.json     上限（Issue #26）{"max_per_space": n}。limit-set で書き、止めずに次の要求から効く。
                     無ければ --max-passkeys（既定 3）
 
@@ -54,6 +57,8 @@ ROLES = ('owner', 'editor', 'viewer')       # 海の仲間の役割
 MEMBER_MAX = 50                             # 1 つの海の仲間の数の上限
 DEVICE_TTL = 600                            # 端末を足す番号（10 分・1 回）
 DEVICE_LEN = 6
+RECOVERY_LEN = 24                           # 復元の鍵の字数（引っ越しの鍵と同じ 32 種の字 × 24 ＝ 120 ビット。4 字ずつ - で区切る）
+RECOVERY_INVITE_TTL = 600                   # 鍵が合ってから登録を終えるまで（その間だけの 1 回の招待）
 # 利用者のアイコン（2026-11-18 ユーザーの指示「左上にはuserアイコンをつけて、全てのアプリで同じユーザーでログインしていることがわかる様に
 # （初期はランダムで、自分でプリセットからつけられる）」）。絵文字と背景の色の組。画像は使わない。id は変えない（users.json に残る）
 AVATARS = (
@@ -699,6 +704,91 @@ class PasskeyStore:
             self._write('invites.json', rows)
         return '-'.join(raw[i:i + 4] for i in range(0, MOVE_LEN, 4)), inv['expires']
 
+    # --- 復元の鍵（2026-11-19 ユーザーの指示「復元の鍵は削除するまで有効にして」）---
+    # パスキーを全部なくした人が、自分だけで同じ利用者に戻るための鍵。期限は無く、使っても消えない。
+    # 鍵が合うと、その利用者の 10 分・1 回の招待（kind 'recovery'）を作り、ふつうの登録の道（register）でパスキーを足す
+    def add_recovery_key(self, uid):
+        """ログイン中の利用者の復元の鍵を作る → (鍵, 作った時刻)。前の鍵は使えなくなる。鍵を返すのはこのときだけ"""
+        if not self.find_user(uid):
+            raise ValueError('利用者がいない')
+        raw = ''.join(secrets.choice(_CODE_ABC) for _ in range(RECOVERY_LEN))
+        with self.lock:
+            now = self.clock()
+            rows = self._read('recovery.json')
+            old = next((r for r in rows if r.get('user') == uid), {})
+            rows = [r for r in rows if r.get('user') != uid]
+            row = {'user': uid, 'hash': _sha('recovery:' + raw), 'created': now, 'last_used': None}
+            if old.get('notice'):
+                row['notice'] = old['notice']
+            rows.append(row)
+            self._write('recovery.json', rows)
+        return '-'.join(raw[i:i + 4] for i in range(0, RECOVERY_LEN, 4)), now
+
+    def remove_recovery_key(self, uid) -> bool:
+        """利用者の復元の鍵を消す（知らせは残す）→ 消したか"""
+        with self.lock:
+            rows = self._read('recovery.json')
+            hit = False
+            for r in rows:
+                if r.get('user') == uid and r.get('hash'):
+                    r['hash'] = None
+                    r['created'] = None
+                    r['last_used'] = None
+                    hit = True
+            self._write('recovery.json', [r for r in rows if r.get('hash') or r.get('notice')])
+            return hit
+
+    def recovery_of(self, uid):
+        """利用者の復元の鍵の行（鍵の指紋は外す）か None。notice だけの行も返す（has で鍵の有無）"""
+        r = next((x for x in self._read('recovery.json') if x.get('user') == uid), None)
+        if not r:
+            return None
+        return {'has': bool(r.get('hash')), 'created': r.get('created'), 'last_used': r.get('last_used'),
+                'notice': r.get('notice')}
+
+    def recovery_list(self):
+        return [dict(self.recovery_of(r['user']), user=r['user']) for r in self._read('recovery.json') if r.get('user')]
+
+    def recovery_invite(self, key):
+        """鍵が合えば、その利用者の 10 分・1 回の招待の行を作って返す。合わなければ None"""
+        raw = normalize_code(key)
+        if len(raw) != RECOVERY_LEN:
+            return None
+        h = _sha('recovery:' + raw)
+        hit = None
+        for r in self._read('recovery.json'):
+            if r.get('hash') and secrets.compare_digest(r['hash'], h):
+                hit = r
+        if not hit or not self.find_user(hit['user']):
+            return None
+        with self.lock:
+            now = self.clock()
+            rows = [r for r in self._read('invites.json')
+                    if r['expires'] > now and not (r.get('kind') == 'recovery' and r.get('user') == hit['user'])]
+            inv = {'name': '', 'spaces': ['me'], 'code_hash': _sha('recovery-invite:' + secrets.token_hex(16)),
+                   'user': hit['user'], 'expires': now + RECOVERY_INVITE_TTL, 'created': now, 'kind': 'recovery'}
+            rows.append(inv)
+            self._write('invites.json', rows)
+        return inv
+
+    def recovery_used(self, uid, cred_id, device=''):
+        """鍵で端末を足した → 最後に使った日と、ほかの端末への知らせを書く"""
+        with self.lock:
+            rows = self._read('recovery.json')
+            now = self.clock()
+            for r in rows:
+                if r.get('user') == uid:
+                    r['last_used'] = now
+                    r['notice'] = {'at': now, 'cred': cred_id, 'device': clean_name(device) or '端末'}
+            self._write('recovery.json', rows)
+
+    def _oldest_passkey(self, uid):
+        """利用者のパスキーのうち、いちばん長く使っていないもの（復元の鍵でいっぱいのとき外す）"""
+        mine = [r for r in self._read('passkeys.json') if r.get('user') == uid]
+        if not mine:
+            return None
+        return min(mine, key=lambda r: (r.get('last_used') or r.get('created') or 0))
+
     def full_for(self, inv):
         """その招待で登録するとき、いっぱいのもの（置き場の名前の一覧）。空なら登録できる。
         引っ越しの鍵は、作った端末（引っ越す前の端末）のパスキーを外せば空くなら、いっぱいとしない"""
@@ -706,6 +796,10 @@ class PasskeyStore:
         kind, uid = self.invite_target(inv)
         if kind == 'user':
             skip = inv.get('from') if inv.get('kind') == 'move' else None
+            if inv.get('kind') == 'recovery':
+                # 復元の鍵: 引っ越しの鍵と同じ考えで、いっぱいなら外せるもの（いちばん長く使っていないパスキー）を外す前提で数える
+                old = self._oldest_passkey(uid)
+                skip = old['id'] if old else None
             if self.count_user(uid, skip=skip) >= self.max_per_space:
                 out.append('me')
         for s, _ in self.invite_seas(inv):
@@ -716,12 +810,13 @@ class PasskeyStore:
     def retire_for(self, inv):
         """引っ越しの鍵で登録する直前。そのままでは利用者のパスキーがいっぱいなら、引っ越す前の端末のパスキーを外す。
         外したパスキーの名前（外さなければ None）"""
-        if inv.get('kind') != 'move':
+        if inv.get('kind') not in ('move', 'recovery'):
             return None
         kind, uid = self.invite_target(inv)
         if kind != 'user' or self.count_user(uid) < self.max_per_space:
             return None
-        old = self.find_passkey(inv.get('from') or '')
+        # 復元の鍵（2026-11-19）: 失くした端末のどれか。いちばん長く使っていないパスキーを外す
+        old = self._oldest_passkey(uid) if inv.get('kind') == 'recovery' else self.find_passkey(inv.get('from') or '')
         if old and self.remove_passkey(old['name']):
             return old['name']
         return None

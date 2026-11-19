@@ -260,7 +260,7 @@ try {
       return { empty: u.classList.contains('is-empty'), login: !!card && /パスキーでログイン/.test(card.textContent),
         rows: card ? [...card.querySelectorAll('.uc-row .uc-tx b')].map(b => b.textContent) : null,
         gear: !g.hidden && !!g.offsetParent, gr: Math.round(app.right - g.getBoundingClientRect().right) }`);
-    assert.deepEqual(got, { empty: true, login: true, rows: ['招待で登録する', '番号で足す', '登録を頼む'], gear: true, gr: 62 });
+    assert.deepEqual(got, { empty: true, login: true, rows: ['招待で登録する', '番号で足す', '登録を頼む', '復元の鍵で戻る'], gear: true, gr: 62 });
     await js(`document.querySelector('.userbtn').click(); document.querySelector('.gearbtn').click();`);
     await until(`return document.getElementById('pane-settings')?.classList.contains('is-active')`);
   });

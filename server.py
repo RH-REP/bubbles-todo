@@ -703,6 +703,13 @@ def me_of(pk, sea_list, info):
         user['avatar'] = info['avatar']      # 2026-11-18。足しただけ（3 つの app の左上のアイコン）
     if pk.is_admin(info.get('user')):
         user['admin'] = True                 # 2026-11-18。足しただけ（スーパーユーザーにだけ［新しい利用者を招く］を出す）
+    # 復元の鍵（2026-11-19）。足しただけ。鍵があれば作った日・最後に使った日。
+    # 鍵で端末を足したことは、その端末でない端末に知らせる（いつ見たかは端末が覚える）
+    rec = pk.recovery_of(info.get('user')) if info.get('user') else None
+    if rec and rec['has']:
+        user['recovery'] = {'created': rec['created'], 'lastUsed': rec['last_used']}
+    if rec and rec.get('notice') and info.get('cred_id') and rec['notice'].get('cred') != info.get('cred_id'):
+        user['recoveryNotice'] = {'at': rec['notice']['at'], 'device': rec['notice'].get('device', '')}
     return {'user': user, 'seas': seas}
 
 
@@ -712,6 +719,8 @@ def make_handler(spaces, cfg: Config = None):
     cfg = cfg or Config()
     table = spaces.current if hasattr(spaces, 'current') else (lambda: spaces)
     device_guard = DeviceCodeGuard()
+    # 復元の鍵（2026-11-19）の当て推量。120 ビットなので当たらないが、全体で 10 分に 20 回外れたら 10 分断る
+    recovery_guard = DeviceCodeGuard()
     sea_stores = getattr(spaces, 'stores', None)
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -1453,7 +1462,17 @@ def make_handler(spaces, cfg: Config = None):
                     return self.send_json(200, out)
                 if path == '/api/passkey/register/options':
                     # 招待コード（invite）か、端末を足す番号（device。2026-11-18。10 分・1 回・数字 6 桁）
-                    if body.get('device'):
+                    if body.get('recovery'):
+                        # 復元の鍵（2026-11-19）。合えば、その利用者の 10 分・1 回の招待を作る（鍵そのものは使っても消えない）
+                        if recovery_guard.blocked():
+                            log_event('recovery-blocked', self.ip())
+                            return self.too_many()
+                        inv = pk.recovery_invite(body.get('recovery'))
+                        if not inv:
+                            recovery_guard.failed()
+                            log_event('recovery-fail', self.ip())
+                            return self.deny('recovery')
+                    elif body.get('device'):
                         if device_guard.blocked():
                             log_event('device-code-blocked', self.ip())
                             return self.too_many()
@@ -1511,13 +1530,19 @@ def make_handler(spaces, cfg: Config = None):
                         return self.send_json(409, {'error': 'full', 'spaces': full, 'max': pk.max_per_space})
                     if not pk.use_invite(inv['code_hash']):
                         return self.deny('invite-used')
-                    # 引っ越しの鍵（Issue #19）: いっぱいなら、引っ越す前の端末のパスキーを外して空ける
+                    # 引っ越しの鍵（Issue #19）: いっぱいなら、引っ越す前の端末のパスキーを外して空ける。
+                    # 復元の鍵（2026-11-19）: いっぱいなら、いちばん長く使っていないパスキーを外して空ける
+                    gone = pk._oldest_passkey(pk.invite_target(inv)[1]) if inv.get('kind') == 'recovery' else None
                     retired = pk.retire_for(inv)
                     if retired:
-                        cfg.devices.leave(inv.get('from'))
+                        cfg.devices.leave(gone['id'] if gone else inv.get('from'))
                         log_event('passkey-retired', self.ip(), f'name={retired}')
                     name, _u = pk.register(inv=inv, cred=out, name=got.get('device_name', ''),
                                            user_id=got.get('user_id'), user_name=got.get('user_name', ''))
+                    if inv.get('kind') == 'recovery':
+                        recovery_guard.reset()
+                        pk.recovery_used(inv['user'], out['cred_id'], name)
+                        log_event('recovery-used', self.ip(), f'name={name}')
                     tok, exp = pk.new_session(out['cred_id'])
                     log_event('passkey-registered', self.ip(), f'name={name}')
                     return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=name))
@@ -1613,6 +1638,20 @@ def make_handler(spaces, cfg: Config = None):
                         return self.send_json(409, {'error': 'device', 'message': str(e)})
                     log_event('device-code', self.ip())
                     return self.send_json(200, {'code': code, 'expires': exp})
+                if path == '/api/passkey/recovery':
+                    # 復元の鍵を作る・消す（2026-11-19）。ログインしている端末だけ。鍵を返すのは作ったときだけ
+                    info = self.session()
+                    if not info:
+                        return self.deny('recovery-make')
+                    if body.get('action') == 'remove':
+                        hit = pk.remove_recovery_key(info['user'])
+                        log_event('recovery-removed', self.ip())
+                        return self.send_json(200, {'ok': True, 'removed': hit})
+                    if body.get('action') != 'make':
+                        return self.send_json(400, {'error': 'action'})
+                    key, created = pk.add_recovery_key(info['user'])
+                    log_event('recovery-made', self.ip())
+                    return self.send_json(200, {'key': key, 'created': created})
                 if path == '/api/passkey/move':
                     # 引っ越しの鍵を作る（Issue #19）。入っている端末だけ。前に作った鍵は使えなくなる
                     info = self.session()
@@ -1862,6 +1901,21 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
             raise SystemExit(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
         print(f'「{name}」のパスキーと通行証を取り消しました。その端末は次の要求から入れません', flush=True)
         print(f'（「{name}」が作った引っ越しの鍵は残しています。失くした端末の引っ越しに使うため。消すなら move-remove {name}）', flush=True)
+    elif cmd == 'recovery-list':
+        # 復元の鍵（2026-11-19）。鍵そのものは見られない（指紋だけ置いている）
+        users = {u['id']: u for u in pk.users()}
+        rows = [r for r in pk.recovery_list() if r['has']]
+        if not rows:
+            print('復元の鍵はありません（利用者が「わたしの端末」の［復元の鍵を作る］で作る）')
+        when = lambda t: time.strftime('%Y-%m-%d %H:%M', time.localtime(t)) if t else 'まだ'
+        for r in rows:
+            u = users.get(r['user'], {})
+            print(f"{r['user']}\t{u.get('name', '')}\t作った日 {when(r['created'])}\t最後に使った日 {when(r['last_used'])}")
+    elif cmd == 'recovery-remove':
+        uid = name.strip()
+        if not pk.remove_recovery_key(uid):
+            raise SystemExit(f'{uid} の復元の鍵はありません（recovery-list で確かめる）')
+        print(f'{uid} の復元の鍵を消しました。その鍵ではもう端末を足せません', flush=True)
     elif cmd == 'move-remove':
         n = pk.remove_move_keys(name)
         if not n:
@@ -2117,7 +2171,7 @@ def main(argv=None):
                              'sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space',
                              'oauth-list', 'oauth-revoke',
                              'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate',
-                             'admin-list', 'admin-add', 'admin-remove'],
+                             'admin-list', 'admin-add', 'admin-remove', 'recovery-list', 'recovery-remove'],
                     help='serve（既定）か、合言葉・パスキーの操作')
     ap.add_argument('name', nargs='?', default='',
                     help='share-add / share-remove / invite-add / passkey-remove の名前、request-ok / request-no の字、limit-set の数')
@@ -2152,7 +2206,9 @@ def main(argv=None):
     if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person', 'move-remove',
                         'request-list', 'request-ok', 'request-no', 'limit', 'limit-set',
                         'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate',
-                        'admin-list', 'admin-add', 'admin-remove'):
+                        'admin-list', 'admin-add', 'admin-remove', 'recovery-list', 'recovery-remove'):
+        if args.command == 'recovery-remove' and not args.name.strip():
+            raise SystemExit('利用者の番号を入れてください（例: recovery-remove u_1a2b3c4d。recovery-list で見られる）')
         if args.command in ('request-ok', 'request-no') and not args.name.strip():
             raise SystemExit(f'端末の画面に出ている字を入れてください（例: {args.command} ABC-DEF。request-list で見られる）')
         if args.command == 'limit-set' and not args.name.strip():
