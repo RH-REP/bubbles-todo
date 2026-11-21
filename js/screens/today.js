@@ -285,7 +285,7 @@ function dayItems(key) {
 }
 
 function itemsForField() {
-  return dayItems(curDay()).map(itemFor);
+  return dayItems(curDay()).filter(passFilter).map(itemFor);
 }
 
 function itemFor(t) {
@@ -321,6 +321,171 @@ function setQuad(on) {
     return;
   }
   render();
+}
+
+/* ---------------- タグのフィルター（2026-11-21 Issue #89） ----------------
+
+   > 今日TODOにもタグのフィルターを追加して
+
+   海の「▽ フィルター」と同じ形・同じ選び方（js/screens/sea.js の openNarrowPop）。
+   ・2段目の左、札「一覧」の右どなりに置く。札は「ぜんぶ ▽」、選ぶとそのタグの名前を名乗る
+   ・選んだタグの**どれかが付いているもの**を出す（「または」）。重ねて選べる。先頭の「ぜんぶ」で取り消す
+   ・泡・四つに分ける・一覧・さいころの全部に効く（見えているものと引く対象を食い違わせない）
+   ・並び：ぜんぶ → 自分のタグ → 最初からあるタグ → 「タグ無し」（海の一覧と同じ順。Issue #88）
+     「今日」「完了」は出さない（この画面の泡はどれもその日に置いたもの。済んだものは一覧で分かれる）
+   ・「タグ無し」は、今日・完了のほかにタグが付いていないもの
+   ・選んだものは、アプリを開いている間だけ覚える（日を移っても残る。海のフィルターとは別に持つ）
+   ・件数は出さない（契約 §0） */
+const NO_TAG = '__none';
+const ALL_NAME = 'ぜんぶ';
+const FILTER_SKIP = ['today', 'done'];
+const FILTER_GROUP_NAME = { mine: '自分のタグ', fixed: '最初からあるタグ', other: 'そのほか' };
+const filterSet = new Set();
+let filterBtn = null, filterLabel = null, filterPop = null;
+
+function hasTagApi() {
+  return typeof store.tags === 'function' && typeof store.tagsOf === 'function';
+}
+
+function filterChoices() {
+  const out = [{ id: null, name: ALL_NAME, group: 'clear' }];
+  if (!hasTagApi()) return out;
+  const mine = [], fixed = [];
+  try {
+    (store.tags() || []).forEach(t => {
+      if (!t || typeof t.id !== 'string' || FILTER_SKIP.indexOf(t.id) >= 0) return;
+      const row = { id: t.id, name: t.name, color: t.color, group: t.special ? 'fixed' : 'mine' };
+      (t.special ? fixed : mine).push(row);
+    });
+  } catch (e) { /* タグの無い版 */ }
+  return out.concat(mine, fixed, [{ id: NO_TAG, name: 'タグ無し', group: 'other' }]);
+}
+
+/* その泡を出すか。何も選んでいなければ全部出す */
+function passFilter(t) {
+  if (!filterSet.size || !hasTagApi() || !t) return true;
+  let tags;
+  try { tags = (store.tagsOf(t.id) || []).filter(k => FILTER_SKIP.indexOf(k) < 0); }
+  catch (e) { return true; }
+  for (const k of filterSet) {
+    if (k === NO_TAG) { if (!tags.length) return true; }
+    else if (tags.indexOf(k) >= 0) return true;
+  }
+  return false;
+}
+
+/* 消えたタグを選んだままにしない（設定でタグを消したときなど） */
+function pruneFilter() {
+  if (!filterSet.size) return;
+  const ok = new Set(filterChoices().map(c => c.id));
+  [...filterSet].forEach(k => { if (!ok.has(k)) filterSet.delete(k); });
+}
+
+/* いま絞っているものの名前。絞っていなければ null。2つ以上は「◯◯ と 2つ」 */
+function filterName() {
+  if (!filterSet.size) return null;
+  const all = filterChoices();
+  const names = [...filterSet].map(k => (all.find(x => x.id === k) || {}).name)
+    .filter(n => typeof n === 'string' && n);
+  if (!names.length) return null;
+  return names.length === 1 ? names[0] : names[0] + ' と ' + (names.length - 1) + 'つ';
+}
+
+function syncFilterBtn() {
+  if (!filterBtn) return;
+  filterBtn.hidden = !hasTagApi();
+  if (filterBtn.hidden) { closeFilterPop(false); return; }
+  const nm = filterName();
+  filterLabel.textContent = nm || ALL_NAME;
+  filterBtn.classList.toggle('is-on', !!nm);
+  filterBtn.setAttribute('aria-pressed', nm ? 'true' : 'false');
+  filterBtn.setAttribute('aria-label', nm
+    ? '「' + nm + '」でフィルターしている。押すと選び直す'
+    : 'いまは' + ALL_NAME + 'を表示している。押すとタグでフィルターする');
+  filterBtn.title = 'タグでフィルター';
+}
+
+/* id が null なら全部やめる。それ以外は入れ／外しの切り替え */
+function setFilter(id) {
+  if (id === null) { if (!filterSet.size) return; filterSet.clear(); }
+  else if (filterSet.has(id)) filterSet.delete(id);
+  else filterSet.add(id);
+  closeMenu();
+  render();
+}
+
+function closeFilterPop(restoreFocus) {
+  if (!filterPop) return false;
+  filterPop.remove();
+  filterPop = null;
+  if (filterBtn) filterBtn.setAttribute('aria-expanded', 'false');
+  if (restoreFocus && filterBtn && !filterBtn.hidden) filterBtn.focus({ preventScroll: true });
+  return true;
+}
+
+function openFilterPop() {
+  if (closeFilterPop(true)) return;
+  if (!stage) return;
+  const pop = el('div', 'today-filter-pop');
+  pop.setAttribute('role', 'menu');
+  pop.setAttribute('aria-label', 'タグでフィルター');
+  pop.dataset.screen = 'today.filter'; pop.dataset.screenLayer = '3';
+  const rows = [];
+  let lastGroup = 'clear';
+  filterChoices().forEach(c => {
+    /* まとまりが変わるところに小見出し。押せない文字なので矢印キーの移動には入らない */
+    if (c.group !== lastGroup && FILTER_GROUP_NAME[c.group]) {
+      const h = el('div', 'tf-head');
+      h.setAttribute('role', 'presentation');
+      h.textContent = FILTER_GROUP_NAME[c.group];
+      pop.appendChild(h);
+    }
+    lastGroup = c.group;
+    const b = el('button', 'tf-row');
+    b.type = 'button';
+    const isClear = c.id === null;
+    b.setAttribute('role', isClear ? 'menuitem' : 'menuitemcheckbox');
+    if (isClear) b.classList.add('is-clear');
+    else b.setAttribute('aria-checked', filterSet.has(c.id) ? 'true' : 'false');
+    const dot = el('span', 'dot');
+    dot.setAttribute('aria-hidden', 'true');
+    if (c.color) dot.style.setProperty('--tcd', c.color);
+    else dot.classList.add('is-none');
+    const nm = el('span', 'nm');
+    nm.textContent = c.name;                 /* ユーザーの文字。innerHTML には入れない */
+    b.appendChild(dot);
+    b.appendChild(nm);
+    b.addEventListener('click', ev => {
+      ev.preventDefault();
+      setFilter(c.id);
+      /* 重ねられるので、選んでも閉じない。「ぜんぶ」だけは押した時点で閉じる（海と同じ） */
+      if (isClear) { closeFilterPop(true); return; }
+      rows.forEach(r => { if (r.id !== null) r.btn.setAttribute('aria-checked', filterSet.has(r.id) ? 'true' : 'false'); });
+    });
+    rows.push({ id: c.id, btn: b });
+    pop.appendChild(b);
+  });
+  pop.addEventListener('keydown', ev => {
+    const bs = Array.from(pop.querySelectorAll('button'));
+    const i = bs.indexOf(document.activeElement);
+    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeFilterPop(true); return; }
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); bs[(i + 1 + bs.length) % bs.length].focus(); return; }
+    if (ev.key === 'ArrowUp') { ev.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); return; }
+    if (ev.key === 'Tab') closeFilterPop(false);
+  });
+  stage.appendChild(pop);
+  filterPop = pop;
+  filterBtn.setAttribute('aria-expanded', 'true');
+  const first = pop.querySelector('[aria-checked="true"]') || pop.querySelector('button');
+  if (first) first.focus({ preventScroll: true });
+}
+
+/* 選び札の外を押したら畳む。押した先のボタンを取りこぼさないよう capture で先に拾う（海と同じ） */
+function onFilterOutside(ev) {
+  if (!filterPop) return;
+  const t = ev.target;
+  if (t && t.closest && t.closest('.today-filter-pop, .today-filterbtn')) return;
+  closeFilterPop(false);
 }
 
 /* ---------------- その日の海に直に書く（利用者の指示） ----------------
@@ -405,6 +570,13 @@ function addFromComposer() {
   syncComposer();
   cInput.focus({ preventScroll: true });
   render();
+  /* フィルターの外のものを書いたら、消えたのではないと言う（Issue #89） */
+  if (filterSet.size && !passFilter(t)) {
+    toast('「' + trim(body) + '」を置いた。フィルターの外なので、いまは見えない', {
+      label: ALL_NAME + 'を見る',
+      on: () => setFilter(null),
+    });
+  }
 }
 
 /* 見出しの日付。押すと近い日が選べる。遠い日は左右になぞる */
@@ -417,6 +589,12 @@ function syncEmptyNote() {
   const l2 = emptyNote.querySelector('.l2');
   if (!l1 || !l2) return;
   const n = offsetOf(curDay());
+  /* フィルターで全部外れたとき（Issue #89）。置いていないのとは違うので、戻し方を言う */
+  if (filterSet.size && dayItems(curDay()).length) {
+    l1.textContent = 'フィルターに当てはまるものは無い。';
+    l2.textContent = '「' + (filterName() || '') + ' ▽」から「' + ALL_NAME + '」を選ぶと、もとの眺め。';
+    return;
+  }
   if (n === 0) {
     l1.textContent = '今日ぶんの水面。';
     l2.textContent = '海のバブルを、このタブに落とすと浮かぶ。';
@@ -540,7 +718,7 @@ function onDayDown(ev) {
   if (swipe || dayPop) return;
   if (ev.button != null && ev.button !== 0) return;
   const t = ev.target;
-  if (!t || !t.closest || t.closest('.bub, button, a, input, textarea, select, .today-periodbox')) return;
+  if (!t || !t.closest || t.closest('.bub, button, a, input, textarea, select, .today-periodbox, .today-filter-pop')) return;
   swipe = { pid: ev.pointerId, x0: ev.clientX, y0: ev.clientY, dx: 0, axis: null };
   window.addEventListener('pointermove', onDayMove, true);
   window.addEventListener('pointerup', onDayUp, true);
@@ -573,6 +751,7 @@ function onDayUp(ev) {
 
 function render() {
   if (!field) return;
+  pruneFilter();                 /* 消えたタグで絞ったまま全部が隠れないように、集める前に */
   const items = itemsForField();
   crowded = false;               /* 漂う面に出すときだけ fitItems が決め直す */
   if (listOn && listBox) {
@@ -583,6 +762,7 @@ function render() {
     quad.render(items.map(it => ({ id: it.id, item: it, opts: { size: QUAD_BUB, colors: it.colors, tagNames: it.tagNames, marks: [] } })));
   } else field.setItems(fitItems(items));
   syncListBtn();                 /* 入りきらないかどうかで札の言い方が変わる（Issue #87） */
+  syncFilterBtn();               /* タグが増減していることがある（Issue #89） */
   if (emptyNote) {
     emptyNote.hidden = items.length > 0 || quadOn;
     syncEmptyNote();
@@ -630,7 +810,8 @@ function isDoneItem(t) {
 }
 
 function pickList() {
-  try { return dayItems(curDay()).filter(t => !isDoneItem(t)); } catch (e) { return []; }
+  /* フィルター（Issue #89）を掛けたあとの、見えているものから引く（海の pickFace と同じ） */
+  try { return dayItems(curDay()).filter(t => !isDoneItem(t) && passFilter(t)); } catch (e) { return []; }
 }
 
 /* 光が渡り歩く順。うしろから組み立てるので、最後は必ず勝ち玉、
@@ -1833,10 +2014,27 @@ export default {
     listBox.setAttribute('aria-label', '一覧');
     listBox.hidden = true;
     stage.appendChild(listBox);
+    /* 2段目の左の並び。「一覧」と、その右どなりのタグのフィルター（Issue #89）。
+       「一覧」は泡が多いと「一覧で見る」に伸びる（Issue #87）ので、並びは flex に任せる */
+    const leftTools = el('div', 'today-lefttools');
     listBtn = el('button', 'today-listbtn');
     listBtn.type = 'button';
     listBtn.addEventListener('click', ev => { ev.preventDefault(); setList(!listOn); });
-    stage.appendChild(listBtn);
+    leftTools.appendChild(listBtn);
+    filterBtn = el('button', 'today-filterbtn');
+    filterBtn.type = 'button';
+    filterLabel = el('span', 'lb', ALL_NAME);
+    const fic = el('span', 'ic', '▽');
+    fic.setAttribute('aria-hidden', 'true');
+    filterBtn.appendChild(filterLabel);
+    filterBtn.appendChild(fic);
+    filterBtn.setAttribute('aria-haspopup', 'menu');
+    filterBtn.setAttribute('aria-expanded', 'false');
+    filterBtn.addEventListener('click', ev => { ev.preventDefault(); openFilterPop(); });
+    leftTools.appendChild(filterBtn);
+    stage.appendChild(leftTools);
+    document.addEventListener('pointerdown', onFilterOutside, true);
+    syncFilterBtn();
     /* 前に一覧で見ていたら、一覧で始める。入力欄がまだ無いので setList（render を呼ぶ）は使わず、
        印だけ立てる。漂う面は onShow が listOn を見て動かさない */
     if (loadListOn()) {
@@ -1922,6 +2120,7 @@ export default {
   /* 戻る（Android の戻るボタン）。開いているものを畳む。
      日を移していたら今日へ戻す——「最終的にホームへ」の途中の1段。 */
   onBack() {
+    if (filterPop) { closeFilterPop(true); return true; }
     if (dayPop) { closeDayPop(); return true; }
     if (suggest) { closeSuggest(); return true; }
     if (period) { closePeriod(); return true; }
@@ -1936,7 +2135,8 @@ export default {
     closeDetail();
     closeSuggest();
     closePeriod();
-    cancelShuffle();          /* 混ぜかけのまま裏に回ったら畳む。開かない */
+    closeFilterPop(false);
+    cancelShuffle();         /* 混ぜかけのまま裏に回ったら畳む。開かない */
     if (field) field.stop();
     if (typeof store.flush === 'function') store.flush();
   },
@@ -1945,6 +2145,7 @@ export default {
   destroy() {
     if (unsubscribe) { unsubscribe(); unsubscribe = null; }
     if (ro) { ro.disconnect(); ro = null; }
+    document.removeEventListener('pointerdown', onFilterOutside, true);
     if (field) { field.destroy(); field = null; }
   },
 };
