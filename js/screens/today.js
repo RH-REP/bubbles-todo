@@ -10,7 +10,7 @@
 
 import { store } from '../store.js';
 import { createField } from '../drift.js';
-import { openMenu, attachGestures } from '../bubble.js';
+import { openMenu, attachGestures, makeBubble, diameterFor, centerBubble } from '../bubble.js';
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete, playSfx } from '../sound.js';
@@ -279,6 +279,7 @@ function itemFor(t) {
 
 function setQuad(on) {
   if (!quad || quadOn === on) return;
+  if (on && listOn) setList(false);      /* 一覧と四つは同時に出さない（Issue #86） */
   quadOn = on;
   closeMenu();
   quad.el.hidden = !on;
@@ -545,7 +546,10 @@ function onDayUp(ev) {
 function render() {
   if (!field) return;
   const items = itemsForField();
-  if (quadOn && quad) {
+  if (listOn && listBox) {
+    /* 一覧で見ている間も漂う面に渡さない（同じものが泡と行の2つ出る。Issue #86） */
+    renderList(items);
+  } else if (quadOn && quad) {
     /* 分けている間は漂う面に渡さない（同じ泡が2つ出る） */
     quad.render(items.map(it => ({ id: it.id, item: it, opts: { size: QUAD_BUB, colors: it.colors, tagNames: it.tagNames, marks: [] } })));
   } else field.setItems(items);
@@ -1502,6 +1506,162 @@ function renderPeriod() {
   });
 }
 
+/* ---------------- 一覧で見る（2026-11-21 Issue #86） ----------------
+
+   > 今日のTODOが多い時、泡のUIだと見にくい
+   > 今日のTODOの分だけ一覧表示で完了と未完了をわけて確認できるいいUIを検討して実装して
+
+   2段目の左の札「一覧」で、映している日の泡（dayItems と同じ顔ぶれ）を行に並べ替えて見る。
+   もう一度押す（札は「泡」になる）と漂う面に戻る。四つに分けるのと同じく、見ている間は field を降ろす。
+   ・上に「まだ」、下に「済んだ」。それぞれの中は水面と同じ順（並べ替えない）
+   ・行の頭の丸で完了にする／未完了にもどす（泡の［完了］と同じ。音とトーストの取り消しも同じ）
+   ・名前を押すと、泡を押したときと同じ詳細が開く（海の一覧と同じ作り。openBoardFor）
+   ・「今日は終わり」にしたものは、名前の右に小さくそう出す（まだのほうに残す。日が変わると戻る印なので）
+   ・件数・割合は出さない（契約 §0。週・月の板と同じ）
+   ・一覧で見ているかどうかは、この端末に覚える（多い日が続く人が、開くたびに押し直さないように） */
+
+const LIST_KEY = 'bubble_todo_today_list_v1';
+let listOn = false;
+let listBox = null;
+let listBtn = null;
+let rowBoard = null;      /* { node, off } 行から開いた詳細の、その場かぎりの泡。2枚目は開かない */
+
+function loadListOn() {
+  try { return localStorage.getItem(LIST_KEY) === '1'; } catch (e) { return false; }
+}
+function saveListOn(on) {
+  try { if (on) localStorage.setItem(LIST_KEY, '1'); else localStorage.removeItem(LIST_KEY); }
+  catch (e) { /* 覚えられないだけ */ }
+}
+
+function syncListBtn() {
+  if (!listBtn) return;
+  listBtn.textContent = listOn ? '泡' : '一覧';
+  listBtn.setAttribute('aria-pressed', listOn ? 'true' : 'false');
+  listBtn.title = listOn ? '泡の眺めにもどす' : '一覧で見る（まだ・済んだに分けて並べる）';
+  listBtn.setAttribute('aria-label', listOn ? '泡の眺めにもどす' : '一覧で見る');
+}
+
+function setList(on) {
+  if (!listBox || listOn === on) return;
+  if (on && quadOn) setQuad(false);
+  listOn = on;
+  saveListOn(on);
+  closeMenu();
+  listBox.hidden = !on;
+  if (stage) stage.classList.toggle('is-list', on);
+  syncListBtn();
+  if (on) {
+    if (field) { field.stop(); field.setItems([]); }
+    render();
+    return;
+  }
+  listBox.textContent = '';
+  render();
+  if (field && shown) { field.relayout(); field.start(); }
+}
+
+function renderList(items) {
+  const box = listBox;
+  if (!box) return;
+  const keep = box.scrollTop;            /* 完了にしたたびに先頭へ飛ばない */
+  box.textContent = '';
+  if (!items.length) return;             /* 何も無いときのことば（emptyNote）に任せる */
+  const todo = items.filter(it => !it.done);
+  const done = items.filter(it => it.done);
+  box.appendChild(listSection('まだ', todo, 'まだのものは無い'));
+  if (done.length) box.appendChild(listSection('済んだ', done, ''));
+  box.scrollTop = keep;
+}
+
+function listSection(title, rows, emptyText) {
+  const sec = el('section', 'tl-sec');
+  const h = el('h3', 'tl-head', title);
+  sec.appendChild(h);
+  if (!rows.length) {
+    sec.appendChild(el('p', 'tl-empty', emptyText));
+    return sec;
+  }
+  const ul = el('ul', 'tl-rows');
+  rows.forEach(it => ul.appendChild(listRow(it)));
+  sec.appendChild(ul);
+  return sec;
+}
+
+function listRow(it) {
+  const li = el('li', 'tl-row');
+  if (it.done) li.classList.add('is-done');
+  if (it.started) li.classList.add('is-started');
+
+  const ck = el('button', 'tl-check', it.done ? '✓' : '');
+  ck.type = 'button';
+  ck.setAttribute('aria-pressed', it.done ? 'true' : 'false');
+  ck.setAttribute('aria-label', '「' + trim(it.text) + '」を' + (it.done ? REOPEN_LABEL : '完了にする'));
+  ck.addEventListener('click', ev => { ev.preventDefault(); toggleComplete(it.id); });
+  li.appendChild(ck);
+
+  const b = el('button', 'tl-item');
+  b.type = 'button';
+  /* タグの色の点（海の一覧と同じ。最大3つ。色だけに頼らず、名前は読み上げに入れる） */
+  const dots = el('span', 'tl-dots');
+  dots.setAttribute('aria-hidden', 'true');
+  const cols = (it.colors || []).slice(0, 3);
+  if (!cols.length) dots.appendChild(el('span', 'dot is-none'));
+  cols.forEach(c => {
+    const d = el('span', 'dot');
+    d.style.setProperty('--tcd', c);
+    dots.appendChild(d);
+  });
+  b.appendChild(dots);
+  const nm = el('span', 'tl-nm');
+  nm.textContent = it.text;              /* ユーザーの文字。innerHTML には入れない */
+  b.appendChild(nm);
+  if (it.started && !it.done) b.appendChild(el('span', 'tl-st', DONE_LB));
+  const names = it.tagNames || [];
+  b.setAttribute('aria-label', it.text + (names.length ? '（' + names.join('、') + '）' : '')
+    + (it.started && !it.done ? '。' + DONE_LB : '') + '。詳細を開く');
+  b.addEventListener('click', ev => { ev.preventDefault(); openBoardFor(it.id, b); });
+  /* 前からの5項目のメニューは、右クリック・メニューキーに残す（海の一覧と同じ） */
+  b.addEventListener('contextmenu', ev => { ev.preventDefault(); onMenu(it.id, b); });
+  li.appendChild(b);
+  return li;
+}
+
+/* 行から、泡を押したときと同じ詳細を開く。
+   詳細は bubble.js の attachGestures が泡のノードに付けて開くものなので、
+   行の上にその場かぎりの泡を1つ作って中央へ寄せ、詳細を閉じたら捨てる（海の一覧と同じ作り） */
+function openBoardFor(id, row) {
+  const t = store.get(id);
+  if (!t || !row || rowBoard) return;
+  const r = row.getBoundingClientRect();
+  const dw = stage ? stage.clientWidth : 0, dh = stage ? stage.clientHeight : 0;
+  const d = Math.max(44, Math.round(diameterFor(t.text, dw, dh)));
+  const it = itemFor(t);
+  const node = makeBubble(it, { size: d, colors: it.colors, tagNames: it.tagNames });
+  node.style.left = Math.round(r.left + Math.min(r.width, 120) / 2 - d / 2) + 'px';
+  node.style.top = Math.round(r.top + r.height / 2 - d / 2) + 'px';
+  (document.getElementById('drag-layer') || document.body).appendChild(node);
+
+  const rec = { node, off: null };
+  rowBoard = rec;
+  const drop = () => {
+    if (rowBoard !== rec) return;
+    rowBoard = null;
+    /* 閉じる処理の途中で呼ばれるので、抜けてから片づける */
+    setTimeout(() => {
+      if (typeof rec.off === 'function') rec.off();
+      node.remove();
+    }, 0);
+  };
+  const h = Object.assign({}, handlers, { onHold: (hid, on) => { if (!on) drop(); } });
+  rec.off = attachGestures(node, h);
+  if (!centerBubble(node)) {
+    /* 寄せられなかった（寸法が取れない等）。前からの入口で開く */
+    drop();
+    onMenu(id, row);
+  }
+}
+
 const handlers = {
   onFocusRequest: id => openFive(id),
   onMenu: (id, node) => onMenu(id, node),
@@ -1629,6 +1789,26 @@ export default {
     quad = createQuadView(stage, { className: 'today-quad', bind: (node) => attachGestures(node, handlers) });
     quad.el.dataset.screen = 'today.quad';
 
+    /* 一覧で見る（Issue #86）。2段目の左の札と、面いっぱいの一覧。札は既定で出す（頼まれた働きなので畳まない） */
+    listBox = el('div', 'today-list');
+    listBox.dataset.screen = 'today.list'; listBox.dataset.screenLayer = '2';
+    listBox.setAttribute('role', 'region');
+    listBox.setAttribute('aria-label', '一覧');
+    listBox.hidden = true;
+    stage.appendChild(listBox);
+    listBtn = el('button', 'today-listbtn');
+    listBtn.type = 'button';
+    listBtn.addEventListener('click', ev => { ev.preventDefault(); setList(!listOn); });
+    stage.appendChild(listBtn);
+    /* 前に一覧で見ていたら、一覧で始める。入力欄がまだ無いので setList（render を呼ぶ）は使わず、
+       印だけ立てる。漂う面は onShow が listOn を見て動かさない */
+    if (loadListOn()) {
+      listOn = true;
+      listBox.hidden = false;
+      stage.classList.add('is-list');
+    }
+    syncListBtn();
+
     /* --- その日の海に直に書く（利用者の指示）---
        面（.today-stage）の**兄弟**として下に置く。面は flex:1 なので自然に縮み、
        drift が測る clientHeight もそのまま正しくなる
@@ -1695,7 +1875,7 @@ export default {
        自分で過去へなぞって見に行くぶんは、この後いつでもできる */
     if (viewDay && viewDay < todayKey()) { viewDay = null; announceDay(); }
     /* ここで初めてペインが display:flex になる。寸法が取れるのはこの時点から */
-    if (field && !quadOn) { field.relayout(); field.start(); }
+    if (field && !quadOn && !listOn) { field.relayout(); field.start(); }
     render();
   },
 
