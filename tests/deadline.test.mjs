@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   deadlineOf, deadlineRows, doneRows, agoLabel, columnCount, columns, cellMark, inSpan, leftLabel, spanFromDetail, daysBetween, withSpan,
-  COLS_MIN, COLS_MAX,
+  COLS_MIN, COLS_MAX, periodDays, monthSpanDays,
 } from '../js/deadline.js';
 import { holidaysOf, holidayName } from '../js/holiday.js';
 
@@ -162,4 +162,26 @@ test('完了の海: 完了した日の新しい順・過去へ向かう列（Iss
   const c = columns('2026-12-02', 4, -1);
   assert.deepEqual(c.map(x => x.key), ['2026-12-02', '2026-12-01', '2026-11-30', '2026-11-29']);
   assert.deepEqual(c.map(x => x.m), ['12月', '', '11月', '']);
+});
+
+test('まとめて見る: 1週間・1か月の日ごとの並び（Issue #80）', () => {
+  assert.equal(monthSpanDays('2026-11-07'), 30);            /* 11/7 〜 12/6 */
+  assert.equal(monthSpanDays('2026-01-31'), 28);            /* 1/31 〜 2/27（2/28 の前日まで） */
+  assert.equal(monthSpanDays('2026-12-15'), 31);
+  const ds = periodDays([
+    { id: 'a', text: 'a', days: ['2026-11-07', '2026-11-09'], createdAt: 2 },
+    { id: 'b', text: 'b', days: [], start: '2026-11-08', due: '2026-11-20', createdAt: 1 },
+    { id: 'c', text: 'c', days: ['2026-11-07'], done: true, createdAt: 3 },
+    { id: 'd', text: 'd', days: ['2026-11-07'], trashed: true },
+    { id: 'e', text: 'e', days: ['2026-11-06', '2026-11-14'] },          /* 範囲の外 */
+    { id: 'f', text: 'f', days: [], due: '2026-11-13', detail: '' },     /* start 無し＝その日1日 */
+  ], T, 7);
+  assert.equal(ds.length, 7);
+  assert.equal(ds[0].key, T);
+  assert.deepEqual(ds[0].rows.map(r => [r.id, r.done]), [['a', false], ['c', true]]);
+  assert.deepEqual(ds[1].rows.map(r => [r.id, r.kinds]), [['b', ['start']]]);
+  assert.deepEqual(ds[2].rows.map(r => r.id), ['a']);
+  assert.deepEqual(ds[6].rows.map(r => [r.id, r.kinds]), [['f', ['end']]]);
+  assert.ok(ds.every(d => d.rows.every(r => r.id !== 'd' && r.id !== 'e')));
+  assert.deepEqual(periodDays([], 'x', 7), []);
 });

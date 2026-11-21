@@ -183,6 +183,51 @@ export function columns(today, n, dir = 1) {
   return out;
 }
 
+/* ---- まとめて見る（1週間・1か月。2026-11-21 Issue #80） ----
+   今日の画面の「週・月」の板の中身。from の日から n 日ぶんを日ごとに並べる。
+   日に出すのは、その日に置いたもの（days）と、期間（start・due。欄の無い古い記録は本文の行）の
+   始まる日・終わる日。完了したものも出す（今日の水面と同じく、その日に何をしたかが残るように）。
+   過ぎた日を数えたり、「期限切れ」と出したりはしない。 */
+
+/* from の日から、翌月の同じ日の前日までの日数（月末はその月の末日につぶす。1/31 → 2/28 まで） */
+export function monthSpanDays(from) {
+  const d = dateOf(from);
+  if (!d) return 30;
+  const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+  const last = new Date(y, m + 1, 0, 12).getDate();
+  const to = new Date(y, m, Math.min(day, last), 12);
+  return Math.round((to - d) / 86400000);
+}
+
+/* -> [{ key, m, d, wd, sat, sun, hol, off, rows: [{ id, text, done, kinds: ['day'|'start'|'end'] }] }]
+   rows は書いた順（古いほうが上）。何も無い日も返す（板が畳む） */
+export function periodDays(items, from, n) {
+  const cols = dateOf(from) && n > 0 ? columns(from, n) : [];
+  if (!cols.length) return [];
+  const last = cols[cols.length - 1].key;
+  const at = new Map(cols.map(c => [c.key, new Map()]));
+  const mark = (t, key, kind) => {
+    const box = at.get(key);
+    if (!box) return;
+    let r = box.get(t.id);
+    if (!r) { r = { id: t.id, text: t.text, done: !!t.done, createdAt: t.createdAt || 0, kinds: [] }; box.set(t.id, r); }
+    if (r.kinds.indexOf(kind) < 0) r.kinds.push(kind);
+  };
+  (items || []).forEach(t => {
+    if (!t || t.trashed) return;
+    (Array.isArray(t.days) ? t.days : []).forEach(k => { if (k >= from && k <= last) mark(t, k, 'day'); });
+    const sp = spanFromFields(t) || spanFromDetail(t.detail);
+    if (sp) {
+      if (sp.start !== sp.end) mark(t, sp.start, 'start');
+      mark(t, sp.end, 'end');
+    }
+  });
+  return cols.map(c => {
+    const rows = [...at.get(c.key).values()].sort((p, q) => p.createdAt - q.createdAt);
+    return Object.assign({}, c, { rows });
+  });
+}
+
 /* 1つの行の、1つの列の印。'end'＝終了日、'day'＝置いた日、'span'＝期間の中、''＝何も無い */
 export function cellMark(row, key) {
   if (key === row.end) return 'end';
