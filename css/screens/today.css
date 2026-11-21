@@ -72,6 +72,10 @@
   box-shadow: 0 2px 10px rgba(0,0,0,.08);
   transition: transform .1s, color .12s, border-color .12s;
 }
+/* 既定で隠す（2026-11-21 Issue #84。海の .sea-random と同じ。設定の「さいころのボタンを出す」で出す）。
+   隠している間は、四つに分ける切り替え（出しているとき）が右の端へ寄る */
+body:not(.pref-dice) .today-random { display: none !important; }
+body:not(.pref-dice) .today-quadbtn { right: 10px; }
 .today-random svg { display: block; width: 22px; height: 22px; }
 .today-random:not(:disabled):hover { color: var(--text); border-color: var(--bub-edge); }
 .today-random:not(:disabled):active { transform: scale(.95); }
@@ -218,13 +222,16 @@
    なぞる操作は前から動いていたが、画面のどこにもそう書いていなかった。
    札としてだけでなく押しても移れる——指だけの経路にしない（海の矢印看板と同じ考え）。 */
 .today-dayrow {
-  /* 2段目の左（海のフィルターと同じ段）。1段目は ≡ と、右上の 歯車・「!」で埋まり、
-     その間（約 200px）には「一昨日 12/31（水）」と ‹ › が入らない（2026-10-23）。 */
-  position: absolute; z-index: 8; left: 10px; top: 58px;
+  /* 1段目、≡ の右（2026-11-21 Issue #84「日付の切り替えは、1番上に上げるか別の場所に移した方がいいのでは？」）。
+     前（2026-10-23〜）は 2段目の左に置いていた。1段目は右上の 歯車・「!」で埋まり、間に入らなかったため。
+     「!」を既定で隠して歯車が右上の隅へ寄ったので、間が約 250px（幅 375 の画面）空き、日付と ‹ › が入る。
+     右端は歯車の手前で止める（「!」を出しているときは、その左どなりの歯車の手前）。
+     長い日付（「一昨日 12/31（水）」）が入りきらないときは、日付の札の字を「…」で縮める */
+  position: absolute; z-index: 8; left: 62px; top: 10px;
   display: flex; align-items: center; gap: 2px;
-  /* 右端はさいころ（右から 58px）の手前で止める。長い日付でも下へ潜らせない */
-  max-width: calc(100% - 76px);
+  max-width: calc(100% - 176px);
 }
+body:not(.pref-fb) .today-dayrow { max-width: calc(100% - 124px); }
 /* 44×44（レビューの指摘）。36 で置いていたが、契約 §15 に例外として
    記録していなかった。カレンダーの枡と違って幅の制約は無いので、素直に 44 にする */
 .today-daystep {
@@ -250,6 +257,7 @@
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   color: var(--text); font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
   white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;   /* 1段目に上げた（Issue #84）ので、狭いときは縮める */
 }
 .today-day:hover { border-color: var(--bub-edge); }
 .today-day:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }

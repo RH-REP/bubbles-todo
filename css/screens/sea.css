@@ -364,6 +364,18 @@
 /* 狭い画面では印を外して字だけ（右上のさいころに届かないように） */
 @media (max-width: 380px) { .sea-mode-b .ic { display: none; } }
 
+/* フィルターと名札を1つにした（2026-11-21 Issue #84「フィルターと現在表示されてるタグはまとめてもいいんじゃない？」）。
+   中央の海では、名札（.sea-face-name）の場所＝1段目の ≡ の右に、名札の代わりにこのボタンを置き、
+   いま見ている眺め（タグ無し／絞った名前）を ▽ 付きで出す。押すとフィルターの選び札が開く。
+   タグの海ではフィルターが無いので、今までどおり名札を出す（js/screens/sea.js の renderChrome・syncNarrowBtn）。
+   右は海のカレンダー（「!」があれば右から 158px、隠していれば 106px）の手前で止める */
+.sea-stage > .sea-narrow {
+  position: absolute; top: 10px; left: 62px; z-index: 8;
+  max-width: min(46%, calc(100% - 228px)); min-width: 0;
+  color: var(--text);
+}
+body:not(.pref-fb) .sea-stage > .sea-narrow { max-width: calc(100% - 176px); }
+.sea-stage > .sea-narrow .lb { min-width: 0; max-width: none; }
 .sea-narrow {
   position: relative;
   appearance: none; cursor: pointer; font: inherit;
@@ -394,7 +406,8 @@
    **戻し方は一覧の先頭（ぜんぶ）**——別のボタンにすると、
    絞っている間だけ現れる的が増える。 */
 .sea-narrow-pop {
-  position: absolute; top: 98px; left: 10px; z-index: 12;
+  /* フィルターのボタンが1段目へ上がった（Issue #84）ので、その真下（前は 2段目の下の 98px） */
+  position: absolute; top: 60px; left: 62px; z-index: 12;
   display: flex; flex-direction: column;
   min-width: 168px; max-width: min(72vw, 260px);
   max-height: 46vh; overflow-y: auto; overscroll-behavior: contain;
@@ -451,6 +464,11 @@
   box-shadow: 0 2px 10px rgba(0,0,0,.08);
   transition: transform .1s, color .12s, border-color .12s;
 }
+/* さいころは既定で隠す（2026-11-21 Issue #84「サイコロ機能は設定の中に移したら」）。
+   設定の「音と表示」の「さいころのボタンを出す」で body.pref-dice が付けば出す。
+   隠している間は、リスト表示の ⇅ が右の端（さいころの場所）へ寄る */
+body:not(.pref-dice) .sea-random { display: none !important; }
+body:not(.pref-dice) .sea-gather { right: 10px; }
 .sea-random svg { display: block; width: 22px; height: 22px; }
 .sea-random:not(:disabled):hover { color: var(--text); border-color: var(--bub-edge); }
 .sea-random:not(:disabled):active { transform: scale(.95); }
@@ -1168,6 +1186,8 @@
   box-shadow: 0 2px 10px rgba(0,0,0,.08);
   transition: transform .1s, color .12s, border-color .12s;
 }
+/* 「!」を隠している間（既定。Issue #84）は歯車が右上の隅へ寄るので、その左どなりへ */
+body:not(.pref-fb) .sea-cal { right: 62px; }
 .sea-cal svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 /* 濃淡の粒は塗り。中身が「日ごとの濃さ」だと絵で分かる */
 .sea-cal svg .dot { stroke: none; fill: currentColor; }

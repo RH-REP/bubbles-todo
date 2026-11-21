@@ -202,6 +202,26 @@ export default {
     /* サーバーあり版では出さない（ヘルプの中心は AI に訊く。記事は上の「使い方を読む」で読める。2026-11-17 Issue #78） */
     if (aiOn()) box.appendChild(ask);
 
+    /* --- 改善のコメント（2026-11-21 Issue #84「github に書き込む機能は設定の中に移したら」）---
+       右上の「!」は既定で隠した（css/base.css。「音と表示」の「画面の右上に「!」を出す」で戻せる）。
+       ここから、隠れている「!」（js/feedback.js が置く #fbBtn）を押したのと同じ欄を開く。
+       欄が付ける画面の名前は「設定」になる。画面ごとに書きたいときは「!」を出す */
+    const fb = el('button', 'gorow');
+    fb.type = 'button';
+    const fbT = el('span', 'tx');
+    fbT.appendChild(el('span', 'nm', '改善のコメントを書く'));
+    fbT.appendChild(el('span', 'sub', 'GitHub の Issue の画面を開く（公開される）'));
+    fb.appendChild(fbT);
+    const fbA = el('span', 'ar', '›');
+    fbA.setAttribute('aria-hidden', 'true');
+    fb.appendChild(fbA);
+    fb.addEventListener('click', () => {
+      const b = document.getElementById('fbBtn');
+      if (b) b.click();
+      else toast('改善のコメントの欄を開けない（部品が無い）');
+    });
+    box.appendChild(fb);
+
     /* --- 1行にまとめた箱（Issue #40。利用者の返事）---
        基本は個人の TODO なので、ふだん開いて見えるのは ふりかえり・使い方・ヘルプ・海域 だけにし、
        ほかは「タグを編集する」「音と表示」「AI を使う設定をする」「他の人と一緒に使う」「ブロックチェーンを準備する」「記録を保存する・読み込む」「版」「その他」の

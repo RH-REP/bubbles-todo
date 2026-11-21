@@ -234,6 +234,14 @@ body.is-dragging .gearbtn { opacity: .25; pointer-events: none; }
 }
 body.is-dragging #fbBtn { opacity: .15; pointer-events: none; }   /* 掴んでいる間は落とし先の邪魔をしない */
 
+/* 「!」は既定で隠す（2026-11-21 Issue #84「github に書き込む機能は設定の中に移したら」）。
+   書くのは設定の「改善のコメントを書く」から（隠した #fbBtn を押す。js/screens/settings.js）。
+   設定の「音と表示」の「画面の右上に「!」を出す」で body.pref-fb が付けば、今までどおり出す。
+   隠している間は、歯車が右上の隅（right:10px）へ寄り、海のカレンダーもそのぶん右へ寄る（css/screens/sea.css） */
+body:not(.pref-fb) #fbBtn,
+body:not(.pref-fb) .fb-in-dialog { display: none !important; }
+body:not(.pref-fb) .gearbtn { right: 10px; }
+
 /* ---------- 左のメニュー（F7）----------
    ボタンは歯車の鏡（左上）。板は左から出て、右側は覆い。
    重なり：下タブ 70 ＜ ここ 75 ＜ トースト 80（「今日に置いた」の取り消しが板の上に出る）

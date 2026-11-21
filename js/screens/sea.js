@@ -2544,14 +2544,15 @@ function syncNarrowBtn() {
   narrowBtn.hidden = !show;
   if (!show) closeNarrowPop(false);
   const nm = narrowName();
-  /* 絞っている間はボタンにその名前を出す。何で絞っているかが、
-     面の名前とボタンの2か所に出ることになるが、面の名前は滑ると隠れるので残す */
-  narrowLabel.textContent = nm || 'フィルター';
+  /* ボタンがいまの眺めの名前を名乗る（Issue #84 で名札と1つにした。出している間は名札を隠す＝renderChrome）。
+     絞っていなければ「タグ無し」、絞っていればその名前 */
+  narrowLabel.textContent = nm || CENTER_VIEW_NAME;
   narrowBtn.setAttribute('aria-pressed', nm ? 'true' : 'false');
   narrowBtn.classList.toggle('is-on', !!nm);
   narrowBtn.setAttribute('aria-label', nm
     ? '「' + nm + '」でフィルターしている。押すと選び直す'
-    : 'フィルターを選ぶ');
+    : 'いまは「' + CENTER_VIEW_NAME + '」を表示している。押すとフィルターを選ぶ');
+  narrowBtn.title = 'フィルター';
 }
 
 /* ---------------- ランダムスタート ----------------
@@ -3359,7 +3360,10 @@ function renderChrome() {
   const many = liveFaces().length > 1;
   /* リスト表示のあいだも出す。**いまどの海を見ているか**が分からないと、
      移動できても移った先が読めない（A-65） */
-  faceName.hidden = (!many && !narrow);
+  /* 中央の海でフィルターのボタンが出ているときは、そのボタンが名札を兼ねる（Issue #84）ので隠す。
+     条件は syncNarrowBtn の show と同じ */
+  const merged = curFace === 'center' && hasTags();
+  faceName.hidden = merged || (!many && !narrow);
   faceLabel.textContent = name;
   faceName.classList.toggle('is-narrow', narrow);
   faceDot.hidden = !tag;
@@ -3823,13 +3827,17 @@ export default {
        面の名前のすぐ下に置く。名前（いま何が浮かんでいるか）と
        その切り替えが縦に並ぶので、対で読める。
        「リスト表示」は右上のまま。2つのモードのボタンを隣り合わせない。 */
+    /* 2026-11-21 Issue #84「フィルターと現在表示されてるタグはまとめてもいいんじゃない？」で、
+       名札（いまの眺めの名前）とこのボタンを1つにした。中央の海では名札の代わりに1段目に置き、
+       「タグ無し ▽」「仕事 ▽」のように、いまの眺めを名乗る（▽ は下タブの「今日 ▽」と同じ「押すと何か出る」）。
+       前は 2段目の左に「▽ フィルター」として名札の下に置いていた */
     narrowBtn = el('button', 'sea-narrow');
     narrowBtn.type = 'button';
     const nic = el('span', 'ic', '▽');
     nic.setAttribute('aria-hidden', 'true');
-    narrowLabel = el('span', 'lb', 'フィルター');
-    narrowBtn.appendChild(nic);
+    narrowLabel = el('span', 'lb', CENTER_VIEW_NAME);
     narrowBtn.appendChild(narrowLabel);
+    narrowBtn.appendChild(nic);
     narrowBtn.hidden = true;
     narrowBtn.setAttribute('aria-haspopup', 'menu');
     narrowBtn.setAttribute('aria-expanded', 'false');
@@ -3839,8 +3847,9 @@ export default {
     });
     /* フィルターと「四つに分ける」は横に並べる（利用者の指示 2026-10-25。前はフィルターの中にあった）。
        フィルターは隠れることがある（タグの海・タグが無いとき）ので、並びは flex に任せる */
+    /* フィルターは 1段目へ移した（Issue #84）。2段目の左の並びに残るのは、リスト表示の間だけ出る形の切り替え */
+    stage.appendChild(narrowBtn);
     const tools = el('div', 'sea-tools');
-    tools.appendChild(narrowBtn);
     /* リストの形の切り替え（Issue #40 の返事「リスト表示の中で切り替えられるようにできる？」）。
        一覧（古い順）・日付（終了日の近い順と天気）・四つ（優先度）を、リスト表示の中の3つのボタンで切り替える。
        海の上には出さない（.sea-stage.is-gathering のときだけ出る。css/screens/sea.css .sea-mode）。
