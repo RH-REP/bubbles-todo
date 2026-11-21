@@ -33,6 +33,34 @@ const SHUF_WIN = 200;   /* 選ばれた玉が大きくなるまで */
 const SHUF_MAX = 10;    /* 盤に出す玉の数の上限。これ以上は重なって粒に見える */
 const SHUF_D = 46;      /* 玉の直径 px。CSS の .today-shuffle .rnd-b と同じ値。片方だけ変えないこと */
 
+/* --- 泡が多くて面に入らないとき（2026-11-21 Issue #87） ---
+   海（Issue #2）と同じ考えで、泡の面積の合計を面の TODAY_FILL までに収める：
+     1. まず縮める。ただし TODAY_SHRINK 倍まで（それより小さいと字が読めない）
+     2. それでも入らないときは、2段目の札「一覧」を「一覧で見る」にして目立たせる
+   海と違って**数は減らさない**。日付の水面は「その日に置いたという記録」なので、
+   置いたものを隠すと置いた事実のほうが欠ける（上の dayItems の決めごと）。
+   だから縮める下限は海（0.8）より一段小さくしてある（入らないぶんを隠す逃げ道が無いため）。
+   件数は出さない（契約 §0）。広さは面（.today-stage）の寸法で見る */
+const TODAY_FILL = 0.45;
+const TODAY_SHRINK = 0.7;
+let crowded = false;      /* 縮めても入りきらない。札「一覧」を目立たせる */
+let fitW = 0;             /* 最後に大きさを決めたときの面の幅。回転などで変わったら決め直す */
+
+/* 漂う面へ渡す前に、入りきらないぶん泡を縮める。縮めないときは渡されたまま返す
+   （item.size を付けると bubble.js が一定の大きさの見た目にするので、要るときだけ付ける） */
+function fitItems(items) {
+  const w = stage ? stage.clientWidth : 0, h = stage ? stage.clientHeight : 0;
+  if (w) fitW = w;
+  const area = (w || 320) * (h || 420);
+  const ds = items.map(it => diameterFor(it.text || '', w, h));
+  const sum = ds.reduce((a, d) => a + Math.PI * d * d / 4, 0);
+  const budget = area * TODAY_FILL;
+  const k = sum > budget ? Math.max(TODAY_SHRINK, Math.sqrt(budget / sum)) : 1;
+  crowded = sum * k * k > budget * 1.001;
+  if (k >= 1) return items;
+  return items.map((it, i) => Object.assign({}, it, { size: Math.round(ds[i] * k) }));
+}
+
 /* ---- 契約に書かれていないことの申し送り ----------------------------------
    契約 §12 は「attachGestures を誰が呼ぶか」を書いていない。
    実装された drift.createField は、自分でノードを作って attachGestures まで張り、
@@ -546,13 +574,15 @@ function onDayUp(ev) {
 function render() {
   if (!field) return;
   const items = itemsForField();
+  crowded = false;               /* 漂う面に出すときだけ fitItems が決め直す */
   if (listOn && listBox) {
     /* 一覧で見ている間も漂う面に渡さない（同じものが泡と行の2つ出る。Issue #86） */
     renderList(items);
   } else if (quadOn && quad) {
     /* 分けている間は漂う面に渡さない（同じ泡が2つ出る） */
     quad.render(items.map(it => ({ id: it.id, item: it, opts: { size: QUAD_BUB, colors: it.colors, tagNames: it.tagNames, marks: [] } })));
-  } else field.setItems(items);
+  } else field.setItems(fitItems(items));
+  syncListBtn();                 /* 入りきらないかどうかで札の言い方が変わる（Issue #87） */
   if (emptyNote) {
     emptyNote.hidden = items.length > 0 || quadOn;
     syncEmptyNote();
@@ -1536,10 +1566,17 @@ function saveListOn(on) {
 
 function syncListBtn() {
   if (!listBtn) return;
-  listBtn.textContent = listOn ? '泡' : '一覧';
+  /* 泡が多くて縮めても入りきらないときは、言葉を足して目立たせる（Issue #87）。
+     赤や点滅は使わない。件数も言わない（契約 §0） */
+  const crowd = !listOn && crowded;
+  listBtn.textContent = listOn ? '泡' : (crowd ? '一覧で見る' : '一覧');
+  listBtn.classList.toggle('is-crowded', crowd);
   listBtn.setAttribute('aria-pressed', listOn ? 'true' : 'false');
-  listBtn.title = listOn ? '泡の眺めにもどす' : '一覧で見る（まだ・済んだに分けて並べる）';
-  listBtn.setAttribute('aria-label', listOn ? '泡の眺めにもどす' : '一覧で見る');
+  listBtn.title = listOn ? '泡の眺めにもどす'
+    : crowd ? '泡が多くて重なっている。一覧のほうが読みやすい（まだ・済んだに分けて並べる）'
+    : '一覧で見る（まだ・済んだに分けて並べる）';
+  listBtn.setAttribute('aria-label', listOn ? '泡の眺めにもどす'
+    : crowd ? '泡が多くて重なっている。一覧で見る' : '一覧で見る');
 }
 
 function setList(on) {
@@ -1855,6 +1892,9 @@ export default {
         if (!shown || !field) return;
         if (!stage.clientWidth || !stage.clientHeight) return;
         field.relayout();
+        /* 幅が変わったら（回転・窓の大きさ）泡の大きさを決め直す（Issue #87）。
+           高さだけの変化（キーボードの出入り）では決め直さない——打つたびに泡が縮み広がりするため */
+        if (!listOn && !quadOn && Math.abs(stage.clientWidth - fitW) > 1) render();
       });
       ro.observe(stage);
     }

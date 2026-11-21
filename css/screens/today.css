@@ -423,6 +423,12 @@ body:not(.pref-fb) .today-dayrow { max-width: calc(100% - 124px); }
 .today-listbtn:hover { color: var(--text); border-color: var(--bub-edge); }
 .today-listbtn[aria-pressed="true"] { color: var(--text); border-color: var(--bub-edge); background: var(--surface-2); }
 .today-listbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* 泡が多くて縮めても入りきらないとき（2026-11-21 Issue #87）。札の言葉が「一覧で見る」に伸び、
+   縁を泡の色にして少し起こす。赤・点滅・件数は使わない。色だけに頼らず、言葉と縁の太さでも伝える */
+.today-listbtn.is-crowded {
+  color: var(--text); border: 2px solid var(--bub-edge);
+  background: color-mix(in srgb, var(--bub-edge) 12%, var(--surface));
+}
 .today-stage.is-bubdrag .today-listbtn { opacity: 0; pointer-events: none; }
 
 .today-list {
