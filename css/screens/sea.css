@@ -441,6 +441,12 @@ body:not(.pref-fb) .sea-stage > .sea-narrow { max-width: calc(100% - 176px); }
 /* タグではない行（ぜんぶ／まだどこにも）。色を持たないので輪郭だけ */
 .sea-narrow-row .dot.is-none { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
 .sea-narrow-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* まとまりの小見出し（Issue #88）。押せないので小さく控えめに */
+.sea-narrow-head {
+  flex: none; padding: 8px 10px 2px;
+  font-size: 11px; color: var(--text-2); letter-spacing: .04em;
+  user-select: none; -webkit-user-select: none;
+}
 
 /* 絞っている間は面の名前も変わる（「ぜんぶ」→「まだどこにも」）。
    文字だけだと見落とすので、名札の縁も一緒に立てる。意味は必ず文字が持つ */

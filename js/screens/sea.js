@@ -802,20 +802,33 @@ function centerItems() {
 function narrowChoices() {
   /* 先頭は選択の取り消し。**押すと既定の眺め（タグ無しだけ）に戻る**ので、
      「ぜんぶ」ではなくその眺めの名前を出す（押した先に在るものを名乗る） */
-  const out = [
-    { id: null, name: CENTER_VIEW_NAME },
-    { id: PAST_ONLY, name: PAST_NAME },
-    { id: FUTURE_ONLY, name: FUTURE_NAME },
-  ];
-  if (!has('tags')) return out;
-  try {
-    (store.tags() || []).forEach(t => {
-      if (!t || typeof t.id !== 'string' || t.id === 'done') return;
-      out.push({ id: t.id, name: nameOf(t), color: colorOf(t, null) });
-    });
-  } catch (err) { /* タグの無い版 */ }
-  return out;
+  /* 並び（Issue #88「自分で作ったタグを主に使うからデフォルトで1番上にして」）：
+       取り消し → 自分のタグ → 最初からあるタグ（今日・きっかけ・すきま・長期保留）→ 日付
+     「自分のタグ」は special でないもの（最初から置いてある 仕事・プライベート も、
+     名前を変えたり消したりできるので、こちらに入れる）。並びは作った順のまま。
+     group は一覧の小見出しに使う（openNarrowPop） */
+  const out = [{ id: null, name: CENTER_VIEW_NAME, group: 'clear' }];
+  const mine = [];
+  const fixed = [];
+  if (has('tags')) {
+    try {
+      (store.tags() || []).forEach(t => {
+        if (!t || typeof t.id !== 'string' || t.id === 'done') return;
+        const row = { id: t.id, name: nameOf(t), color: colorOf(t, null) };
+        if (t.special) fixed.push(Object.assign(row, { group: 'fixed' }));
+        else mine.push(Object.assign(row, { group: 'mine' }));
+      });
+    } catch (err) { /* タグの無い版 */ }
+  }
+  return out.concat(mine, fixed, [
+    { id: PAST_ONLY, name: PAST_NAME, group: 'date' },
+    { id: FUTURE_ONLY, name: FUTURE_NAME, group: 'date' },
+  ]);
 }
+
+/* 絞り込みの一覧の小見出し（Issue #88「選択しやすいUIにして」）。
+   行が増えても、どこに何があるかを目で探せるように */
+const NARROW_GROUP_NAME = { mine: '自分のタグ', fixed: '最初からあるタグ', date: '日付' };
 
 /* いま絞っているものの名前。絞っていなければ null。
    2つ以上あるときは「◯◯ と 2つ」——全部並べると札からはみ出すため */
@@ -2481,7 +2494,17 @@ function openNarrowPop() {
   pop.setAttribute('role', 'menu');
   pop.setAttribute('aria-label', 'フィルター');
   const rows = [];
+  let lastGroup = 'clear';
   narrowChoices().forEach(c => {
+    /* まとまりが変わるところに小見出し。押せない文字なので矢印キーの移動には入らない
+       （下の keydown は button だけを数える） */
+    if (c.group && c.group !== lastGroup && NARROW_GROUP_NAME[c.group]) {
+      const h = el('div', 'sea-narrow-head');
+      h.setAttribute('role', 'presentation');
+      h.textContent = NARROW_GROUP_NAME[c.group];
+      pop.appendChild(h);
+    }
+    lastGroup = c.group;
     const b = el('button', 'sea-narrow-row');
     b.type = 'button';
     /* 「ぜんぶ」は選択の取り消しなので、印を持たない普通の項目。
