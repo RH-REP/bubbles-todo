@@ -84,6 +84,8 @@
 
    tag = { id:string, name:string, color:string, special:boolean, dir:'up'|'left'|'right'|'down'|null }
          'up'（長期保留）と 'down'（完了）は固有枠。ユーザーが選べるのは left/right だけ
+         hidden:true なら、選ぶ一覧（フィルター・泡のタグ）に出さない（Issue #90）。
+         付いている印・海の列・記録はそのまま。省略＝出す
    タグ＝バブルの海の面。中央（ぜんぶ）以外の3つの向きに、ユーザーが好きなタグを割り当てる。
    向きは3つしかないが、タグは何個でも作れる（1向き1タグ）。
    today / plan / gap / done の4つは特別なタグで、名前を変えられず、消せない。
@@ -652,7 +654,7 @@ function freeHue() {
 /* --- タグの小道具 --- */
 
 function tagCopy(t) {
-  return { id: t.id, name: t.name, color: t.color, special: t.special, dir: t.dir };
+  return { id: t.id, name: t.name, color: t.color, special: t.special, dir: t.dir, hidden: !!t.hidden };
 }
 
 function findTag(id) {
@@ -794,7 +796,7 @@ function normalizeTags(v) {
 
   const out = TAG_DEFAULTS.map(d => {
     const s = kept.get(d.id);
-    return {
+    const row = {
       id: d.id,
       name: d.name,                                   /* 名前は変えられない */
       color: (s && tagColor(s.color)) || d.color,
@@ -805,6 +807,9 @@ function normalizeTags(v) {
         || (s ? (TAG_DIRS.indexOf(s.dir) >= 0 ? s.dir : null) : d.dir),
       special: true,
     };
+    /* 隠す印は、立っているときだけ持つ（無い行は前の版の保存データと同じ形のまま） */
+    if (s && s.hidden === true && d.id !== 'done') row.hidden = true;
+    return row;
   });
 
   /* 最初から置いてあるタグ。保存データに無ければ、既定の名前・色・向きで足す。
@@ -820,13 +825,15 @@ function normalizeTags(v) {
     if (out.some(t => t.id === id)) return;      /* 上で足した starter は二重に入れない */
     const name = anchorName(x.name);
     if (!name) return;
-    out.push({
+    const row = {
       id,
       name,
       color: tagColor(x.color) || nextTagHue(out.length),
       dir: TAG_DIRS.indexOf(x.dir) >= 0 ? x.dir : null,
       special: false,
-    });
+    };
+    if (x.hidden === true) row.hidden = true;
+    out.push(row);
   });
 
   /* 1向き1タグ。同じ向きを名乗るものが複数あったら、先に出てきたほうだけ残す */
@@ -2782,6 +2789,20 @@ export const store = {
     return true;
   },
 
+  /* 選ぶ一覧（フィルター・泡のタグ）に出すか（Issue #90「使わないタグの非表示」）。
+     隠しても、付いている印・海の列・色は変わらない。「完了」は隠せない（どの一覧にも出していない）
+     -> 受け付けたか */
+  setTagHidden(id, hidden) {
+    const tag = findTag(id);
+    if (!tag || id === 'done') return false;
+    const on = !!hidden;
+    if (!!tag.hidden === on) return true;
+    if (on) tag.hidden = true;
+    else delete tag.hidden;
+    persist(); emit();
+    return true;
+  },
+
   /* 消す。特別なタグは消せない。
      付いていた項目からは、そのタグだけが外れる（項目は消えない。追補3 §8） */
   removeTag(id) {
@@ -3413,7 +3434,7 @@ export const WRITE_METHODS = [
   'setFav', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
-  'addTag', 'renameTag', 'setTagColor', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
+  'addTag', 'renameTag', 'setTagColor', 'setTagHidden', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',
   'setSpan', 'setRepeat', 'commitStep', 'editStep', 'amendLastStep', 'addNote', 'putNote', 'signedNotes', 'addChat', 'removeNote', 'setDraft', 'flush', 'clear', 'wipe', 'seed', 'start', 'unstart', 'logFocus',
 ];
 /* 知らせない口（画面が裏で何度も呼ぶもの。断るだけ） */

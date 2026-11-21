@@ -292,7 +292,8 @@ function tagSections() {
   if (prefs.hideTags) return [];            /* この端末の表示で「タグ類を隠す」（Issue #36） */
   const live = store.all().filter(t => !t.done)
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return store.tags().filter(tag => tag && tag.id && !tag.special).map(tag => ({
+  /* 設定で隠したタグ（Issue #90）は区分にしない */
+  return store.tags().filter(tag => tag && tag.id && !tag.special && !tag.hidden).map(tag => ({
     key: 'tag:' + tag.id, name: tag.name, color: tag.color,
     list: live.filter(t => Array.isArray(t.tags) && t.tags.indexOf(tag.id) >= 0),
   }));

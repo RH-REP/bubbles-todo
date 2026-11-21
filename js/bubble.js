@@ -1194,7 +1194,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   if (fields && canEdit) {
     const has0 = new Set(ask(a, 'tagsOf', id) || []);
     const want = new Set(has0);
-    const list = allTags.filter(t => t && t.id && t.id !== 'done');
+    /* 設定で隠したタグ（Issue #90）は出さない。この泡に付いているものだけは、外せるように残す */
+    const list = allTags.filter(t => t && t.id && t.id !== 'done' && (!t.hidden || has0.has(t.id)));
 
     const tags = el('div', 'bc-tags');
     list.forEach(t => {

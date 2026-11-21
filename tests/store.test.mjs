@@ -2325,6 +2325,26 @@ await test('addTag / renameTag / removeTag。色は #rgb も通る', async () =>
     ['今日', 'きっかけ', 'すきま', '長期保留', '完了', '仕事', 'プライベート', '読むもの', 'からだ']);
 });
 
+await test('setTagHidden: 隠す印は残り、付いている泡からは外れない（Issue #90）', async () => {
+  const store = await open({ raw: null, now: NOW });
+  const t = store.add('架空の用事');
+  store.setTag(t.id, 'work', true);
+
+  assert.equal(store.tag('work').hidden, false, '既定は出す');
+  assert.equal(store.setTagHidden('work', true), true);
+  assert.equal(store.tag('work').hidden, true);
+  assert.deepEqual(store.tagsOf(t.id).filter(k => k === 'work'), ['work'], '隠しても泡には付いたまま');
+  assert.equal(store.setTagHidden('plan', true), true, '最初からあるタグも隠せる');
+  assert.equal(store.setTagHidden('done', true), false, '完了は隠せない');
+  assert.equal(store.setTagHidden('nosuch', true), false);
+
+  const again = await open();
+  assert.equal(again.tag('work').hidden, true, '開き直しても残る');
+  assert.equal(again.tag('plan').hidden, true);
+  assert.equal(again.setTagHidden('work', false), true);
+  assert.equal(again.tag('work').hidden, false, '「出す」で戻る');
+});
+
 /* パレットは store の1か所にしか無い（設定画面も store.tagPalette() を読む）。
    ここで縛るのは「色の並び」ではなく、パレットが満たしていなければならない性質だけ。
    色そのものを直書きすると、色を振り直すたびにテストが落ちて意味が薄れる。 */

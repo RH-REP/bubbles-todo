@@ -354,6 +354,8 @@ function filterChoices() {
   try {
     (store.tags() || []).forEach(t => {
       if (!t || typeof t.id !== 'string' || FILTER_SKIP.indexOf(t.id) >= 0) return;
+      /* 設定で隠したタグは出さない（Issue #90）。いま絞っているものだけは、外せるように残す */
+      if (t.hidden && !filterSet.has(t.id)) return;
       const row = { id: t.id, name: t.name, color: t.color, group: t.special ? 'fixed' : 'mine' };
       (t.special ? fixed : mine).push(row);
     });
@@ -509,7 +511,8 @@ const picked = new Set();
 
 function composerTags() {
   if (typeof store.tags !== 'function') return [];
-  try { return store.tags().filter(t => t && t.id !== 'today' && t.id !== 'done'); }
+  /* 設定で隠したタグ（Issue #90）は出さない。選んだままのものだけは、外せるように残す */
+  try { return store.tags().filter(t => t && t.id !== 'today' && t.id !== 'done' && (!t.hidden || picked.has(t.id))); }
   catch (e) { return []; }
 }
 

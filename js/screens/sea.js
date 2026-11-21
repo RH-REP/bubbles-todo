@@ -814,6 +814,8 @@ function narrowChoices() {
     try {
       (store.tags() || []).forEach(t => {
         if (!t || typeof t.id !== 'string' || t.id === 'done') return;
+        /* 設定で隠したタグは出さない（Issue #90）。いま絞っているものだけは、外せるように残す */
+        if (t.hidden && !narrowSet.has(t.id)) return;
         const row = { id: t.id, name: nameOf(t), color: colorOf(t, null) };
         if (t.special) fixed.push(Object.assign(row, { group: 'fixed' }));
         else mine.push(Object.assign(row, { group: 'mine' }));

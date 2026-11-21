@@ -1608,7 +1608,9 @@ const picked = new Set();
 function composerTags() {
   if (typeof store.tags !== 'function') return [];
   try {
-    return store.tags().filter(t => t && t.id !== 'done' && t.id !== CFG.axisTag);
+    /* 設定で隠したタグ（Issue #90）は出さない。選んだままのものだけは、外せるように残す */
+    return store.tags().filter(t => t && t.id !== 'done' && t.id !== CFG.axisTag
+      && (!t.hidden || picked.has(t.id)));
   } catch (e) { return []; }
 }
 

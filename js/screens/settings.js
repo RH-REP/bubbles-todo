@@ -251,12 +251,13 @@ export default {
        ほかの箱と同じ1行に畳み、押したときだけ中身を出す（並びは箱のいちばん上） */
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */
     if (hasTags()) {
-      const gTag = group('タグを編集する', 'タグの名前を直す・足す・消す');
+      const gTag = group('タグを編集する', 'タグの名前を直す・足す・消す・隠す');
       const tagBox = el('div', 'tags');
       tagBox.appendChild(el('h3', null, 'タグ'));
       tagBox.appendChild(el(
         'p', 'note',
-        'タグは泡に付ける印。ここでは名前を直す・足す・消すだけをする。'
+        'タグは泡に付ける印。ここでは名前を直す・足す・消す・隠すをする。'
+        + '「隠す」を押したタグは、フィルターと、泡に付けるタグの並びに出なくなる（消さないので、付いている泡からは外れない。「出す」で戻る）。'
         + 'タグを画面の横一列に並べる・外す・並べ替えるのは、画面を長押しして出る引きから。'
         + '上（長期保留）と下（完了）は動かせない。'
       ));
@@ -883,6 +884,27 @@ function renderTags(list) {
     /* 2026-11-13 Issue #47 の返事「仕事・プライベートなどに海にするという項目がある。タグと海が混在している」:
        「海」は1画面＝1つの同期の単位の名前になったので、タグの編集には「海にする」を置かない。
        タグを画面の横一列に並べる・外すのは、海の画面の長押しの引き（js/seamap.js）だけにした */
+
+    /* 隠す／出す（Issue #90「使わないタグの非表示」）。隠したタグはフィルターと
+       泡に付けるタグの並びに出ない。完了はもともとどの並びにも出さないので、ボタンを置かない */
+    if (tag.id !== 'done' && typeof store.setTagHidden === 'function') {
+      row.classList.toggle('is-hidden', !!tag.hidden);
+      if (tag.hidden) row.appendChild(el('span', 'taghidden', '隠し中'));
+      const hb = el('button', 'tagdel taghide', tag.hidden ? '出す' : '隠す');
+      hb.type = 'button';
+      hb.setAttribute('aria-label', tag.hidden
+        ? tag.name + ' をフィルターとタグの並びに出す（いまは隠している）'
+        : tag.name + ' をフィルターとタグの並びから隠す');
+      hb.addEventListener('click', () => {
+        const next = !tag.hidden;
+        if (!store.setTagHidden(tag.id, next)) return;
+        toast(next
+          ? '「' + tag.name + '」を隠した（フィルターとタグの並びに出ない。付いている泡はそのまま）'
+          : '「' + tag.name + '」をまた出すようにした');
+        renderTags(list);
+      });
+      row.appendChild(hb);
+    }
 
     /* 消す。特別なタグは消せないのでボタンごと出さない */
     if (!tag.special) {
