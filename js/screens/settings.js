@@ -38,6 +38,7 @@ import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
 import { openSeaSheet } from '../space.js';
 import { seaPanel, loginState } from './seapanel.js';
 import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupFileName, buildBackup } from '../folderbackup.js';
+import { localBackup, localBackupSupported, KEEP as LOCAL_KEEP } from '../localbackup.js';
 import {
   hasKey, isKeyLocked, isKeyPlain, keyTail, keyLock, keyOpen, lockNow, saveKeyLocked, lockPlainKey, removeKey, getModelChoice, setModel, setCustomModel, validModelName, modelsFor, askFull,
   PROVIDER_IDS, getProvider, setProvider, providerInfo, providerLabel, canSearch,
@@ -507,6 +508,7 @@ export default {
       '・自分のほかの端末といつも同じ記録にするのは、上の「自分の複数の端末で使う」（同じサーバーにつないだ端末どうしは自動）。ここは、押した時点の記録を残すバックアップ。',
       '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。すべての海が1つのファイルに入る。',
       '・フォルダ（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く（記録だけ。鍵は入らない）。読み込むときは「ファイル」から選ぶ。',
+      '・この端末（自動）… app やサーバーの更新で記録が消えたときの保険。入れておくと、開いたときと1日1回、この端末の中に残す（新しいほうから ' + LOCAL_KEEP + ' つ。どのブラウザでも使える。既定は切ってある）。端末やブラウザのデータを消すと一緒に消える。',
       chainOn ? '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。' : '',
       'どれから読み込んでも、今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。',
     ].filter(Boolean).forEach(t => gSave.appendChild(el('p', 'note', t)));
@@ -610,10 +612,12 @@ export default {
     /* --- 書き出す --- */
     outChoice.add('file', 'ファイル', [fileFormats('out')]);
     outChoice.add('folder', 'フォルダ（自動）', [folderBox()]);
+    outChoice.add('local', 'この端末（自動）', [localBox('out')]);   /* Issue #83 */
     outChoice.add('server', 'サーバー', [serverPane('out')]);
     if (chainOn) outChoice.add('chain', 'ブロックチェーン', [chainPane('out')]);
     /* --- 読み込む（フォルダに自動で書いたものは「ファイル」から選ぶ）--- */
     inChoice.add('file', 'ファイル', [fileFormats('in')]);
+    inChoice.add('local', 'この端末', [localBox('in')]);   /* Issue #83 */
     inChoice.add('server', 'サーバー', [serverPane('in')]);
     if (chainOn) inChoice.add('chain', 'ブロックチェーン', [chainPane('in')]);
     /* --- 自分のほかの端末と合わせる（Issue #52。2026-11-16 Issue #74 で「自分の端末どうしで使う」へ移した）。
@@ -1489,6 +1493,135 @@ function folderBox() {
   return wrap;
 }
 
+/* この端末の中に自動で残すバックアップ（2026-11-21 Issue #83。仕組みは js/localbackup.js）。
+   mode 'out' … 入れる・切る・今すぐ残す と状態の1行。mode 'in' … 残したものの一覧と［戻す］［ファイルに保存］ */
+function localBox(mode) {
+  const wrap = el('div', 'tags');
+  const ok = localBackupSupported() && !!localBackup;
+  wrap.appendChild(el('h3', null, mode === 'out' ? 'この端末の中に自動で残す' : 'この端末の中のバックアップから読み込む'));
+  if (mode === 'out') {
+    wrap.appendChild(el('p', 'note',
+      'app の更新やサーバーの更新などで記録が消えたときの保険。入れておくと、app を開いたとき（サーバーと合わせる前）と、開いたままなら1日1回、'
+      + 'この端末のすべての海の記録をこの端末（ブラウザ）の中に残す。前に残したものと中身が同じなら残さない。上書きはせず、新しいほうから ' + LOCAL_KEEP + ' つ残す。'
+      + 'フォルダもファイルも選ばなくてよく、どのブラウザでも使える。既定は切ってある。'));
+    wrap.appendChild(el('p', 'note',
+      '残したものは「読み込む」→「この端末」から戻す。暗号化はしない（記録そのものと同じ所に置くため）。合言葉・鍵は入れない。'
+      + 'ブラウザのデータを消す・「すべて初期化」・端末を替えるときは一緒に消える（iPhone の Safari は、ホーム画面に置かずに 7 日開かないと消すことがある）。'
+      + 'それにも備えるなら、ファイル・フォルダ・サーバーにも書き出す。'));
+  } else {
+    wrap.appendChild(el('p', 'note',
+      '「書き出す」→「この端末（自動）」で残したものを、今の記録に重ねる（消さない。記録ごとに新しく書き換えたほうが残る）。'
+      + '［ファイルに保存］で、ほかの端末で読み込めるファイル（bubbles-backup。暗号化しない）にもできる。'));
+  }
+  if (!ok) {
+    wrap.appendChild(el('p', 'note', 'このブラウザでは使えない（端末の中に置く仕組み IndexedDB が無い）。ファイルに書き出す。'));
+    return wrap;
+  }
+  const line = el('p', 'note');
+  line.setAttribute('aria-live', 'polite');
+  const when = ms => {
+    const d = new Date(ms), z = x => String(x).padStart(2, '0');
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+  };
+
+  if (mode === 'out') {
+    const row = el('div', 'row');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+    const onBtn = el('button', 'btn', '入れる');
+    onBtn.type = 'button';
+    const nowBtn = el('button', 'btn', '今すぐ残す');
+    nowBtn.type = 'button';
+    const offBtn = el('button', 'btn', '切る');
+    offBtn.type = 'button';
+    [onBtn, nowBtn, offBtn].forEach(b => row.appendChild(b));
+    wrap.appendChild(row);
+    wrap.appendChild(line);
+    const paint = async () => {
+      const s = localBackup.status();
+      const on = s.conf.on;
+      onBtn.hidden = on;
+      offBtn.hidden = !on;
+      const all = await localBackup.list();
+      const last = all[0] ? '最後に残したのは ' + when(all[0].at) + '（いま ' + all.length + ' つ）。' : 'まだ残していない。';
+      if (s.state === 'error') line.textContent = '残せなかった: ' + s.message + '。' + last;
+      else if (!on) line.textContent = '切ってある（「入れる」で始まる）。' + last;
+      else line.textContent = '入れてある（開いたときと1日1回、自動で残す）。' + last;
+    };
+    localBackup.on(() => { paint(); });
+    wrap.refresh = paint;
+    paint();
+    onBtn.addEventListener('click', async () => {
+      onBtn.disabled = true;
+      try {
+        const r = await localBackup.turnOn();
+        if (r.state === 'ok') toast('この端末の中に自動で残すのを始めた');
+      } finally { onBtn.disabled = false; paint(); }
+    });
+    nowBtn.addEventListener('click', async () => {
+      nowBtn.disabled = true;
+      try {
+        const r = await localBackup.runNow(true);
+        if (r.saved) toast('この端末の中に残した');
+      } finally { nowBtn.disabled = false; paint(); }
+    });
+    offBtn.addEventListener('click', async () => {
+      const wipe = window.confirm('この端末の中に自動で残すのを切る。\n残したバックアップも消す？\nOK … 消す　キャンセル … 残しておく（あとで読み込める）');
+      await localBackup.turnOff(wipe);
+      if (wipe) toast('切って、残したバックアップを消した');
+      paint();
+    });
+    return wrap;
+  }
+
+  /* 読み込む: 残したものの一覧 */
+  const listEl = el('div');
+  wrap.appendChild(listEl);
+  wrap.appendChild(line);
+  const paint = async () => {
+    listEl.textContent = '';
+    const all = await localBackup.list();
+    if (!all.length) {
+      line.textContent = 'この端末の中にバックアップは無い（「書き出す」→「この端末（自動）」で入れると、開いたときに残し始める）。';
+      return;
+    }
+    line.textContent = '';
+    all.forEach(s => {
+      const row = el('div', 'row');
+      row.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px';
+      row.appendChild(el('span', null, escapeHtml(when(s.at) + (s.device ? '（' + s.device + '）' : '') + ' 海 ' + s.seas + ' つ・todo ' + s.todos + ' 件')));
+      const back = el('button', 'btn', '戻す');
+      back.type = 'button';
+      const save = el('button', 'btn', 'ファイルに保存');
+      save.type = 'button';
+      row.appendChild(back);
+      row.appendChild(save);
+      listEl.appendChild(row);
+      back.addEventListener('click', async () => {
+        let p;
+        try { p = await localBackup.read(s.id); } catch (e) { toast((e && e.message) || '読めない'); paint(); return; }
+        if (!window.confirm('このバックアップをこの端末に戻す？\n残した時刻: ' + when(s.at) + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件'
+          + '\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
+        try {
+          const n = mergeIntoDevice(p, { askLocal: true });
+          line.textContent = '海 ' + n + ' つの記録を戻した。';
+        } catch (e) { toast('戻せなかった: ' + ((e && e.message) || e)); }
+      });
+      save.addEventListener('click', async () => {
+        try {
+          const p = await localBackup.read(s.id);
+          const d = new Date(s.at), z = x => String(x).padStart(2, '0');
+          const name = `bubbles-backup-${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.json`;
+          download(new Blob([JSON.stringify(p, null, 1) + '\n'], { type: 'application/json' }), name);
+        } catch (e) { toast((e && e.message) || '保存できなかった'); }
+      });
+    });
+  };
+  localBackup.on(() => { paint(); });
+  wrap.refresh = paint;
+  paint();
+  return wrap;
+}
+
 /* どの海域を入れるかを選ぶ（段2。利用者の指示「海域ごとに引越しとすべてを選べる様に」）。
    「すべての海域」（既定）と、海域ごとのチェック。海域が1つなら何も出さず、その1つを入れる。
    戻り値 { el, chosen() → 海域の ID の配列 } */
@@ -1729,6 +1862,8 @@ function resetAllBox() {
     try { sync.configure('', '', ''); } catch (e) { /* 止められなくても、読み直せば設定は無い */ }
     /* フォルダへの控えを止め、フォルダの覚え（IndexedDB）も捨てる。書いたファイルは消さない */
     if (folderBackup) { try { folderBackup.stop(); folderBackup.turnOff().catch(() => {}); } catch (e) { /* 続ける */ } }
+    /* この端末の中に残したバックアップ（Issue #83。IndexedDB）も消す */
+    if (localBackup) { try { localBackup.stop(); localBackup.turnOff(true).catch(() => {}); } catch (e) { /* 続ける */ } }
     const n = clearAppStorage(localStorage);
     toast('すべて初期化した（' + n + ' 項目）。読み直す');
     /* 待つ間に何かが書いても残らないよう、読み直す直前にもう一度消す */

@@ -29,6 +29,9 @@ if (folderBackup) {
     }, 12000);
   });
 }
+/* この端末の中に自動でバックアップを残す（2026-11-21 Issue #83。js/localbackup.js。既定は切ってある）。
+   開いたとき（サーバーと合わせる前）と 1 日 1 回残す */
+import './localbackup.js';
 /* 海の切り替え（space.js。2026-11-02 Issue #4 で名前を付けて複数作れる海に）。薄い帯の表示と、引き出しの頭の切り替え。持ち主は store が開くときに決まっている */
 import { spaceSwitcher } from './space.js';
 import { toast, holdRing, fromFeedback, undoLast } from './ui.js';

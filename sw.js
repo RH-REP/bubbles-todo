@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-21b';
+const VERSION = '2026-11-21c';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -117,6 +117,7 @@ const ASSETS = [
   './js/sync.js',
   './js/schemaguard.js',   /* 古い版の帯（2026-11-10 共有の記録 v1.1） */
   './js/folderbackup.js', /* 決めたフォルダに自動で控える（2026-11-12） */
+  './js/localbackup.js',  /* この端末の中に自動でバックアップを残す（2026-11-21 Issue #83） */
   './js/regions.js',      /* 海域の一覧（2026-11-12） */
   './js/oneserver.js',     /* サーバーは1つ（2026-11-16） */
   './js/oneserver-boot.js',
