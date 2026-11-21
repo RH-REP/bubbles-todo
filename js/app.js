@@ -49,6 +49,7 @@ import { isSolo, aiOn } from './edition.js';
 import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js';
 /* この端末の表示（Issue #36）。起動時の画面・タブの並び・body の印（pref-wind・pref-hide-tags） */
 import { loadPrefs, PREFS_EVENT } from './prefs.js';
+import { startLocalMods, pauseLocalMods } from './localmod.js';
 import sea from './screens/sea.js';
 import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
@@ -158,6 +159,8 @@ function show(id) {
   });
 
   current = next;
+  /* 見た目と言葉の変更（Issue #91）は、設定の画面には効かせない（おかしくなっても設定から外せるように） */
+  pauseLocalMods(next.id === 'settings');
   if (!UNDER_GEAR.has(next.id)) lastOpen = next.id;   /* 歯車を閉じたときの戻り先 */
   syncGear();
   if (typeof next.onShow === 'function') next.onShow();
@@ -890,6 +893,17 @@ function applyPrefs() {
 }
 applyPrefs();
 window.addEventListener(PREFS_EVENT, applyPrefs);
+
+/* 見た目と言葉を AI に頼んで変えたもの（2026-11-21 Issue #91 の A 案。js/localmod.js）。サーバーなし版だけ。
+   版が変わったときは、合わなくなっているかもしれないので一度だけ知らせる（変更は外さない。崩れていれば設定で外す） */
+if (isSolo()) {
+  try {
+    const lm = startLocalMods(window.BUBBLES_VERSION || '');
+    if (lm.versionChanged) {
+      setTimeout(() => toast('版が新しくなった。見た目と言葉の変更が合わなければ、設定の「見た目と言葉を AI で変える」で外せる', null, 8000), 1500);
+    }
+  } catch (e) { /* 当てられなくても app は動かす */ }
+}
 
 show(SCREENS.some(s => s.id === prefs.start) ? prefs.start : SCREENS[0].id);
 

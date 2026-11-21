@@ -34,7 +34,9 @@ import { Mesh, loadP2pPrefs, saveP2pPrefs, iceServers, p2pSupported, deviceId, l
 /* ひとことの端末の印（消せるのは自分の端末で書いたものだけ）。p2p の deviceId とは別の印 */
 import { deviceId as noteDevice, noteName, setNoteName, canRemove, NOTE_MAX, BY_MAX, chatCopies, CHAT_TODO } from '../notes.js';
 import { signNote, holdWallet } from '../notesign.js';
-import { checkForUpdate, applyUpdate, forceReload } from '../update.js';
+import { checkForUpdate, applyUpdate, forceReload, isHolding, holdUpdates, heldVersion, allowOnce } from '../update.js';
+import { LOCALMOD_EVENT, TRIAL_MS, loadMods, saveMods, addMod, makeMod, keepMod, setModOn, removeMod,
+  buildModPrompt, readModReply, classNamesOf, localModsDisabled } from '../localmod.js';
 import { openSeaSheet } from '../space.js';
 import { seaPanel, loginState } from './seapanel.js';
 import { folderBackup, folderBackupSupported, openBackup, encryptedHead, backupFileName, buildBackup } from '../folderbackup.js';
@@ -299,6 +301,8 @@ export default {
 
     /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
     const gLook = group('音と表示を変える', '画面（全体・海・今日・リスト・詳細・引き出し）を選んで、音と表示を変える');
+    /* 2026-11-21 Issue #91（A 案）: 見た目と画面の言葉を AI に頼んで、この端末だけ変える。サーバーなし版だけ（AI の機能と同じ） */
+    const gMod = aiOn() ? group('見た目と言葉を AI で変える', 'この端末だけ。色・大きさ・隠す／出す・ボタンや見出しの言葉') : null;
     /* 「AI を使う」ではなく「AI を使う設定をする」（Issue #45）。ヘルプそのものは上の1行へ分けた */
     /* サーバーあり版では作らない（AI の機能を出さない。2026-11-17 Issue #78 の返事「AI機能と設定の関連を削除して」） */
     const gAi = aiOn() ? group('AI を使う設定をする', 'API キー・モデル・先の予定') : null;
@@ -419,6 +423,9 @@ export default {
     /* --- この端末の表示（2026-11-10。Issue #36。js/prefs.js）--- */
     gLook.appendChild(prefsBox(() => applyLookPage()));
     applyLookPage();
+
+    /* --- 見た目と言葉を AI で変える（2026-11-21 Issue #91。js/localmod.js）--- */
+    if (gMod) gMod.appendChild(localModBox());
 
     /* --- サーバー・ブロックチェーンを準備する（Issue #45）---
        サーバーなし版（noserver.html）のサーバーの欄は、繋ぐページへの案内だけ（通信してよい先を決め打ちにしているので繋がらない）。
@@ -1906,6 +1913,8 @@ function resetAllBox() {
     if (folderBackup) { try { folderBackup.stop(); folderBackup.turnOff().catch(() => {}); } catch (e) { /* 続ける */ } }
     /* この端末の中に残したバックアップ（Issue #83。IndexedDB）も消す */
     if (localBackup) { try { localBackup.stop(); localBackup.turnOff(true).catch(() => {}); } catch (e) { /* 続ける */ } }
+    /* 「新しい版に自動で入れ替えない」（Issue #91。Cache Storage の印）も外す。見た目と言葉の変更は localStorage なので下で消える */
+    try { holdUpdates(false).catch(() => {}); } catch (e) { /* 続ける */ }
     const n = clearAppStorage(localStorage);
     toast('すべて初期化した（' + n + ' 項目）。読み直す');
     /* 待つ間に何かが書いても残らないよう、読み直す直前にもう一度消す */
@@ -4566,9 +4575,11 @@ function updateBox() {
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
   const btn = el('button', 'btn', '最新の版を確認する');
   btn.type = 'button';
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
     btn.disabled = true;
     if (!('serviceWorker' in navigator)) { force(); return; }
+    /* 更新を止めていても、押したときの1回は入れる（Issue #91） */
+    try { if (await isHolding()) await allowOnce(); } catch (e) { /* 入らなければ「今のが最新」になるだけ */ }
     checkForUpdate().then((found) => {
       if (found === null) { force(); return; }
       if (!found) { toast('今のが最新の版'); btn.disabled = false; return; }
@@ -4578,6 +4589,256 @@ function updateBox() {
   });
   row.appendChild(btn);
   wrap.appendChild(row);
+  if (isSolo()) wrap.appendChild(holdBox());
+  return wrap;
+}
+
+/* 新しい版に自動で入れ替えない（2026-11-21 Issue #91。仕組みは sw.js の holdingNow・js/update.js の holdUpdates）。
+   サーバーなし版だけ。既定はオフ（見た目と言葉の変更を初めて残したときに、オンにするかを訊く）。
+   オンの間は、新しい版が届いても入れ替えず、ここに「新しい版 v… がある」と出す。上の「最新の版を確認する」で入れ替える */
+function holdBox() {
+  const box = el('div', 'hold-box');
+  box.style.cssText = 'margin-top:12px';
+  const row = el('label', 'setrow');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.disabled = true;
+  row.appendChild(cb);
+  row.appendChild(el('span', null, '新しい版に自動で入れ替えない'));
+  box.appendChild(row);
+  box.appendChild(el('p', 'note', 'オンにすると、新しい版が届いても入れ替えない（AI で変えた見た目と言葉が、新しい版で合わなくならないように）。'
+    + '入れ替えるのは上の「最新の版を確認する」を押したときだけ。困ったときは下の「前の版に戻す」も使える。'));
+  const st = el('p', 'note');
+  st.setAttribute('aria-live', 'polite');   /* 状態の行。説明として畳まない */
+  box.appendChild(st);
+  const refresh = async () => {
+    let on = null, held = '';
+    try { on = await isHolding(); held = on ? await heldVersion() : ''; } catch (e) { on = null; }
+    if (on === null) { cb.disabled = true; cb.checked = false; st.textContent = 'この端末では止められない（自動の入れ替えの仕組みが動いていない）。'; return; }
+    cb.disabled = false;
+    cb.checked = on;
+    st.textContent = !on ? '' : held ? '新しい版 v' + held + ' が届いている（まだ入れ替えていない）。「最新の版を確認する」で入れ替える。' : '止めている。';
+  };
+  cb.addEventListener('change', async () => {
+    cb.disabled = true;
+    let ok = false;
+    try { ok = await holdUpdates(cb.checked); } catch (e) { ok = false; }
+    toast(!ok ? '変えられなかった' : cb.checked ? '新しい版に自動で入れ替えない' : '新しい版が届いたら、次に開いたときに入れ替える');
+    refresh();
+  });
+  refresh();
+  box.refresh = refresh;
+  return box;
+}
+
+/* 見た目と言葉を AI で変える（2026-11-21 Issue #91 の A 案。仕組みは js/localmod.js）。
+   頼む → AI の案（CSS と言葉の置き換え）を見せる → 当てる → TRIAL_MS のうちに「残す」を押さなければ外れる。
+   残したものは一覧で1件ずつ入れ切り・外すができる。設定の画面には効かない。
+   AI の文・CSS は textContent で出す（HTML として描かない） */
+const LOCALMOD_ASKED = 'bubble_todo_localmod_asked';   /* 「更新を止める？」を訊いた印 */
+function localModBox() {
+  const wrap = el('div', 'tags localmod-box');
+  wrap.appendChild(el('h3', null, '見た目と言葉を AI に頼んで変える'));
+  wrap.appendChild(el('p', 'note',
+    'この端末だけの変更（ほかの端末・公開の版は変わらない）。色・大きさ・隠す／出す・ボタンや見出しの言葉を変えられる。'
+    + '動き（新しいボタン・計算・保存のしかた）は変えられない。設定の画面には効かない。'));
+  wrap.appendChild(el('p', 'note',
+    'AI に送るのは、書いた文・画面の部品の名前（class の名前）・今入れている変更の名前だけ（泡の中身・タグの名前は送らない）。'
+    + '当てたあと ' + Math.round(TRIAL_MS / 1000) + ' 秒のうちに「残す」を押さないと外れる。'
+    + 'おかしくなったら、ここで外す・アプリを開き直す（残す前なら外れる）・住所の後ろに ?nolocal を付けて開く（その窓の間は当てない）。'));
+  if (localModsDisabled()) {
+    const p = el('p', 'note', 'いまは ?nolocal で開いているので、変更を当てていない（一覧の入れ切り・外すはできる）。');
+    p.setAttribute('aria-live', 'polite');
+    wrap.appendChild(p);
+  }
+
+  /* --- 頼む欄 --- */
+  const inRow = el('div', 'row');
+  inRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:flex-end';
+  const ta = document.createElement('textarea');
+  ta.rows = 2;
+  ta.maxLength = 1000;
+  ta.placeholder = '例: 完了の泡を緑にして／「今日は終わり」を「また明日」にして';
+  ta.setAttribute('aria-label', '見た目と言葉を AI に頼む');
+  ta.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:16px;padding:8px 12px;border-radius:10px;'
+    + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text);resize:vertical';
+  const send = el('button', 'btn', '頼む');
+  send.type = 'button';
+  inRow.appendChild(ta);
+  inRow.appendChild(send);
+  wrap.appendChild(inRow);
+  const out = el('div', 'prefs-out');
+  out.setAttribute('role', 'status');
+  wrap.appendChild(out);
+
+  /* --- 一覧 --- */
+  const listHead = el('h4', null, 'この端末の変更');
+  listHead.style.cssText = 'margin:14px 0 4px;font-size:13.5px';
+  wrap.appendChild(listHead);
+  const list = el('div', 'localmod-list');
+  list.setAttribute('aria-live', 'polite');
+  wrap.appendChild(list);
+
+  let trial = null;   /* { id, timer } 当てたばかりで、まだ残していない */
+  const fire = () => window.dispatchEvent(new CustomEvent(LOCALMOD_EVENT));
+  const put = (next) => { if (!saveMods(next)) { toast('保存できなかった（端末の空きが足りない）'); return false; } fire(); render(); return true; };
+
+  function endTrial(keep) {
+    if (!trial) return;
+    const id = trial.id;
+    clearTimeout(trial.timer);
+    trial = null;
+    if (keep) {
+      put(keepMod(loadMods(), id));
+      toast('残した');
+      askHold();
+    } else {
+      put(removeMod(loadMods(), id));
+      toast('残さなかったので外した');
+    }
+  }
+
+  /* 初めて残したときだけ、更新を止めるかを訊く（Issue #91 の Q3 のおすすめ） */
+  async function askHold() {
+    try {
+      if (localStorage.getItem(LOCALMOD_ASKED)) return;
+      localStorage.setItem(LOCALMOD_ASKED, '1');
+      if (await isHolding() !== false) return;   /* 止められない端末・もう止めている */
+      if (!window.confirm('新しい版に自動で入れ替えないようにする？\n'
+        + '新しい版で、いま変えた見た目と言葉が合わなくなることがある。止めると、設定の「版（バージョン）を確かめる・戻す」で押したときだけ入れ替える。'
+        + '（あとで同じ所で変えられる）')) return;
+      if (await holdUpdates(true)) toast('新しい版に自動で入れ替えない');
+    } catch (e) { /* 訊けなくても変更は残っている */ }
+  }
+
+  function render() {
+    list.textContent = '';
+    const mods = loadMods();
+    if (!mods.length) { list.appendChild(el('p', 'note', 'まだ無い。')); return; }
+    mods.forEach(m => {
+      const item = el('div', 'localmod-item');
+      item.style.cssText = 'border-top:1px solid var(--line);padding:6px 0';
+      const top = el('div', 'row');
+      top.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center';
+      const lb = el('label', 'setrow');
+      lb.style.cssText = 'margin:0;flex:1;min-width:160px';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = m.on;
+      cb.addEventListener('change', () => { put(setModOn(loadMods(), m.id, cb.checked)); toast(cb.checked ? '入れた' : '切った（一覧には残す）'); });
+      lb.appendChild(cb);
+      lb.appendChild(textEl('span', null, (m.summary || m.ask || '変更') + (m.trial ? '（試し中）' : '')));
+      top.appendChild(lb);
+      if (m.trial && trial && trial.id === m.id) {
+        const keep = el('button', 'btn', '残す');
+        keep.type = 'button';
+        keep.addEventListener('click', () => endTrial(true));
+        top.appendChild(keep);
+      }
+      const del = el('button', 'btn', '外す');
+      del.type = 'button';
+      del.addEventListener('click', () => {
+        if (trial && trial.id === m.id) { clearTimeout(trial.timer); trial = null; }
+        put(removeMod(loadMods(), m.id));
+        toast('外した');
+      });
+      top.appendChild(del);
+      item.appendChild(top);
+      /* 中身（頼んだ文・CSS・言葉）。押したときだけ */
+      const d = document.createElement('details');
+      const s = document.createElement('summary');
+      s.textContent = '中身を見る';
+      s.style.cssText = 'font-size:12.5px;color:var(--text-2)';
+      d.appendChild(s);
+      if (m.ask) d.appendChild(textEl('p', 'localmod-ask', '頼んだ文: ' + m.ask));
+      m.texts.forEach(([a, b]) => d.appendChild(textEl('p', 'localmod-text', '言葉: 「' + a + '」→「' + b + '」')));
+      if (m.css) {
+        const pre = document.createElement('pre');
+        pre.textContent = m.css;
+        pre.style.cssText = 'white-space:pre-wrap;font-size:12px;max-height:12em;overflow:auto';
+        d.appendChild(pre);
+      }
+      item.appendChild(d);
+      list.appendChild(item);
+    });
+    const row = el('div', 'row');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+    const all = el('button', 'btn', '全部外す');
+    all.type = 'button';
+    all.addEventListener('click', () => {
+      if (!window.confirm('この端末の見た目と言葉の変更を全部外す？（元に戻せない）')) return;
+      if (trial) { clearTimeout(trial.timer); trial = null; }
+      put([]);
+      toast('全部外した');
+    });
+    row.appendChild(all);
+    list.appendChild(row);
+  }
+
+  let busy = false;
+  async function ask() {
+    const text = ta.value.trim();
+    if (busy || !text) return;
+    out.textContent = '';
+    if (!hasKey()) { out.appendChild(el('p', 'note', 'API キーがまだ入っていない。「AI を使う設定をする」に入れると使える。')); return; }
+    busy = true; send.disabled = true;
+    out.appendChild(el('p', 'note', '考えています…'));
+    let r = null, err = '';
+    try {
+      const p = buildModPrompt(text, loadMods(), classNamesOf(document.body));
+      const res = await askFull(p.system, p.user, { maxTokens: 4000 });
+      r = readModReply(res.text);
+    } catch (e) { err = (e && e.message) || '届かなかった'; }
+    busy = false; send.disabled = false;
+    out.textContent = '';
+    if (err) { out.appendChild(el('p', 'note', 'AI に届かなかった: ' + err)); return; }
+    if (r.reply) out.appendChild(textEl('p', 'note', 'AI: ' + r.reply));   /* AI の文。innerHTML には入れない */
+    if (r.why) out.appendChild(textEl('p', 'note', 'AI の CSS は当てられない形だった（' + r.why + '）。言い方を変えて頼み直してください。'));
+    if (!r.css && !r.texts.length) {
+      if (!r.why) out.appendChild(el('p', 'note', '見た目と言葉の変更にならなかった。動きを変えたいときは、改善のコメントで頼める。'));
+      return;
+    }
+    out.appendChild(el('p', 'note', 'この変更を当てる？（' + Math.round(TRIAL_MS / 1000) + ' 秒のうちに「残す」を押さないと外れる）'));
+    const ul = el('ul', 'note');
+    r.texts.forEach(([a, b]) => { const li = document.createElement('li'); li.textContent = '言葉: 「' + a + '」→「' + b + '」'; ul.appendChild(li); });
+    if (r.css) { const li = document.createElement('li'); li.textContent = '見た目（CSS ' + r.css.length + ' 字。下）'; ul.appendChild(li); }
+    out.appendChild(ul);
+    if (r.css) {
+      const pre = document.createElement('pre');
+      pre.textContent = r.css;
+      pre.style.cssText = 'white-space:pre-wrap;font-size:12px;max-height:12em;overflow:auto';
+      out.appendChild(pre);
+    }
+    const row = el('div', 'row');
+    row.style.cssText = 'display:flex;gap:8px;margin-top:6px';
+    const ok = el('button', 'btn', '当てる');
+    ok.type = 'button';
+    ok.addEventListener('click', () => {
+      if (trial) endTrial(false);   /* 前の試しは外す（1つずつ確かめる） */
+      const m = makeMod({ ask: text, summary: r.summary || text.slice(0, 30), css: r.css, texts: r.texts, ver: window.BUBBLES_VERSION || '', trial: true });
+      const next = m ? addMod(loadMods(), m) : null;
+      if (!next) { toast('これ以上は残せない（30 件まで。いらないものを外す）'); return; }
+      if (!put(next)) return;
+      out.textContent = '';
+      ta.value = '';
+      trial = { id: m.id, timer: setTimeout(() => endTrial(false), TRIAL_MS) };
+      render();
+      toast('当てた。ほかの画面で見て、よければ「残す」（' + Math.round(TRIAL_MS / 1000) + ' 秒で外れる）',
+        { label: '残す', undo: false, on: () => endTrial(true) }, TRIAL_MS);
+    });
+    const no = el('button', 'btn', 'やめる');
+    no.type = 'button';
+    no.addEventListener('click', () => { out.textContent = ''; });
+    row.appendChild(ok);
+    row.appendChild(no);
+    out.appendChild(row);
+  }
+  send.addEventListener('click', ask);
+  ta.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey) && !ev.isComposing) { ev.preventDefault(); ask(); }
+  });
+
+  render();
   return wrap;
 }
 

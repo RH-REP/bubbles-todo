@@ -17,6 +17,58 @@
    差し替える副作用（sw.js の元のコメントが避けていたもの）は、ここでは
    「押した人が納得のうえでページを読み直す」ことで引き受ける。 */
 
+/* ---- 更新を止める（2026-11-21 Issue #91。仕組みは sw.js の holdingNow）----
+   印は Cache Storage の箱 bubbles-meta に置く（service worker が読めるのはここ。localStorage は読めない）。
+   service worker の無い端末では止められない（null を返す） */
+const META = 'bubbles-meta';
+const HOLD_PATH = '__update_hold';
+const HELD_PATH = '__update_held';
+const ALLOW_PATH = '__update_allow';
+async function metaUrl(p) {
+  if (!('serviceWorker' in navigator) || typeof caches === 'undefined') return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? new URL(p, reg.scope).href : null;
+}
+const json = (o) => new Response(JSON.stringify(o), { headers: { 'Content-Type': 'application/json' } });
+
+/* 止めているか。-> true / false。止められない端末では null */
+export async function isHolding() {
+  const u = await metaUrl(HOLD_PATH);
+  if (!u) return null;
+  return !!(await (await caches.open(META)).match(u));
+}
+
+/* 止める・止めない。-> できたら true */
+export async function holdUpdates(on) {
+  const u = await metaUrl(HOLD_PATH);
+  if (!u) return false;
+  const box = await caches.open(META);
+  if (on) await box.put(u, json({ at: Date.now() }));
+  else {
+    await box.delete(u);
+    const h = await metaUrl(HELD_PATH);
+    if (h) await box.delete(h);
+  }
+  return true;
+}
+
+/* 止めている間に届いた版の名前。無ければ '' */
+export async function heldVersion() {
+  const u = await metaUrl(HELD_PATH);
+  if (!u) return '';
+  const hit = await (await caches.open(META)).match(u);
+  const o = hit ? await hit.json().catch(() => null) : null;
+  return o && typeof o.v === 'string' && o.v !== (globalThis.BUBBLES_VERSION || '') ? o.v : '';
+}
+
+/* 止めていても、次の1回（10 分のうち）は入れる。設定の「最新の版を確認する」を押したとき */
+export async function allowOnce() {
+  const u = await metaUrl(ALLOW_PATH);
+  if (!u) return false;
+  await (await caches.open(META)).put(u, json({ at: Date.now() }));
+  return true;
+}
+
 /* 新しい版を確認する。見つかれば true（呼び出し側が applyUpdate を呼べる）、
    無ければ false。service worker が無い・登録できていない環境では null */
 export async function checkForUpdate() {

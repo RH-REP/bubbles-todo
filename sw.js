@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-21j';
+const VERSION = '2026-11-21k';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -113,6 +113,7 @@ const ASSETS = [
   './js/board.js',         /* 共有の海（ブロックチェーンの掲示板。2026-11-11 Issue #37） */
   './js/p2p.js',           /* 端末どうしの直の通信（2026-11-11 Issue #37） */
   './js/prefs.js',         /* この端末の表示（2026-11-10 Issue #36） */
+  './js/localmod.js',      /* 見た目と言葉を AI に頼んで変える（2026-11-21 Issue #91） */
   './js/version.js',
   './js/sync.js',
   './js/schemaguard.js',   /* 古い版の帯（2026-11-10 共有の記録 v1.1） */
@@ -147,8 +148,38 @@ const OPTIONAL = [
   './noserver.html',      /* サーバーなし版の入口（2026-11-08 Issue #31。2026-11-13 Issue #51 で solo.html から名前を変えた） */  './manifest-solo.json',
 ];
 
+/* ---- 更新を止める（2026-11-21 Issue #91。js/update.js の holdUpdates）----
+   設定の「新しい版に自動で入れ替えない」をオンにすると、印 __update_hold が箱 bubbles-meta に置かれる。
+   そのとき新しい sw.js（この版より後の版）は、入るのをやめる（install を失敗させる。ブラウザは次の確認でまた試す）。
+   やめる前に、届いた版の名前を __update_held に残す（設定に「新しい版 v… がある」と出すため）。
+   ・はじめての登録（今動いている版が無い）は止めない
+   ・設定の「最新の版を確認する」を押したときは、印 __update_allow（10 分だけ効く）を置いてから確かめるので、その1回は入る
+   ローカルの変更（js/localmod.js）を、新しい版に知らないうちに替えられないようにするため */
+const HOLD_PATH = '__update_hold';
+const HELD_PATH = '__update_held';
+const ALLOW_PATH = '__update_allow';
+const ALLOW_MS = 10 * 60 * 1000;
+function metaUrl(p) { return new URL(p, self.registration.scope).href; }
+async function holdingNow() {
+  if (!self.registration || !self.registration.active) return false;
+  try {
+    const meta = await caches.open(RB.META_CACHE);
+    if (!(await meta.match(metaUrl(HOLD_PATH)))) return false;
+    const allow = await meta.match(metaUrl(ALLOW_PATH));
+    if (allow) {
+      const a = await allow.json().catch(() => null);
+      await meta.delete(metaUrl(ALLOW_PATH));   /* 1回だけ効く */
+      if (a && Date.now() - Number(a.at || 0) < ALLOW_MS) return false;
+    }
+    await meta.put(metaUrl(HELD_PATH), new Response(JSON.stringify({ v: VERSION, at: Date.now() }),
+      { headers: { 'Content-Type': 'application/json' } }));
+    return true;
+  } catch (e) { return false; }   /* 印を読めないときは止めない（いつもどおり入る） */
+}
+
 self.addEventListener('install', (ev) => {
   ev.waitUntil((async () => {
+    if (await holdingNow()) throw new Error('更新を止めている（設定の「新しい版に自動で入れ替えない」）');
     const box = await caches.open(CACHE);
     /* cache: 'reload' で HTTP キャッシュを飛ばす。
        ここで古いものを掴むと、箱ごと古いまま固まる */
@@ -172,6 +203,8 @@ self.addEventListener('activate', (ev) => {
     await Promise.all(names.map((n) => (n.startsWith('bubbles-') && keep.indexOf(n) < 0) ? caches.delete(n) : null));
     /* 新しい版が届いたら、戻している印は外す（直した版が届いたとみる） */
     try { await (await caches.open(RB.META_CACHE)).delete(pinUrl()); } catch (e) { /* 無ければよい */ }
+    /* 入ったので「新しい版がある」の印は外す（Issue #91） */
+    try { await (await caches.open(RB.META_CACHE)).delete(metaUrl(HELD_PATH)); } catch (e) { /* 無ければよい */ }
     pinMemo = undefined;
     await self.clients.claim();
   })());
