@@ -236,6 +236,40 @@ function isEditableEl(t) {
 /* 欄から焦点が外れたあと、画面の揺れで盤を閉じない間（キーボードが引っ込み、ページが戻るまで） */
 const TYPED_GRACE_MS = 1500;
 
+/* 盤の外の欄で字を打っている最中に泡を開くとき（2026-11-21 Issue #85「文字入力中にTODOをタップすると画面表示がおかしくなる」）。
+   iPhone では、海の下の入力欄に焦点があるまま泡を触っても、焦点は外れずキーボードは出たまま。
+   そのまま盤を開くと、盤と中央の泡は「キーボードで縮んだ見えている所」（html.kb-open。js/boot-dvh.js）の座標で置かれ、
+   あとでキーボードが引っ込むと枠だけが元の高さへ戻り、盤と泡がずれて残っていた
+   （盤は「打っている最中」とみなして、画面の揺れでは閉じないため）。
+   そこで、先に欄の焦点を外してキーボードを引っ込め、枠が戻り切ってから開く。 */
+const KB_SETTLE_MAX_MS = 900;   /* キーボードが引っ込むのを待つ上限。来なくてもこれで開く */
+function blurOutsideField(node) {
+  const ae = document.activeElement;
+  if (!ae || !isEditableEl(ae) || (node && node.contains(ae))) return false;
+  try { ae.blur(); } catch (e) { /* 外せなくても開く */ }
+  return true;
+}
+function whenKeyboardGone(fn) {
+  const root = document.documentElement;
+  const vv = window.visualViewport;
+  const t0 = Date.now();
+  let fired = false;
+  const go = () => {
+    if (fired) return;
+    fired = true;
+    if (vv) vv.removeEventListener('resize', check);
+    clearInterval(tm);
+    /* 枠が元の高さに組み直されてから測る */
+    requestAnimationFrame(() => requestAnimationFrame(fn));
+  };
+  function check() {
+    if (!root.classList.contains('kb-open') || Date.now() - t0 > KB_SETTLE_MAX_MS) go();
+  }
+  if (vv) vv.addEventListener('resize', check);
+  const tm = setInterval(check, 50);
+  check();
+}
+
 /* ---------------- 大きさ ---------------- */
 
 /* 文字数から直径を決める。面積が文字数に比例するよう sqrt を使う。
@@ -3186,8 +3220,17 @@ export function attachGestures(node, handlers = {}) {
 
   /* pt を渡すと、そのタップが生む click を1つだけ捨てる（上の eatOpeningClick）。
      指で開いたときだけ渡す。キーボードから開くときは渡さない */
-  function startCenter(pt) {
+  let kbWait = false;            /* キーボードが引っ込むのを待っている間（Issue #85）。二度開かない */
+  function startCenter(pt, afterKb) {
     if (center) return;          /* 既に中央。二度目のタップで開く経路はもう無い */
+    if (kbWait && !afterKb) return;
+    /* 盤の外の欄（海の下の入力欄など）で打っている最中なら、先に焦点を外してキーボードを引っ込める。
+       キーボードが出ていた（kb-open）なら、枠が戻ってから開き直す（Issue #85） */
+    if (blurOutsideField(node) && document.documentElement.classList.contains('kb-open')) {
+      kbWait = true;
+      whenKeyboardGone(() => { kbWait = false; if (node.isConnected) startCenter(null, true); });   /* 触った click はもう過ぎたので捨てない */
+      return;
+    }
     const host = call('getHost') || node.parentNode;
     const from = node.getBoundingClientRect();
     if (!from.width) return;               /* 寸法が取れないときは何もしない */
