@@ -85,8 +85,8 @@ const SHARE_FLOW = '2人とも先に鍵（パスキーか合言葉）を選び�
   + '2. <b>招かれる人</b>: 「招待コードを受け取る」に貼って「受け取る」。海が足され、みんなの記録が読める。<br>'
   + '3. アドレスを入れなかったときは、<b>招かれる人</b>がカードの「同期」で記録を送ると、<b>招く人</b>が次に「同期」したときにメンバーに足される。<br>'
   + '招待コードは合言葉と同じで、持っている人は誰でも受け取れる。使えるのは ' + INVITE_DAYS + ' 日・最初の 1 人だけ。<br>'
-  + 'そのあとは、カードの「同期」か盤のひとことの横の「同期」で、ほかの人と同じ記録にする（送るときに手数料）。アプリを開いている間は、ほかの人の変更を自動で読む（手数料なし）。<br>'
-  + 'チャット（カードの「チャット」）と盤のひとことは別のもの: ひとことは泡に付き「同期」で届く。チャットは海ぜんたいの話で 1 件ずつ届く（直につながっていれば手数料なし）。';
+  + 'そのあとは、カードの「同期」か詳細のひとことの横の「同期」で、ほかの人と同じ記録にする（送るときに手数料）。アプリを開いている間は、ほかの人の変更を自動で読む（手数料なし）。<br>'
+  + 'チャット（カードの「チャット」）と詳細のひとことは別のもの: ひとことは泡に付き「同期」で届く。チャットは海ぜんたいの話で 1 件ずつ届く（直につながっていれば手数料なし）。';
 
 /* そのタグの向きが固定されているか。store がまだ答えられない版では null */
 function fixedDirOf(id) {
@@ -276,7 +276,7 @@ export default {
     }
 
     /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
-    const gLook = group('音と表示を変える', '画面（全体・海・今日・リスト・盤・引き出し）を選んで、音と表示を変える');
+    const gLook = group('音と表示を変える', '画面（全体・海・今日・リスト・詳細・引き出し）を選んで、音と表示を変える');
     /* 「AI を使う」ではなく「AI を使う設定をする」（Issue #45）。ヘルプそのものは上の1行へ分けた */
     /* サーバーあり版では作らない（AI の機能を出さない。2026-11-17 Issue #78 の返事「AI機能と設定の関連を削除して」） */
     const gAi = aiOn() ? group('AI を使う設定をする', 'API キー・モデル・先の予定') : null;
@@ -4847,7 +4847,7 @@ function prefsBox(onRender) {
           cb.checked = on.has(val);
           cb.addEventListener('change', () => {
             const next = it.choices.map(c => c[0]).filter(x => (x === val ? cb.checked : on.has(x)));
-            commit(applyChanges(cur, { [it.id]: next }).next, '盤の「' + name + '」: ' + (cb.checked ? 'はじめから出す' : '「その他」に畳む') + '（次に盤を開いたときから）');
+            commit(applyChanges(cur, { [it.id]: next }).next, '詳細の「' + name + '」: ' + (cb.checked ? 'はじめから出す' : '「その他」に畳む') + '（次に詳細を開いたときから）');
           });
           row.appendChild(cb);
           row.appendChild(textEl('span', null, name));
@@ -4861,11 +4861,11 @@ function prefsBox(onRender) {
           const few = el('button', 'btn', '少なめにする（名前・本文・期間だけ）');
           few.type = 'button';
           few.addEventListener('click', () => commit(applyChanges(cur, { boardShow: BOARD_SHOW_FEW }).next,
-            '盤は 名前・本文・期間 だけを出し、ほかは「その他」に畳む（次に盤を開いたときから）'));
+            '詳細は 名前・本文・期間 だけを出し、ほかは「その他」に畳む（次に詳細を開いたときから）'));
           const all = el('button', 'btn', '全部出す');
           all.type = 'button';
           all.addEventListener('click', () => commit(applyChanges(cur, { boardShow: it.choices.map(c => c[0]) }).next,
-            '盤の欄とボタンを全部出す（次に盤を開いたときから）'));
+            '詳細の欄とボタンを全部出す（次に詳細を開いたときから）'));
           pr.appendChild(few);
           pr.appendChild(all);
           box.appendChild(pr);

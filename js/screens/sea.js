@@ -1369,7 +1369,7 @@ function untagHere(id, tag) {
     if (tag.id === 'hold' && spanHeldSafe(t)) {
       const sp = spanText(t);
       toast('「' + trim(t.text) + '」は期間' + (sp ? '（' + sp + '）' : '') + 'の外なので、ここに浮かんでいる。'
-        + '盤の「期間」を変えるか消すと海に出る（今日に置けば今日に出る）');
+        + '詳細の「期間」を変えるか消すと海に出る（今日に置けば今日に出る）');
       return;
     }
     toast('「' + trim(t.text) + '」に『' + trim(name) + '』は付いていない');

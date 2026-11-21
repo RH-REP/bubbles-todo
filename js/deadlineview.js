@@ -22,7 +22,7 @@ export function createDeadlineView(host, opts = {}) {
   root.setAttribute('role', 'group');
   root.setAttribute('aria-label', '日付で見る（終了日の近い順）');
   const cap = el('p', 'dl-cap', '終了日の近い順');
-  const empty = el('p', 'dl-empty', '先の日付のあるものは、まだ無い。盤の「いつの日」で日を置くか、「期間」で開始日と終了日を選ぶと、ここに並ぶ。先の予定（設定）で前に調べた予定は、この海でも調べ直さずに選んで入れられる。');
+  const empty = el('p', 'dl-empty', '先の日付のあるものは、まだ無い。詳細の「いつの日」で日を置くか、「期間」で開始日と終了日を選ぶと、ここに並ぶ。先の予定（設定）で前に調べた予定は、この海でも調べ直さずに選んで入れられる。');
   empty.hidden = true;
   const scroller = el('div', 'dl-scroll');
   const table = el('div', 'dl-table');
@@ -169,7 +169,7 @@ export function createDeadlineView(host, opts = {}) {
      （2026-11-14 の返事「ふだん右が未来なので、左を過去に」。開いたときは右端＝今日まで寄せる）、
      行は完了した日の新しい順、● は完了した日、左の札は「今日・昨日・N日前」 */
   const EMPTY_TODO = empty.textContent;
-  const EMPTY_DONE = '完了した日の分かるものは、まだ無い。盤の [タスク完了] を押すと、その日の列に ● が付いて並ぶ。';
+  const EMPTY_DONE = '完了した日の分かるものは、まだ無い。詳細の [タスク完了] を押すと、その日の列に ● が付いて並ぶ。';
   function render(items, ro) {
     lastItems = items || [];
     lastOpt = ro || {};

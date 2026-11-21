@@ -22,7 +22,7 @@
 | 個人 | サーバーごとの「自分の記録」。前の版からの個人は「個人」、ほかは「個人（サーバーの名前）」 | `'me'`・`'me.<region>'`（`personalId`） |
 | ID | 海を見分ける裏の名前。同じ ID・同じサーバーで同じ海（共有） | `s` ＋英小文字・数字（`cleanId`） |
 | 泡 | 書いたもの1つ | todo（`store.add`） |
-| 盤 | 泡をタップすると下に開く編集の面 | `js/screens/sea.js` の `bub-center` |
+| 詳細 | 泡をタップすると下に開く編集の面。2026-11-21 Issue #82「盤って表現わかりにくくない？」で、画面と案内の「盤」を「詳細」に替えた（この README の古い節・コードの注釈・設定の id `board`・`boardShow` は「盤」のまま。盤＝詳細） | `js/bubble.js` の `buildCenterPanel`（`.bub-center`。`data-screen="board"`） |
 | 引き出し | 左上の ≡。海の切り替えと、最近・お気に入り・長期保留・タグごとの一覧 | `js/app.js` の `openDrawer`、`js/space.js` の `spaceSwitcher` |
 | 引き | 海の画面の長押しで出る入り江の一覧（並べ替え・ふやす・やめる）。引き出しとは別 | `js/seamap.js` |
 | 水面 | 今日に置いたものが浮かぶ所（今日の画面） | `days`（`store.setDay`） |

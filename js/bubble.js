@@ -2703,7 +2703,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        書くのは盤の 1 行の欄だけにし、この面は前のものを読むだけにする。
        続く返事「ひとことの名前を入れる場所はいらないのでは？」で名前の欄も外した。書き手の名前は、
        前に決めた名前か、パスキー・招待で付いた名前のまま（js/notes.js の noteName）。サーバーあり版は設定の海のチャットの欄でも変えられる */
-    notesPane.appendChild(el('p', 'bm-ctx', '書くのは盤の「ひとことを残す」の欄から'));
+    notesPane.appendChild(el('p', 'bm-ctx', '書くのは詳細の「ひとことを残す」の欄から'));
 
     root.appendChild(notesPane);
   }
