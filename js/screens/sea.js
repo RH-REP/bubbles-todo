@@ -3816,7 +3816,7 @@ export default {
     calBtn = el('button', 'sea-cal');
     calBtn.type = 'button';
     calBtn.setAttribute('aria-label', 'はじめた日のカレンダー');
-    calBtn.title = 'はじめた日';
+    calBtn.title = 'はじめた日のカレンダー（［始める］を押した日）';
     calBtn.appendChild(calIcon());
     calBtn.classList.add('is-extra');      /* あまり使わない機能（Issue #40）。設定の「この端末の表示」で出す */
     calBtn.addEventListener('click', ev => {
