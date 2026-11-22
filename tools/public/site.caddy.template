@@ -1,0 +1,14 @@
+# Bubbles を同じ VM に2つ目の名前で足すときの節（BUBBLES_CADDY=site）。tools/server-setup.sh が名前とポートを埋めて
+# /etc/caddy/sites/<サービス名>.caddy に置く（手で直さない）。/etc/caddy/Caddyfile は書き直さず、その import の行で読まれる。
+# 待ち時間・default_bind などの全体の設定は Caddyfile の側（前の bubble の雛形 Caddyfile.template）のものが効く。
+__DOMAIN__ {
+	encode zstd gzip
+	request_body {
+		max_size 4MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:__PORT__
+}

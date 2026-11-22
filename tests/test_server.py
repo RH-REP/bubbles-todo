@@ -100,6 +100,37 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(olds[0].stat().st_mode & 0o777, 0o600)
             self.assertEqual((self.data / 'backup').stat().st_mode & 0o777, 0o700)
 
+    def test_snapshots_save_list_get(self):
+        """押して取るバックアップ（2026-11-19）: 預けて、一覧（新しい順・中身なし）と 1 つ（中身つき）で読める。合言葉が要る。
+        共有の合言葉で預けたものは個人の一覧に出ない。新しい SNAP_KEEP 個だけ残す"""
+        self.assertEqual(self.req('GET', '/api/snapshots', token=None)[0], 401)
+        payload = {'format': 'bubbles-backup', 'boxes': {'me': {'doc': {'todos': [{'id': 'a'}, {'id': 'b', 'trashed': True}]}, 'stamps': {}}}, 'seas': []}
+        code, body = self.req('POST', '/api/snapshots', {'payload': payload, 'label': '手で取った', 'device': 'Mac'})
+        self.assertEqual(code, 200)
+        meta = json.loads(body)
+        self.assertEqual((meta['label'], meta['device'], meta['seas'], meta['todos']), ('手で取った', 'Mac', 1, 1))
+        code, body = self.req('GET', '/api/snapshots')
+        lst = json.loads(body)['snapshots']
+        self.assertEqual([x['id'] for x in lst], [meta['id']])
+        self.assertNotIn('payload', lst[0])
+        code, body = self.req('GET', '/api/snapshots/' + meta['id'])
+        self.assertEqual((code, json.loads(body)['payload']), (200, payload))
+        self.assertEqual(self.req('GET', '/api/snapshots/../state')[0], 404)
+        self.assertEqual(self.req('GET', '/api/snapshots/123')[0], 404)
+        self.assertEqual(self.req('POST', '/api/snapshots', {'payload': {'x': 1}})[0], 400)
+        self.assertEqual(json.loads(self.req('GET', '/api/snapshots', token=SHARE)[1])['snapshots'], [], '共有の置き場は別')
+        mode = os.stat(self.data / 'snapshots' / f"snap-{meta['id']}.json").st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+        old = server.SNAP_KEEP
+        server.SNAP_KEEP = 2
+        try:
+            for i in range(3):
+                self.req('POST', '/api/snapshots', {'payload': payload, 'label': str(i)})
+            lst = json.loads(self.req('GET', '/api/snapshots')[1])['snapshots']
+            self.assertEqual([x['label'] for x in lst], ['2', '1'])
+        finally:
+            server.SNAP_KEEP = old
+
     def test_bad_body(self):
         self.assertEqual(self.req('PUT', '/api/data', {'base': 0})[0], 400)
         self.assertEqual(self.req('PUT', '/api/data', {'base': 0, 'data': {'no_doc': 1}})[0], 400)

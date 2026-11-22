@@ -30,6 +30,9 @@ import { sync } from './sync.js';
 import { toast } from './ui.js';
 import { findSea, addSea, updateSea, removeSea, boxKey, COLORS, colorMark, NAME_MAX, cleanId } from './spacelist.js';
 import { isPersonal, personalId, regionOfSpace, defaultRegionId, allSeas, serverRegions } from './regions.js';
+import { myRole, serverLogin, seaKind, ME_EVENT } from './me.js';
+import { seaOp } from './seaadmin.js';
+import { setSeaRegion } from './spacelist.js';
 
 const SPACE = store.space();
 const REGION = regionOfSpace(SPACE) || defaultRegionId();
@@ -67,7 +70,10 @@ function seaButton(e) {
   b.dataset.space = e.id;
   b.className = (e.color ? 'is-sea-btn ' : '') + (e.id === SPACE ? 'is-on' : '');
   if (e.color) b.style.setProperty('--dot', colorMark(e.color));
-  b.textContent = e.name;
+  /* 共有の海（仲間のいるサーバーの海）に 👥（2026-11-18。モック 4）。色の印は is-sea-btn の点 */
+  const shared = seaKind(e.id) === 'shared';
+  b.classList.toggle('is-shared', shared);
+  b.textContent = (shared ? '👥 ' : '') + e.name;
   b.title = e.name;
   b.setAttribute('aria-pressed', e.id === SPACE ? 'true' : 'false');
   b.addEventListener('click', () => switchTo(e.id));
@@ -84,6 +90,15 @@ seg.setAttribute('aria-label', '海の切り替え');
 function renderSeg() {
   seg.textContent = '';
   entries().forEach(e => seg.appendChild(seaButton(e)));
+  /* ＋ 海をつくる（2026-11-18。モック 4 の帯の「＋」。ログインしていれば共有の海も選べる） */
+  const plus = document.createElement('button');
+  plus.type = 'button';
+  plus.className = 'space-plus';
+  plus.textContent = '＋';
+  plus.title = '海をつくる';
+  plus.setAttribute('aria-label', '海をつくる');
+  plus.addEventListener('click', () => openSheet(null));
+  seg.appendChild(plus);
   const on = seg.querySelector('.is-on');
   if (on && typeof on.scrollIntoView === 'function') {
     requestAnimationFrame(() => { try { on.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) { /* 古いブラウザ */ } });
@@ -91,6 +106,8 @@ function renderSeg() {
 }
 renderSeg();
 strip.appendChild(seg);
+/* ログイン中の利用者は、左上の利用者のアイコン（js/userchip.js。2026-11-18 ユーザーの決定「4 つとも案どおり」）。帯には出さない */
+window.addEventListener(ME_EVENT, () => { renderSeg(); });
 /* 版（2026-10-25 利用者の指示）。帯の左端に小さく。update のあと新しい版に入れ替わったかを見るため。
    正本は sw.js の VERSION（js/version.js が写しを持つ） */
 if (window.BUBBLES_VERSION) {
@@ -187,21 +204,39 @@ function openSheet(sea, opts = {}) {
   /* 作った海はいつも「この端末の海」から始める（2026-11-16 海と同期の作り直し。利用者の指示「海が自由につくれ、その上でサーバーに繋ぐ選択肢に」）。
      前の ID の欄と同期の選択（Issue #47 の D）は外した。サーバーに置くかは設定の「海」の ⚙ で選ぶ。
      サーバーの海は、ログインすると並ぶ（同じ ID を打って合わせる必要は無くなった） */
+  /* サーバーの海は、持ち主（作った人）だけが名前・色・消すを変えられる（2026-11-18 ユーザーの決定「海の管理は作成者が行う」） */
+  const L = serverLogin();
+  const onSrv = !!(sea && L && regionOfSpace(sea.id) === L.rid);
+  const role = onSrv ? myRole(sea.id) : null;
+  const locked = onSrv && role !== 'owner';
   const note = document.createElement('p');
   note.className = 'note';
   note.textContent = sea
-    ? '人を招くときは、サーバーで「invite-add <名前> --space ' + sea.id + '」として招待コードを作り、'
-      + '住所とコードを渡す（公開したサーバーのとき）。招いた人はその海にだけ入れる。'
-      + (sea.id === 'share' ? '前の版の「共有の合言葉」でも、この海に入れる。' : '')
-    : 'この端末の海として作る。サーバーに置くかは、あとで設定の「海」の ⚙ で選ぶ。';
+    ? (locked ? '名前・色・消すは、この海の持ち主ができる（あなたは「' + ({ editor: '書ける', viewer: '見るだけ' }[role] || role || '仲間でない') + '」）。'
+      : onSrv ? 'サーバーの海。直すと仲間の画面にも届く。仲間を招くのは設定の「海」の ⚙ から。'
+        : 'この端末の海。サーバーの共有の海にするには、ログインして設定の「海」の ⚙ から。')
+    : (L ? '下の印を付けると、サーバーの共有の海として作る（あなたが持ち主。仲間はリンクで招く）。付けなければこの端末の海。'
+      : 'この端末の海として作る。サーバーに置くかは、あとで設定の「海」の ⚙ で選ぶ。');
   if (opts.note) note.textContent = opts.note;
   box.appendChild(note);
+  if (locked) { nameIn.disabled = true; chips.forEach(([, c]) => { c.disabled = true; }); }
+  let sharedCb = null;
+  if (!sea && L) {
+    const lb = document.createElement('label');
+    lb.className = 'space-shared';
+    sharedCb = document.createElement('input');
+    sharedCb.type = 'checkbox';
+    sharedCb.setAttribute('aria-label', '共有の海にする');
+    lb.appendChild(sharedCb);
+    lb.appendChild(document.createTextNode(' 👥 みんなと使う共有の海にする（サーバー）'));
+    box.appendChild(lb);
+  }
 
   const row = document.createElement('div');
   row.className = 'space-sheet-row';
   const done = () => { back.remove(); document.removeEventListener('keydown', onKey, true); };
   const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(); } };
-  if (sea) {
+  if (sea && !locked) {
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'space-del';
@@ -214,6 +249,17 @@ function openSheet(sea, opts = {}) {
         return;
       }
       const own = regionOfSpace(sea.id) || REGION;
+      if (onSrv) {
+        /* サーバーの海を消す（持ち主）。仲間はみな外れる。記録の置き場はサーバーに残る */
+        del.disabled = true;
+        seaOp('remove', { sea: sea.id }).then(() => {
+          setSeaRegion(sea.id, 'local');
+          removeSea(sea.id);
+          try { localStorage.removeItem(boxKey(sea.id)); if (sea.id === SPACE) localStorage.setItem(SPACE_KEY, personalId(own)); } catch (e) { /* 一覧からは外れている */ }
+          location.reload();
+        }).catch(err => { del.disabled = false; toast((err && err.message) || '消せなかった'); });
+        return;
+      }
       removeSea(sea.id);
       try {
         localStorage.removeItem(boxKey(sea.id));
@@ -236,6 +282,7 @@ function openSheet(sea, opts = {}) {
   ok.type = 'submit';
   ok.className = 'btn is-primary';
   ok.textContent = sea ? '直す' : 'つくる';
+  ok.disabled = locked;
   row.appendChild(cancel);
   row.appendChild(ok);
   box.appendChild(row);
@@ -243,6 +290,18 @@ function openSheet(sea, opts = {}) {
   box.addEventListener('submit', ev => {
     ev.preventDefault();
     if (!nameIn.value.trim()) { toast('海の名前を入れる'); nameIn.focus(); return; }
+    if (sea && onSrv) {
+      if (locked) return;
+      ok.disabled = true;
+      seaOp('update', { sea: sea.id, name: nameIn.value, color }).then(() => {
+        updateSea(sea.id, { name: nameIn.value, color });
+        done(); paintColor(); renderSeg();
+        window.dispatchEvent(new CustomEvent('bubbles:seas'));
+        toast('海を直した（仲間の画面にも届く）');
+        if (typeof opts.onChanged === 'function') opts.onChanged();
+      }).catch(err => { ok.disabled = false; toast((err && err.message) || '直せなかった'); });
+      return;
+    }
     if (sea) {
       if (!updateSea(sea.id, { name: nameIn.value, color })) { toast('直せなかった'); return; }
       done();
@@ -252,6 +311,22 @@ function openSheet(sea, opts = {}) {
       if ((regionOfSpace(sea.id) || REGION) === REGION) sync.syncSeas();
       toast('海を直した');
       if (typeof opts.onChanged === 'function') opts.onChanged();
+      return;
+    }
+    if (sharedCb && sharedCb.checked) {
+      /* サーバーの共有の海として作る（作った人が持ち主）。この端末の海として作ってから、同じ ID でサーバーに置く */
+      const e = addSea(nameIn.value, color, Date.now(), 'local');
+      if (!e) { toast('海をつくれなかった'); return; }
+      ok.disabled = true;
+      seaOp('create', { id: e.id, name: e.name, color: e.color }).then(() => {
+        setSeaRegion(e.id, L.rid);
+        done();
+        switchTo(e.id);
+      }).catch(err => {
+        ok.disabled = false;
+        toast('サーバーに置けなかった（この端末の海として作った）: ' + ((err && err.message) || ''));
+        done(); switchTo(e.id);
+      });
       return;
     }
     const rid = opts.region || 'local';
@@ -286,7 +361,7 @@ function stateText(a, b) { stateA.textContent = a; stateB.textContent = b || '';
 
 const app = document.querySelector('.app') || document.body;
 app.appendChild(strip);
-if (!isPersonal(SPACE)) app.appendChild(stateEl);
+app.appendChild(stateEl);   /* 個人の海も、サーバーと合わせるときは出す（paint が決める。2026-11-18） */
 
 /* サーバーから海の一覧が届いて変わったとき（名前・色・ほかの端末で消した海） */
 sync.onSeas(() => {
@@ -308,7 +383,7 @@ function lockInputs() {
     .forEach(inp => {
       if (ro) {
         if (!LOCKED.has(inp)) LOCKED.set(inp, inp.placeholder);
-        inp.placeholder = '繋がると書ける';
+        inp.placeholder = myRole(SPACE) === 'viewer' ? '見るだけの海' : '繋がると書ける';
         inp.disabled = true;
         inp.classList.add('is-space-locked');
       } else if (LOCKED.has(inp)) {
@@ -329,17 +404,28 @@ function paint() {
   /* 色を抜くのは、招かれた海で読むだけの間だけ（書ける海は、届かなくてもふだんの色） */
   root.classList.toggle('is-off', store.readOnly());
   lockInputs();
-  if (isPersonal(SPACE)) return;
+  /* 個人の海もサーバーと合わせるときは状態の字を出す（2026-11-18「個人はオフラインでも使える」）。この端末だけの個人は出さない */
+  const srvPersonal = isPersonal(SPACE) && REGION !== 'local' && serverRegions().some(r => r.id === REGION);
+  if (isPersonal(SPACE) && !srvPersonal) return;
   const st = sync.status();
   const seen = sync.seenAt();
+  if (srvPersonal && !sync.ready()) {
+    /* 写しを残してログアウトした（ログインしていなくても読める・書ける） */
+    stateEl.hidden = settingsOpen();
+    stateEl.classList.add('is-off');
+    stateText('ログイン', 'していない');
+    return;
+  }
   stateEl.hidden = !sync.ready() || settingsOpen();
   stateEl.classList.toggle('is-off', st.state === 'error' || st.state === 'outdated');
-  /* 言葉は 2026-11-17 Issue #79 の返事「設定以外も同じようにできる？」で「合わせた」→「やりとり済み」などにした
-     （設定の「サーバーとやりとりした」とそろえる。「同期」は共有の海の［🔑 同期］だけに使う） */
+  /* 言葉は 2026-11-17 Issue #79 の返事で「合わせた」→「やりとり済み」などにした（設定の「サーバーとやりとりした」とそろえる。
+     「同期」は共有の海の［🔑 同期］だけに使う）。まだ送っていない泡の数（つながったら送る）は 2026-11-19 の版から */
+  const n = typeof sync.pending === 'function' ? sync.pending() : 0;
+  const unsent = n > 0 && st.state !== 'ok' ? '未送信 ' + n : '';
   if (st.state === 'ok') stateText('やりとり済み', hhmm(st.at));
-  else if (st.state === 'outdated') stateText('やりとりを止めた（app が古い）', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
-  else if (st.state === 'error') stateText('つながっていない', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
-  else stateText('やりとり中…');
+  else if (st.state === 'outdated') stateText(unsent || 'やりとりを止めた（app が古い）', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
+  else if (st.state === 'error') stateText(unsent || 'つながっていない', seen ? hhmm(seen) + ' に見たもの' : 'まだ見ていない');
+  else stateText(unsent || 'やりとり中…', unsent ? 'やりとり中…' : '');
 }
 
 sync.on(paint);
@@ -362,5 +448,6 @@ store.onBlocked(() => {
   const now = Date.now();
   if (now - lastBlocked < 2500) return;
   lastBlocked = now;
-  toast('繋がると書ける（いまは最後に見たものを出している）');
+  toast(myRole(SPACE) === 'viewer' ? '見るだけの海なので、変えられない（役割は持ち主が変える）'
+    : '繋がると書ける（いまは最後に見たものを出している）');
 });

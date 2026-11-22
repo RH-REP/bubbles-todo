@@ -26,7 +26,7 @@ function test(name, fn) {
   }
 }
 
-const { consolidate, theServer, serverUrl, ensureServer, canUnify, unifyPersonal, applyServerSeas } = await import(new URL('../js/oneserver.js', import.meta.url).href);
+const { consolidate, theServer, serverUrl, ensureServer, canUnify, unifyPersonal, applyServerSeas, loginPlan, applyLogin, replacePersonal, logoutPersonal, OWNER_KEY, personalBackups, mergeBackup, bootUnify, serverPersonalBox } = await import(new URL('../js/oneserver.js', import.meta.url).href);
 const { regionList, regionOfSpace } = await import(new URL('../js/regions.js', import.meta.url).href);
 const { seaList } = await import(new URL('../js/spacelist.js', import.meta.url).href);
 
@@ -151,6 +151,97 @@ test('サーバーの海の一覧を受け取る: 新しい海を足し、同じ
   assert.equal(regionOfSpace('swork22'), 'rs1');
   assert.deepEqual(JSON.parse(mem.get('bubble_todo_sync')).sessionSpaces, ['me', 'shome11', 'swork22']);
   assert.equal(applyServerSeas('rs1', { spaces: [], access: ['me', 'shome11', 'swork22'] }), false, '変わらなければ false');
+});
+
+/* ---- 個人の海は利用者 1 人に 1 つ（2026-11-18） ---- */
+const { allSeas } = await import(new URL('../js/regions.js', import.meta.url).href);
+function freshLogin() {
+  /* この端末の個人（前の版からの個人）に泡があり、はじめてログインした端末 */
+  mem.set('bubble_todo_regions', JSON.stringify([{ id: 'local', legacyMe: true }, { id: 'rs1', name: 'サーバー', legacyConf: true }]));
+  mem.set('bubble_todo_sync', JSON.stringify({ url: 'https://a.example', session: 'S', sessionExpires: 9e9 }));
+  const todo = (id, text) => ({ id, text, createdAt: 1 });
+  mem.set('bubble_todo_v1', JSON.stringify({ todos: [todo('a1', '端末の泡1'), todo('a2', '端末の泡2')], stamps: { 'todo:a1': [10, 1], 'todo:a2': [10, 1] } }));
+}
+
+test('はじめてログイン: この端末の個人の泡を数え、合わせると個人は 1 つ（個人（サーバー）は出ない）', () => {
+  freshLogin();
+  assert.equal(allSeas().filter(s => s.personal).length, 2, '前: 個人が 2 つ並ぶ');
+  const plan = loginPlan('u_aaaaaaaa');
+  assert.deepEqual(plan, { kind: 'merge', n: 2 });
+  assert.equal(applyLogin('u_aaaaaaaa', plan, 7000), 2);
+  assert.equal(allSeas().filter(s => s.personal).length, 1, '後: 個人は 1 つ');
+  assert.equal(allSeas().find(s => s.personal).name, '個人');
+  assert.ok(mem.get('bubble_todo_v1_before_unify_7000'), '合わせる前の控え');
+  assert.equal(mem.get(OWNER_KEY), 'u_aaaaaaaa', 'だれの写しかを覚える');
+  assert.deepEqual(loginPlan('u_aaaaaaaa'), { kind: 'none' }, '同じ利用者でもう一度ログインしても何もしない（合わせは同期がする）');
+});
+
+test('別の利用者でログイン: 合わせずに聞く。控えへ移すと空の個人から始まる', () => {
+  freshLogin();
+  applyLogin('u_aaaaaaaa', loginPlan('u_aaaaaaaa'), 7000);
+  const plan = loginPlan('u_bbbbbbbb');
+  assert.deepEqual(plan, { kind: 'other', prev: 'u_aaaaaaaa' });
+  const keep = replacePersonal('u_bbbbbbbb', 8000);
+  assert.equal(keep, 'bubble_todo_v1_before_user_8000');
+  assert.match(mem.get(keep), /端末の泡1/, '前の人の写しは控えに残る');
+  assert.equal(mem.get('bubble_todo_v1'), undefined, '個人は空から');
+  assert.equal(mem.get(OWNER_KEY), 'u_bbbbbbbb');
+  assert.equal(allSeas().filter(s => s.personal).length, 1);
+});
+
+test('ログアウト: 残すなら写しとだれのかを残す。消すなら写しを消す', () => {
+  freshLogin();
+  applyLogin('u_aaaaaaaa', loginPlan('u_aaaaaaaa'), 7000);
+  logoutPersonal(true);
+  assert.ok(mem.get('bubble_todo_v1'));
+  assert.equal(mem.get(OWNER_KEY), 'u_aaaaaaaa');
+  logoutPersonal(false);
+  assert.equal(mem.get('bubble_todo_v1'), undefined);
+  assert.equal(mem.get(OWNER_KEY), undefined);
+  assert.equal(allSeas().filter(s => s.personal).length, 1, '消しても個人は 1 つ（空）');
+});
+
+
+test('控え: 設定の「記録」に新しい順に並び、今の個人に重ねる（消さない）。前の利用者の控えはログイン中は重ねない', () => {
+  freshLogin();
+  applyLogin('u_aaaaaaaa', loginPlan('u_aaaaaaaa'), 7000);
+  replacePersonal('u_bbbbbbbb', 8000);
+  const list = personalBackups();
+  assert.deepEqual(list.map(b => [b.kind, b.at, b.n, b.other]), [['user', 8000, 2, true], ['unify', 7000, 2, true]],
+    '替わる前に取った合わせる前の控えも、前の人のもの');
+  const cur = { doc: { todos: [{ id: 'b1', text: '今の泡', createdAt: 2 }] }, stamps: { 'todo:b1': [20, 1] } };
+  assert.equal(mergeBackup('bubble_todo_v1_before_user_8000', cur, true), null, 'ログイン中は別の利用者の控えを重ねない');
+  assert.equal(mergeBackup('bubble_todo_v1_before_unify_7000', cur, true), null, 'ログイン中は前の人の合わせる前の控えも重ねない');
+  mem.set('bubble_todo_v1_before_unify_9000', mem.get('bubble_todo_v1_before_unify_7000'));
+  const got = mergeBackup('bubble_todo_v1_before_unify_9000', cur, true);
+  assert.deepEqual(got.doc.todos.map(t => t.text).sort(), ['今の泡', '端末の泡1', '端末の泡2'], '替わったあとの控えは重ねられる');
+  assert.equal(mergeBackup('bubble_todo_v1_before_user_8000', cur, false).doc.todos.length, 3, 'ログアウト中なら重ねられる');
+  assert.equal(mergeBackup('bubble_todo_ai_key', cur, false), null, '控えでない箱は読まない');
+});
+
+test('前の版からログインしていた端末: 開いたときに個人を 1 つにする（ログインし直さなくても）', () => {
+  freshLogin();
+  mem.set('bubble_todo_me_v1', JSON.stringify({ user: { id: 'u_aaaaaaaa', name: 'ゆき' }, seas: [] }));
+  assert.equal(allSeas().filter(s => s.personal).length, 2, '前: 個人と個人（サーバー）が並ぶ');
+  assert.equal(bootUnify(9100), 2);
+  assert.equal(allSeas().filter(s => s.personal).length, 1, '後: 個人は 1 つ');
+  assert.ok(mem.get('bubble_todo_v1_before_unify_9100'), '合わせる前の控え');
+  assert.equal(mem.get(OWNER_KEY), 'u_aaaaaaaa');
+  assert.equal(bootUnify(9200), 0, '2 回目は何もしない');
+});
+
+test('開いたとき: 通行証が切れている・別の人の写しなら合わせない', () => {
+  freshLogin();
+  mem.set('bubble_todo_sync', JSON.stringify({ url: 'https://a.example', session: 'S', sessionExpires: 1 }));
+  assert.equal(bootUnify(9100), 0, '切れていれば合わせない');
+  freshLogin();
+  mem.set('bubble_todo_me_v1', JSON.stringify({ user: { id: 'u_bbbbbbbb' }, seas: [] }));
+  mem.set(OWNER_KEY, 'u_aaaaaaaa');
+  mem.set(serverPersonalBox(), JSON.stringify({ todos: [{ id: 'z1', text: '前の人の泡', createdAt: 1 }], stamps: { 'todo:z1': [5, 1] } }));
+  assert.equal(loginPlan('u_bbbbbbbb').kind, 'other');
+  const keys = [...mem.keys()].sort().join();
+  assert.equal(bootUnify(9100), 0, '別の人の写しなら合わせない');
+  assert.equal([...mem.keys()].sort().join(), keys, '何も書き換えない');
 });
 
 console.log(`\n${pass} passed, ${failed.length} failed`);

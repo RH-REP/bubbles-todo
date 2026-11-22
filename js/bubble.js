@@ -25,6 +25,8 @@ import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, apply
   buildAskPrompt, parseAskReply, askSectionText, leadDay, relatedDetail, ASK_MAX, DEADLINE_LEAD } from './research.js';
 import { spanFromDetail, withSpan } from './deadline.js';
 import { loadPrefs, BOARD_PART_LABEL } from './prefs.js';
+import { monthCal, monthOf } from './monthcal.js';
+import { normalizeRepeat, upcoming, nextDay, addDays, repeatLabel, mdw, dowOf, nthOf, nthLabel, DOW_NAMES } from './repeat.js';
 
 export const MIN_D = 78;      /* バブルの最小直径 px（文字量で決まるとき） */
 export const MAX_D = 200;     /* 同 最大 */
@@ -87,21 +89,19 @@ const CENTER_TOP_BAND = 0;
    キーボード（Enter / Space）で開いたときは click が生まれないので、そもそも張らない。 */
 const CLICK_EAT_MS = 400;   /* 看板の押し分け（signSuppress）と同じ間合いにそろえた */
 
-/* 盤の「いつの日」のカレンダーに出す日数。今週の日曜から6週間（A-66）。
-   今日が週のどこであっても**先が1か月以上**残るのがこの数の理由（土曜でも 42-6=36日）。
-   過去はこのうち最大6日ぶんで、そこは増やしていない（§0）。 */
-const CAL_DAYS = 42;
 const CLICK_EAT_R = 12;     /* 離した点からの許容。指のぶれ（AXIS_LOCK 10）より少し広い */
-
-/* その日付キーの曜日（0=日）。カレンダーの列をそろえるのに使う */
-function todayDow(key) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
-  if (!m) return 0;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0).getDay();
-}
 
 /* 長い文を札に出すときの丸め。文字数は書記素ではなくコード点で数える
    （絵文字を割らないための Array.from。既存の trim と同じやり方） */
+/* 作業記録の 1 行目（2026-11-19）。記録の next（次にやること）に入れる。空なら '' */
+function firstLineOf(t) {
+  return String(t == null ? '' : t).split('\n').map(x => x.trim()).find(Boolean) || '';
+}
+/* 作業記録の欄から積んだ記録か（did の 1 行目が next と同じ）。それなら 1 つの文として出す */
+function isRecordStep(s) {
+  return !!s && !!String(s.did || '').trim() && firstLineOf(s.did) === String(s.next || '').trim();
+}
+
 function trimTx(t, n) {
   const a = Array.from(String(t == null ? '' : t));
   return a.length > n ? a.slice(0, n).join('') + '…' : a.join('');
@@ -534,7 +534,22 @@ export function updateBubble(node, item, opts = {}) {
     if (wob) wob.appendChild(snote);
   }
   if (snote) { snote.textContent = spanNote; snote.hidden = !spanNote; }
+  /* ---- 担当（共有の記録 v1.2。2026-11-18）----
+     共有の海の泡に、担当の人の名前の頭 1 字を右下の小さな丸に。自分が担当なら縁を太くする（is-mine）。
+     終えた泡には、終えた人の頭 1 字に ✓。預け先に whoMark が無い版・共有でない海では出ない */
+  const who = item ? ask(centerAdapter, 'whoMark', item) : null;
+  const whoText = (who && typeof who.text === 'string') ? who.text : '';
+  let wdot = node.querySelector(':scope > .wob > .who');
+  if (whoText && !wdot) {
+    wdot = el('span', 'who');
+    wdot.setAttribute('aria-hidden', 'true');
+    const wob = node.querySelector(':scope > .wob');
+    if (wob) wob.appendChild(wdot);
+  }
+  if (wdot) { wdot.textContent = whoText; wdot.hidden = !whoText; }
+  node.classList.toggle('is-mine', !!(who && who.mine));
   let label = ariaFor(item, names, marks, started, done);
+  if (who && who.label) label += '、' + who.label;
   if (spanNote) label += '、' + spanNote;
   if (fresh) label += '、新しいひとことあり';
   node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
@@ -634,10 +649,19 @@ function actionRow(actions, run, onOk, onStart) {
      **「今日は終わり」の上へ移した**（利用者の指示）。目が行く場所は盤の中で、
      しかも「状態を変える3つ」の先頭。並びの意味は変わらない——
      進む → 今日ぶんを終える → タスクごと終える → 消す、と下るほど重くなる。 */
+  /* 2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」（モック docs/spec/mock/task-start.html）:
+       [ 始める（5 分のタイマー） ]
+       [ 今日はここまで ][ ✓ 完了にする ]
+       （削除は「その他」の最後。arrangeBoard が移す）
+     ［書き留める］は外した。打ち終えた欄から自動で保存し、盤の右下に「保存した」と出す（buildCenterPanel の autosave）。
+     言葉: タスク開始 → 始める、今日は終わり → 今日はここまで、タスク完了 → 完了にする、消す → 削除 */
   if (canStart) {
-    const st = el('button', 'bc-act bc-act-start', 'タスク開始');
+    const st = el('button', 'bc-act bc-act-start');
     st.type = 'button';
     st.dataset.part = 'start';
+    st.appendChild(el('span', 'bc-act-main', '始める'));
+    st.appendChild(el('span', 'bc-act-sub', '5 分のタイマー'));
+    st.setAttribute('aria-label', '始める（5 分のタイマーを開く）');
     st.addEventListener('click', ev => { ev.preventDefault(); onStart(); });
     box.appendChild(st);
   }
@@ -651,57 +675,18 @@ function actionRow(actions, run, onOk, onStart) {
     return b;
   };
 
+  /* 「今日はここまで」は、着手の印（store.start）。押すと泡が薄くなり、日が変わると戻る（契約 §5）。中身は前と同じ */
   const top = el('div', 'bc-act-row');
-  /* 「はじめた」から「今日は終わり」へ（利用者の指示）。
-     **記録している中身は変えていない**（store.start の着手印のまま）。
-     名前を変えたのは、この印が実際にしていることが「今日ぶんはここまで」だから——
-     押すとバブルが薄くなって「もう見なくていい」を伝え、日が変わると戻る（契約 §5）。
-     「はじめた」ではその意味が読めなかった、という指摘。 */
-  if (has('onStarted')) top.appendChild(mk('bc-act-started', '今日は終わり', 'onStarted', 'ended'));
-  if (canOk) {
-    /* OK は他のボタンと性質が違う。**盤を閉じない**（書き留めるだけ）。
-       押したことが分かるよう、少しのあいだ文字を変える——
-       閉じないぶん、何も起きなかったように見えてしまうため。
-
-       出す文字は onOk() が決める。積めたときは「書き留めた」、
-       積まなかったときはその理由（「次の一手が要る」など）。
-       **積めなかったことを黙って同じ顔で返さない**——
-       押したのに何も起きていない、が分からないため。 */
-    /* 「OK」から「書き留める」へ（レビューの指摘）。
-       となりに「今日は終わり」が並ぶと [キャンセル｜OK] のダイアログに見えて、
-       押すと閉じるものと読めていた。実際は閉じないし、するのは書き留めることだけ。
-       押したあとの「書き留めた」とも、そのまま繋がる */
-    const ok = el('button', 'bc-act bc-act-ok');
-    ok.type = 'button';
-    ok.textContent = '書き留める';
-    ok.dataset.part = 'ok';
-    let back = 0;
-    ok.addEventListener('click', ev => {
-      ev.preventDefault();
-      const said = onOk();
-      const label = typeof said === 'string' && said ? said : '書き留めた';
-      const done = label === '書き留めた';
-      clearTimeout(back);
-      ok.textContent = label;
-      ok.classList.toggle('is-done', done);
-      ok.classList.toggle('is-nope', !done);
-      back = setTimeout(() => {
-        ok.textContent = '書き留める';
-        ok.classList.remove('is-done');
-        ok.classList.remove('is-nope');
-      }, 1200);
-    });
-    top.appendChild(ok);
-  }
-  if (top.childNodes.length) box.appendChild(top);
-
-  /* 完了したものの上では「タスク完了」ではなく「海にもどす」。openMenu と同じ入れ替え。
+  if (has('onStarted')) top.appendChild(mk('bc-act-started', '今日はここまで', 'onStarted', 'ended'));
+  /* 完了したものの上では「完了にする」ではなく「海にもどす」。openMenu と同じ入れ替え。
      戻した先が海でない画面（今日の水面）は a.reopenLabel で名前を渡す（Issue #29） */
   if (has('onComplete')) {
-    box.appendChild(mk('bc-act-done',
-      a.isDone === true ? (a.reopenLabel || '海にもどす') : 'タスク完了', 'onComplete', 'done'));
+    top.appendChild(mk('bc-act-done',
+      a.isDone === true ? (a.reopenLabel || '海にもどす') : '✓ 完了にする', 'onComplete', 'done'));
   }
-  if (has('onDelete')) box.appendChild(mk('bc-act-del', '消す', 'onDelete', 'del'));
+  if (top.childNodes.length) box.appendChild(top);
+  if (has('onDelete')) box.appendChild(mk('bc-act-del', '削除', 'onDelete', 'del'));
+  void canOk;   /* onOk（前の［書き留める］）は受けるが、ボタンは作らない */
   return box;
 }
 
@@ -753,7 +738,7 @@ function askDelete(name, onYes) {
   const ttl = el('p', 'ask-title');
   ttl.id = 'ask-t' + seq;
   /* 名前はユーザーが打った文字。innerHTML には入れない */
-  ttl.textContent = name ? '「' + name + '」を消す？' : 'これを消す？';
+  ttl.textContent = name ? '「' + name + '」を削除する？' : 'これを削除する？';   /* 2026-11-18 消す → 削除 */
   box.setAttribute('aria-labelledby', ttl.id);
   box.appendChild(ttl);
 
@@ -770,7 +755,7 @@ function askDelete(name, onYes) {
   no.textContent = 'やめる';
   const yes = el('button', 'ask-btn ask-yes');
   yes.type = 'button';
-  yes.textContent = '消す';
+  yes.textContent = '削除';
   row.appendChild(no);
   row.appendChild(yes);
   box.appendChild(row);
@@ -860,12 +845,16 @@ function closeAsk(restoreFocus) {
 function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let saveTags = null;          /* タグの付け外しは閉じるときにまとめて書く */
   let saveFav = null;           /* お気に入りの印（F7）も同じく閉じるとき */
+  let saveWho = null;           /* 担当（共有の記録 v1.2）も同じく閉じるとき */
   let savePrio = null;          /* 優先度（急ぐ・大事）も同じく閉じるとき */
   let saveHoldUntil = null;     /* 長期保留の「戻ってくる日」も同じく閉じるとき */
   /* 「今日」の札と、カレンダーの今日の枡は同じものを指す。
      二重に書かないよう、書き込みはカレンダー側が持ち、札は見た目だけ合わせる */
   let todayCell = null;
-  let saveDays = null;          /* 日の入り切りも閉じるときにまとめて書く */
+  let saveDays = null;
+  let moveRepDay = null;        /* くりかえしの下書きで、やる日の回の日を入れ替える（2026-11-19） */
+  let saveRepeat = null;        /* くりかえしも閉じるときに書く（2026-11-19） */
+  let saveSpan = null;          /* 期間も閉じるときに書く（2026-11-19。暦で開始日・終了日を続けて選ぶため） */          /* 日の入り切りも閉じるときにまとめて書く */
   let syncTodayChip = null;     /* カレンダーが「今日」の札の見た目を合わせる */
   const root = el('div', 'bub-center');
   root.setAttribute('role', 'group');
@@ -889,6 +878,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let detailView = null, detailEdit = null, detailNote = null;   /* 読む面と [編集]（Issue #16） */
   let detailClose = null, detailSave = null, detailCancel = null; /* 書く面の [保存]／[キャンセル]（Issue #35） */
   let detailDraft = '';
+  let detailInline = null;      /* 盤のその場の作業記録の欄（2026-11-18。11-19 にメモ → 作業記録） */
+  let dhead = null;             /* 作業記録の見出しの行（［履歴を見る ›］［全体を開く ›］を置く） */
+  let rec0 = '';                /* 最後に書いた作業記録（変わったときだけ書き、記録に積む） */
+  /* 2026-11-19: 次の一手・作業の記録（作業メモ）の欄は盤に出さない（作業記録 1 つにまとめた）。
+     欄は組むが置かない。置かない間は、次の一手・書きかけを盤から書かない（作業記録の側が書く） */
+  const stepOnBoard = false;
   let detailBase = '';          /* 書く面に入った時点の本文。[キャンセル] でここへ戻す */
   let syncSpanRow = null;       /* 盤の「期間」（Issue #34）。本文が変わったら読み直す */
   /* ひとこと（Issue #25）。入口と別の面。[書く] で1件ずつ積む（書き換えない） */
@@ -960,10 +955,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      空にして閉じても消えない（store.setText が空を弾く＝元の名前のまま）。
      預け先に setText が無い版では出さない。 */
   if (fields && typeof (a || {}).setText === 'function') {
-    const wrap = el('label', 'bc-row');
-    const lb = el('span', 'bc-lb');
+    /* 2026-11-18（モック task-start.html）: 見出しの字は出さず、盤の題としてそのまま直せる形に。
+       お気に入り・優先度は「その他」へ移したので、付いていれば名前の横に ☆・◷・◆ を出す（arrangeBoard） */
+    const wrap = el('label', 'bc-row bc-name-row');
+    const lb = el('span', 'bc-lb bc-vh');
     lb.textContent = '名前';
-    nameIn = el('input', 'bc-in');
+    nameIn = el('input', 'bc-in bc-name-in');
     nameIn.type = 'text';
     nameIn.autocomplete = 'off';
     nameIn.enterKeyHint = 'done';
@@ -984,13 +981,28 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      ・記録には積まない。閉じるとき（面の [閉じる]・盤を閉じる・[OK]）に書き替える
      預け先に setDetail が無い版では出さない。 */
   if (fields && typeof (a || {}).setDetail === 'function') {
-    detailDraft = String(ask(a, 'detail', id) || '');
-    const drow = el('div', 'bc-row');
-    drow.appendChild(el('span', 'bc-lb', '本文'));
-    detailBtn = el('button', 'bc-memo-open bc-detail-open');
+    /* 2026-11-19 ユーザーの指示「次の一手、メモ、作業記録を作業記録（ただし今のメモの位置）に一つにして、履歴が確認できる様にして」:
+       欄は 1 つ（作業記録）。中身は本文（detail）に持ち、書き替えるたびに記録（steps）へ 1 件積む（saveDetail）。
+       本文が空で次の一手だけある前の泡は、次の一手を初めの中身として出す（触らなければ書かない） */
+    detailDraft = String(ask(a, 'detail', id) || '') || String(ask(a, 'firstStep', id) || '');
+    rec0 = detailDraft;
+    /* 2026-11-18（モック task-start.html）: 別の面を開かず、その場の欄で書く。
+       長い中身・リンクの読み・AI は、今までの面（［全体を開く ›］）で */
+    const drow = el('div', 'bc-row bc-stack');
+    dhead = el('div', 'bc-lb-row');
+    dhead.appendChild(el('span', 'bc-lb', '作業記録'));
+    detailBtn = el('button', 'bc-detail-open bc-link-btn');
     detailBtn.type = 'button';
     detailBtn.addEventListener('click', ev => { ev.preventDefault(); openDetail(); });
-    drow.appendChild(detailBtn);
+    dhead.appendChild(detailBtn);
+    drow.appendChild(dhead);
+    detailInline = el('textarea', 'bc-in bc-memo-in');
+    detailInline.rows = 3;
+    detailInline.placeholder = '例 予約の電話をかける。保険証を持っていく';
+    detailInline.setAttribute('aria-label', '作業記録');
+    detailInline.value = detailDraft;
+    detailInline.addEventListener('input', () => { detailDraft = detailInline.value; if (syncSpanRow) syncSpanRow(); });
+    drow.appendChild(detailInline);
     foldPart(drow, 'detail', !!detailDraft.trim());
     fields.appendChild(drow);
     syncDetailBtn();
@@ -1006,32 +1018,32 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   if (fields && typeof (a || {}).addNote === 'function' && ask(a, 'notesOn') === true) {
     const nwrap = el('div', 'bc-chat');
     const nrow = el('div', 'bc-row');
-    nrow.appendChild(el('span', 'bc-lb', 'ひとこと'));
+    nrow.appendChild(el('span', 'bc-lb', 'コメント'));   /* 2026-11-18 ひとこと → コメント（仲間と泡ごとに話す欄） */
     notesBtn = el('button', 'bc-memo-open bc-notes-open');
     notesBtn.type = 'button';
     notesBtn.addEventListener('click', ev => { ev.preventDefault(); openNotes(); });
     nrow.appendChild(notesBtn);
     nwrap.appendChild(nrow);
     chatList = el('ul', 'bn-chat');
-    chatList.setAttribute('aria-label', 'ひとこと（新しい 3 件。古い順）');
+    chatList.setAttribute('aria-label', 'コメント（新しい 3 件。古い順）');
     nwrap.appendChild(chatList);
     const qrow = el('div', 'bn-quick');
     chatIn = el('input', 'bn-quick-in');
     chatIn.type = 'text';
     chatIn.autocomplete = 'off';
     chatIn.maxLength = 280;
-    chatIn.placeholder = 'ひとことを残す（あとから変えられない）';   /* 見出しの「ひとこと」と同じ言葉に（Issue #70 の返事） */
-    chatIn.setAttribute('aria-label', 'ひとことを書く（あとから変えられない・消せない）');
+    chatIn.placeholder = 'コメントを書く';   /* 2026-11-18。「あとから直せない」は欄の下に小さく出す（430px で切れていた） */
+    chatIn.setAttribute('aria-label', 'コメントを書く（あとから直せない・消せない）');
     chatIn.value = noteDrafts.get(id) || '';
     chatIn.addEventListener('input', () => { noteDrafts.set(id, chatIn.value); });
-    const qsend = el('button', 'bn-quick-send', '送る');
+    const qsend = el('button', 'bn-quick-send', '投稿');   /* 2026-11-18 送る → 投稿 */
     qsend.type = 'button';
     let qback = 0;
     const showSaid = (said) => {
       clearTimeout(qback);
       qsend.textContent = said;
-      qsend.classList.toggle('is-nope', said !== '送った' && said !== '署名中…');
-      if (said !== '署名中…') qback = setTimeout(() => { qsend.textContent = '送る'; qsend.classList.remove('is-nope'); }, 1400);
+      qsend.classList.toggle('is-nope', said !== '投稿した' && said !== '署名中…');
+      if (said !== '署名中…') qback = setTimeout(() => { qsend.textContent = '投稿'; qsend.classList.remove('is-nope'); }, 1400);
     };
     const quickSend = () => { showSaid(sendQuick(showSaid)); };
     qsend.addEventListener('click', ev => { ev.preventDefault(); quickSend(); });
@@ -1081,9 +1093,15 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       qrow.appendChild(qsync);
     }
     nwrap.appendChild(qrow);
+    nwrap.appendChild(el('p', 'bc-hint', 'あとから直せない・消せない'));
     fields.appendChild(nwrap);
     syncNotesBtn();
     foldPart(nwrap, 'notes', !notesBtn.classList.contains('is-empty'));
+    /* 2026-11-18 ユーザーの決定（モック task-start.html の決めてほしいこと 3）: コメントは共有の海でだけ出す。
+       個人の海には相手がいないため。前に書いたものがあれば、個人の海でも出す（Issue #61 の「個人の海でも出す」を置き換える） */
+    const members0 = ask(a, 'seaMembers');
+    const sharedSea = (Array.isArray(members0) && members0.length > 0) || ask(a, 'shareSyncOn') === true;
+    if (!sharedSea && notesBtn.classList.contains('is-empty')) nwrap.hidden = true;
     /* 新しい 3 件は盤を開いた時点で見えているので、ここまで読んだとする（泡の点を消す）。
        畳んで「その他」に入っているときは見えていないので覚えない */
     if (!nwrap.classList.contains('is-extra') && notesNow().length) {
@@ -1097,6 +1115,47 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      左のメニューの「お気に入り」に出るための印。タグではないので札の列には並べず、
      その上に1つだけ置く。書くのは閉じるとき（タグと同じ理由：押した瞬間に書くと
      店が emit して盤ごと作り直される）。預け先に isFav / setFav が無い版では出さない。 */
+  /* ---- 担当（2026-11-18。共有の記録 v1.2。モック 4）----
+     共有の海（サーバーの海で仲間がいる）でだけ出す。だれでも／仲間の名前から選ぶ。見るだけの人は変えられない。
+     足した人・終えた人も小さく出す。書くのは閉じるとき（お気に入りと同じ） */
+  if (fields && typeof (a || {}).setAssignee === 'function') {
+    const members = ask(a, 'seaMembers');
+    if (Array.isArray(members) && members.length) {
+      const w0 = ask(a, 'whoOf', id) || {};
+      const box = el('div', 'bc-who');
+      box.dataset.name = '担当';
+      const lb = el('label', 'bc-who-lb');
+      lb.appendChild(el('span', 'bc-who-tx', '担当'));
+      const sel = document.createElement('select');
+      sel.setAttribute('aria-label', '担当');
+      const any = document.createElement('option');
+      any.value = ''; any.textContent = 'だれでも';
+      sel.appendChild(any);
+      members.forEach(m => {
+        const o = document.createElement('option');
+        o.value = m.id; o.textContent = m.name || m.id;
+        if (m.id === w0.assignee) o.selected = true;
+        sel.appendChild(o);
+      });
+      if (w0.assignee && !members.some(m => m.id === w0.assignee)) {
+        const o = document.createElement('option');      /* 仲間から外れた人が担当のまま */
+        o.value = w0.assignee; o.textContent = ask(a, 'userName', w0.assignee) || '前の仲間'; o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.disabled = ask(a, 'myRole') === 'viewer';
+      lb.appendChild(sel);
+      box.appendChild(lb);
+      const by = [];
+      if (w0.added_by) by.push('足した: ' + (ask(a, 'userName', w0.added_by) || '?'));
+      if (w0.done_by) by.push('終えた: ' + (ask(a, 'userName', w0.done_by) || '?'));
+      if (by.length) box.appendChild(el('span', 'bc-who-by', by.join('・')));
+      fields.appendChild(box);
+      saveWho = () => {
+        if (!sel.disabled && sel.value !== (w0.assignee || '')) ask(a, 'setAssignee', id, sel.value || null);
+      };
+    }
+  }
+
   if (fields && typeof (a || {}).setFav === 'function') {
     const fav0 = ask(a, 'isFav', id) === true;
     let favWant = fav0;
@@ -1147,6 +1206,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         const other = key === 'urgent' ? 'important' : 'urgent';
         want[key] = want[key] !== true;
         if (want[other] === null) want[other] = false;
+        /* 2026-11-18: ［印を外す］を外した。どちらも押していない形に戻ったら、印そのものを外す（まだ分けていない） */
+        if (want.urgent !== true && want.important !== true) want = { urgent: null, important: null };
         sync();
       });
       row.appendChild(b);
@@ -1157,6 +1218,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const clear = el('button', 'bc-prio-clear', '印を外す');
     clear.type = 'button';
     clear.addEventListener('click', ev => { ev.preventDefault(); want = { urgent: null, important: null }; sync(); });
+    clear.hidden = true;   /* 2026-11-18 外した（押している札をもう一度押すと外れる）。作りは残す */
     row.appendChild(clear);
     const where = el('div', 'bc-prio-where');
     where.setAttribute('aria-live', 'polite');
@@ -1166,17 +1228,17 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       bU.setAttribute('aria-pressed', want.urgent === true ? 'true' : 'false');
       bI.setAttribute('aria-pressed', want.important === true ? 'true' : 'false');
       const q = quadrantFor(want.urgent, want.important);
-      clear.hidden = want.urgent === null && want.important === null;
+      clear.hidden = true;
       where.textContent = '';
       if (q) {
         box.dataset.q = q;
         where.appendChild(document.createTextNode('いまの区分: '));
         { const qb = el('b'); qb.textContent = QUADRANTS[q].name; where.appendChild(qb); }
-        where.appendChild(document.createTextNode('（' + QUADRANTS[q].sub + '）。印はいつでも外せる'));
+        where.appendChild(document.createTextNode('（' + QUADRANTS[q].sub + '）'));
       } else {
-        delete box.dataset.q;
-        where.textContent = 'まだ分けていない（分けなくても使える）';
+        delete box.dataset.q;   /* 2026-11-18「まだ分けていない（分けなくても使える）」の 1 行は外した */
       }
+      where.hidden = !q;
     }
     sync();
     /* まだ分けていない泡では「その他」に畳む（Issue #40）。印があれば、いつも出す */
@@ -1257,132 +1319,163 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        ■ 書くのは閉じるとき
          タグの札と同じ。押した瞬間に書くと店が emit して盤が組み直され、
          1日入れたところで盤が閉じる。 */
+    /* 2026-11-19 ユーザーの決定「7 つとも案どおり」（モック docs/spec/mock/dates.html）:
+       やる日・期間は、月の名前つきの同じ形の暦（js/monthcal.js）で選ぶ。やる日の暦には期間の帯とくりかえしの次の回の点も出す。
+       くりかえしは期間の中から出して、日付の段の 3 つ目の札にする（毎週・2 週ごと・毎月。やる日も期間もくりかえせる。終わりの日）。
+       3 つの札は 1 つを開くとほかを閉じる（arrangeBoard の日付の段） */
+    const dsync = {};                                 /* 札どうしで描き直しを知らせ合う（やる日・期間・くりかえし） */
+    const syncDates = (but) => Object.keys(dsync).forEach(k => { if (k !== but && dsync[k]) dsync[k](); });
+    const todayK = ask(a, 'todayKey') || '';
+    const storedRepeat = () => (typeof (a || {}).repeat === 'function' ? ask(a, 'repeat', id) : null);
+    /* くりかえしの札で選んでいる決まり（閉じるときに書く。書くまでは下書き）。undefined＝まだ触っていない */
+    let repDraft;
+    /* いまの決まり（下書きがあればそちら）を、回の日を数えられる形で。of 'day' は今日から数え、いまの回（at）を入れる */
+    const curRepeat = () => {
+      const d = repDraft === undefined ? storedRepeat() : repDraft;
+      if (!d) return null;
+      if (repDraft === undefined) return d;
+      const sp = spanFields();
+      const r = normalizeRepeat(Object.assign({}, d, d.of === 'span'
+        ? { from: sp ? sp.start : null, to: sp ? sp.end : null, n: 0 } : { from: todayK, n: 0, at: undefined }));
+      if (r && r.of === 'day') r.at = nextDay(r, addDays(todayK, -1)) || undefined;
+      return r;
+    };
+    /* 期間の下書き（閉じるときに書く。undefined＝まだ触っていない）。先の期間をいま書くと泡が長期保留の海へ移り、
+       終了日を選ぶ前に盤が閉じる（やる日を閉じるときに書くのと同じ理由） */
+    let spanDraft;
+    const spanFields = () => {
+      if (spanDraft !== undefined) return spanDraft;
+      const f = ask(a, 'span', id) || {};
+      return (f.start && f.due) ? { start: f.start, end: f.due } : null;
+    };
+    /* 先の回（暦の点・次の回の 1 行）。of 'day' は日、of 'span' は期間 */
+    const repUpcoming = (n) => { const r = curRepeat(); return r ? upcoming(normalizeRepeat(Object.assign({ n: 0 }, r)), todayK, n) : []; };
+    const mdK = k => Number(k.slice(5, 7)) + '/' + Number(k.slice(8, 10));
+    const spanTx = sp => sp.start === sp.end ? mdK(sp.start) : mdK(sp.start) + '–' + mdK(sp.end);
+
     const canDays = typeof (a || {}).setDay === 'function' && typeof (a || {}).shiftDay === 'function';
     if (canDays) {
-      const today = ask(a, 'todayKey') || '';
+      const today = todayK;
       const days0 = new Set(ask(a, 'days', id) || []);
       const want = new Set(days0);
+      /* 過ぎた日は記録なので押せない。印は 1 週間ぶんだけ出す（遠い過去を「やらなかった日」の一覧にしない。§0） */
+      const weekAgo = ask(a, 'shiftDay', today, -7) || today;
 
       const box = el('div', 'bc-cal');
-
-      /* 既定では畳む（レビューの指摘）。開いたままだと盤の中身が 671px になり、
-         375×812 で 49px はみ出して [消す] が下タブの裏に隠れていた（実測）。
-         カレンダーは三次的な情報なのに、盤の中でいちばん面積を食っていた。
-         畳んだ姿でも**いつの日か**は読めること——押さないと分からない、にしない */
       const head = el('button', 'bc-cal-head');
       head.type = 'button';
       head.setAttribute('aria-expanded', 'false');
-      const lb = el('span', 'bc-cal-lb', 'いつの日');
+      const lb = el('span', 'bc-cal-lb', 'やる日');
       const sum = el('span', 'bc-cal-sum');
       head.appendChild(lb);
       head.appendChild(sum);
       box.appendChild(head);
 
-      const grid = el('div', 'bc-cal-grid');
+      const grid = el('div', 'bc-cal-body');   /* 開いた中身（暦・凡例・早く選ぶ札・どこに出るか） */
       grid.hidden = true;
       head.addEventListener('click', ev => {
         ev.preventDefault();
         const open = grid.hidden;
         grid.hidden = !open;
         head.setAttribute('aria-expanded', open ? 'true' : 'false');
-        where.hidden = !open || !where.textContent;
         relayout();
       });
-      ['日', '月', '火', '水', '木', '金', '土'].forEach(d => {
-        const h = el('span', 'bc-cal-h', d);
-        h.setAttribute('aria-hidden', 'true');
-        grid.appendChild(h);
+      let repKeys = new Set(), band = null;
+      const cal = monthCal({
+        today, month: monthOf(today), minMonth: monthOf(today), label: 'やる日の暦',
+        state: key => ({
+          on: want.has(key) && key >= weekAgo,
+          off: key < today,
+          rep: repKeys.has(key) && !want.has(key),
+          band: !!band && key >= band.start && key <= band.end,
+          bs: !!band && key === band.start, be: !!band && key === band.end,
+        }),
+        onPick: key => { if (want.has(key)) want.delete(key); else want.add(key); paint(); },
       });
-
-      /* 今週の日曜から6週間ぶん。曜日の列がそろうので、数えなくても位置で読める */
-      const dow = todayDow(today);
-      const first = ask(a, 'shiftDay', today, -dow);
-      const cells = [];
-      for (let i = 0; i < CAL_DAYS; i++) {
-        const key = ask(a, 'shiftDay', first, i);
-        if (!key) continue;
-        const past = key < today;
-        const b = el('button', 'bc-cal-d');
+      grid.appendChild(cal.root);
+      const legend = el('p', 'bc-cal-legend');
+      legend.innerHTML = '<span class="lg lg-on"></span>やる日 <span class="lg lg-rep"></span>くりかえしの次の回 <span class="lg lg-band"></span>期間';
+      grid.appendChild(legend);
+      /* よく使う日は札で（今日・明日・今度の土曜）。未定にするは、今日から先のやる日を外す */
+      const quick = el('div', 'bc-hold-picks bc-cal-quick');
+      const tomorrow = ask(a, 'shiftDay', today, 1);
+      const sat = ask(a, 'shiftDay', today, 6 - dowOf(today) || 7);
+      const qbtn = (tx, key) => {
+        const b = el('button', 'bc-hold-pick');
         b.type = 'button';
-        b.textContent = String(Number(key.slice(8, 10)));
-        b.dataset.key = key;
-        if (key === today) b.classList.add('is-today');
-        if (past) { b.classList.add('is-past'); b.disabled = true; }
-        b.setAttribute('aria-label', key.slice(5).replace('-', '月') + '日'
-          + (key === today ? '（今日）' : '') + (past ? '。過ぎた日は変えられない' : ''));
+        b.textContent = tx;
+        b.dataset.name = '早く選ぶ札';
         b.addEventListener('click', ev => {
           ev.preventDefault();
-          if (want.has(key)) want.delete(key); else want.add(key);
+          if (key) { if (want.has(key)) want.delete(key); else want.add(key); }
+          else [...want].forEach(k => { if (k >= today) want.delete(k); });
+          if (key) cal.show(monthOf(key));
           paint();
         });
-        grid.appendChild(b);
-        cells.push({ key, b });
-      }
-      box.appendChild(grid);
-      /* 日を選ぶと海の一覧（タグ無し）から外れる、と書いておく（2026-11-16 Issue #76 の返事
-         「いつの日を、設定するとリストの一覧からTODOが消える？」）。外れるのは作りどおり（js/screens/sea.js の centerItems）:
-         今日 → 「今日」のタグが付いて今日の画面へ。先の日だけ → その日まで漂わせない。どこにあるかを言う */
+        quick.appendChild(b);
+        return { b, key };
+      };
+      const qs = [qbtn('今日', today), qbtn('明日', tomorrow), qbtn('今度の土曜', sat), qbtn('未定にする', null)];
+      grid.appendChild(quick);
+      /* 日を選ぶと海の一覧（タグ無し）から外れる、と書いておく（2026-11-16 Issue #76 の返事。js/screens/sea.js の centerItems） */
       const where = el('p', 'bc-span-note bc-cal-where', '');
-      where.hidden = true;
-      box.appendChild(where);
+      grid.appendChild(where);
+      box.appendChild(grid);
       foldPart(box, 'days', false);
       fields.appendChild(box);
 
       function paint() {
-        cells.forEach(c => {
-          const on = want.has(c.key);
-          c.b.classList.toggle('is-on', on);
-          c.b.setAttribute('aria-pressed', on ? 'true' : 'false');
-        });
+        const r = curRepeat();
+        repKeys = new Set(r && r.of === 'day' ? repUpcoming(40) : []);
+        band = spanFields();
+        cal.paint();
+        qs.forEach(q => q.b.setAttribute('aria-pressed', q.key ? (want.has(q.key) ? 'true' : 'false') : ([...want].some(k => k >= today) ? 'false' : 'true')));
         if (syncTodayChip) syncTodayChip(want.has(today));
-        /* 畳んだ姿の要約。日にちは古い順に、近いものから2つまで。
-           数は出さない——「あと◯日」はやり残しの数え上げに近い */
-        const on = [...want].sort();
-        const md = k => Number(k.slice(5, 7)) + '/' + Number(k.slice(8, 10));
-        sum.textContent = on.length === 0 ? 'まだ決めていない'
-          : on.slice(0, 2).map(k => (k === today ? '今日' : md(k))).join('・')
-            + (on.length > 2 ? ' ほか' : '');
-        head.setAttribute('aria-label', 'いつの日：' + sum.textContent + '。押すとカレンダー');
-        /* 選んだ日で、閉じたあとどこに出るか（カレンダーを開いているときだけ見える） */
+        /* 畳んだ姿の要約。今日から先の日だけ、近いものから 1 つ（数は出さない——「あと◯日」はやり残しの数え上げに近い） */
+        const on = [...want].filter(k => k >= today).sort();
+        sum.textContent = on.length === 0 ? '未定' : (on[0] === today ? '今日' : mdK(on[0])) + (on.length > 1 ? ' ほか' : '');
+        head.setAttribute('aria-label', 'やる日：' + sum.textContent + '。押すと暦');
         const later = on.filter(k => k > today);
         where.textContent = want.has(today)
           ? '閉じると、今日の画面に出る（海の一覧の「タグ無し」からは外れる）'
-          : (later.length ? md(later[0]) + ' になるまで海の一覧から外れる。フィルターの「今日より後」か、日付で見る（▤）で見える' : '');
-        where.hidden = grid.hidden || !where.textContent;
+          : (later.length ? mdK(later[0]) + ' になるまで海の一覧から外れる。フィルターの「今日より後」か、日付で見る（▤）で見える' : '');
+        where.hidden = !where.textContent;
       }
       paint();
+      dsync.days = paint;
 
-      /* 「今日」の札は、このカレンダーの今日の枡と同じものを指す。
-         二重に書かないよう、札のほうは見た目だけ合わせて、書き込みはここが持つ */
+      /* 「今日」の札は、この暦の今日の枡と同じものを指す。書き込みはここが持つ */
       todayCell = {
         has: () => want.has(today),
         toggle: () => { if (want.has(today)) want.delete(today); else want.add(today); paint(); },
       };
 
       saveDays = () => {
-        cells.forEach(c => {
-          const now = want.has(c.key);
-          if (now === days0.has(c.key)) return;
-          ask(a, 'setDay', id, c.key, now);
+        new Set([...want, ...days0]).forEach(k => {
+          const now = want.has(k);
+          if (now === days0.has(k)) return;
+          ask(a, 'setDay', id, k, now);
         });
         days0.clear();
         want.forEach(v => days0.add(v));      /* 二重に書かない */
       };
+      /* くりかえしを書いた後（店がやる日を足し引きする）。書きかけの入り切りは saveDays で先に書いてある */
+      /* くりかえしの下書きが変わったら、前の回の日（先の日だけ）を外して、新しい回の日をやる日に入れる。
+         書くのは閉じるとき（いま書くと泡が今日の海へ移って盤が閉じる）。店の setRepeat も同じことをする */
+      moveRepDay = (oldKey, newKey) => {
+        if (oldKey && oldKey !== newKey && oldKey >= today) want.delete(oldKey);
+        if (newKey) want.add(newKey);
+        paint();
+      };
     }
 
     /* ---- 期間（開始日・終了日。2026-11-10 Issue #34）----
-
-       > TODOの開始日と終了日の入れ方は？ わかりやすく作れる？
-
-       前は、本文に `期間: 2026-11-10 〜 2026-11-20` と手で打つしかなかった（日付で見る がそれを読む）。
-       ここで2つの日付欄から選べるようにする。
        **書く先は泡の欄 start・due**（2026-11-10 利用者の決定。共有の記録 v1.1。gantt_todo も同じ欄を読み書きする）。
        Issue #34 の版は本文の「期間:」の行に書いていた。その行は、start・due が空の古い記録を読むときだけ使う。
-       ・片方だけなら、その日1日。両方空なら欄を外す（store.setSpan）
+       2026-11-19: OS の日付の欄をやめ、やる日と同じ形の暦で選ぶ。［開始日］［終了日］を押してから暦の日を押す。
+       ・片方だけなら、その日 1 日。逆に選んだら入れ替える（store.setSpan）
        ・開始日は過ぎた日も選べる（もう始めているものもある）
-       ・選んだらすぐ書く。本文に古い「期間:」「日付:」の行があれば、本文の控えからその行を外す
-         （外した本文は、本文と同じく閉じるとき・[OK] のときに書く。行のほかの文はそのまま）
-       いつの日・もどってくる日と同じく、既定では畳む。畳んだ姿でも期間は読める。 */
+       ・選んだらすぐ書く。本文に古い「期間:」「日付:」の行があれば、本文の控えからその行を外す */
     if (typeof (a || {}).setSpan === 'function') {
       const box = el('div', 'bc-hold bc-span');
       const head = el('button', 'bc-cal-head');
@@ -1401,100 +1494,315 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         relayout();
       });
 
-      const mk = (tx, key) => {
-        const row = el('label', 'bc-span-row');
-        row.appendChild(el('span', 'bc-span-lb', tx));
-        const inp = el('input', 'bc-hold-day');
-        inp.type = 'date';
-        inp.id = 'bc-span-' + key + '-' + String(id);
-        row.appendChild(inp);
-        body.appendChild(row);
-        return inp;
-      };
-      const startIn = mk('開始日', 'start');
-      const endIn = mk('終了日', 'end');
-      const picks = el('div', 'bc-hold-picks');
-      const clear = el('button', 'bc-hold-pick', '決めない');
-      clear.type = 'button';
-      picks.appendChild(clear);
-      /* 毎月くりかえす（Issue #60）。期間があるときだけ押せる。
-         付けると、完了したときに期間を1か月ずらした泡ができる（store.setRepeat / complete） */
-      const canRepeat = typeof (a || {}).setRepeat === 'function';
-      const rep = canRepeat ? el('button', 'bc-hold-pick', '毎月くりかえす') : null;
-      if (rep) {
-        rep.type = 'button';
-        picks.appendChild(rep);
-        rep.addEventListener('click', ev => {
-          ev.preventDefault();
-          a.setRepeat(id, !ask(a, 'repeat', id));
-          syncSpanRow();
-        });
-      }
-      body.appendChild(picks);
-      body.appendChild(el('p', 'bc-span-note', '日付で見る（▤）に帯で出る'));
-      const repNote = rep ? el('p', 'bc-span-note', '') : null;
-      if (repNote) body.appendChild(repNote);
-
       /* いまの本文（書く面が開いていればそちら） */
       const curDetail = () => ((detailArea && detailPane && !detailPane.hidden) ? detailArea.value : detailDraft);
       /* いまの期間。欄（start・due）が先。どちらも空の古い記録だけ、本文の行から読む */
       const curSpan = () => {
+        if (spanDraft !== undefined) return spanDraft;
         const f = ask(a, 'span', id) || {};
         if (f.start || f.due) return { start: f.start || f.due, end: f.due || f.start };
         return spanFromDetail(curDetail());
       };
       function write(s, e) {
-        a.setSpan(id, s, e);
-        /* 古い書き方の行が本文にあれば外す（欄と食い違ったまま残さない） */
+        if (s && e && e < s) { const x = s; s = e; e = x; }
+        spanDraft = s ? { start: s, end: e || s } : null;
         if (spanFromDetail(curDetail())) {
           detailDraft = withSpan(curDetail(), '', '');
           if (detailArea) detailArea.value = detailDraft;
           if (detailView && !detailView.hidden) detailView.textContent = detailDraft;
         }
         syncDetailBtn();
-        syncSpanRow();                            /* 本文の釦が無い盤でも、期間の字を直す */
+        syncSpanRow();
+        syncDates('span');
       }
-      startIn.addEventListener('change', () => {
-        let s = startIn.value, e = endIn.value;
-        if (s && e && e < s) e = s;               /* 終了日を開始日より前に残さない */
-        write(s, e);
-      });
-      endIn.addEventListener('change', () => {
-        let s = startIn.value, e = endIn.value;
-        if (s && e && e < s) s = e;
-        write(s, e);
-      });
-      clear.addEventListener('click', ev => { ev.preventDefault(); write('', ''); });
 
-      const md = k => Number(k.slice(5, 7)) + '/' + Number(k.slice(8, 10));
+      let mode = 'start';
+      const seg = el('div', 'bc-seg bc-span-seg');
+      seg.dataset.name = '開始日・終了日（押してから暦で選ぶ）';
+      const sBtn = el('button', 'bc-seg-b');
+      const eBtn = el('button', 'bc-seg-b');
+      [sBtn, eBtn].forEach((b, i) => {
+        b.type = 'button';
+        b.addEventListener('click', ev => { ev.preventDefault(); mode = i ? 'end' : 'start'; syncSpanRow(); });
+        seg.appendChild(b);
+      });
+      body.appendChild(seg);
+      const sp0 = curSpan();
+      const cal = monthCal({
+        today: todayK, month: monthOf(sp0 ? sp0.start : todayK), label: '期間の暦',
+        state: key => {
+          const sp = curSpan();
+          return sp ? { band: key >= sp.start && key <= sp.end, bs: key === sp.start, be: key === sp.end } : {};
+        },
+        onPick: key => {
+          const sp = curSpan();
+          if (mode === 'start' || !sp) {
+            write(key, sp && sp.end >= key ? sp.end : key);
+            mode = 'end';
+          } else {
+            write(sp.start, key);                 /* 開始日より前を押したら、店が入れ替える */
+          }
+          syncSpanRow();
+        },
+      });
+      body.appendChild(cal.root);
+      const picks = el('div', 'bc-hold-picks');
+      const clear = el('button', 'bc-hold-pick', '未定にする');
+      clear.type = 'button';
+      clear.dataset.name = '未定にする';
+      clear.addEventListener('click', ev => { ev.preventDefault(); mode = 'start'; write('', ''); });
+      picks.appendChild(clear);
+      body.appendChild(picks);
+      body.appendChild(el('p', 'bc-span-note', '開始日か終了日を押してから、暦の日を押す。1 日だけなら同じ日を 2 回'));
+
+      saveSpan = () => {
+        if (spanDraft === undefined) return;
+        a.setSpan(id, spanDraft ? spanDraft.start : '', spanDraft ? spanDraft.end : '');
+        spanDraft = undefined;
+      };
       syncSpanRow = () => {
         const sp = curSpan();
-        startIn.value = sp ? sp.start : '';
-        endIn.value = sp ? sp.end : '';
-        if (sp) endIn.min = sp.start; else endIn.removeAttribute('min');
-        /* 数（あと◯日）は出さない。日だけ */
-        const rp = rep ? ask(a, 'repeat', id) : null;
-        ssum.textContent = !sp ? '決めていない'
-          : (sp.start === sp.end ? md(sp.start) : md(sp.start) + ' 〜 ' + md(sp.end)) + (rp ? '・毎月' : '');
+        ssum.textContent = sp ? spanTx(sp) : '未定';
+        sBtn.textContent = '開始日 ' + (sp ? mdw(sp.start) : '未定');
+        eBtn.textContent = '終了日 ' + (sp ? mdw(sp.end) : '未定');
+        sBtn.setAttribute('aria-pressed', mode === 'start' ? 'true' : 'false');
+        eBtn.setAttribute('aria-pressed', mode === 'end' ? 'true' : 'false');
         clear.setAttribute('aria-pressed', sp ? 'false' : 'true');
-        if (rep) {
-          /* くりかえしは欄（start・due）の期間だけを元にする。本文の古い行しか無いときは押せない */
-          const f = ask(a, 'span', id) || {};
-          rep.disabled = !(f.start && f.due);
-          rep.setAttribute('aria-pressed', rp ? 'true' : 'false');
-          repNote.textContent = rp ? '完了すると、次の月の泡ができる。完了しないまま終わる日が過ぎたら、この泡の期間が次の月へ進む'
-            : (rep.disabled ? '期間を決めると、毎月くりかえせる' : '');
-          repNote.hidden = !repNote.textContent;
-        }
-        head.setAttribute('aria-label', '期間：' + ssum.textContent + '。押すと開始日と終了日を選べる');
+        cal.paint();
+        head.setAttribute('aria-label', '期間：' + ssum.textContent + '。押すと暦で開始日と終了日を選べる');
       };
       box.appendChild(head);
       box.appendChild(body);
       fields.appendChild(box);
       syncSpanRow();
-      /* 決めてあれば、いつも出す。決めていない泡で畳むのは「この端末の表示」で期間を外したときだけ
-         （Issue #40 では既定で畳んでいた。2026-11-16 Issue #76 で既定は出すにした。js/prefs.js の BOARD_SHOW_DEF） */
+      dsync.span = syncSpanRow;
+      /* 決めてあれば、いつも出す。決めていない泡で畳むのは「この端末の表示」で期間を外したときだけ */
       foldPart(box, 'span', !!curSpan());
+    }
+
+    /* ---- くりかえし（Issue #60 の毎月くりかえすを、2026-11-19 に日付の段の 3 つ目の札へ）----
+       何を（やる日・期間）→ 間隔（なし・毎週・2 週ごと・毎月）→ 曜日（毎週・2 週ごとのやる日）か 毎月の日 → 終わりの日。
+       押したらすぐ書く（store.setRepeat）。下に先の 3 回を出して、選んだものが合っているかをその場で確かめられる。
+       完了すると次の回の泡ができ、やらずに過ぎた回はたまらず、この泡が次の回へ進む（store の spawnRepeat・rollRepeat） */
+    if (typeof (a || {}).setRepeat === 'function') {
+      const box = el('div', 'bc-hold bc-rep');
+      const head = el('button', 'bc-cal-head');
+      head.type = 'button';
+      head.setAttribute('aria-expanded', 'false');
+      const rsum = el('span', 'bc-cal-sum');
+      head.appendChild(el('span', 'bc-hold-lb', 'くりかえし'));
+      head.appendChild(rsum);
+      const body = el('div', 'bc-hold-body');
+      body.hidden = true;
+      head.addEventListener('click', ev => {
+        ev.preventDefault();
+        const open = body.hidden;
+        body.hidden = !open;
+        head.setAttribute('aria-expanded', open ? 'true' : 'false');
+        relayout();
+      });
+      /* 閉じた姿でも、くりかえしがあれば「次の回」を 1 行（札の下、段の幅いっぱい） */
+      const note = el('p', 'bc-date-note');
+      note.dataset.name = '次の回';
+
+      const sl = tx => body.appendChild(el('p', 'bc-rep-sl', tx));
+      const segOf = (name, opts, on) => {
+        const s = el('div', 'bc-seg');
+        s.dataset.name = name;
+        const bs = opts.map(([v, tx]) => {
+          const b = el('button', 'bc-seg-b');
+          b.type = 'button';
+          b.textContent = tx;
+          b.dataset.v = v;
+          b.addEventListener('click', ev => { ev.preventDefault(); if (!b.disabled) on(v); });
+          s.appendChild(b);
+          return b;
+        });
+        body.appendChild(s);
+        return { s, bs, set: (v) => bs.forEach(b => b.setAttribute('aria-pressed', b.dataset.v === String(v) ? 'true' : 'false')) };
+      };
+
+      /* 下書き（いまの決まり。無ければ既定）。押すたびに作り直して書く */
+      const anchor = () => {
+        const r = curRepeat();
+        if (r && r.at) return r.at;
+        const fut = (ask(a, 'days', id) || []).filter(k => k >= todayK).sort();
+        return fut[0] || todayK;
+      };
+      const r0 = storedRepeat();
+      let draft = r0 ? Object.assign({}, r0) : null;
+
+      const why = el('p', 'bc-span-note', '');
+      sl('何を');
+      const ofSeg = segOf('くりかえすもの', [['day', 'やる日'], ['span', '期間']], v => { draft = Object.assign(base(), { of: v }); apply(); });
+      sl('間隔');
+      const ivSeg = segOf('間隔', [['none', 'なし'], ['w1', '毎週'], ['w2', '2 週ごと'], ['m', '毎月']], v => {
+        if (v === 'none') { draft = null; apply(); return; }
+        draft = Object.assign(base(), { every: v === 'm' ? 'month' : 'week', step: v === 'w2' ? 2 : 1 });
+        apply();
+      });
+      const dowLb = el('p', 'bc-rep-sl', '曜日');
+      body.appendChild(dowLb);
+      const dowBox = el('div', 'bc-dows');
+      dowBox.dataset.name = '曜日（いくつでも）';
+      const dowBtns = [...DOW_NAMES].map((tx, i) => {
+        const b = el('button', 'bc-dow');
+        b.type = 'button';
+        b.textContent = tx;
+        b.addEventListener('click', ev => {
+          ev.preventDefault();
+          /* 2026-11-19「毎週は曜日で指定できるように」: 期間をくりかえしているときに曜日を押すと、やる日を曜日でくりかえす形に替える */
+          const cur = new Set(draft.of === 'day' ? (draft.dows || []) : []);
+          if (cur.has(i)) { if (cur.size > 1) cur.delete(i); } else cur.add(i);   /* 1 つは残す */
+          draft = Object.assign({}, draft, { of: 'day', dows: [...cur] });
+          apply();
+        });
+        dowBox.appendChild(b);
+        return b;
+      });
+      body.appendChild(dowBox);
+      const mdLb = el('p', 'bc-rep-sl', '毎月の日');
+      body.appendChild(mdLb);
+      const mdSeg = segOf('毎月の日', [['mdays', '日にち'], ['nth', '']], v => {
+        const k = anchor();
+        draft = Object.assign({}, draft, { of: 'day' }, v === 'mdays'
+          ? { mdays: (draft.of === 'day' && draft.mdays && draft.mdays.length) ? draft.mdays : [Number(k.slice(8, 10))], nth: undefined, dow: undefined }
+          : { mdays: undefined, nth: nthOf(k), dow: dowOf(k) });
+        apply();
+      });
+      /* 2026-11-19「毎月の繰り返しを複数日付を選べる様にして」: 日にち（1〜31）をいくつでも。月に無い日（31 日など）はその月の終わりの日 */
+      const mdBox = el('div', 'bc-mdays');
+      mdBox.dataset.name = '毎月の日にち（いくつでも）';
+      const mdBtns = Array.from({ length: 31 }, (_, j) => {
+        const n = j + 1;
+        const b = el('button', 'bc-mday');
+        b.type = 'button';
+        b.textContent = String(n);
+        b.setAttribute('aria-label', '毎月 ' + n + ' 日');
+        b.addEventListener('click', ev => {
+          ev.preventDefault();
+          const cur = new Set(draft.of === 'day' ? (draft.mdays || []) : []);
+          if (cur.has(n)) { if (cur.size > 1) cur.delete(n); } else cur.add(n);   /* 1 つは残す */
+          draft = Object.assign({}, draft, { of: 'day', mdays: [...cur].sort((x, y) => x - y), nth: undefined, dow: undefined });
+          apply();
+        });
+        mdBox.appendChild(b);
+        return b;
+      });
+      body.appendChild(mdBox);
+      const mdNote = el('p', 'bc-span-note', '');
+      body.appendChild(mdNote);
+      sl('終わりの日');
+      const untilSeg = segOf('終わりの日', [['none', '決めない'], ['pick', '日を選ぶ…']], v => {
+        if (v === 'none') { draft = Object.assign({}, draft, { until: undefined }); untilIn.hidden = true; apply(); return; }
+        untilIn.hidden = false;
+        untilSeg.set('pick');
+        try { untilIn.showPicker(); } catch (e) { untilIn.focus(); }
+      });
+      const untilIn = el('input', 'bc-hold-day bc-rep-until');
+      untilIn.type = 'date';
+      untilIn.min = todayK;
+      untilIn.setAttribute('aria-label', '終わりの日をえらぶ');
+      untilIn.hidden = true;
+      untilIn.addEventListener('change', () => {
+        draft = Object.assign({}, draft, { until: untilIn.value || undefined });
+        apply();
+      });
+      body.appendChild(untilIn);
+      const nextLn = el('p', 'bc-rep-next');
+      nextLn.dataset.name = '次の回（先の 3 回）';
+      body.appendChild(nextLn);
+      body.appendChild(why);
+
+      /* 間隔を選んだときの既定。期間があってやる日が無ければ期間、ほかはやる日。曜日・日は、いまの回か今日から */
+      function base() {
+        if (draft) return Object.assign({}, draft);
+        const k = anchor();
+        const fut = (ask(a, 'days', id) || []).some(d => d >= todayK);
+        const of = (spanFields() && !fut) ? 'span' : 'day';
+        return { every: 'week', step: 1, of, dows: [dowOf(k)], mdays: [Number(k.slice(8, 10))] };
+      }
+      /* 選んだら下書きに入れて描き直す。書くのは閉じるとき（saveRepeat） */
+      function apply() {
+        let cfg = draft;
+        if (cfg) {
+          cfg = Object.assign({}, cfg);
+          if (cfg.of === 'day' && cfg.every === 'week' && !(cfg.dows || []).length) cfg.dows = [dowOf(anchor())];
+          if (cfg.of === 'day' && cfg.every === 'month' && !(cfg.mdays || []).length && !cfg.nth) cfg.mdays = [Number(anchor().slice(8, 10))];
+          if (cfg.every === 'month') cfg.step = 1;
+          if (cfg.of === 'span' && !spanFields()) cfg.of = 'day';
+        }
+        const before = curRepeat();
+        draft = cfg;
+        repDraft = cfg;
+        const after = curRepeat();
+        if (moveRepDay) moveRepDay(before && before.of === 'day' ? before.at : null, after && after.of === 'day' ? after.at : null);
+        syncRep();
+        syncDates('rep');
+      }
+      saveRepeat = () => {
+        if (repDraft === undefined) return;
+        const cfg = repDraft ? Object.assign({}, repDraft) : null;
+        if (cfg) ['from', 'to', 'n', 'at', 'next'].forEach(k => delete cfg[k]);
+        a.setRepeat(id, cfg);
+        repDraft = undefined;
+      };
+
+      function syncRep() {
+        const r = curRepeat();
+        const d = draft || {};
+        const hasSpan = !!spanFields();
+        ofSeg.set(d.of || (r ? r.of : 'day'));
+        ofSeg.bs[1].disabled = !hasSpan;
+        ofSeg.bs[1].title = hasSpan ? '' : '期間を決めると選べる';
+        ivSeg.set(!draft ? 'none' : (d.every === 'month' ? 'm' : (d.step === 2 ? 'w2' : 'w1')));
+        /* 曜日・毎月の日は、毎週・2 週ごと・毎月を選んだらいつも出す（期間をくりかえしている間は印を付けず、押すとやる日のくりかえしになる） */
+        const showDow = !!draft && d.every === 'week';
+        dowLb.hidden = dowBox.hidden = !showDow;
+        dowBtns.forEach((b, i) => b.setAttribute('aria-pressed', d.of === 'day' && (d.dows || []).indexOf(i) >= 0 ? 'true' : 'false'));
+        const showMd = !!draft && d.every === 'month';
+        mdLb.hidden = mdSeg.s.hidden = !showMd;
+        const k = anchor();
+        mdSeg.bs[1].textContent = nthLabel(d.nth || nthOf(k)) + ' ' + DOW_NAMES[d.dow != null ? d.dow : dowOf(k)] + '曜';
+        mdSeg.set(d.of !== 'day' ? '' : (d.nth ? 'nth' : 'mdays'));
+        mdBox.hidden = !(showMd && d.of === 'day' && !d.nth);
+        mdBtns.forEach((b, j) => b.setAttribute('aria-pressed', (d.mdays || []).indexOf(j + 1) >= 0 ? 'true' : 'false'));
+        mdNote.textContent = (showDow || showMd) && d.of === 'span'
+          ? (showDow ? '曜日を押すと、期間ではなくやる日を曜日でくりかえす。' : '日にちを押すと、期間ではなくやる日を日にちでくりかえす。')
+          : (!mdBox.hidden && (d.mdays || []).some(n => n > 28) ? '29〜31 日が無い月は、その月の終わりの日。' : '');
+        mdNote.hidden = !mdNote.textContent;
+        ofSeg.s.hidden = !draft;
+        ofSeg.s.previousSibling.hidden = !draft;
+        untilSeg.s.hidden = untilSeg.s.previousSibling.hidden = !draft;
+        untilSeg.set(d.until ? 'pick' : (untilIn.hidden ? 'none' : 'pick'));
+        untilIn.value = d.until || '';
+        if (d.until) untilIn.hidden = false;
+        if (d.until) untilSeg.bs[1].textContent = mdw(d.until) + ' まで';
+        else untilSeg.bs[1].textContent = '日を選ぶ…';
+        /* 先の 3 回 */
+        const up = r ? repUpcoming(4) : [];
+        const fmt = x => (typeof x === 'string' ? mdw(x) : spanTx({ start: x.start, end: x.due }));
+        const later = r && r.of === 'day' ? up.filter(x => x > (r.at || todayK)) : up.slice(1);
+        nextLn.textContent = r ? '次の回　' + (later.length ? later.slice(0, 3).map(fmt).join('・') : 'もう無い（終わりの日を過ぎた）') : '';
+        nextLn.hidden = !r;
+        rsum.textContent = r ? repeatLabel(normalizeRepeat(Object.assign({ n: 0 }, r))) : 'なし';
+        head.setAttribute('aria-label', 'くりかえし：' + rsum.textContent + '。押すと選べる');
+        note.textContent = r && later.length ? '次の回 ' + fmt(later[0]) : '';
+        note.hidden = !note.textContent;
+        let hint = body.querySelector('.bc-rep-hint');
+        if (!hint) { hint = el('p', 'bc-span-note bc-rep-hint'); body.appendChild(hint); }
+        hint.textContent = r ? '完了すると、次の回の泡ができる。やらずに過ぎた回はたまらず、この泡が次の回へ進む' : '';
+        hint.hidden = !r;
+      }
+
+      box.appendChild(head);
+      box.appendChild(note);
+      box.appendChild(body);
+      box.dataset.part = 'repeat';
+      fields.appendChild(box);
+      syncRep();
+      dsync.rep = () => syncRep();   /* 期間が変わったら（期間をくりかえすときの次の回） */
+      foldPart(box, 'repeat', !!curRepeat());
     }
 
     /* ---- 長期保留の「戻ってくる日」（利用者の指示）----
@@ -1527,7 +1835,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       head.type = 'button';
       head.setAttribute('aria-expanded', 'false');
       const hsum = el('span', 'bc-cal-sum');
-      const lb = el('label', 'bc-hold-lb', 'もどってくる日');
+      const lb = el('label', 'bc-hold-lb', '海に戻す日');   /* 2026-11-18 もどってくる日 → 海に戻す日 */
       const picks = el('div', 'bc-hold-picks');
       const body = el('div', 'bc-hold-body');
       body.hidden = true;
@@ -1544,7 +1852,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       dayIn.type = 'date';
       const today = ask(a, 'todayKey') || '';
       if (today) dayIn.min = today;                /* 過ぎた日は選ばせない */
-      dayIn.setAttribute('aria-label', 'もどってくる日をえらぶ');
+      dayIn.setAttribute('aria-label', '海に戻す日をえらぶ');
       lb.htmlFor = dayIn.id = 'bc-hold-day-' + String(id);
 
       /* 早い順。いちばん近いものを左に置く（押す回数が多いほうを親指側へ） */
@@ -1583,8 +1891,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         /* 畳んだ姿の要約。日は出すが、あと何日かは出さない（数え上げにしない） */
         hsum.textContent = until
           ? Number(until.slice(5, 7)) + '/' + Number(until.slice(8, 10))
-          : '決めていない';
-        head.setAttribute('aria-label', 'もどってくる日：' + hsum.textContent + '。押すと選べる');
+          : '未定';
+        head.setAttribute('aria-label', '海に戻す日：' + hsum.textContent + '。押すと選べる');
       }
 
       box.appendChild(head);
@@ -1593,6 +1901,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       box.appendChild(body);
       dayIn.value = until || '';
       syncPicks();
+      box.dataset.part = 'hold';   /* 日付の段に入れる（arrangeBoard）。設定の選ぶものには入れない（長期保留の札のときだけ出る） */
       fields.appendChild(box);
 
       /* 長期保留の札の状態に合わせて出し入れする。
@@ -1662,18 +1971,19 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   if (a && fields) {
     const draft = (canCommit && ask(a, 'draft', id)) || null;
 
-    const wrap = el('label', 'bc-row');
+    /* 2026-11-18: 「次の一手」→「次にやること」。欄の字は例を出す（「ひとつめだけ」では何を書くか分からなかった） */
+    const wrap = el('label', 'bc-row bc-stack');
     const lb = el('span', 'bc-lb');
-    lb.textContent = '次の一手';               /* innerHTML には入れない */
+    lb.textContent = '次にやること';               /* innerHTML には入れない */
     stepIn = el('input', 'bc-in');
     stepIn.type = 'text';
-    stepIn.placeholder = 'ひとつめだけ';
+    stepIn.placeholder = '例 予約の電話をかける';
     stepIn.autocomplete = 'off';
     stepIn.enterKeyHint = 'done';
     wrap.appendChild(lb);
     wrap.appendChild(stepIn);
     foldPart(wrap, 'step', false);
-    fields.appendChild(wrap);
+    if (stepOnBoard) fields.appendChild(wrap);
     /* 書きかけがあればそちら、無ければいまの「次の一手」 */
     stepIn.value = String((draft && draft.next) || ask(a, 'firstStep', id) || '');
 
@@ -1682,14 +1992,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
          入口には**いま何か書いてあるか**を出す——押さないと分からない、にしない */
       memoDraft = String((draft && draft.did) || '');
       const mrow = el('div', 'bc-row');
-      const mlb = el('span', 'bc-lb', '作業メモ');
+      const mlb = el('span', 'bc-lb', '作業の記録');   /* 2026-11-18 作業メモ → 作業の記録 */
       memoBtn = el('button', 'bc-memo-open');
       memoBtn.type = 'button';
       memoBtn.addEventListener('click', ev => { ev.preventDefault(); openMemo(); });
       mrow.appendChild(mlb);
       mrow.appendChild(memoBtn);
       foldPart(mrow, 'memo', !!memoDraft.trim());   /* 書きかけがあれば畳まない */
-      fields.appendChild(mrow);
+      if (stepOnBoard) fields.appendChild(mrow);
       syncMemoBtn();
     }
 
@@ -1754,12 +2064,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        左寄せの文字だけにして、要約している「作業メモ」のすぐ下へ置く */
     histBtn = el('button', 'bc-hist-open');
     histBtn.type = 'button';
-    histBtn.textContent = '履歴を読む ›';
+    histBtn.textContent = '履歴を見る ›';   /* 2026-11-19 作業記録の見出しの行に置く */
     histBtn.setAttribute('aria-expanded', 'false');
     histBtn.addEventListener('click', ev => { ev.preventDefault(); openHistory(); });
-    foldPart(histBtn, 'hist', false);
-    /* 作業メモの行のすぐ下へ。要約しているものの隣に置く */
-    if (memoBtn && memoBtn.parentElement && memoBtn.parentElement.parentElement === fields) {
+    histBtn.classList.add('bc-link-btn');
+    /* 2026-11-19: 作業記録の見出しの行、［全体を開く ›］の前へ */
+    if (dhead) {
+      dhead.insertBefore(histBtn, detailBtn || null);
+    } else if (memoBtn && memoBtn.parentElement && memoBtn.parentElement.parentElement === fields) {
       fields.insertBefore(histBtn, memoBtn.parentElement.nextSibling);
     } else {
       fields.appendChild(histBtn);
@@ -1771,28 +2083,79 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     syncHistBtn();
   }
 
-  /* ---- 「その他」（Issue #40）----
-     あまり使わない欄（印の無いお気に入り・優先度、決めていない期間、空のリンク）は畳んでおき、
-     ここを押したときだけ出す。盤を閉じると畳んだ姿に戻る（Issue #49 の返事。前は開き直しても開いたままだった）。
+  /* ---- 並べ直す（2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」。モック docs/spec/mock/task-start.html）----
+     2026-11-19: 次にやること・作業の記録はメモの位置の「作業記録」1 つにまとめた（step・memo・hist の欄は置かない。履歴は作業記録の見出しの行）。
+     上から: 名前 → 次にやること → ［始める］［今日はここまで］［完了にする］ → 担当・コメント（共有の海） → メモ → 日付（やる日・期間・海に戻す日） → タグ
+     → 中身のあるリンク・書きかけの作業の記録 → 「その他」 → まれなもの（お気に入り・優先度・リンク・作業の記録・飛び先・削除）。
+     欄そのものは上で組んだまま。ここでは置く順と、畳むかどうかだけを決める */
+  const ORDER = ['name', 'step', 'acts', 'who', 'notes', 'detail', 'dates', 'tags', 'fav', 'prio', 'url', 'memo', 'hist', 'jump', 'del'];
+  if (fields) {
+    /* お気に入り・優先度は、印が付いていても「その他」へ（付いていれば名前の横に印を出す）。設定で選んだときは外に */
+    ['fav', 'prio'].forEach(p => fields.querySelectorAll(':scope > [data-part="' + p + '"]')
+      .forEach(n => { if (!boardShow.has(p)) n.classList.add('is-extra'); }));
+    if (nameIn) {
+      const marks = [];
+      if (ask(a, 'isFav', id) === true) marks.push('☆');
+      const pr = ask(a, 'priorityOf', id) || {};
+      if (pr.urgent === true) marks.push('◷');
+      if (pr.important === true) marks.push('◆');
+      if (marks.length) {
+        const mk = el('span', 'bc-marks', marks.join(' '));
+        mk.setAttribute('aria-label', [marks.includes('☆') ? 'お気に入り' : '', pr.urgent === true ? '急ぐ' : '', pr.important === true ? '大事' : ''].filter(Boolean).join('・'));
+        mk.dataset.name = 'お気に入り・優先度の印';
+        nameIn.parentElement.appendChild(mk);
+      }
+    }
+    /* 日付の段（決めてほしいこと 4）: やる日・期間（・長期保留なら海に戻す日）の札を 2 列に並べ、開いた暦はその下に広げる */
+    /* 2026-11-19: くりかえしを 3 つ目の札に（3 列）。1 つを開くと、ほかの開いている札を閉じる（盤を長くしない） */
+    const dboxes = ['days', 'span', 'repeat', 'hold'].map(p => fields.querySelector(':scope > [data-part="' + p + '"]')).filter(Boolean);
+    if (dboxes.length) {
+      const dates = el('div', 'bc-dates');
+      dates.dataset.part = 'dates';
+      dates.dataset.name = '日付';
+      dates.appendChild(el('span', 'bc-lb', '日付'));
+      const grid = el('div', 'bc-dates-grid');
+      dboxes.forEach(n => { n.classList.add('bc-date-box'); grid.appendChild(n); });
+      grid.addEventListener('click', ev => {
+        const h = ev.target.closest('.bc-cal-head');
+        if (!h || h.getAttribute('aria-expanded') !== 'true') return;
+        grid.querySelectorAll('.bc-cal-head[aria-expanded="true"]').forEach(o => { if (o !== h) o.click(); });
+      });
+      dates.appendChild(grid);
+      if (dboxes.every(n => n.classList.contains('is-extra'))) dates.classList.add('is-extra');
+      fields.appendChild(dates);
+    }
+    const tagsBox = fields.querySelector(':scope > [data-part="tags"]');
+    if (tagsBox && !tagsBox.querySelector('.bc-tags-lb')) tagsBox.insertBefore(el('span', 'bc-lb bc-tags-lb', 'タグ'), tagsBox.firstChild);
+    const whoBox = fields.querySelector(':scope > .bc-who');
+    if (whoBox) whoBox.dataset.part = 'who';
+    const del = acts ? acts.querySelector('[data-part="del"]') : null;
+    if (del) { del.remove(); fields.appendChild(del); }
+    if (acts) { acts.dataset.part = 'acts'; fields.appendChild(acts); }
+    const rank = n => { const k = ORDER.indexOf(n.dataset.part || ''); return k < 0 ? ORDER.length : k; };
+    const kids = [...fields.children].sort((x, y) => rank(x) - rank(y));
+    kids.forEach(n => fields.appendChild(n));
+  }
+
+  /* ---- 「その他」（Issue #40。2026-11-18 から、まれなものだけをここに 1 か所にまとめる）----
+     盤を閉じると畳んだ姿に戻る（Issue #49 の返事）。
      設定の「この端末の表示」で「あまり使わない機能も出す」にしていれば、畳まずに出す（CSS の body.pref-all-tools） */
   /* 中身が無くて隠れている欄（記録の無い履歴など）は数えない。押しても何も出ない「その他」を作らないため */
   const foldedNodes = fields
-    ? [...fields.querySelectorAll('.is-extra'), ...(acts ? acts.querySelectorAll('.is-extra') : [])].filter(n => !n.hidden)
+    ? [...fields.querySelectorAll('.is-extra')].filter(n => !n.hidden && !n.closest('[hidden]'))
     : [];
   if (fields && foldedNodes.length) {
     const more = el('button', 'bc-more');
     more.type = 'button';
-    /* 畳んだ欄の名前（Issue #49。どれを畳むかは設定で変わる）。長くなれば3つまでと「ほか」 */
+    more.dataset.name = 'その他';
     const foldedNames = foldedNodes
       .map(n => BOARD_PART_LABEL[n.dataset.part]).filter(Boolean)
       .filter((v, i, arr) => arr.indexOf(v) === i);
-    const foldedTx = foldedNames.length > 4 ? foldedNames.slice(0, 3).join('・') + ' ほか' : foldedNames.join('・');
     const syncMore = () => {
       fields.classList.toggle('show-extra', boardExtraOpen);
       more.setAttribute('aria-expanded', boardExtraOpen ? 'true' : 'false');
-      more.textContent = boardExtraOpen ? 'その他を畳む ▴' : 'その他' + (foldedTx ? '（' + foldedTx + '）' : '') + ' ▾';
-      if (!boardExtraOpen) more.setAttribute('aria-label', 'その他を開く：' + foldedNames.join('・'));
-      else more.removeAttribute('aria-label');
+      more.textContent = boardExtraOpen ? 'その他 ▴' : 'その他 ▾';   /* 2026-11-18 中身の並びは開けば見える */
+      more.setAttribute('aria-label', (boardExtraOpen ? 'その他を畳む：' : 'その他を開く：') + foldedNames.join('・'));
     };
     more.addEventListener('click', ev => {
       ev.preventDefault();
@@ -1801,12 +2164,39 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       relayout();
     });
     syncMore();
+    /* 外に出ている欄のあと、畳んだ欄（.is-extra）の前に置く。畳んだ欄は開いたとき、この下にまとまって出る */
+    const extras = [...fields.children].filter(n => n.classList.contains('is-extra'));
     fields.appendChild(more);
+    extras.forEach(n => fields.appendChild(n));
+  }
+
+  /* 自動で保存した印（2026-11-18。［書き留める］の代わり）。盤の右下に少しの間だけ */
+  const savedTag = fields ? el('p', 'bc-saved') : null;
+  if (savedTag) {
+    savedTag.setAttribute('aria-live', 'polite');
+    savedTag.dataset.name = '保存の印';
+    fields.appendChild(savedTag);
   }
 
   if (fields) {
-    if (acts) fields.appendChild(acts);
     root.appendChild(fields);
+    /* 打ち終えた欄（名前・次にやること・リンク・メモ）から離れたら保存する（2026-11-18 決めてほしいこと 2。［書き留める］の代わり）。
+       書くものは前の［書き留める］と同じ applyEdits（盤は閉じない）。変わっていなければ何もしない。閉じるときにも今までどおり書く */
+    let savedTimer = 0;
+    const snap = () => [nameIn && nameIn.value, stepIn && stepIn.value, urlIn && urlIn.value, detailDraft].join('\u0000');
+    let lastSnap = snap();
+    fields.addEventListener('focusout', ev => {
+      const t = ev.target;
+      if (!(t === nameIn || t === stepIn || t === urlIn || t === detailInline)) return;
+      if (snap() === lastSnap) return;
+      const said = applyEdits();
+      lastSnap = snap();
+      if (savedTag && said === '書き留めた') {
+        savedTag.textContent = '保存した';
+        clearTimeout(savedTimer);
+        savedTimer = setTimeout(() => { savedTag.textContent = ''; }, 1600);
+      }
+    });
   }
 
   /* ---- 打ち終わりを待って保存する（打つたびには書かない） ---- */
@@ -1817,7 +2207,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      ——そちらには積む先が無いので、控えても行き場が無い */
   function saveStep() {
     clearTimeout(stepTimer); stepTimer = 0;
-    if (!stepIn) return;
+    if (!stepIn || !stepOnBoard) return;
     if (!canCommit) { ask(a, 'setFirstStep', id, stepIn.value.trim()); return; }
     const did = memoDraft;
     const next = stepIn.value;
@@ -1841,12 +2231,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (saveName()) did = true;                      /* 名前 */
     if (saveDetail()) did = true;                    /* 本文 */
 
-    if (!stepIn) return did ? '書き留めた' : null;
+    if (!stepIn || !stepOnBoard) { if (did) syncHistBtn(); return did ? '書き留めた' : null; }
     const next = stepIn.value.trim();
     if (!canCommit) { ask(a, 'setFirstStep', id, next); return '書き留めた'; }
 
     const cur = String(ask(a, 'firstStep', id) || '');
-    if (!next) { saveStep(); return next === cur ? '書き留めた' : '次の一手が要る'; }
+    if (!next) { saveStep(); return next === cur ? '書き留めた' : '次にやることが要る'; }
     if (next === cur) { saveStep(); return '書き留めた'; }
 
     /* 次の一手が変わったなら、記録として1件積む（git のコミットと同じ形）。
@@ -1869,7 +2259,16 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function saveDetail() {
     if (!detailBtn) return false;
     if (detailPane && !detailPane.hidden && detailArea) detailDraft = detailArea.value;
-    return ask(a, 'setDetail', id, detailDraft) === true;
+    /* 2026-11-19 作業記録: 変わったときだけ書き、記録（steps）へ 1 件積む＝履歴になる。
+       記録の next には 1 行目を入れる（集中画面・一覧の「次にやること」に出る）。空にしたときは積まない */
+    const v = detailDraft.trim();
+    if (v === rec0.trim()) return false;
+    ask(a, 'setDetail', id, v);
+    if (v && canCommit) ask(a, 'commitStep', id, { did: v, next: firstLineOf(v) });
+    rec0 = detailDraft;
+    syncDetailBtn();                              /* ［全体を開く ›］は中身があるときだけ */
+    syncHistBtn();
+    return true;
   }
 
   function saveUrl() {
@@ -1978,7 +2377,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
 
     const head = el('div', 'bh-head');
     const ttl = el('span', 'bh-title');
-    ttl.textContent = '履歴';
+    ttl.textContent = '作業記録の履歴';   /* 2026-11-19 */
     histClose = el('button', 'bh-close');
     histClose.type = 'button';
     histClose.textContent = '閉じる';
@@ -2032,11 +2431,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function buildMemo() {
     memoPane = el('div', 'bc-memo');
     memoPane.setAttribute('role', 'group');
-    memoPane.setAttribute('aria-label', '作業メモ');
+    memoPane.setAttribute('aria-label', '作業の記録');
     memoPane.hidden = true;
 
     const head = el('div', 'bm-head');
-    head.appendChild(el('span', 'bm-title', '作業メモ'));
+    head.appendChild(el('span', 'bm-title', '作業の記録'));
     const close = el('button', 'bm-close', '閉じる');
     close.type = 'button';
     close.addEventListener('click', ev => { ev.preventDefault(); closeMemo(true); });
@@ -2053,7 +2452,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     memoArea.className = 'bm-in';
     memoArea.rows = 6;
     memoArea.placeholder = 'ここまでやったこと';
-    memoArea.setAttribute('aria-label', '作業メモ');
+    memoArea.setAttribute('aria-label', '作業の記録');
     memoArea.addEventListener('input', () => {
       memoDraft = memoArea.value;
       clearTimeout(stepTimer);
@@ -2061,7 +2460,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     });
     memoPane.appendChild(memoArea);
 
-    const save = el('button', 'bm-save', '作業メモを保存');
+    const save = el('button', 'bm-save', '作業の記録に足す');
     save.type = 'button';
     let back = 0;
     save.addEventListener('click', ev => {
@@ -2071,7 +2470,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       save.textContent = said;
       save.classList.toggle('is-nope', said !== '記録した');
       back = setTimeout(() => {
-        save.textContent = '作業メモを保存';
+        save.textContent = '作業の記録に足す';
         save.classList.remove('is-nope');
       }, 1400);
     });
@@ -2089,7 +2488,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const did = memoArea ? memoArea.value.trim() : '';
     const next = stepIn ? stepIn.value.trim() : '';
     if (!did) return '書いてから';
-    if (!next) return '次の一手が要る';
+    if (!next) return '次にやることが要る';
     if (!ask(a, 'commitStep', id, { did: did, next: next })) return 'まだ積めない';
     memoArea.value = '';
     memoDraft = '';
@@ -2103,8 +2502,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function openMemo() {
     if (!memoPane) buildMemo();
     memoPane._ctx.textContent = stepIn && stepIn.value.trim()
-      ? '次の一手：' + stepIn.value.trim()
-      : '次の一手を書くと、ここから記録が積める';
+      ? '次にやること：' + stepIn.value.trim()
+      : '次にやることを書くと、ここから記録が積める';
     memoArea.value = memoDraft;
     if (memoSaid) memoSaid.textContent = '';
     memoPane.hidden = false;
@@ -2141,9 +2540,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function syncDetailBtn() {
     if (!detailBtn) return;
     const t = detailDraft.trim();
-    detailBtn.textContent = t ? trimTx(t.split('\n')[0], 16) : '書く';
+    detailBtn.textContent = '全体を開く ›';
+    detailBtn.hidden = !t;
     detailBtn.classList.toggle('is-empty', !t);
-    detailBtn.setAttribute('aria-label', t ? '本文を読む' : '本文を書く');
+    detailBtn.setAttribute('aria-label', '作業記録の全体を開く（読む・書く）');
+    if (detailInline && document.activeElement !== detailInline && detailInline.value !== detailDraft) detailInline.value = detailDraft;
     if (syncSpanRow) syncSpanRow();
   }
 
@@ -2178,11 +2579,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function buildDetail() {
     detailPane = el('div', 'bc-memo bc-detail');
     detailPane.setAttribute('role', 'group');
-    detailPane.setAttribute('aria-label', '本文');
+    detailPane.setAttribute('aria-label', '作業記録');
     detailPane.hidden = true;
 
     const head = el('div', 'bm-head');
-    head.appendChild(el('span', 'bm-title', '本文'));
+    head.appendChild(el('span', 'bm-title', '作業記録'));
     const btns = el('div', 'bm-btns');
     detailEdit = el('button', 'bm-close bm-edit', '編集');
     detailEdit.type = 'button';
@@ -2585,11 +2986,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const live = rows.filter(n => !n.gone);
     const fresh = ask(a, 'hasNewNote', id) === true;
     /* 面は前のものを読むだけになった（Issue #70 の返事）。盤に出ていない古いもの（3 件より前）があるときだけ出す */
-    notesBtn.textContent = '前のものも見る';
+    notesBtn.textContent = 'すべて見る ›';   /* 2026-11-18 前のものも見る → すべて見る */
     notesBtn.hidden = rows.length <= CHAT_SHOW;
     notesBtn.classList.toggle('is-empty', !live.length);
     notesBtn.classList.toggle('is-fresh', fresh);
-    notesBtn.setAttribute('aria-label', fresh ? 'ひとことの前のものも見る（新しいものあり）' : 'ひとことの前のものも見る');
+    notesBtn.setAttribute('aria-label', fresh ? 'コメントをすべて見る（新しいものあり）' : 'コメントをすべて見る');
     renderChat(rows);
   }
 
@@ -2649,14 +3050,14 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (ask(a, 'noteSigning') === true) {
       const p = ask(a, 'addNoteSigned', id, t);
       if (!p || typeof p.then !== 'function') return done('まだ書けない');
-      p.then(n => { if (!n) return done('まだ書けない'); after(); pushDirect(); done('送った'); },
+      p.then(n => { if (!n) return done('まだ書けない'); after(); pushDirect(); done('投稿した'); },
         e => done(e && /やめた/.test(String(e.message || e)) ? 'やめた' : '署名できない'));
       return '署名中…';
     }
     if (!ask(a, 'addNote', id, t)) return 'まだ書けない';
     after();
     pushDirect();
-    return '送った';
+    return '投稿した';
   }
   /* 直につながっている相手がいれば、積んだひとことを含む記録をすぐ送る（手数料なし。2026-11-16 Issue #68 の C1）。
      つながっていなければ何もしない（ひとことは「同期」で届く） */
@@ -2711,11 +3112,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function buildNotes() {
     notesPane = el('div', 'bc-memo bc-notes');
     notesPane.setAttribute('role', 'group');
-    notesPane.setAttribute('aria-label', 'ひとこと');
+    notesPane.setAttribute('aria-label', 'コメント');
     notesPane.hidden = true;
 
     const head = el('div', 'bm-head');
-    head.appendChild(el('span', 'bm-title', 'ひとこと'));
+    head.appendChild(el('span', 'bm-title', 'コメント'));
     const close = el('button', 'bm-close', '閉じる');
     close.type = 'button';
     close.addEventListener('click', ev => { ev.preventDefault(); closeNotes(true); });
@@ -2730,7 +3131,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     /* 番号は振らない（「◯件目」を数えない。§0） */
     notesList = el('ul', 'bn-list');
     notesList.tabIndex = 0;
-    notesList.setAttribute('aria-label', 'ひとことの一覧（古い順）');
+    notesList.setAttribute('aria-label', 'コメントの一覧（古い順）');
     notesPane.appendChild(notesList);
 
     /* 2026-11-15 Issue #70 の返事「メッセージを残すがあるからひとこといらないのでは？」:
@@ -2738,7 +3139,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        書くのは盤の 1 行の欄だけにし、この面は前のものを読むだけにする。
        続く返事「ひとことの名前を入れる場所はいらないのでは？」で名前の欄も外した。書き手の名前は、
        前に決めた名前か、パスキー・招待で付いた名前のまま（js/notes.js の noteName）。サーバーあり版は設定の海のチャットの欄でも変えられる */
-    notesPane.appendChild(el('p', 'bm-ctx', '書くのは詳細の「ひとことを残す」の欄から'));
+    notesPane.appendChild(el('p', 'bm-ctx', '書くのは詳細の「コメントを書く」の欄から'));
 
     root.appendChild(notesPane);
   }
@@ -2882,6 +3283,36 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     if (lastPlace) place(lastPlace.cx, lastPlace.cy, lastPlace.d);
   }
 
+  /* 飛び先のリンク（2026-11-18 取り決め §7.3）。期間のある泡は gantt、終えた泡は diary。同じタブで移る。
+     見るだけの海でも押せる（a は下の disabled の対象でない） */
+  const jl = ask(a, 'jumpLinks', id);
+  if (Array.isArray(jl) && jl.length) {
+    const box = el('div', 'bc-jump');
+    box.dataset.name = '飛び先のリンク';
+    jl.forEach(j => {
+      const link = document.createElement('a');
+      link.className = 'bc-jump-a';
+      link.href = j.href;
+      link.textContent = j.label;
+      link.dataset.name = j.name || j.label;
+      box.appendChild(link);
+    });
+    /* 2026-11-18（モック task-start.html）: 「その他」の中、削除の前へ */
+    box.dataset.part = 'jump';
+    const delNode = fields ? fields.querySelector(':scope > [data-part="del"]') : null;
+    if (fields && fields.querySelector(':scope > .bc-more')) { box.classList.add('is-extra'); fields.insertBefore(box, delNode && delNode.classList.contains('is-extra') ? delNode : fields.querySelector(':scope > .bc-saved')); }
+    else (fields || root).appendChild(box);
+  }
+
+  /* 見るだけ（viewer）の海（2026-11-18）。盤のボタンと欄を押せなくし、そう書く（押しても仲間に届かないため） */
+  if (ask(a, 'readOnly') === true) {
+    root.classList.add('is-readonly');
+    root.querySelectorAll('button, input, textarea, select').forEach(n => { n.disabled = true; });
+    const ro = el('p', 'bc-readonly', ask(a, 'readOnlyWhy') || '見るだけの海なので、変えられない');
+    ro.dataset.name = '見るだけの印';
+    root.insertBefore(ro, root.firstChild);
+  }
+
   return {
     root, place,
     /* タグは最後に書く。書いた瞬間に画面が組み直されるので、
@@ -2891,9 +3322,12 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     flush() {
       if (memoPane && !memoPane.hidden && memoArea) memoDraft = memoArea.value;
       saveStep(); saveUrl(); saveName(); saveDetail();
+      if (saveSpan) saveSpan();               /* 期間はくりかえしより先（期間をくりかえすときの元） */
+      if (saveRepeat) saveRepeat();           /* くりかえしはやる日より先（回の日を店が入れ替える） */
       if (saveDays) saveDays();               /* 日はタグより先（today を二重に書かない） */
       if (saveTags) saveTags();
       if (saveFav) saveFav();                 /* 印はタグの後ろ。順に意味は無い */
+      if (saveWho) saveWho();
       if (savePrio) savePrio();
       if (saveHoldUntil) saveHoldUntil();
     },
@@ -2980,8 +3414,13 @@ export function fillStepList(ul, rows, onEdit) {
       w.appendChild(v);
       li.appendChild(w);
     };
-    line('作業メモ', s && s.did);
-    line('次の一手', s && s.next);
+    /* 2026-11-19: 作業記録の欄から積んだもの（1 行目＝次にやること）は 1 つの文として出す。前の形の記録は両方 */
+    if (isRecordStep(s)) {
+      line('作業記録', s.did);
+    } else {
+      line('作業記録', s && s.did);
+      line('次にやること', s && s.next);
+    }
     ul.appendChild(li);
   });
   return ul;
@@ -3014,15 +3453,17 @@ function openStepEdit(step, onEdit) {
     const w = el('label', 'fld');
     w.appendChild(el('span', 'k', label));
     const ta = el('textarea', 'v');
-    ta.rows = label === '作業メモ' ? 4 : 2;
+    ta.rows = label === '作業記録' ? 4 : 2;
     ta.value = String(value == null ? '' : value);
     ta.placeholder = ph;
     w.appendChild(ta);
     box.appendChild(w);
     return ta;
   };
-  const didIn = mk('作業メモ', step && step.did, '書いていなくてもよい');
-  const nextIn = mk('次の一手', step && step.next, '次にどこから始めるか');
+  /* 2026-11-19: 作業記録の欄から積んだものは、1 つの欄で直す（1 行目が次にやることになる） */
+  const merged = isRecordStep(step);
+  const didIn = mk('作業記録', step && step.did, merged ? '' : '書いていなくてもよい');
+  const nextIn = merged ? null : mk('次にやること', step && step.next, '次にどこから始めるか');
 
   const why = el('p', 'why', '');
   why.hidden = true;
@@ -3036,12 +3477,12 @@ function openStepEdit(step, onEdit) {
   ok.type = 'button';
   ok.addEventListener('click', ev => {
     ev.preventDefault();
-    const next = nextIn.value.trim();
+    const next = merged ? firstLineOf(didIn.value) : nextIn.value.trim();
     if (!next) {
       /* 断らずに理由を出す。命令形にはしない（§0） */
-      why.textContent = '記録には次の一手が要る';
+      why.textContent = merged ? '空の記録にはできない' : '記録には次にやることが要る';
       why.hidden = false;
-      nextIn.focus({ preventScroll: true });
+      (nextIn || didIn).focus({ preventScroll: true });
       return;
     }
     if (onEdit(step.at, { did: didIn.value, next }) === false) {
@@ -3654,6 +4095,23 @@ export function openMenu(node, handlers = {}) {
     });
     box.appendChild(btn);
   });
+
+  /* 海を移す（2026-11-18。モック 6）。預け先に moveTargets があり、移せる海があるときだけ。
+     どの海へ移すか・新しく見える人を聞く画面は預け先（js/movesea.js）が出す */
+  const mid = node.dataset.id;
+  const targets = mid ? ask(centerAdapter, 'moveTargets', mid) : null;
+  if (Array.isArray(targets) && targets.length) {
+    const mv = el('button', 'mi mi-movesea');
+    mv.type = 'button';
+    mv.setAttribute('role', 'menuitem');
+    mv.appendChild(el('span', 'mi-tx', '海を移す…'));
+    mv.addEventListener('click', () => { closeMenu(); ask(centerAdapter, 'openMoveSea', mid); });
+    box.insertBefore(mv, box.querySelector('.mi-delete') || null);
+  }
+  /* 見るだけの海では、どの操作も押せない（詳細は開ける） */
+  if (ask(centerAdapter, 'readOnly') === true) {
+    box.querySelectorAll('.mi').forEach(b => { if (!b.classList.contains('mi-detail')) b.disabled = true; });
+  }
 
   /* 上下で動ける。閉じるのは Escape */
   box.addEventListener('keydown', ev => {

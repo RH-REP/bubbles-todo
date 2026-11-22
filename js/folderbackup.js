@@ -153,8 +153,8 @@ export function collectBoxes(st = store, ls = globalThis.localStorage) {
 }
 
 /* 控えの中身。サーバーの鍵は入れない。海域の一覧（名前と住所）は入れる（新しい端末で戻したとき、海域ごとに付け替えるため。段2） */
-export function buildBackup({ boxes, seas, at = Date.now(), device = '', regions }) {
-  return Object.assign(buildPayload({ boxes, seas, server: null, at, device, regions }), { format: FORMAT });
+export function buildBackup({ boxes, seas, at = Date.now(), device = '', regions, apps }) {
+  return Object.assign(buildPayload({ boxes, seas, server: null, at, device, regions, apps }), { format: FORMAT });
 }
 
 /* 控えのファイルを読む。形が違えば投げる。戻り値は buildBackup の形（mergeIntoDevice にそのまま渡せる） */

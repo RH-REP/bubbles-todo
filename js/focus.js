@@ -497,8 +497,8 @@ const passedLabel = (m) => durationLabel(m) + 'は過ぎました';
 
 /* 記録するボタンの呼び名。5分で入れ替わる（利用者の指示）。
    どちらを押しても記録は同じ——違うのは、そのとき自分がどこに居たかの言い方だけ。 */
-const EARLY_LB = '早く終わった';
-const OVER_LB = '今日は終わり';
+const EARLY_LB = '終わった';
+const OVER_LB = '今日はここまで';
 
 /* http/https で始まらないものはリンクにしない（呼び出し側でも見ているが、ここでも守る） */
 function safeUrl(raw) {
@@ -831,10 +831,10 @@ function buildCapture(handler) {
   const form = el('form', 'focus-composer');
   const input = document.createElement('input');
   input.type = 'text';
-  input.placeholder = 'うかんだアイデア';
+  input.placeholder = '思いついたこと';
   input.autocomplete = 'off';
   input.setAttribute('aria-label', '思いついたことを預ける');
-  const send = el('button', 'focus-send', '送信');
+  const send = el('button', 'focus-send', '海に入れる');
   send.type = 'submit';
   send.disabled = true;                     // 空のときは送らない
   form.appendChild(input);
@@ -859,7 +859,7 @@ function buildCapture(handler) {
     try { handler(text); } catch (_) { /* 預け先が壊れていても集中は続ける */ }
     input.value = '';
     send.disabled = true;
-    said.textContent = '海にあずけた';
+    said.textContent = '海に入れた';
   });
 
   return { node };

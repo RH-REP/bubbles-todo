@@ -113,6 +113,7 @@ import { stampChanges, initialStamps, recordsOf } from './merge.js';
 import { quadrantFor } from './priority.js';
 import { findSea, boxKey } from './spacelist.js';
 import { isPersonal, regionOfSpace } from './regions.js';
+import { normalizeRepeat, spanAt, nextSpan, nextDay } from './repeat.js';
 import { normalizeNotes, normalizeNote, notesFor, makeNote, canRemove, byTime, CHAT_TODO, chatFor } from './notes.js';
 
 /* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
@@ -1044,6 +1045,7 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
        値の無いものは欄ごと省く（仕様で「省いてよい」。省いた欄は null / {} として読む）——
        これまでの記録の形を変えないため */
     ...sharedFields(t, tagIds),
+    ...whoFields(t),
   }));
 }
 
@@ -1054,7 +1056,30 @@ const TODO_KNOWN = new Set([
   'started', 'firstStep', 'url', 'detail', 'gap', 'gapSlots', 'gapSlot', 'gapAt', 'plan', 'steps', 'draft',
   'tags', 'done', 'doneAt', 'trashed', 'trashedAt', 'fav', 'urgent', 'important',
   'start', 'due', 'project', 'ext',
+  'assignee', 'added_by', 'done_by',
 ]);
+
+/* だれの欄（共有の記録 v1.2 §3。2026-11-18）。どれも利用者の番号（u_ ＋ 16 進 8 桁）か null。
+     assignee … 担当（共有の海の泡を受け持つ人）
+     added_by … 足した人
+     done_by  … 終えた人（完了を外したら null）
+   形の合わない値は落とす。欄の無い泡は欄を置かない（これまでの記録の形を変えないため） */
+const WHO_KEYS = ['assignee', 'added_by', 'done_by'];
+const USER_ID_RE = /^u_[0-9a-f]{8}$/;
+function whoFields(t) {
+  const out = {};
+  WHO_KEYS.forEach(k => {
+    if (!Object.prototype.hasOwnProperty.call(t, k)) return;
+    const v = t[k];
+    if (v === null || (typeof v === 'string' && USER_ID_RE.test(v))) out[k] = v;
+  });
+  return out;
+}
+/* 書くときの「わたし」（利用者の番号か null）。app.js が setActor で決める（サーバーの海でログインしているときだけ） */
+let actorOf = () => null;
+function actorNow() {
+  try { const v = actorOf(); return (typeof v === 'string' && USER_ID_RE.test(v)) ? v : null; } catch (e) { return null; }
+}
 
 /* 知らない欄の写し（known に無いもの）。値は JSON の写しにする（受け取った物を書き換えない） */
 function unknownFields(o, known) {
@@ -1517,44 +1542,40 @@ function blankTodo(body, opts) {
    ■ 取り消し：完了を取り消したら（uncomplete）、作った写しを消す（墓石）。
      ただし写しにもう手を付けていたら（一手を積んだ・今日に置いた・完了した）、消さずに残し、
      次にまた完了しても二つ目は作らない（next が生きている写しを指すかぎり作らない）。 */
+/* 2026-11-19 ユーザーの決定「7 つとも案どおり」（モック docs/spec/mock/dates.html）で広げた:
+   毎週・2 週ごと・毎月、期間をずらす（of 'span'）か、やる日を送る（of 'day'）、終わりの日（until）。
+   形と日付の計算は js/repeat.js。前の形 { every: 'month', from, to, n } は of 'span' として読む */
 function repeatOfItem(t) {
   const r = t && t.ext && typeof t.ext === 'object' && t.ext.bubble && typeof t.ext.bubble === 'object'
     ? t.ext.bubble.repeat : null;
-  if (!r || typeof r !== 'object' || r.every !== 'month') return null;
-  const from = dayKeyOrNull(r.from), to = dayKeyOrNull(r.to);
-  if (!from || !to || to < from) return null;
-  const out = { every: 'month', from, to, n: Math.max(0, Math.floor(Number(r.n)) || 0) };
-  if (typeof r.next === 'string' && r.next) out.next = r.next;
-  return out;
+  return normalizeRepeat(r);
 }
 
 /* ext.bubble.repeat を書く（null で外す）。ext のほかの中身（ほかの app の持ち物）には触らない。
-   空になった入れ物は欄ごと省く（sharedFields と同じ） */
+   空になった入れ物は欄ごと省く（sharedFields と同じ）。
+   前の形（毎月・期間・終わりの日なし）は前の形のまま書く（前の版の端末も読める） */
 function writeRepeat(t, r) {
   const ext = (t.ext && typeof t.ext === 'object' && !Array.isArray(t.ext)) ? Object.assign({}, t.ext) : {};
   const b = (ext.bubble && typeof ext.bubble === 'object' && !Array.isArray(ext.bubble)) ? Object.assign({}, ext.bubble) : {};
-  if (r) {
-    const v = { every: 'month', from: r.from, to: r.to, n: r.n || 0 };
-    if (r.next) v.next = r.next;
-    b.repeat = v;
+  const v = r ? normalizeRepeat(r) : null;
+  if (v) {
+    const out = { every: v.every, from: v.from, n: v.n || 0 };
+    if (v.of === 'span') out.to = v.to;
+    if (v.every === 'week' || v.of === 'day' || v.until) {
+      out.step = v.step; out.of = v.of;
+      ['dows', 'mdays', 'nth', 'dow', 'at', 'until'].forEach(k => { if (v[k] !== undefined) out[k] = v[k]; });
+    }
+    if (v.next) out.next = v.next;
+    b.repeat = out;
   } else delete b.repeat;
   if (Object.keys(b).length) ext.bubble = b; else delete ext.bubble;
   if (Object.keys(ext).length) t.ext = ext; else delete t.ext;
 }
 
-/* 次の写しの期間。{ start, due, n } か null。today は日付キー */
-function nextRepeatSpan(r, today) {
-  for (let k = r.n + 1; k <= r.n + 1200; k++) {
-    const { start: s, due: d } = repeatSpanAt(r, k);
-    if (!s || !d) return null;
-    if (d >= today) return { start: s, due: d, n: k };
-  }
-  return null;
-}
-
-/* 完了した t の次の月の写しを作る（items に足す）。作った写し（か、もう作ってあった写し）／null。
-   写すもの：名前・本文・リンク・タグ・project・急ぐ／大事・お気に入り・ext（くりかえしは n を進める）。
-   写さないもの：積んだ一手・今日に置いた日・着手・きっかけ・すきま・ひとこと（月ごとに新しく始める） */
+/* 完了した t の次の回の写しを作る（items に足す）。作った写し（か、もう作ってあった写し）／null。
+   写すもの：名前・本文・リンク・タグ・project・急ぐ／大事・お気に入り・ext（くりかえしは次の回へ）。
+   写さないもの：積んだ一手・今日に置いた日・着手・きっかけ・すきま・ひとこと（回ごとに新しく始める）。
+   of 'span' は期間を次の回へ、of 'day' はやる日を次の回の日 1 つにする */
 function spawnRepeat(t) {
   const r = repeatOfItem(t);
   if (!r) return null;
@@ -1562,8 +1583,17 @@ function spawnRepeat(t) {
     const c = items.find(x => x.id === r.next && isLive(x));
     if (c) return c;
   }
-  const nx = nextRepeatSpan(r, todayKey());
-  if (!nx) return null;
+  const today = todayKey();
+  let nx = null, day = null;
+  if (r.of === 'span') {
+    nx = nextSpan(r, today);
+    if (!nx) return null;
+  } else {
+    /* いまの回より後で、今日より前でない最初の回（今日の回を終えたら次の回へ） */
+    const base = r.at && r.at >= today ? r.at : addDays(today, -1);
+    day = nextDay(r, base);
+    if (!day) return null;
+  }
   const c = blankTodo(t.text);
   c.detail = t.detail || '';
   c.url = t.url || '';
@@ -1573,38 +1603,45 @@ function spawnRepeat(t) {
   c.important = triState(t.important);
   c.fav = t.fav === true;
   if (t.ext && typeof t.ext === 'object') c.ext = JSON.parse(JSON.stringify(t.ext));
-  writeRepeat(c, { from: r.from, to: r.to, n: nx.n });
-  c.start = nx.start;
-  c.due = nx.due;
+  const keep = Object.assign({}, r);
+  delete keep.next;
+  if (r.of === 'span') {
+    writeRepeat(c, Object.assign(keep, { n: nx.n }));
+    c.start = nx.start;
+    c.due = nx.due;
+  } else {
+    writeRepeat(c, Object.assign(keep, { at: day }));
+    c.days = [day];
+  }
   items.push(c);
   writeRepeat(t, Object.assign({}, r, { next: c.id }));
   return c;
 }
 
-/* 元の期間 + k か月の期間 { start, due } */
-function repeatSpanAt(r, k) {
-  const s = addMonths(r.from, k);
-  let d = addMonths(r.to, k);
-  if (s && d && d < s) d = s;
-  return { start: s, due: d };
-}
-
-/* **完了しないまま終わる日が過ぎたら、同じ泡の期間を次の月へ進める**（Issue #60 の返事
+/* **完了しないまま回が過ぎたら、同じ泡を次の回へ進める**（Issue #60 の返事
    「完了しなくても毎月作るほうがよい。完了と区別するために期間だけ変更できる？」）。
-   完了したときは新しい泡を作り（spawnRepeat）、完了しなかったときは泡を増やさずに期間だけ動かす——
-   これで完了した月と、しなかった月とが分かれる。しなかった月のことは何も残さない（未処理の山にしない）。
-   進め方は nextRepeatSpan と同じ（終わる日が今日より前でない最初の月）。
-   期間の欄がほかの app などで直されて「元 + n か月」と合わなくなっていたら、いまの欄を新しい元にする。
+   完了したときは新しい泡を作り（spawnRepeat）、完了しなかったときは泡を増やさずに期間・やる日だけ動かす——
+   これで完了した回と、しなかった回とが分かれる。しなかった回のことは何も残さない（未処理の山にしない）。
+   of 'span': 期間の欄がほかの app などで直されて「元 + n 回」と合わなくなっていたら、いまの欄を新しい元にする。
+   of 'day' : いまの回（at）が今日より前なら、今日以上の最初の回をやる日に足す（過ぎた日は記録なので消さない）。
    何度・どの端末で走っても同じ値になるので、端末どうしで食い違わない。-> 動かしたか */
 function rollRepeat(t, today) {
   if (!isLive(t) || t.done) return false;
   let r = repeatOfItem(t);
   if (!r) return false;
+  if (r.of === 'day') {
+    if (!r.at || r.at >= today) return false;
+    const day = nextDay(r, addDays(today, -1));
+    if (!day) return false;                 /* 終わりの日を過ぎた（くりかえしは止まり、泡は残る） */
+    t.days = normalizeDays((Array.isArray(t.days) ? t.days : []).concat(day));
+    writeRepeat(t, Object.assign({}, r, { at: day }));
+    return true;
+  }
   const start = dayKeyOrNull(t.start), due = dayKeyOrNull(t.due);
   if (!start || !due || due >= today) return false;
-  const at = repeatSpanAt(r, r.n);
+  const at = spanAt(r, r.n);
   if (at.start !== start || at.due !== due) r = Object.assign({}, r, { from: start, to: due, n: 0 });
-  const nx = nextRepeatSpan(r, today);
+  const nx = nextSpan(r, today);
   if (!nx) return false;
   t.start = nx.start;
   t.due = nx.due;
@@ -1618,7 +1655,10 @@ function dropRepeatCopy(t) {
   if (!r || !r.next) return false;
   const c = items.find(x => x.id === r.next);
   if (c && isLive(c)) {
-    const touched = c.done || (Array.isArray(c.steps) && c.steps.length) || (Array.isArray(c.days) && c.days.length);
+    const cr = repeatOfItem(c);
+    /* 写しの回の日（at）は作ったときに入れたもの。それ以外の日に置いていたら手を付けたとみなす */
+    const placed = Array.isArray(c.days) && c.days.some(d => !(cr && cr.of === 'day' && d === cr.at));
+    const touched = c.done || (Array.isArray(c.steps) && c.steps.length) || placed;
     if (touched) return false;              /* 手を付けた写しは残す（next も残す＝二つ目を作らない） */
     c.trashed = true;
     c.trashedAt = Date.now();
@@ -1677,6 +1717,8 @@ export const store = {
     const body = String(text).trim();
     if (!body) return null;
     const t = blankTodo(body, opts);
+    const me = actorNow();
+    if (me) t.added_by = me;                /* 足した人（共有の記録 v1.2。サーバーの海でログインしているときだけ） */
     items.push(t);
     /* 「今日する」枠に直接書いた場合も「入れた」記録に残す（setToday を通らない経路） */
     if (t.today) todayLogs.push({ id: t.id, text: t.text, at: t.createdAt });
@@ -1755,6 +1797,8 @@ export const store = {
     if (t.done) return t;
     t.done = true;
     t.doneAt = Date.now();
+    const me = actorNow();
+    if (me) t.done_by = me;                 /* 終えた人（共有の記録 v1.2） */
     spawnRepeat(t);                         /* 毎月くりかえす なら次の月の写し（Issue #60） */
     persist(); emit();
     return t;
@@ -1767,6 +1811,7 @@ export const store = {
     if (!t || !t.done) return false;
     t.done = false;
     t.doneAt = null;
+    if (Object.prototype.hasOwnProperty.call(t, 'done_by')) t.done_by = null;   /* 完了を外したら null（v1.2） */
     dropRepeatCopy(t);                      /* 完了で作った次の月の写しを消す（手を付けていなければ） */
     /* 消している／完了している間に枠そのものが消されていることがある。
        残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
@@ -2005,6 +2050,57 @@ export const store = {
   isFav(id) {
     const t = store.get(id);
     return !!(t && t.fav);
+  },
+
+  /* だれの欄（共有の記録 v1.2。2026-11-18）。書く人は app.js が決める（サーバーの海でログインしているときだけ） */
+  setActor(fn) { actorOf = typeof fn === 'function' ? fn : () => null; },
+  /* 担当を決める・外す（uid か null）-> 変わったか */
+  setAssignee(id, uid) {
+    const t = store.get(id);
+    if (!t) return false;
+    const want = (typeof uid === 'string' && USER_ID_RE.test(uid)) ? uid : null;
+    if ((t.assignee || null) === want) return false;
+    if (want === null && !Object.prototype.hasOwnProperty.call(t, 'assignee')) return false;
+    t.assignee = want;
+    persist(); emit();
+    return true;
+  },
+  /* 泡を別の海へ移す（2026-11-18。モック 6「移すとき」）。移す先の海の箱（localStorage）に写しを入れて印を付け、
+     この海では消した印（墓石）にする（仲間の画面からも消える）。移す先の海は、開いたときにサーバーと合わせる。
+     タグ・アンカー・枠は海ごとのものなので外す（移す先には無い）。担当・足した人・終えた人は残す。
+     -> 移したか（id が無い・同じ海・箱に書けない なら false） */
+  moveOut(id, target) {
+    const t = store.get(id);
+    if (!t || !target || target === SPACE) return false;
+    const key = boxKey(target);
+    if (!key || key === KEY) return false;
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { raw = null; }
+    const doc = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? Object.assign({}, raw) : {};
+    const st = (doc.stamps && typeof doc.stamps === 'object') ? Object.assign({}, doc.stamps) : {};
+    delete doc.stamps;
+    if (!Array.isArray(doc.todos)) doc.todos = [];
+    const prev = new Map();
+    recordsOf(doc).forEach((v, k) => prev.set(k, JSON.stringify(v)));
+    const copy = JSON.parse(JSON.stringify(t));
+    delete copy.today;
+    Object.assign(copy, { tags: [], anchors: [], anchorAt: {}, gapSlots: [], gapAt: {}, slots: [], gap: false, plan: false });
+    delete copy.project;
+    doc.todos = doc.todos.filter(x => !(x && x.id === copy.id));
+    doc.todos.push(copy);
+    stampChanges(prev, doc, st, Date.now());
+    try { localStorage.setItem(key, JSON.stringify(Object.assign({}, doc, { stamps: st }))); } catch (e) { return false; }
+    t.trashed = true;
+    t.trashedAt = Date.now();
+    persist(); emit();
+    return true;
+  },
+
+  /* {assignee, added_by, done_by}（無い欄は null） */
+  whoOf(id) {
+    const t = findAny(id);
+    if (!t) return null;
+    return { assignee: t.assignee || null, added_by: t.added_by || null, done_by: t.done_by || null };
   },
   /* 印の付いたもの。完了したものは出さない。付けた順は持たないので、書いた順（新しい順） */
   favItems() {
@@ -2428,33 +2524,66 @@ export const store = {
     if (a) { t.start = a; t.due = b; } else { delete t.start; delete t.due; }
     /* 毎月くりかえす（Issue #60）：期間を直したら、その期間を新しい元にする。期間を外したら、くりかえしも外す */
     const r = repeatOfItem(t);
-    if (r) writeRepeat(t, a ? Object.assign({}, r, { from: a, to: b, n: 0 }) : null);
+    if (r && r.of === 'span') writeRepeat(t, a ? Object.assign({}, r, { from: a, to: b, n: 0 }) : null);
     persist(); emit();
     return true;
   },
 
-  /* 毎月くりかえす（Issue #60）。{ every: 'month', from, to } か null（くりかえさない・泡が無い） */
+  /* くりかえし（Issue #60。2026-11-19 毎週・2 週ごと・やる日・終わりの日を足した）。
+     { every, step, of, from, to?, dows?, mdays?, nth?, dow?, until?, at? } か null（くりかえさない・泡が無い） */
   repeatOf(id) {
     const r = repeatOfItem(store.get(id));
-    return r ? { every: r.every, from: r.from, to: r.to } : null;
+    if (!r) return null;
+    const out = Object.assign({}, r);
+    delete out.n; delete out.next;
+    if (out.dows) out.dows = out.dows.slice();
+    return out;
   },
 
-  /* 毎月くりかえす を付ける／外す。付けるのは期間（start・due）があるときだけで、
-     いまの期間をくりかえしの元にする -> 変えたか */
-  setRepeat(id, on) {
+  /* くりかえしを付ける・直す・外す。
+       false / null … 外す（of 'day' なら、まだ来ていない回の日もやる日から外す）
+       true         … 前の「毎月くりかえす」（いまの期間を毎月）
+       { every: 'week'|'month', step?, of: 'span'|'day', dows?, mdays?（前の mday も読む）, nth?, dow?, until? }
+         of 'span' は期間（start・due）があるときだけ。いまの期間を元にする
+         of 'day'  は今日から数える。今日以上の最初の回をやる日に足す
+     -> 変えたか */
+  setRepeat(id, cfg) {
     const t = store.get(id);
     if (!t) return false;
     const cur = repeatOfItem(t);
-    if (!on) {
+    const today = todayKey();
+    const dropAt = () => {                  /* 前の回の日が先の日なら外す（作った回の日だけ） */
+      if (cur && cur.of === 'day' && cur.at && cur.at >= today) t.days = t.days.filter(d => d !== cur.at);
+    };
+    if (!cfg) {
       if (!cur) return false;
+      dropAt();
       writeRepeat(t, null);
+      persist(); emit();
+      return true;
+    }
+    const c = cfg === true ? { every: 'month', of: 'span' } : cfg;
+    let r;
+    if (c.of === 'day') {
+      r = normalizeRepeat(Object.assign({}, c, { from: today, n: 0, at: undefined, next: undefined, to: undefined }));
+      if (!r) return false;
+      const day = nextDay(r, addDays(today, -1));
+      if (!day) return false;
+      r.at = day;
     } else {
       const a = dayKeyOrNull(t.start), b = dayKeyOrNull(t.due);
       if (!a || !b) return false;
-      if (cur) return false;
-      writeRepeat(t, { from: a, to: b, n: 0 });
-      rollRepeat(t, todayKey());            /* もう終わった期間に付けたら、すぐ次の月へ進める */
+      r = normalizeRepeat({ every: c.every, step: c.step, of: 'span', from: a, to: b, n: 0, until: c.until });
+      if (!r) return false;
     }
+    /* 同じ決まりなら書かない（回の日・数えた回は比べない） */
+    const sig = x => x && JSON.stringify([x.every, x.step, x.of, x.dows, x.mdays, x.nth, x.dow, x.until || null, x.of === 'span' ? [x.from, x.to] : null]);
+    if (sig(cur) === sig(r)) return false;
+    dropAt();
+    if (cur && cur.next) r.next = cur.next;
+    writeRepeat(t, r);
+    if (r.of === 'day') t.days = normalizeDays(t.days.concat(r.at));
+    else rollRepeat(t, today);            /* もう終わった期間に付けたら、すぐ次の回へ進める */
     persist(); emit();
     return true;
   },
@@ -3358,6 +3487,8 @@ export const store = {
 
   /* --- 購読 --- */
   on(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+  /* 記録は変えずに、画面に描き直させる（2026-11-18。/api/me の仲間の名前が届いたとき、泡の担当の丸を出し直す） */
+  notify() { emit(); },
 
   /* --- サーバーと合わせる（sync.js が使う。画面は使わない） --- */
 
@@ -3431,7 +3562,7 @@ export const store = {
    口を足したらここにも足す（tests/sync.test.mjs が、persist() を呼ぶ口の漏れを見る） */
 export const WRITE_METHODS = [
   'add', 'remove', 'untrash', 'complete', 'uncomplete', 'restore', 'setDay', 'setToday', 'setHold', 'setHoldUntil',
-  'setFav', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
+  'setFav', 'setAssignee', 'moveOut', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'setTagHidden', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',

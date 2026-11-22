@@ -124,24 +124,24 @@ try {
     await until(`return !!document.querySelector('.sea-panel input[aria-label="招待コード"]')`);
   });
 
-  await step('招待コードで登録すると個人が2つ並び、1つにまとめるとこの端末の個人の泡もサーバーへ届く', async () => {
-    await js(`const i = document.querySelector('.sea-panel input[aria-label="招待コード"]'); i.value = ${JSON.stringify(invite)};
+  await step('招待コードで登録すると、この端末の個人の泡はサーバーの個人へ合わさり、個人は 1 つ（2026-11-18）', async () => {
+    await js(`window.__beforeLogin = 1; const i = document.querySelector('.sea-panel input[aria-label="招待コード"]'); i.value = ${JSON.stringify(invite)};
       i.closest('form').requestSubmit();`);
-    await until(`return !!${button('ログアウト')}`);
+    /* 合わせたら画面を読み直す。読み直しを待ってから次の手を打つ */
+    await until(`return window.__beforeLogin !== 1 && document.readyState === 'complete'`, 15000).catch(() => {});
+    await sleep(500);
+    await until(`return !!(await import('/js/me.js')).meInfo()`, 15000);
     const creds = (await send('WebAuthn.getCredentials', { authenticatorId })).result.credentials;
     assert.equal(creds.length, 1, '仮のパスキーの置き場に1つ入った');
-    /* 個人が2つ並ぶので、1つにまとめる（2度押す）。まとめると読み直し、個人がサーバーと合わせ始める */
-    /* ［サーバーに統合］は、この端末の個人の行の横に出る */
-    await until(`return !!document.querySelector('.sp-unify')`);
-    assert.match(await js(`return document.querySelector('.sp-unify').closest('.sp-sea').textContent`), /個人/);
-    await js(`document.querySelector('.sp-unify').click();`);
-    await js(`document.querySelector('.sp-unify').click();`);
-    await sleep(1500);
+    assert.deepEqual(await js(`return (await import('/js/regions.js')).allSeas().filter(s => s.personal).map(s => s.name)`), ['個人'],
+      '個人は 1 つ（個人（サーバー）を並べない）');
+    await until(`return /1 件を、サーバーの個人に合わせた/.test(document.body.textContent)`);
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
     assert.equal(await js(`return (await import('/js/store.js')).store.space()`), 'me');
     const f = join(data, 'state.json');
     for (let i = 0; i < 60 && !(existsSync(f) && readFileSync(f, 'utf8').includes('端末で書いた')); i++) await sleep(100);
     assert.match(readFileSync(f, 'utf8'), /端末で書いた/, 'この端末の個人の泡がサーバーの個人へ届いた');
+    assert.ok(await js(`return Object.keys(localStorage).some(k => /_before_unify_/.test(k))`), '合わせる前の控えがある');
     const c = await js(`return (await import('/js/sync.js')).sync.config().passkey`);
     assert.equal(c.name, '自分のスマホ');
     assert.deepEqual(c.spaces, ['me', 'share']);
@@ -168,43 +168,148 @@ try {
     assert.equal(await js(`return (await import('/js/store.js')).store.readOnly()`), false, '読むだけにならない');
     await js(`(await import('/js/store.js')).store.add('オフラインで書いた');`);
     await js(`await (await import('/js/sync.js')).sync.syncNow();`);
+    await until(`return /未送信 1/.test(document.querySelector('.space-state')?.textContent || '')`);
     const f = join(data, 'state.json');
     assert.doesNotMatch(readFileSync(f, 'utf8'), /オフラインで書いた/, 'オフラインの間は届かない');
     await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
     await js(`window.dispatchEvent(new Event('online'));`);
     for (let i = 0; i < 80 && !readFileSync(f, 'utf8').includes('オフラインで書いた'); i++) await sleep(100);
     assert.match(readFileSync(f, 'utf8'), /オフラインで書いた/);
+    await until(`return (await import('/js/sync.js')).sync.pending() === 0`);
+  });
+
+  await step('2 台で同じ個人の記録を直す: ほかの端末（API で書いたつもり）とこの端末の変更が、記録ごとに新しいほうで合わさる', async () => {
+    const sess = await js(`return (await import('/js/sync.js')).sync.config().passkey && JSON.parse(localStorage.getItem('bubble_todo_sync') || '{}').session`);
+    const H = { Authorization: 'Bearer ' + sess, 'X-Bubbles-Space': 'me', 'X-Bubbles-Schema': '1', 'Content-Type': 'application/json' };
+    const got = await (await fetch(origin + '/api/data', { headers: H })).json();
+    const doc = got.data.doc;
+    const st = got.data.stamps;
+    const t1 = doc.todos.find(x => x.text === 'パスキーで書いた');
+    t1.text = 'ほかの端末で直した';
+    st['todo:' + t1.id] = [Date.now() + 1000, 1];
+    const put = await fetch(origin + '/api/data', { method: 'PUT', headers: H, body: JSON.stringify({ base: got.version, data: { doc, stamps: st } }) });
+    assert.equal(put.status, 200);
+    await js(`const { store } = await import('/js/store.js'); const t = store.all().find(x => x.text === 'オフラインで書いた'); store.setText(t.id, 'この端末で直した');`);
+    await js(`await (await import('/js/sync.js')).sync.syncNow();`);
+    await until(`return await (async () => { const { store } = await import('/js/store.js'); const a = store.all().map(x => x.text); return a.includes('ほかの端末で直した') && a.includes('この端末で直した'); })()`);
+    const f = join(data, 'state.json');
+    for (let i = 0; i < 60 && !readFileSync(f, 'utf8').includes('この端末で直した'); i++) await sleep(100);
+    const s = readFileSync(f, 'utf8');
+    assert.match(s, /ほかの端末で直した/);
+    assert.match(s, /この端末で直した/);
+  });
+
+  await step('bubble にログイン済みなら、gantt の「bubble でログイン」はパスキーの操作なしで戻る（取り決め §7.2。2026-11-18）', async () => {
+    const seen = [];
+    const onMsg = e => { const d = JSON.parse(e.data); if (d.method === 'Network.requestWillBeSent') seen.push(d.params.request.url); };
+    ws.addEventListener('message', onMsg);
+    await send('Network.enable');
+    const q = new URLSearchParams({ response_type: 'code', client_id: 'gantt', redirect_uri: 'http://127.0.0.1:8766/auth/callback',
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256', state: 'e2e' });
+    const mark = serverLog.length;
+    await send('Page.navigate', { url: origin + '/oauth/authorize?' + q });
+    for (let i = 0; i < 80 && !seen.some(u => u.startsWith('http://127.0.0.1:8766/auth/callback?')); i++) await sleep(100);
+    ws.removeEventListener('message', onMsg);
+    await send('Network.disable');
+    const back = seen.find(u => u.startsWith('http://127.0.0.1:8766/auth/callback?'));
+    assert.ok(back, 'gantt の戻る先へ移った: ' + seen.slice(-3).join(' '));
+    const bq = new URL(back).searchParams;
+    assert.ok(bq.get('code') && bq.get('state') === 'e2e', 'code と state が付く');
+    const log = serverLog.slice(mark);
+    assert.match(log, /oauth-approved ip=\S+ session/, '端末の通行証で許した');
+    assert.ok(!seen.some(u => /\/api\/passkey\/login\/options/.test(u)), 'パスキーの問題を取りに行っていない（パスキーの操作なし）');
+    assert.doesNotMatch(log, /auth-fail/, '失敗も無い');
+    await send('Page.navigate', { url: origin + '/' });
+    await until(`return !!document.querySelector('.userbtn')`, 15000);
   });
 
   await step('ログアウトしたあと、パスキーでログインし直せる（Face ID のつもりの確かめつき）', async () => {
     await openSettings();
     await js(`${button('ログアウト')}.click();`);
+    await until(`return !!document.querySelector('[data-name="ログアウトの確かめ"]')`);
+    await js(`${button('写しを残す')}.click();`);
+    await sleep(1500);
+    await until(`return !!document.querySelector('.userbtn.is-empty')`);
+    assert.deepEqual(await js(`return (await import('/js/regions.js')).allSeas().filter(s => s.personal).map(s => s.name)`), ['個人'],
+      'ログアウトしても個人は 1 つ（写し）');
+    assert.equal(await js(`return (await import('/js/store.js')).store.all().some(x => x.text === 'ほかの端末で直した')`), true, '写しが読める');
+    await js(`(await import('/js/store.js')).store.add('ログアウト中に書いた');`);
+    await until(`return /ログイン\s*していない/.test(document.querySelector('.space-state')?.textContent || '')`);
+    await openSettings();
     await until(`return !!${button('サーバーにログイン')}`);
     await js(`${button('サーバーにログイン')}.click();`);
     await until(`return !!${button('パスキーでログイン')}`);
-    await js(`${button('パスキーでログイン')}.click();`);
-    await sleep(1500);
+    await js(`window.__beforeLogin = 1; ${button('パスキーでログイン')}.click();`);
+    /* ログインのあと画面を読み直すことがある（2026-11-18）。読み直しの途中で次の手を打たないよう、読み直しを待つ */
+    for (let i = 0; i < 40 && await js(`return window.__beforeLogin === 1`).catch(() => false); i++) await sleep(100);
+    await until(`return document.readyState === 'complete' && /でログイン中/.test(document.querySelector('.userbtn')?.title || '')`, 15000);
     await until(`return (await import('/js/sync.js')).sync.config().passkey?.name === '自分のスマホ'`);
     await until(`return (await import('/js/sync.js')).sync.status().state === 'ok'`);
+    const f = join(data, 'state.json');
+    for (let i = 0; i < 60 && !readFileSync(f, 'utf8').includes('ログアウト中に書いた'); i++) await sleep(100);
+    assert.match(readFileSync(f, 'utf8'), /ログアウト中に書いた/, '同じ利用者でログインし直すと、写しに書いた分も合わさる');
   });
 
-  await step('海の ⚙ から人を招く: 招待コードが出て、サーバーに招いた人の名前が残る', async () => {
+  await step('個人の海の ⚙ から端末を足す: 6 桁の番号が出て、その番号で同じ利用者のパスキーを作れる（2026-11-18）', async () => {
     await openSettings();
     await js(`[...document.querySelectorAll('.sp-gear')][0].click();`);
-    await until(`return !!document.querySelector('input[aria-label="招く端末の呼び名"]')`);
-    await js(`const i = document.querySelector('input[aria-label="招く端末の呼び名"]'); i.value = '自分のタブレット'; i.closest('form').requestSubmit();`);
-    await until(`return /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(document.querySelector('.sp-invite p[style]')?.textContent || '')`);
+    await until(`return !!${button('＋ 端末を足す')}`);
+    await js(`${button('＋ 端末を足す')}.click();`);
+    await until(`return /^[0-9]{3} [0-9]{3}$/.test(document.querySelector('[data-name="つなぐ番号"]')?.textContent || '')`);
+    const code = await js(`return document.querySelector('[data-name="つなぐ番号"]').textContent`);
     const inv = JSON.parse(readFileSync(join(data, 'invites.json'), 'utf8'));
-    const row = inv.find(r => r.name === '自分のタブレット');
-    assert.ok(row, '招待コードの行ができた');
-    assert.equal(row.by, '自分のスマホ');
-    assert.deepEqual(row.spaces, ['me']);
+    const row = inv.find(r => r.kind === 'device');
+    assert.ok(row && /^u_[0-9a-f]{8}$/.test(row.user), '番号の行は利用者に結び付く');
+    assert.doesNotMatch(JSON.stringify(inv), new RegExp(code.replace(' ', '')), '番号そのものは置かない');
+    const uid = await js(`const r = await fetch('/api/passkey/register/options', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device: ${JSON.stringify(code)} }) });
+      const j = await r.json(); return atob(j.publicKey.user.id.replace(/-/g, '+').replace(/_/g, '/'));`);
+    assert.equal(uid, row.user, 'パスキーの user.id は利用者の番号');
   });
 
   await step('同じ招待コードは2度使えない', async () => {
     const st = await js(`const r = await fetch('/api/passkey/register/options', { method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invite: ${JSON.stringify(invite)} }) }); return r.status;`);
     assert.equal(st, 401);
+  });
+
+  await step('別の利用者でこの端末にログイン: 合わせずに聞き、前の人の写しは控えへ移して空の個人から始まる', async () => {
+    const other = execFileSync('python3', [join(ROOT, 'server.py'), '--data-dir', data, 'invite-add', 'ほかの人', '--space', 'me'])
+      .toString().match(/[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}/)[0];
+    await openSettings();
+    await js(`${button('ログアウト')}.click();`);
+    await until(`return !!document.querySelector('[data-name="ログアウトの確かめ"]')`);
+    await js(`${button('写しを残す')}.click();`);
+    await sleep(1500);
+    await openSettings();
+    await js(`${button('サーバーにログイン')}.click();`);
+    await until(`return !!document.querySelector('.sea-panel input[aria-label="招待コード"]')`);
+    await js(`const i = document.querySelector('.sea-panel input[aria-label="招待コード"]'); i.value = ${JSON.stringify(other)};
+      i.closest('form').requestSubmit();`);
+    await until(`return !!document.querySelector('[data-name="別の利用者の確かめ"]')`, 15000);
+    await js(`${button('控えに移して読む')}.click();`);
+    await sleep(2500);
+    await until(`return (await import('/js/me.js')).meInfo()?.user?.name === 'ほかの人'`, 15000);
+    assert.equal(await js(`return (await import('/js/store.js')).store.all().some(x => /直した|書いた/.test(x.text))`), false, '前の人の泡は混ざらない');
+    assert.equal(await js(`return Object.keys(localStorage).some(k => /_before_person_/.test(k))`), false,
+      '聞く前に同期が入れ替えていない（通行証は聞いたあとに覚える）');
+    assert.ok(await js(`return Object.keys(localStorage).some(k => /_before_user_/.test(k) && /ほかの端末で直した/.test(localStorage.getItem(k)))`), '前の人の写しは控えに');
+    const f = join(data, 'state.json');
+    assert.match(readFileSync(f, 'utf8'), /ほかの端末で直した/, '前の人のサーバーの個人はそのまま');
+    await js(`(await import('/js/store.js')).store.add('ほかの人の泡'); await (await import('/js/sync.js')).sync.syncNow();`);
+    const g = join(data, 'people', '2', 'state.json');
+    for (let i = 0; i < 60 && !(existsSync(g) && readFileSync(g, 'utf8').includes('ほかの人の泡')); i++) await sleep(100);
+    assert.match(readFileSync(g, 'utf8'), /ほかの人の泡/);
+    assert.doesNotMatch(readFileSync(g, 'utf8'), /ほかの端末で直した|この端末で直した|ログアウト中に書いた/, '新しい人のサーバーの個人へ前の人の泡を送らない');
+  });
+
+  await step('設定の「記録」の「バックアップ」に、この端末の控えが並び、前の利用者の控え（替わる前に取ったもの）はログイン中は戻せない（2026-11-19 から［戻す］）', async () => {
+    await openSettings();
+    await js(`const g = [...document.querySelectorAll('#pane-settings details')].find(d => d.querySelector('[data-name="バックアップ"]')); if (g) { g.open = true; g.dispatchEvent(new Event('toggle')); }`);
+    await until(`return !!document.querySelector('[data-name="バックアップ"] .pbk-local .pbk-row button')`);
+    const rows = await js(`return [...document.querySelectorAll('[data-name="バックアップ"] .pbk-local .pbk-row')].map(r => [r.querySelector('span').textContent, r.querySelector('button').disabled, r.querySelector('button').textContent])`);
+    assert.ok(rows.some(([t]) => /別の利用者に替わる前/.test(t)), '別の利用者に替わる前の控えが並ぶ: ' + JSON.stringify(rows));
+    assert.ok(rows.every(([, d, b]) => d === true && b === '戻す'), 'どれも前の人の控えなので押せない: ' + JSON.stringify(rows));
   });
 
   await step('CSP に止められた読み込みや、画面のエラーが無い', async () => {

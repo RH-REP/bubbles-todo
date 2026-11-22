@@ -875,8 +875,9 @@ function isStarted(t) {
 function itemOf(t) {
   /* urgent / important は泡の右上の区分の点のため（bubble.js） */
   /* spanNote は期間の外で長期保留の海にいるものの添え字（§11。bubble.js が小さく下に出す） */
+  /* assignee・done_by は泡の右下の担当の丸のため（共有の記録 v1.2。bubble.js の whoMark） */
   return { id: t.id, text: t.text, started: isStarted(t), urgent: t.urgent, important: t.important,
-    spanNote: spanNoteOf(t) };
+    spanNote: spanNoteOf(t), assignee: t.assignee || null, done_by: t.done_by || null, done: !!t.done };
 }
 
 /* 追補4 §1：タグは点（marks）ではなく、バブルそのものの色で表す。

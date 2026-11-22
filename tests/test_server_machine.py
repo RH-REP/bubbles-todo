@@ -8,6 +8,7 @@
 """
 import contextlib
 import io
+import os
 import json
 import re
 import stat
@@ -137,8 +138,9 @@ class MachineKeyTest(unittest.TestCase):
         self.assertEqual(self.devices.active(), 0, '端末の数に数えない')
 
     def test_key_for_another_person_goes_to_that_persons_box(self):
-        self.pk.add_invite('持ち主の端末', ['me'])        # 1 番
-        self.pk.add_invite('家族の端末', ['me'])          # 2 番
+        for i, n in enumerate(('持ち主の端末', '家族の端末')):   # 1 番・2 番（2026-11-18 から番号は登録で決まる）
+            self.pk.register(inv={'name': n, 'spaces': ['me'], 'new_user': True},
+                             cred={'cred_id': f'c{i}', 'alg': -7, 'public_key': '', 'sign_count': 0})
         key = self.add_key('家族の秘書', space='me:2')
         self.assertEqual(self.put(key, 0, '2 番の人の作業')[0], 200)
         self.assertTrue((self.dir / 'people' / '2' / 'state.json').exists())
@@ -196,6 +198,49 @@ class MachineKeyTest(unittest.TestCase):
         for k in (rw, ro, rw + 'zz'):
             self.assertNotIn(k, log)
             self.assertNotIn(k[3:20], log)
+
+    def test_key_file_writes_key_without_showing_it(self):
+        """--key-file（2026-11-17）: 鍵を画面に出さず、600 のファイルに書く。親が無ければ 700 で作る"""
+        kf = self.dir / 'secrets' / 'sub' / 'bubble_key.txt'
+        code, out = self.cli('machine-add', 'gantt', '--space', 'me', '--key-file', str(kf))
+        self.assertEqual(code, 0)
+        self.assertNotIn('bm_', out, '鍵が画面に出た')
+        key = kf.read_text(encoding='utf-8')
+        self.assertTrue(key.endswith('\n'))
+        key = key.strip()
+        self.assertRegex(key, r'^bm_[A-Za-z0-9_-]{43}$')
+        self.assertEqual(os.stat(kf).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(kf.parent).st_mode & 0o777, 0o700)
+        self.assertEqual(os.stat(kf.parent.parent).st_mode & 0o777, 0o700)
+        mark = server.MachineKeys.digest(key)[:8]
+        self.assertIn(mark, out, '確かめの印が出ない')
+        self.assertIn('印 ' + mark, self.cli('machine-list')[1], 'machine-list に同じ印が出ない')
+        self.assertEqual(self.req('GET', '/api/data', key)[0], 200, '書いた鍵で入れない')
+
+    def test_key_file_does_not_overwrite_and_leaves_no_orphan_key(self):
+        kf = self.dir / 'k.txt'
+        kf.write_text('前の中身\n', encoding='utf-8')
+        with self.assertRaises(SystemExit):
+            self.cli('machine-add', 'gantt', '--space', 'me', '--key-file', str(kf))
+        self.assertEqual(kf.read_text(encoding='utf-8'), '前の中身\n', 'あるファイルを上書きした')
+        self.assertEqual(server.MachineKeys(self.dir).read(), [], '書けなかったのに鍵が残った')
+        link = self.dir / 'link.txt'
+        os.symlink(self.dir / 'target.txt', link)       # 先の無いリンクにも書かない
+        with self.assertRaises(SystemExit):
+            self.cli('machine-add', 'gantt', '--space', 'me', '--key-file', str(link))
+        self.assertFalse((self.dir / 'target.txt').exists(), 'リンクの先に書いた')
+        ro = self.dir / 'ro'
+        ro.mkdir(mode=0o500)
+        try:
+            if os.access(ro, os.W_OK):
+                self.skipTest('root では書けないフォルダを作れない')
+            with self.assertRaises(SystemExit):
+                self.cli('machine-add', 'gantt', '--space', 'me', '--key-file', str(ro / 'k.txt'))
+            self.assertEqual(server.MachineKeys(self.dir).read(), [], '書けなかったのに鍵が残った（書き込みの失敗）')
+        finally:
+            ro.chmod(0o700)
+        with self.assertRaises(SystemExit):
+            self.cli('machine-list', '--key-file', str(self.dir / 'x.txt'))      # machine-add だけ
 
     def test_token_mode_does_not_take_machine_keys(self):
         key = self.add_key('gantt')

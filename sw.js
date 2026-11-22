@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-21k';
+const VERSION = '2026-11-21l';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -113,9 +113,20 @@ const ASSETS = [
   './js/board.js',         /* 共有の海（ブロックチェーンの掲示板。2026-11-11 Issue #37） */
   './js/p2p.js',           /* 端末どうしの直の通信（2026-11-11 Issue #37） */
   './js/prefs.js',         /* この端末の表示（2026-11-10 Issue #36） */
+  './js/repeat.js',        /* くりかえしの日付の計算（2026-11-19） */
+  './js/monthcal.js',      /* 盤の暦（2026-11-19） */
+  './js/serverbackup.js',  /* サーバーのバックアップ（2026-11-19） */
   './js/localmod.js',      /* 見た目と言葉を AI に頼んで変える（2026-11-21 Issue #91） */
   './js/version.js',
   './js/sync.js',
+  './js/me.js',          /* ログインしている利用者と海の仲間（2026-11-18） */
+  './js/seaadmin.js',    /* 海の管理（持ち主）・わたしの端末（2026-11-18） */
+  './js/movesea.js',     /* 泡を別の海へ移す（2026-11-18） */
+  './js/userchip.js',    /* 左上の利用者のアイコンと利用者の札（2026-11-18） */
+  './js/apps.js',        /* 3 つの app の住所の根（2026-11-18） */
+  './js/jump.js',        /* jump（#sea=&todo=・盤の飛び先。2026-11-18） */
+  './js/loginflow.js',   /* ログインの仕上げ・ログアウト（個人の海は 1 つ。2026-11-18） */
+  './js/appbundles.js',  /* 引っ越しのファイルで日記の束を運ぶ（取り決め §8.3。2026-11-18） */
   './js/schemaguard.js',   /* 古い版の帯（2026-11-10 共有の記録 v1.1） */
   './js/folderbackup.js', /* 決めたフォルダに自動で控える（2026-11-12） */
   './js/localbackup.js',  /* この端末の中に自動でバックアップを残す（2026-11-21 Issue #83） */

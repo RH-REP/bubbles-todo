@@ -733,7 +733,7 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 }
 .bub-center .bc-fields {
   transform: translate(-50%, 0);
-  width: min(320px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 24px));   /* 2026-11-18 320 → 400（モック task-start.html） */
   display: grid; gap: 8px;
   padding: 10px;
   /* 高さの上限は place() が入れる（画面の上端から下タブの手前まで）。
@@ -817,6 +817,21 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 }
 .bub .ndot[hidden] { display: none; }
 
+/* ---------- 担当の丸（共有の記録 v1.2。2026-11-18）----------
+   共有の海の泡の右下に、担当の人の名前の頭 1 字（終えた泡は終えた人と ✓）。自分が担当なら縁を太く（is-mine）。
+   押す的ではない */
+.bub .who {
+  position: absolute; bottom: calc(14.6% - 9px); right: calc(14.6% - 9px);
+  min-width: 18px; height: 18px; padding: 0 3px; border-radius: 9px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; font-weight: 600;
+  background: var(--surface); color: var(--text-2);
+  border: 1px solid var(--bub-edge);
+  pointer-events: none;
+}
+.bub .who[hidden] { display: none; }
+.bub.is-mine .skin { box-shadow: 0 0 0 2.5px var(--bub-edge); }
+
 /* ---------- 期間の外の添え字（共有の記録 v1.5 §11。2026-11-12）----------
    期間の外なので長期保留の海にいる泡の下の縁に、小さな字で「11/20 から」「期間を過ぎた」。
    色は控えめな字の色（赤は使わない。「期限切れ」の札にもしない）。押す的ではない */
@@ -853,6 +868,10 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 /* ---------- お気に入りの印（F7）----------
    札の列の上に1つ。見た目は札と同じ作法（押した側は縁と地が立つ）。
    ☆/★ は文字で出す（絵文字も画像も使わない。契約 §15） */
+.bub-center .bc-who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 6px; font-size: 12.5px; color: var(--text-2); }
+.bub-center .bc-who-lb { display: inline-flex; align-items: center; gap: 6px; }
+.bub-center .bc-who select { font: inherit; min-height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); padding: 2px 6px; }
+.bub-center .bc-who-by { font-size: 11.5px; }
 .bub-center .bc-fav {
   appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
@@ -964,7 +983,7 @@ body.pref-all-tools .bub-center .bc-more { display: none; }
   position: fixed; left: 0; top: 0;
   transform: translate(-50%, 0);
   pointer-events: auto;
-  width: min(320px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 24px));   /* 2026-11-18 320 → 400（モック task-start.html） */
   display: flex; flex-direction: column; min-height: 0;
   border: 1px solid var(--line-strong); border-radius: 13px;
   background: var(--surface); color: var(--text);
@@ -1670,3 +1689,120 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
   border: 1px solid var(--line-strong); background: transparent; color: var(--text);
 }
 .bh-edit-box .ok { border-color: var(--bub-edge); background: var(--surface); }
+
+/* 見るだけの海の盤（2026-11-18） */
+.bub-center .bc-readonly { margin: 0 0 6px; font-size: 12.5px; color: var(--text-2); }
+.bub-center.is-readonly button:disabled, .bub-center.is-readonly input:disabled, .bub-center.is-readonly textarea:disabled { opacity: .55; }
+
+/* 飛び先のリンク（2026-11-18 取り決め §7.3） */
+.bub-center .bc-jump { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.bub-center .bc-jump-a { display: inline-flex; align-items: center; min-height: 32px; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text-2); font-size: 12.5px; text-decoration: none; }
+.bub-center .bc-jump-a:hover { color: var(--text); border-color: var(--bub-edge); }
+
+
+/* ---------- 泡の盤の作り直し（2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」。モック docs/spec/mock/task-start.html）----------
+   名前は題として。次にやること・メモは名前を上に縦に並べる。日付はやる日・期間を 2 列の札に。保存の印は右下に */
+.bub-center .bc-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.bub-center .bc-name-row { grid-template-columns: 1fr auto; }
+.bub-center .bc-name-in { font-size: 17px; font-weight: 700; border-color: transparent; background: transparent; padding-left: 6px; }
+.bub-center .bc-name-in:hover, .bub-center .bc-name-in:focus { border-color: var(--line-strong); background: var(--bg); }
+.bub-center .bc-marks { font-size: 15px; color: var(--text-2); letter-spacing: .1em; padding-right: 4px; }
+.bub-center .bc-stack { grid-template-columns: 1fr; gap: 4px; }
+.bub-center .bc-lb-row { display: flex; justify-content: space-between; align-items: center; }
+.bub-center .bc-link-btn { appearance: none; -webkit-appearance: none; border: 0; background: transparent; font: inherit; font-size: 12.5px;
+  color: var(--text-2); cursor: pointer; padding: 4px 2px; min-height: 32px; }
+.bub-center .bc-link-btn[hidden] { display: none; }
+.bub-center .bc-link-btn:hover { color: var(--text); }
+.bub-center .bc-memo-in { resize: vertical; min-height: 58px; line-height: 1.45; font-family: inherit; }
+.bub-center .bc-hint { margin: 2px 2px 0; font-size: 11.5px; color: var(--text-2); }
+.bub-center .bc-chat[hidden] { display: none; }
+
+/* 始める（5 分のタイマー） */
+.bub-center .bc-act-start { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-height: 54px; border-radius: 14px; }
+.bub-center .bc-act-main { font-size: 16px; font-weight: 700; }
+.bub-center .bc-act-sub { font-size: 11.5px; font-weight: 500; opacity: .92; }
+
+/* 日付の段 */
+.bub-center .bc-dates { display: grid; gap: 4px; }
+.bub-center .bc-dates-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bub-center .bc-dates-grid > .bc-date-box { display: contents; }
+.bub-center .bc-dates-grid > .bc-date-box[hidden] { display: none; }
+.bub-center .bc-dates-grid > .bc-date-box > * { grid-column: 1 / -1; order: 1; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head {
+  grid-column: auto; order: 0;
+  flex-direction: column; align-items: flex-start; justify-content: center; gap: 0;
+  min-height: 52px; padding: 6px 26px 6px 11px; position: relative;
+  border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg);
+}
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head::after { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head .bc-cal-lb,
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head .bc-hold-lb { font-size: 11.5px; font-weight: 600; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head .bc-cal-sum { font-size: 14px; max-width: 100%; }
+.bub-center .bc-dates-grid > .bc-date-box > :not(.bc-cal-head) { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.bub-center .bc-dates-grid > .bc-date-box > [hidden] { display: none; }
+
+/* その他 */
+.bub-center .bc-more { border-top: 1px solid var(--line); padding-top: 10px; align-self: stretch; }
+
+/* 保存の印（［書き留める］の代わり） */
+.bub-center .bc-saved { margin: 0; min-height: 14px; font-size: 11.5px; color: var(--text-2); text-align: right; }
+.bub-center .bc-saved:empty { display: none; }
+.bub-center .bc-tags-lb { flex-basis: 100%; width: 100%; margin-bottom: 2px; }
+
+/* 2026-11-19 作業記録（次の一手・メモ・作業の記録を 1 つに）。見出しの行の［履歴を見る ›］［全体を開く ›］は右に寄せて並べる。
+   履歴の文は改行をそのまま出す */
+.bub-center .bc-lb-row .bc-lb { margin-right: auto; }
+.bub-center .bc-lb-row .bc-hist-open { margin-right: 14px; }
+.bub-center .bh-v { white-space: pre-wrap; }
+
+/* 2026-11-19 やる日・期間・くりかえし（モック docs/spec/mock/dates.html「7 つとも案どおり」）
+   日付の段は 3 列の札。開いた中身は段の幅いっぱい。暦は月の名前つきの同じ形（js/monthcal.js） */
+.bub-center .bc-dates-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head { padding: 6px 20px 6px 9px; min-height: 50px; min-width: 0; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head::after { right: 7px; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head .bc-cal-sum { font-size: 13px; letter-spacing: -.2px; }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-cal-head[aria-expanded="true"] { border-color: var(--bub-edge); box-shadow: inset 0 0 0 1px var(--bub-edge); }
+.bub-center .bc-dates-grid > .bc-date-box > .bc-date-note { order: 2; padding: 0 2px; border: 0; background: none; margin: 0; font-size: 12px; color: var(--text-2); }
+.bub-center .bc-cal-body { display: flex; flex-direction: column; gap: 6px; }
+.bub-center .bc-cal-body[hidden] { display: none; }
+.bub-center .bc-mcal { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px 6px 6px; }
+.bub-center .bc-mcal-hd { display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 600; }
+.bub-center .bc-mcal-nav { appearance: none; -webkit-appearance: none; font: inherit; font-size: 20px; line-height: 1; min-width: 44px; min-height: 36px; border: 0; background: none; color: var(--text-2); cursor: pointer; }
+.bub-center .bc-mcal-nav:disabled { opacity: .3; cursor: default; }
+.bub-center .bc-mcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.bub-center .bc-mcal .bc-cal-d { min-height: 40px; border: 0; border-radius: 8px; background: transparent; position: relative; }
+.bub-center .bc-mcal .bc-cal-d.is-out { color: var(--text-2); }
+.bub-center .bc-mcal .bc-cal-d.is-past { border: 0; color: var(--text-2); }
+.bub-center .bc-mcal .bc-cal-d.is-band { background: color-mix(in srgb, var(--bub-edge) 22%, transparent); border-radius: 0; }
+.bub-center .bc-mcal .bc-cal-d.is-bs { border-radius: 8px 0 0 8px; }
+.bub-center .bc-mcal .bc-cal-d.is-be { border-radius: 0 8px 8px 0; }
+.bub-center .bc-mcal .bc-cal-d.is-bs.is-be { border-radius: 8px; }
+.bub-center .bc-mcal .bc-cal-d.is-bs, .bub-center .bc-mcal .bc-cal-d.is-be { font-weight: 700; background: color-mix(in srgb, var(--bub-edge) 45%, transparent); }
+.bub-center .bc-mcal .bc-cal-d.is-on { background: var(--today-fill-hot); box-shadow: inset 0 0 0 1.5px var(--today-edge); border-radius: 50%; font-weight: 700; }
+.bub-center .bc-mcal .bc-cal-d.is-today:not(.is-on) { box-shadow: inset 0 0 0 1.5px var(--bub-edge); }
+.bub-center .bc-mcal .bc-cal-d.is-rep::after { content: ''; position: absolute; left: 50%; bottom: 4px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--bub-edge); }
+.bub-center .bc-cal-legend { margin: 0 2px; font-size: 11.5px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.bub-center .bc-cal-legend .lg { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: -1px; }
+.bub-center .bc-cal-legend .lg-on { background: var(--today-fill-hot); box-shadow: inset 0 0 0 1.5px var(--today-edge); }
+.bub-center .bc-cal-legend .lg-rep { width: 6px; height: 6px; background: var(--bub-edge); }
+.bub-center .bc-cal-legend .lg-band { width: 14px; border-radius: 2px; background: color-mix(in srgb, var(--bub-edge) 22%, transparent); }
+.bub-center .bc-seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.bub-center .bc-seg[hidden] { display: none; }
+.bub-center .bc-seg-b { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px; flex: 1 1 0; min-width: 0; min-height: 40px; padding: 4px; border: 0; border-left: 1px solid var(--line); background: none; color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bub-center .bc-seg-b:first-child { border-left: 0; }
+.bub-center .bc-seg-b[aria-pressed="true"] { background: var(--bub-edge); color: #fff; font-weight: 600; }
+.bub-center .bc-seg-b:disabled { opacity: .45; cursor: default; }
+.bub-center .bc-rep-sl { margin: 4px 2px 0; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.bub-center .bc-rep-sl[hidden] { display: none; }
+.bub-center .bc-dows { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.bub-center .bc-dows[hidden] { display: none; }
+.bub-center .bc-dow { appearance: none; -webkit-appearance: none; font: inherit; font-size: 14px; aspect-ratio: 1; min-height: 38px; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--text); cursor: pointer; }
+.bub-center .bc-dow[aria-pressed="true"] { background: var(--bub-edge); border-color: var(--bub-edge); color: #fff; font-weight: 700; }
+.bub-center .bc-rep-next { margin: 4px 2px 0; font-size: 13.5px; font-weight: 600; }
+.bub-center .bc-rep-next[hidden], .bub-center .bc-rep-until[hidden], .bub-center .bc-date-note[hidden] { display: none; }
+/* 毎月の日にち（2026-11-19「毎月の繰り返しを複数日付を選べる様にして」） */
+.bub-center .bc-mdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.bub-center .bc-mdays[hidden] { display: none; }
+.bub-center .bc-mday { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13.5px; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); cursor: pointer; }
+.bub-center .bc-mday[aria-pressed="true"] { background: var(--bub-edge); border-color: var(--bub-edge); color: #fff; font-weight: 700; }

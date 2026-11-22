@@ -41,14 +41,15 @@ await test('包んで開くと同じ中身。小文字・区切りなしの合�
   assert.equal(readMoveHead(text).device, 'iPhone');
   const got = await decryptMove(text, pass.toLowerCase().replace(/-/g, ''));
   assert.deepEqual(got, payload);
-  assert.deepEqual(moveSummary(got), { at: 123, device: 'iPhone', seas: 2, todos: 2, regions: [], server: true, move: true });
+  assert.deepEqual(moveSummary(got), { at: 123, device: 'iPhone', seas: 2, todos: 2, regions: [], server: true, move: true, apps: [], diaryDays: 0 });
 });
 
 await test('ファイルの中に、記録・鍵・住所の平文は無い', async () => {
-  const payload = buildPayload({ boxes: { me: stateOf([todo('b1', '秘密の予定', 1)], 10) },
+  /* 泡の ID は長く、暗号文（base64）に偶然現れない字（_）を含める。前は 'b1' で、暗号文にたまたま「b1」が出ると落ちた（2026-11-18） */
+  const payload = buildPayload({ boxes: { me: stateOf([todo('todo_secret_id', '秘密の予定', 1)], 10) },
     server: { url: 'https://bubbles.example.org', move: 'QQQQ-RRRR-SSSS-TTTT-UUUU-VVVV' } });
   const text = await encryptMove(payload, makePassphrase(), FAST);
-  for (const s of ['秘密の予定', 'QQQQ', 'bubbles.example.org', 'b1']) assert.equal(text.indexOf(s), -1, s);
+  for (const s of ['秘密の予定', 'QQQQ', 'bubbles.example.org', 'todo_secret_id']) assert.equal(text.indexOf(s), -1, s);
 });
 
 await test('合言葉が違えば開けない。ファイルでないものは断る', async () => {

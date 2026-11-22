@@ -66,6 +66,7 @@ import { mergeState, sameStamps } from './merge.js';
 import { mergeSeas, seaName } from './spacelist.js';
 import { regionOfSpace, defaultRegionId, findRegion, confKeyOf, isPersonal, serverSpace, entriesOf, regionConf } from './regions.js';
 import { applyServerSeas } from './oneserver.js';
+import { myRole } from './me.js';
 
 const PUSH_DELAY = 1500;      /* 保存してから送るまで。続けて打っている間はまとめる */
 const POLL_MS = 20000;        /* 開いている間、ほかの端末の書き換えを見に行く間隔 */
@@ -196,6 +197,11 @@ export function normalizeUrl(raw) {
    （手元に海の記録が無いので、書いても重ねる元が無い）。書いたものは、サーバーが戻ったとき・
    直の通信・控えのファイルで、ほかの記録と同じく「記録ごとに新しいほう」で合わさる */
 export const GUEST_OFFLINE_MS = 24 * 60 * 60 * 1000;
+/* 見るだけ（viewer）の海（2026-11-18）。書いても仲間に届かない（サーバーが 403）ので、画面から書けなくする */
+function viewerLock() {
+  try { return myRole(store.space()) === 'viewer'; } catch (e) { return false; }
+}
+
 function guestLocked(state) {
   if (!guest() || state === 'ok') return false;
   const seen = readSeen();
@@ -206,7 +212,7 @@ function setStatus(state, message) {
   status = { state, at: Date.now(), message: message || '' };
   /* 招かれて入った海は、合わせられた直後だけ書ける。合わせている最中は前のまま。
      長く届かないときは書ける（guestLocked） */
-  if (state !== 'syncing') store.setReadOnly(guestLocked(state));
+  if (state !== 'syncing') store.setReadOnly(guestLocked(state) || viewerLock());
   listeners.forEach(fn => { try { fn(status); } catch (e) { /* 通知で落とさない */ } });
 }
 
@@ -244,11 +250,19 @@ function topExtras(data) {
   return out;
 }
 
+/* ログインの答えの利用者（2026-11-18）→ {sessionUser, sessionUserName}。前の版のサーバーは返さない */
+function userOf(out) {
+  const u = out && out.user;
+  return (u && typeof u.id === 'string') ? { sessionUser: u.id, sessionUserName: String(u.name || '') } : {};
+}
+
 /* 1回合わせる。食い違い（409）なら3回までやり直す */
 async function syncOnce() {
   for (let tries = 0; tries < 3; tries++) {
     const got = await call('GET');
     if (got.status === 401) throw new Error(conf.session ? 'パスキーで入り直す（通行証の期限切れか、取り消された）' : '合言葉が違う');
+    /* 2026-11-18: 仲間でない海は 403（招かれていないか、外された） */
+    if (got.status === 403) throw new Error('この海の仲間ではない（招かれていないか、外された）');
     if (got.status === 429) {
       throw new Error(got.json && got.json.error === 'devices'
         ? '使っている端末が多い（' + (got.json.max || 3) + '台まで）。ほかの端末が30分使わなければ入れる'
@@ -300,6 +314,8 @@ async function syncOnce() {
     if (put.status === 409) continue;          /* 間に別の端末が書いた。取り直す */
     if (put.status === 426) throw outdatedError(put.json && put.json.minSchema);   /* この版は古い。書かない */
     if (put.status === 401) throw new Error('合言葉が違う');
+    /* 2026-11-18: 見るだけ（viewer）の海には書けない。この端末の変更はこの端末にだけ残る */
+    if (put.status === 403) throw new Error('見るだけの海なので、この端末の変更はサーバーに送らない');
     throw new Error('サーバーに書けなかった（' + put.status + '）');
   }
   throw new Error('ほかの端末と書き込みが重なり続けた');
@@ -392,7 +408,7 @@ export const sync = {
     if (!u || !out || !out.session) return false;
     conf = Object.assign(blankConf(), { url: u, session: String(out.session), sessionSpaces: out.spaces || [],
       sessionExpires: Number(out.expires) || 0, sessionName: String(out.name || ''),
-      sessionOwner: typeof out.owner === 'boolean' ? out.owner : null });
+      sessionOwner: typeof out.owner === 'boolean' ? out.owner : null, ...userOf(out) });
     saveConf();
     clearTimeout(timer);
     failures = 0;
@@ -462,7 +478,7 @@ export const sync = {
     try {
       localStorage.setItem(key, JSON.stringify(Object.assign(blankConf(), { url: u, session: String(out.session),
         sessionSpaces: out.spaces || [], sessionExpires: Number(out.expires) || 0, sessionName: String(out.name || ''),
-        sessionOwner: typeof out.owner === 'boolean' ? out.owner : null })));
+        sessionOwner: typeof out.owner === 'boolean' ? out.owner : null, ...userOf(out) })));
     } catch (e) { return false; }
     return true;
   },
@@ -474,6 +490,19 @@ export const sync = {
       passkeyValid: !!(c.session && Number(c.sessionExpires) * 1000 > Date.now()) };
   },
   ready,
+  /* まだ送っていない泡の数（2026-11-18「個人はオフラインでも使える」）。最後に合わせた時刻より新しい印の泡。
+     合わせていない間（オフライン・ログインしていない）に書いた分。つながって合わせると 0 に戻る */
+  pending() {
+    const seen = readSeen() || 0;
+    let n = 0;
+    try {
+      const st = store.exportState();
+      Object.entries((st && st.stamps) || {}).forEach(([k, v]) => { if (k.startsWith('todo:') && Array.isArray(v) && Number(v[0]) > seen) n++; });
+    } catch (e) { return 0; }
+    return n;
+  },
+  /* 読むだけかを決め直す（2026-11-18。/api/me で役割が変わったとき。js/app.js・seapanel.js） */
+  relock() { store.setReadOnly((status.state !== 'syncing' && guestLocked(status.state)) || viewerLock()); },
   /* 持ち主の鍵（どの海にも入れる）を持っているか */
   owner: ownerKey,
   /* 海の一覧をサーバーと合わせる。一覧が変わったら onSeas の相手に知らせる */
@@ -516,6 +545,6 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
 }
 /* 招かれて入った海は、合わせるまでは読むだけ（最後に合わせてから長く経っていれば書ける） */
-if (guest()) store.setReadOnly(guestLocked('idle'));
+if (guest() || viewerLock()) store.setReadOnly(guestLocked('idle') || viewerLock());
 if (ready()) syncNow();
 else syncSeas();   /* この海の鍵が無くても、入れる海の一覧は取りに行く（招かれた人が海を知るため） */

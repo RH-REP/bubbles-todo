@@ -98,6 +98,16 @@ API:
         Authorization: Bearer <鍵>。置き場は鍵に決めた個人1つ（X-Bubbles-Space は省くか me。違えば 403）。
         --read-only の鍵の PUT は 403。端末の数には数えない。入場の失敗・要求数の守りは端末と同じ。
         記録（journal）には鍵の名前だけを出す（machine-forbidden name=…）
+claude.ai の接続（2026-11-17。OAuth 2.1。oauth_server.py。パスキーの形だけ。合言葉の形では 404）:
+    GET  /.well-known/oauth-authorization-server   許可のサーバーの案内（RFC 8414）
+    GET  /.well-known/oauth-protected-resource[/mcp] /mcp の案内（RFC 9728）
+    GET  /oauth/authorize    許可の画面（相手の名乗り＝client_id の住所の JSON を確かめてから出す。PKCE S256 だけ）
+    POST /oauth/approve {request, credential} 持ち主のパスキーで許す → {redirect}
+                             {request, session: true}＋Authorization: Bearer <端末の通行証> 前もって登録した相手（gantt・diary）だけ。パスキーの操作なしで許す（2026-11-18）   POST /oauth/deny {request} → {redirect}
+    POST /oauth/token        code・更新の札 → 通行証（ba_…・1 時間）と更新の札（bf_…・30 日。使うたびに替わる）
+    POST /mcp                Authorization: Bearer ba_…（まだ道具は無い。JSON-RPC の断りを返す）
+    相手の住所の名前は --oauth-client-host（何度でも。環境変数 BUBBLE_TODO_OAUTH_CLIENT_HOSTS。既定 claude.ai）
+    python3 server.py oauth-list / oauth-revoke <id|all>   許可の一覧・取り消し（値は出さない。止めずに効く）
 守り（どちらの形でも）: 接続元ごとの接続数・要求数・入場の失敗の数に上限（guard.py）、1接続の待ちは 15 秒、
     受け取る大きさは 4MB まで、配るページに CSP などのヘッダ、よそのオリジンは決めた相手だけ。
     守りの出来事は標準エラーに「bubbles: auth-fail ip=…」の形で出す（fail2ban が読む。値は出さない）
@@ -116,10 +126,13 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
+import oauth_server
+from filelock import DirLock
 import passkey_crypto as pc
 from guard import Devices, Guard
-from passkey_store import PasskeyStore, valid_space, space_label, person_label, person_of, OWNER
+from passkey_store import PasskeyStore, valid_space, space_label, person_label, person_of, OWNER, clean_name, AVATARS
 
 ROOT = Path(__file__).resolve().parent
 # 配るのは app 本体だけ。.git・.env・data/・DEV_NOTES などは出さない
@@ -142,7 +155,8 @@ class Store:
         self.dir = data_dir
         self.path = data_dir / 'state.json'
         self.backup = data_dir / 'backup'
-        self.lock = threading.Lock()
+        # プロセスをまたぐ錠（2026-11-17。前の住所と新しい住所の2つの server.py が同じ置き場を書くため）
+        self.lock = DirLock(data_dir / '.lock-state')
         self.dir.mkdir(mode=0o700, parents=True, exist_ok=True)   # 新しく作るときは持ち主だけ（Issue #48）
 
     def read(self):
@@ -178,13 +192,79 @@ class Store:
         except OSError:
             pass
         stamp = time.strftime('%Y%m%d-%H%M%S')
-        dst = self.backup / f'state-{stamp}-{secrets.token_hex(2)}.json'
+        dst = self.backup / f'state-{stamp}-{secrets.token_hex(8)}.json'   # 2 バイトでは毎秒数百回の書き込みで名前がぶつかった（2026-11-17）
         fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'wb') as f:
             f.write(self.path.read_bytes())
         olds = sorted(self.backup.glob('state-*.json'))
         for p in olds[:-BACKUP_KEEP]:
             p.unlink(missing_ok=True)
+
+
+SNAP_KEEP = 30
+SNAP_ID_RE = re.compile(r'^[0-9]{13}-[0-9a-f]{8}$')
+
+
+class Snapshots:
+    """押して取るバックアップ（2026-11-19 ユーザーの指示「能動的なバックアップを追加して」「サーバーバックアップをリストして、復元機能をつけて」）。
+    置き場（海）のフォルダの snapshots/snap-<ms>-<hex>.json = {id, at, label, device, seas, todos, payload}（0600）。
+    payload は端末の控え（js/folderbackup.js の buildBackup の形。中は見ずに預かる。数えるのは一覧に出す数だけ）。
+    書くたびに作る自動の写し（backup/state-*.json）とは別。新しい SNAP_KEEP 個だけ残す"""
+
+    def __init__(self, store_dir: Path):
+        self.dir = store_dir / 'snapshots'
+        self.lock = DirLock(store_dir / '.lock-snap')
+
+    @staticmethod
+    def _count(payload):
+        boxes = payload.get('boxes') if isinstance(payload, dict) else None
+        if not isinstance(boxes, dict):
+            return 0, 0
+        n = 0
+        for b in boxes.values():
+            todos = ((b or {}).get('doc') or {}).get('todos') if isinstance(b, dict) else None
+            if isinstance(todos, list):
+                n += sum(1 for t in todos if isinstance(t, dict) and not t.get('trashed'))
+        return len(boxes), n
+
+    def save(self, payload, label='', device=''):
+        if not isinstance(payload, dict) or not isinstance(payload.get('boxes'), dict):
+            raise ValueError('payload')
+        seas, todos = self._count(payload)
+        with self.lock:
+            self.dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # 同じミリ秒に 2 つ預けても並びが崩れないよう、前のものより後の時刻にする（一覧は名前の順）
+            last = max((int(p.name[5:18]) for p in self.dir.glob('snap-*.json') if p.name[5:18].isdigit()), default=0)
+            at = max(int(time.time() * 1000), last + 1)
+            sid = f'{at}-{secrets.token_hex(4)}'
+            rec = {'id': sid, 'at': at, 'label': str(label or '')[:60], 'device': str(device or '')[:60],
+                   'seas': seas, 'todos': todos, 'payload': payload}
+            fd = os.open(self.dir / f'snap-{sid}.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(rec, f, ensure_ascii=False)
+            for p in sorted(self.dir.glob('snap-*.json'))[:-SNAP_KEEP]:
+                p.unlink(missing_ok=True)
+        return {k: rec[k] for k in ('id', 'at', 'label', 'device', 'seas', 'todos')}
+
+    def list(self):
+        out = []
+        for p in sorted(self.dir.glob('snap-*.json'), reverse=True) if self.dir.exists() else []:
+            try:
+                with p.open(encoding='utf-8') as f:
+                    rec = json.load(f)
+                out.append({k: rec.get(k) for k in ('id', 'at', 'label', 'device', 'seas', 'todos')})
+            except (OSError, ValueError):
+                continue
+        return out
+
+    def get(self, sid):
+        if not SNAP_ID_RE.match(str(sid or '')):
+            return None
+        p = self.dir / f'snap-{sid}.json'
+        if not p.exists():
+            return None
+        with p.open(encoding='utf-8') as f:
+            return json.load(f)
 
 
 SPACES = {
@@ -238,7 +318,7 @@ class SeaList:
 
     def __init__(self, data_dir: Path):
         self.path = data_dir / 'seas.json'
-        self.lock = threading.Lock()
+        self.lock = DirLock(data_dir / '.lock-seas')
 
     @staticmethod
     def clean(e):
@@ -434,6 +514,7 @@ class MachineKeys:
 
     def __init__(self, data_dir: Path):
         self.path = data_dir / 'machine_keys.json'
+        self.lock = DirLock(data_dir / '.lock-machines')
 
     @staticmethod
     def digest(key: str) -> str:
@@ -459,21 +540,23 @@ class MachineKeys:
         name = name.strip()
         if not name or len(name) > 60 or any(c in name for c in '\t\r\n') or not name.isprintable():
             raise SystemExit('名前を入れてください（60字まで、改行・タブなし。例: machine-add gantt --space me）')
-        rows = self.read()
-        if any(r['name'] == name for r in rows):
-            raise SystemExit(f'「{name}」はもうあります（作り直すなら machine-remove {name} のあとで）')
-        key = self.PREFIX + secrets.token_urlsafe(32)
-        rows.append({'name': name, 'hash': self.digest(key), 'space': 'me', 'person': int(person),
-                     'read_only': bool(read_only), 'created': time.strftime('%Y-%m-%d')})
-        self.write(rows)
+        with self.lock:
+            rows = self.read()
+            if any(r['name'] == name for r in rows):
+                raise SystemExit(f'「{name}」はもうあります（作り直すなら machine-remove {name} のあとで）')
+            key = self.PREFIX + secrets.token_urlsafe(32)
+            rows.append({'name': name, 'hash': self.digest(key), 'space': 'me', 'person': int(person),
+                         'read_only': bool(read_only), 'created': time.strftime('%Y-%m-%d')})
+            self.write(rows)
         return key
 
     def remove(self, name: str) -> bool:
-        rows = self.read()
-        keep = [r for r in rows if r['name'] != name.strip()]
-        if len(keep) == len(rows):
-            return False
-        self.write(keep)
+        with self.lock:
+            rows = self.read()
+            keep = [r for r in rows if r['name'] != name.strip()]
+            if len(keep) == len(rows):
+                return False
+            self.write(keep)
         return True
 
     def find(self, key: str):
@@ -513,6 +596,31 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "form-action 'self'; frame-ancestors 'none'")
 
 
+def diary_origin(origin: str, app_urls: dict) -> str:
+    """diary の住所の根（2026-11-18 取り決め §8.3。引っ越しのファイルに日記の束を入れる・戻すときだけ、画面が呼ぶ）。
+    --app-url の diary を正とし、無ければ js/apps.js の deriveAppUrls と同じ決め方（手元は 127.0.0.1:8780、bubbles.<名前> → diary.<名前>）"""
+    got = (app_urls or {}).get('diary') or ''
+    if got:
+        return got
+    try:
+        u = urlsplit(origin)
+    except ValueError:
+        return ''
+    host = (u.hostname or '').lower()
+    if host in ('localhost', '127.0.0.1'):
+        return 'http://127.0.0.1:8780'
+    if host.startswith('bubbles.'):
+        return 'https://diary.' + host[len('bubbles.'):]
+    return ''
+
+
+def csp_for(origin: str, app_urls: dict) -> str:
+    """配るページの CSP。connect-src に diary の住所の根だけを足す（ほかの外へは広げない）"""
+    d = diary_origin(origin, app_urls)
+    return CSP.replace("connect-src 'self' https://api.open-meteo.com",
+                       "connect-src 'self' https://api.open-meteo.com" + (' ' + d if d else ''), 1)
+
+
 def log_event(kind: str, ip: str, detail: str = ''):
     """守りの出来事を記録（journal）に1行出す。fail2ban がこれを読む。合言葉・通行証の値は出さない"""
     sys.stderr.write(f'bubbles: {kind} ip={ip}{(" " + detail) if detail else ""}\n')
@@ -524,7 +632,7 @@ class Config:
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
                  guard=None, passkeys=None, stores=None, require_uv=True, devices=None, sea_list=None,
-                 min_schema=1, machines=None):
+                 min_schema=1, machines=None, oauth=None, app_urls=None):
         self.auth, self.origin, self.rp_id = auth, origin, rp_id
         self.trust_proxy = trust_proxy
         self.allow_origins = set(allow_origins)
@@ -536,6 +644,73 @@ class Config:
         self.sea_list = sea_list              # 海の一覧（SeaList）。無ければ /api/spaces は 404
         self.min_schema = int(min_schema)     # 受け付ける最も古い記録の形の版（X-Bubbles-Schema）
         self.machines = machines              # 機械の鍵（MachineKeys）。パスキーの形だけで効く
+        self.oauth = oauth                    # claude.ai の接続（oauth_server.OAuth）。パスキーの形だけで効く
+        self.app_urls = dict(app_urls or {})  # 3 つの app の住所の根（2026-11-18 取り決め §7.2。GET /api/apps）
+        self.csp = csp_for(origin or '', self.app_urls)   # connect-src に diary の住所（2026-11-18 §8.3）
+
+
+class DeviceCodeGuard:
+    """端末を足す番号（数字 6 桁）の当て推量を止める（2026-11-18）。接続元を変えて試されても、
+    全体で 10 分に 20 回外れたら、10 分のあいだ番号での登録を断る（正しい番号で登録できたら数え直す）"""
+
+    def __init__(self, limit=20, window=600, clock=time.monotonic):
+        self.limit, self.window, self.clock = limit, window, clock
+        self.fails = []
+        self.lock = threading.Lock()
+
+    def _trim(self):
+        now = self.clock()
+        self.fails = [t for t in self.fails if now - t < self.window]
+
+    def failed(self):
+        with self.lock:
+            self._trim()
+            self.fails.append(self.clock())
+
+    def blocked(self):
+        with self.lock:
+            self._trim()
+            return len(self.fails) >= self.limit
+
+    def reset(self):
+        with self.lock:
+            self.fails = []
+
+
+ROLE_LABEL = {'owner': '持ち主', 'editor': '書ける', 'viewer': '見るだけ'}
+SEA_HEX = {'magma': '#c2412d', 'moss': '#3f8a4a', 'dusk': '#7a52b8', 'sand': '#b07a1c', 'ink': '#6b6b6b'}   # js/spacelist.js の COLORS
+PERSONAL_HEX = '#2f7bbf'
+
+
+def me_of(pk, sea_list, info):
+    """GET /api/me の答え（2026-11-18 取り決め §2）。info は session_info の形"""
+    rows = {r['id']: r for r in (sea_list.read() if sea_list else [])}
+    users = {u['id']: u for u in pk.users()}
+    seas = [{'id': 'me', 'name': 'わたし', 'kind': 'personal', 'role': 'owner', 'color': PERSONAL_HEX}]
+    for sea, role in info.get('roles', {}).items():
+        if sea == 'me':
+            continue
+        r = rows.get(sea) or {}
+        if r and not r.get('alive', 1):
+            continue
+        members = [{'id': m['user'], 'name': users.get(m['user'], {}).get('name', ''), 'role': m['role'],
+                    'avatar': pk.avatar_of(users.get(m['user']))}
+                   for m in pk.members_of(sea)]
+        seas.append({'id': sea, 'name': r.get('name') or ('共有' if sea == 'share' else sea), 'kind': 'shared',
+                     'role': role, 'color': SEA_HEX.get(r.get('color'), SEA_HEX['magma']), 'members': members})
+    user = {'id': info.get('user'), 'name': info.get('name', '')}
+    if info.get('avatar'):
+        user['avatar'] = info['avatar']      # 2026-11-18。足しただけ（3 つの app の左上のアイコン）
+    if pk.is_admin(info.get('user')):
+        user['admin'] = True                 # 2026-11-18。足しただけ（スーパーユーザーにだけ［新しい利用者を招く］を出す）
+    # 復元の鍵（2026-11-19）。足しただけ。鍵があれば作った日・最後に使った日。
+    # 鍵で端末を足したことは、その端末でない端末に知らせる（いつ見たかは端末が覚える）
+    rec = pk.recovery_of(info.get('user')) if info.get('user') else None
+    if rec and rec['has']:
+        user['recovery'] = {'created': rec['created'], 'lastUsed': rec['last_used']}
+    if rec and rec.get('notice') and info.get('cred_id') and rec['notice'].get('cred') != info.get('cred_id'):
+        user['recoveryNotice'] = {'at': rec['notice']['at'], 'device': rec['notice'].get('device', '')}
+    return {'user': user, 'seas': seas}
 
 
 def make_handler(spaces, cfg: Config = None):
@@ -543,6 +718,9 @@ def make_handler(spaces, cfg: Config = None):
     cfg.auth == 'passkey' なら合言葉では入れず、パスキーで出した通行証だけを通す"""
     cfg = cfg or Config()
     table = spaces.current if hasattr(spaces, 'current') else (lambda: spaces)
+    device_guard = DeviceCodeGuard()
+    # 復元の鍵（2026-11-19）の当て推量。120 ビットなので当たらないが、全体で 10 分に 20 回外れたら 10 分断る
+    recovery_guard = DeviceCodeGuard()
     sea_stores = getattr(spaces, 'stores', None)
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -574,7 +752,7 @@ def make_handler(spaces, cfg: Config = None):
             self.send_header('X-Frame-Options', 'DENY')
             self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
             if ctype.startswith('text/html'):
-                self.send_header('Content-Security-Policy', CSP)
+                self.send_header('Content-Security-Policy', cfg.csp)
             # よそのオリジンから呼んでよいのは、決めた相手だけ（既定は Android 版だけ。公開の形では無し）
             origin = self.headers.get('Origin', '')
             if origin and origin in cfg.allow_origins:
@@ -636,31 +814,59 @@ def make_handler(spaces, cfg: Config = None):
                     hit = sp
             return hit
 
-        def session(self):
+        def bearer(self):
             got = self.headers.get('Authorization', '')
-            tok = got[7:] if got.startswith('Bearer ') else ''
+            return got[7:] if got.startswith('Bearer ') else ''
+
+        def session(self):
+            tok = self.bearer()
             return cfg.passkeys.session_info(tok) if tok else None
 
-        def space(self):
-            """(置き場の名前, Store)。合わなければ None。どの海かは X-Bubbles-Space（無ければ me）。
-            個人（me）は、その鍵の人の個人（2026-11-03。人ごとに別の箱）。
-            海は、その鍵の入れる海だけ（2026-11-16。すべての海に入れる人はいない。海の管理は VM で）"""
+        def principal(self):
+            """記録の API・/api/me の呼び手（2026-11-18）→ (info, None) か (None, 'expired'|'none')。
+            端末の通行証（パスキーで入った端末）か、利用者の OAuth の通行証（ba_。宛てが bubble の記録の API のもの。
+            gantt・diary）。info は session_info と同じ形に kind（device|oauth）と write（書けるか）を足したもの"""
+            tok = self.bearer()
+            if not tok or cfg.auth != 'passkey':
+                return None, 'none'
+            info = cfg.passkeys.session_info(tok)
+            if info:
+                return dict(info, kind='device', write=True), None
+            if cfg.oauth is not None and tok.startswith('ba_'):
+                g, why = cfg.oauth.check_access(tok, resource=cfg.oauth.api_resource)
+                if not g:
+                    return None, why
+                u = cfg.passkeys.find_user(cfg.oauth.grant_user(g))
+                if u:
+                    return dict(cfg.passkeys.info_of_user(u), kind='oauth',
+                                write=oauth_server.SCOPE in g['scope'].split(), scope=g['scope']), None
+            return None, 'none'
+
+        def space(self, write=False):
+            """(置き場の名前, Store)。入れなければ None（401）か 'forbidden'（403）か 'expired'（401・失敗に数えない）。
+            どの海かは X-Bubbles-Space（無ければ me）。
+            個人（me）は、その利用者の個人の海。海は、その利用者が仲間の海だけ（2026-11-18。海の仲間の表）。
+            見るだけ（viewer）の海と、読むだけの通行証（todo.read）の書き込みは 'forbidden'"""
             want = self.headers.get('X-Bubbles-Space', 'me') or 'me'
             if cfg.auth == 'passkey':
-                info = self.session()
-                if not info or not valid_space(want) or want not in cfg.stores:
-                    return None
+                info, why = self.principal()
+                if not info:
+                    return 'expired' if why == 'expired' else None
+                if not valid_space(want) or want not in cfg.stores:
+                    return 'forbidden'
                 if want == 'me':
-                    if info['person'] is None:
-                        return None
                     key = 'me' if info['person'] == OWNER else f"me/{info['person']}"
                     if key not in cfg.stores:
-                        return None
-                elif want in info['spaces']:
-                    key = want
+                        return 'forbidden'
+                    role = 'owner'
                 else:
-                    return None
-                if not cfg.devices.use(info['cred_id']):
+                    role = info['roles'].get(want)
+                    if not role:
+                        return 'forbidden'
+                    key = want
+                if write and (role == 'viewer' or not info['write']):
+                    return 'forbidden'
+                if info['kind'] == 'device' and not cfg.devices.use(info['cred_id']):
                     return 'devices'
                 return want, cfg.stores[key]
             hit = self.token_hit()
@@ -673,12 +879,12 @@ def make_handler(spaces, cfg: Config = None):
             return next(((n, st) for n, st in table().values() if n == want), None)
 
         def who(self):
-            """海の一覧のため。(持ち主か, 入れる置き場) か None。端末の数には入れない"""
+            """海の一覧のため。(持ち主か, 入れる置き場, 役割) か None。端末の数には入れない"""
             if cfg.auth == 'passkey':
-                info = self.session()
-                return (False, list(info['spaces'])) if info else None
+                info, _ = self.principal()
+                return (False, list(info['spaces']), info['roles']) if info else None
             hit = self.token_hit()
-            return (hit[0] == 'me', [hit[0]]) if hit else None
+            return (hit[0] == 'me', [hit[0]], {}) if hit else None
 
         def seas(self):
             """POST /api/spaces。持ち主は一覧を合わせて全部を、招かれた人は入れる海だけを受け取る"""
@@ -693,18 +899,179 @@ def make_handler(spaces, cfg: Config = None):
             body = self.read_json()
             if body is None:
                 return
-            owner, allowed = w
-            # パスキーの形では、端末から一覧は書き換えない（海の管理は VM の sea-add など。2026-11-16）。
+            owner, allowed, roles = w
+            # パスキーの形では、端末から書き換えられるのは、その利用者が持ち主（owner）の海の名前・色・消した印だけ
+            # （2026-11-18 ユーザーの決定「海の管理は作成者が行う」。前は VM だけ。2026-11-16）。
             # 入れる海だけを返し、端末が鍵の入れる置き場を新しくできるよう access も返す
-            rows = cfg.sea_list.merge(body.get('spaces')) if owner else cfg.sea_list.read()
+            if owner:
+                rows = cfg.sea_list.merge(body.get('spaces'))
+            elif cfg.auth == 'passkey' and isinstance(body.get('spaces'), list):
+                mine = [e for e in body['spaces'] if isinstance(e, dict) and roles.get(e.get('id')) == 'owner']
+                rows = cfg.sea_list.merge(mine) if mine else cfg.sea_list.read()
+            else:
+                rows = cfg.sea_list.read()
             if not owner:
                 rows = [r for r in rows if r['id'] in allowed]
-            return self.send_json(200, {'spaces': rows, 'access': allowed})
+            out = {'spaces': rows, 'access': allowed}
+            if roles:
+                out['roles'] = roles
+            return self.send_json(200, out)
+
+        def sea_admin(self, path):
+            """海の管理（2026-11-18 ユーザーの決定「海の管理は作成者が行う」）。端末の通行証だけ（OAuth の通行証では受けない）。
+            POST /api/sea/create {id?, name, color}     共有の海を作る（作った人が owner）
+                 /api/sea/update {sea, name?, color?}  名前・色（owner）
+                 /api/sea/remove {sea}                 消す（owner。一覧に消した印を付け、仲間を外す。記録の置き場は残す）
+                 /api/sea/role   {sea, user, role}     仲間の役割を editor / viewer に（owner）
+                 /api/sea/kick   {sea, user}           仲間を外す（owner）
+                 /api/sea/transfer {sea, user}         持ち主を渡す（owner。渡した人は editor になる）
+                 /api/sea/leave  {sea}                 海を出る（owner は、ほかの仲間がいれば先に渡す。いなければ消す）
+            答えは GET /api/me と同じ形（入れる海と仲間）。断りは 403 scope・404 sea・409 {error, message}"""
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            info = self.session()
+            if not info:
+                return self.deny('sea-admin')
+            body = self.read_json()
+            if body is None:
+                return
+            pk, sl, uid = cfg.passkeys, cfg.sea_list, info['user']
+            if sl is None:
+                return self.send_json(404, {'error': 'not found'})
+            op = path[len('/api/sea/'):]
+            now = int(time.time() * 1000)
+            rows = {r['id']: r for r in sl.read()}
+
+            def put(e):
+                cur = rows.get(e['id'])
+                e['at'] = max(now, (cur['at'] + 1) if cur else 0)
+                sl.merge([e])
+
+            def answer():
+                fresh = pk.session_info(self.bearer()) or info
+                return self.send_json(200, me_of(pk, sl, fresh))
+
+            def conflict(err, msg):
+                return self.send_json(409, {'error': err, 'message': msg})
+
+            if op == 'create':
+                name = clean_name(body.get('name'))[:16]
+                color = str(body.get('color') or 'magma')
+                if not name:
+                    return conflict('name', '海の名前を入れる')
+                if color not in SEA_COLORS:
+                    return conflict('color', '色は ' + '・'.join(SEA_COLORS))
+                sid = str(body.get('id') or '')
+                if sid:
+                    if not valid_space(sid) or sid in ('me', 'share'):
+                        return conflict('id', '海の ID が違う')
+                    if (sid in rows and rows[sid].get('alive', 1)) or pk.members_of(sid):
+                        return conflict('taken', 'この ID の海はもうサーバーにある')
+                else:
+                    sid = new_sea_id(now)
+                    while sid in rows:
+                        sid = new_sea_id(now)
+                put({'id': sid, 'name': name, 'color': color, 'alive': 1})
+                pk.set_member(sid, uid, 'owner')
+                log_event('sea-created', self.ip(), f'sea={sid}')
+                return answer()
+            sea = str(body.get('sea') or '')
+            role = info['roles'].get(sea) if sea != 'me' else None
+            if not role or (sea not in rows and sea != 'share'):
+                return self.send_json(404, {'error': 'sea'})
+            others = [m for m in pk.members_of(sea) if m['user'] != uid]
+            if op == 'leave':
+                if role == 'owner':
+                    if others:
+                        return conflict('owner', '持ち主は、ほかの仲間に持ち主を渡してから出る')
+                    return conflict('last', 'ほかに仲間がいない。出るなら、この海を消す')
+                pk.remove_member(sea, uid)
+                log_event('sea-left', self.ip(), f'sea={sea}')
+                return answer()
+            if role != 'owner':
+                return self.send_json(403, {'error': 'scope', 'message': 'この海の持ち主だけができる'})
+            if op == 'update':
+                cur = dict(rows.get(sea) or {'id': sea, 'name': '共有', 'color': 'magma', 'alive': 1})
+                if 'name' in body:
+                    name = clean_name(body.get('name'))[:16]
+                    if not name:
+                        return conflict('name', '海の名前を入れる')
+                    cur['name'] = name
+                if 'color' in body:
+                    if body.get('color') not in SEA_COLORS:
+                        return conflict('color', '色は ' + '・'.join(SEA_COLORS))
+                    cur['color'] = body['color']
+                put({'id': sea, 'name': cur['name'], 'color': cur['color'], 'alive': 1})
+                return answer()
+            if op == 'remove':
+                cur = rows.get(sea) or {'id': sea, 'name': '共有', 'color': 'magma'}
+                put({'id': sea, 'name': cur['name'], 'color': cur['color'], 'alive': 0})
+                for m in pk.members_of(sea):
+                    pk.remove_member(sea, m['user'])
+                log_event('sea-removed', self.ip(), f'sea={sea}')
+                return answer()
+            target = str(body.get('user') or '')
+            if target == uid or not any(m['user'] == target for m in others):
+                return conflict('user', 'この海の、ほかの仲間を選ぶ')
+            if op == 'role':
+                if body.get('role') not in ('editor', 'viewer'):
+                    return conflict('role', '役割は editor（書ける）か viewer（見るだけ）。持ち主は「持ち主を渡す」で')
+                pk.set_member(sea, target, body['role'])
+                return answer()
+            if op == 'kick':
+                pk.remove_member(sea, target)
+                log_event('sea-kicked', self.ip(), f'sea={sea}')
+                return answer()
+            if op == 'transfer':
+                pk.set_member(sea, target, 'owner')
+                pk.set_member(sea, uid, 'editor')
+                log_event('sea-transferred', self.ip(), f'sea={sea}')
+                return answer()
+            return self.send_json(404, {'error': 'not found'})
+
+        def check_assertion(self, cred):
+            """パスキーの署名を確かめる（/api/passkey/login と /oauth/approve で同じ）。
+            通ればパスキーの行（sign_count を進めたもの）。だめなら 401 を返して None。形が悪ければ投げる"""
+            pk = cfg.passkeys
+            resp = cred.get('response') or {}
+            cd = pc.b64u_decode(resp.get('clientDataJSON', ''))
+            ch = json.loads(cd.decode('utf-8')).get('challenge', '')
+            if not pk.take_challenge(ch, 'get'):
+                self.deny('challenge')
+                return None
+            row = pk.find_passkey(str(cred.get('id', '')))
+            if not row:
+                self.deny('unknown-passkey')
+                return None
+            count = pc.verify_assertion(public_key=row['public_key'], sign_count=row['sign_count'],
+                                        client_data_json=cd,
+                                        authenticator_data=pc.b64u_decode(resp.get('authenticatorData', '')),
+                                        signature=pc.b64u_decode(resp.get('signature', '')),
+                                        challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
+                                        require_uv=cfg.require_uv)
+            pk.touch_passkey(row['id'], count)
+            return row
 
         def who_am_i(self, tok):
-            """入ったあとに端末へ返す {spaces, person, owner}"""
+            """入ったあとに端末へ返す {spaces, person, owner, user, roles}"""
             info = cfg.passkeys.session_info(tok) or {}
-            return {'spaces': info.get('spaces', []), 'person': info.get('person'), 'owner': bool(info.get('owner'))}
+            return {'spaces': info.get('spaces', []), 'person': info.get('person'), 'owner': bool(info.get('owner')),
+                    'user': {'id': info.get('user'), 'name': info.get('name', ''), 'avatar': info.get('avatar')},
+                    'roles': info.get('roles', {})}
+
+        def me(self):
+            """GET /api/me（2026-11-18 取り決め §2）→ {user, seas}。共有の海には仲間（id・名前・役割）も付ける"""
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            info, why = self.principal()
+            if not info:
+                if why == 'expired':
+                    return self.send(401, json.dumps({'error': 'unauthorized'}).encode('utf-8'),
+                                     extra={'WWW-Authenticate': cfg.oauth.challenge_header('invalid_token', api=True)})
+                return self.deny('me')
+            return self.send_json(200, me_of(cfg.passkeys, cfg.sea_list, info))
 
         def machine(self):
             """機械の鍵の行（パスキーの形で、頭が bm_ の鍵が合ったとき）。それ以外は None"""
@@ -739,7 +1106,16 @@ def make_handler(spaces, cfg: Config = None):
             m = self.machine()
             if m is not None:
                 return self.machine_space(m, write)
-            sp = self.space()
+            sp = self.space(write)
+            if sp == 'forbidden':
+                # 入場の失敗ではない（ログインした利用者が、仲間でない海・見るだけの海に書こうとした）。失敗の数に入れない
+                log_event('space-forbidden', self.ip())
+                self.send_json(403, {'error': 'forbidden'})
+                return None
+            if sp == 'expired':
+                self.send(401, json.dumps({'error': 'unauthorized'}).encode('utf-8'),
+                          extra={'WWW-Authenticate': cfg.oauth.challenge_header('invalid_token', api=True)})
+                return None
             if sp == 'devices':
                 # 入場の失敗ではない（正しい端末が、混んでいるので待たされる）。失敗の数に入れない
                 log_event('device-limit', self.ip())
@@ -749,10 +1125,202 @@ def make_handler(spaces, cfg: Config = None):
                 return self.deny('data')
             return sp
 
+        # --- 押して取るバックアップ（2026-11-19。Snapshots）。その人の個人の置き場だけ（X-Bubbles-Space は見ない） ---
+        def snap_space(self, write=False):
+            """個人（me）の置き場の Snapshots。入れなければ応答を返して None"""
+            saved = self.headers.get('X-Bubbles-Space')
+            try:
+                if saved is not None:
+                    self.headers.replace_header('X-Bubbles-Space', 'me')
+                sp = self.authed_space(write=write)
+            finally:
+                if saved is not None:
+                    self.headers.replace_header('X-Bubbles-Space', saved)
+            if not sp:
+                return None
+            return Snapshots(sp[1].dir)
+
+        def snapshots_get(self, path):
+            snaps = self.snap_space()
+            if snaps is None:
+                return
+            if path == '/api/snapshots':
+                return self.send_json(200, {'snapshots': snaps.list(), 'keep': SNAP_KEEP})
+            rec = snaps.get(path[len('/api/snapshots/'):])
+            if rec is None:
+                return self.send_json(404, {'error': 'not found'})
+            return self.send_json(200, rec)
+
+        def snapshots_post(self):
+            snaps = self.snap_space(write=True)
+            if snaps is None:
+                return
+            body = self.read_json()
+            if body is None:
+                return
+            try:
+                meta = snaps.save(body.get('payload'), body.get('label', ''), body.get('device', ''))
+            except (ValueError, AttributeError):
+                return self.send_json(400, {'error': 'bad body'})
+            log_event('snapshot', self.ip(), meta['id'])
+            return self.send_json(200, meta)
+
         def schema(self):
             """端末が言う記録の形の版（X-Bubbles-Schema）。無い・読めないときは 0"""
             v = (self.headers.get('X-Bubbles-Schema', '') or '').strip()
             return int(v) if v.isdigit() and len(v) < 6 else 0
+
+        # --- claude.ai の接続（OAuth 2.1。oauth_server.py） ---
+        def oauth_on(self):
+            return cfg.auth == 'passkey' and cfg.oauth is not None
+
+        def oauth_authorize(self):
+            """GET /oauth/authorize。相手の名乗りを確かめてから許可の画面を出す（確かめられなければ戻さずに断りの画面）"""
+            q = self.path.split('?', 1)[1] if '?' in self.path else ''
+            try:
+                params = parse_qs(q, keep_blank_values=True, max_num_fields=50)
+            except ValueError:
+                return self.send(400, cfg.oauth.error_page('問いの形が読めません'), 'text/html; charset=utf-8')
+            logs, res = cfg.oauth.authorize(params)
+            for kind, detail in logs:
+                log_event(kind, self.ip(), detail)
+            if res[0] == 'redirect':
+                return self.send(302, b'', 'text/plain; charset=utf-8', extra={'Location': res[1]})
+            return self.send(res[1], res[2], 'text/html; charset=utf-8')
+
+        def oauth_post(self, path):
+            """POST /oauth/approve・/oauth/deny・/oauth/token"""
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            if path == '/oauth/token':
+                return self.oauth_token()
+            if path not in ('/oauth/approve', '/oauth/deny'):
+                return self.send_json(404, {'error': 'not found'})
+            origin = self.headers.get('Origin', '')
+            if origin and origin != cfg.origin:
+                log_event('oauth-origin', self.ip())
+                return self.send_json(403, {'error': 'forbidden'})
+            body = self.read_json()
+            if body is None:
+                return
+            rid = body.get('request')
+            if path == '/oauth/deny':
+                url = cfg.oauth.deny(rid)
+                if not url:
+                    return self.send_json(400, {'error': 'expired'})
+                log_event('oauth-denied', self.ip())
+                return self.send_json(200, {'redirect': url})
+            pend = cfg.oauth.peek(rid)
+            if not pend:
+                return self.send_json(400, {'error': 'expired'})
+            # 前もって登録した相手（gantt・diary）だけは、この端末のログイン（端末の通行証。Authorization: Bearer）で許せる
+            # （2026-11-18 ユーザーの指示「直して」。取り決め §7.2「bubble でログイン済みならパスキーの操作なしで戻る」）。
+            # 秘書（claude.ai などの名乗りの相手）は今までどおりパスキーの署名だけ。通行証が切れていれば 401（画面はパスキーへ戻る）
+            if body.get('session') is True:
+                if not pend.get('pre'):
+                    log_event('oauth-session-not-pre', self.ip())
+                    return self.send_json(403, {'error': 'passkey required'})
+                info = cfg.passkeys.session_info(self.bearer())
+                if not info:
+                    return self.deny('oauth-session')
+                row = cfg.passkeys.find_passkey(info.get('cred_id'))
+                user = cfg.passkeys.find_user(info.get('user'))
+                if not row or not user:
+                    return self.deny('oauth-session')
+                url = cfg.oauth.approve(rid, row, user)
+                if not url:
+                    return self.send_json(400, {'error': 'expired'})
+                log_event('oauth-approved', self.ip(), 'session')
+                return self.send_json(200, {'redirect': url})
+            try:
+                row = self.check_assertion(body.get('credential') or {})
+            except (pc.VerifyError, ValueError, KeyError, TypeError, AttributeError) as e:
+                return self.deny('passkey ' + type(e).__name__ + ': ' + str(e)[:60])
+            if not row:
+                return
+            # 2026-11-18 から、どの利用者のパスキーでも許せる（許すのは、その利用者の記録だけ）
+            user = cfg.passkeys.user_of_passkey(row)
+            if not user:
+                log_event('oauth-not-user', self.ip())
+                return self.send_json(403, {'error': 'not user'})
+            url = cfg.oauth.approve(rid, row, user)
+            if not url:
+                return self.send_json(400, {'error': 'expired'})
+            log_event('oauth-approved', self.ip())
+            return self.send_json(200, {'redirect': url})
+
+        def oauth_token(self):
+            """POST /oauth/token（application/x-www-form-urlencoded だけ）。答えは保存させない（no-store）"""
+            def fail(err):
+                cfg.guard.auth_failed(self.ip())
+                kind = {'code-reuse': 'oauth-code-reuse', 'refresh-reuse': 'oauth-refresh-reuse'}.get(err.reason, 'oauth-fail')
+                log_event(kind, self.ip(), err.reason)
+                out = {'error': err.error}
+                if err.description:
+                    out['error_description'] = err.description
+                return self.send(400, json.dumps(out).encode('utf-8'), extra={'Pragma': 'no-cache'})
+
+            ctype = self.headers.get('Content-Type', '').split(';')[0].strip().lower()
+            try:
+                n = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                n = -1
+            if ctype != 'application/x-www-form-urlencoded':
+                return fail(oauth_server.OAuthError('invalid_request', 'content-type', 'application/x-www-form-urlencoded only'))
+            if n <= 0 or n > 64 * 1024:
+                return fail(oauth_server.OAuthError('invalid_request', 'length'))
+            try:
+                form = parse_qs(self.rfile.read(n).decode('utf-8'), keep_blank_values=True, max_num_fields=30)
+            except (ValueError, UnicodeDecodeError):
+                return fail(oauth_server.OAuthError('invalid_request', 'body'))
+            try:
+                out, _ = cfg.oauth.token(form)
+            except oauth_server.OAuthError as e:
+                return fail(e)
+            return self.send(200, json.dumps(out).encode('utf-8'), extra={'Pragma': 'no-cache'})
+
+        def mcp(self):
+            """/mcp（守る口）。通行証は claude.ai の接続のもの（ba_…）だけ。パスキーの通行証・機械の鍵は効かない"""
+            origin = self.headers.get('Origin', '')
+            if origin and origin != cfg.origin:
+                log_event('mcp-origin', self.ip())
+                return self.send_json(403, {'error': 'forbidden'})
+            if cfg.guard.auth_blocked(self.ip()):
+                log_event('auth-blocked', self.ip())
+                return self.too_many()
+            got = self.headers.get('Authorization', '')
+            unauthorized = json.dumps({'error': 'unauthorized'}).encode('utf-8')
+            if not got:
+                # 初めての呼び出し（どこで許可をもらうかを知らせる）。入場の失敗には数えない
+                return self.send(401, unauthorized, extra={'WWW-Authenticate': cfg.oauth.challenge_header()})
+            g, why = cfg.oauth.check_access(got[7:] if got.startswith('Bearer ') else '')
+            if not g:
+                if why == 'expired':
+                    # 期限切れはいつものこと（相手が更新の札で替える）。締め出しの数には入れない
+                    log_event('oauth-expired', self.ip())
+                else:
+                    cfg.guard.auth_failed(self.ip())
+                    log_event('auth-fail', self.ip(), 'mcp')
+                return self.send(401, unauthorized,
+                                 extra={'WWW-Authenticate': cfg.oauth.challenge_header('invalid_token')})
+            if self.command != 'POST':
+                return self.send(405, json.dumps({'error': 'method'}).encode('utf-8'), extra={'Allow': 'POST'})
+            try:
+                n = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                n = -1
+            if n < 0 or n > MAX_BODY:
+                return self.send_json(413 if n > MAX_BODY else 400, {'error': 'bad length'})
+            try:
+                msg = json.loads(self.rfile.read(n).decode('utf-8')) if n else None
+            except (ValueError, UnicodeDecodeError):
+                msg = None
+            rid = msg.get('id') if isinstance(msg, dict) else None
+            if not isinstance(rid, (str, int)) or isinstance(rid, bool):
+                rid = None
+            return self.send_json(200, {'jsonrpc': '2.0', 'id': rid,
+                                        'error': {'code': -32601, 'message': '道具はまだ無い'}})
 
         # --- 受ける ---
         def do_OPTIONS(self):
@@ -766,12 +1334,29 @@ def make_handler(spaces, cfg: Config = None):
 
         def do_GET(self):
             path = self.path.split('?', 1)[0]
-            if not self.gate(static=not path.startswith('/api/')):
+            if not self.gate(static=not (path.startswith(('/api/', '/oauth/')) or path == '/mcp')):
                 return
+            if self.oauth_on():
+                if path == '/.well-known/oauth-authorization-server':
+                    return self.send_json(200, cfg.oauth.as_metadata())
+                if path in ('/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'):
+                    return self.send_json(200, cfg.oauth.pr_metadata(root=not path.endswith('/mcp')))
+                if path == '/oauth/authorize' and self.command == 'GET':
+                    return self.oauth_authorize()
+                if path == '/mcp':
+                    return self.mcp()
             if path == '/api/health':
                 return self.send_json(200, {'ok': True})
             if path == '/api/auth':
                 return self.send_json(200, {'mode': cfg.auth, 'rp_id': cfg.rp_id if cfg.auth == 'passkey' else ''})
+            if path == '/api/me' and cfg.auth == 'passkey':
+                return self.me()
+            if path == '/api/apps' and cfg.auth == 'passkey':
+                # 3 つの app の住所の根（2026-11-18 取り決め §7.2 の app_urls）。だれが読んでもよい（住所だけ）
+                return self.send_json(200, dict({'bubble': cfg.origin}, **cfg.app_urls))
+            if path == '/api/avatars' and cfg.auth == 'passkey':
+                # 利用者のアイコンのプリセット（2026-11-18）。だれが読んでもよい（絵文字と色だけ）
+                return self.send_json(200, {'presets': [{'id': a, 'emoji': e, 'color': c} for a, e, c in AVATARS]})
             if path == '/api/data':
                 sp = self.authed_space()
                 if not sp:
@@ -784,16 +1369,28 @@ def make_handler(spaces, cfg: Config = None):
                     out['person'] = sp[2]['person']
                 elif cfg.auth == 'passkey':
                     # 端末が「誰の個人か」「持ち主か」を知るため（パスキーを移したとき、手元の箱を入れ替える）
-                    info = self.session() or {}
+                    info, _ = self.principal()
+                    info = info or {}
                     out['owner'] = bool(info.get('owner'))
+                    out['user'] = info.get('user')
+                    out['role'] = (info.get('roles') or {}).get(sp[0])
                     if sp[0] == 'me':
                         out['person'] = info.get('person')
                 return self.send_json(200, out)
+            if path == '/api/snapshots' or path.startswith('/api/snapshots/'):
+                return self.snapshots_get(path)
             if path.startswith('/api/'):
                 return self.send_json(404, {'error': 'not found'})
             return self.static(path)
 
         do_HEAD = do_GET
+
+        def do_DELETE(self):
+            if not self.gate():
+                return
+            if self.path.split('?', 1)[0] == '/mcp' and self.oauth_on():
+                return self.mcp()
+            return self.send_json(404, {'error': 'not found'})
 
         def do_PUT(self):
             if not self.gate():
@@ -826,8 +1423,16 @@ def make_handler(spaces, cfg: Config = None):
             if not self.gate():
                 return
             path = self.path.split('?', 1)[0]
+            if path.startswith('/oauth/') or path == '/mcp':
+                if not self.oauth_on():
+                    return self.send_json(404, {'error': 'not found'})
+                return self.mcp() if path == '/mcp' else self.oauth_post(path)
             if path == '/api/spaces':
                 return self.seas()
+            if path == '/api/snapshots':
+                return self.snapshots_post()
+            if cfg.auth == 'passkey' and path.startswith('/api/sea/'):
+                return self.sea_admin(path)
             if cfg.auth != 'passkey' or not path.startswith('/api/passkey/'):
                 return self.send_json(404, {'error': 'not found'})
             if cfg.guard.auth_blocked(self.ip()):
@@ -856,17 +1461,48 @@ def make_handler(spaces, cfg: Config = None):
                         out.update(name=inv['name'], spaces=inv['spaces'])
                     return self.send_json(200, out)
                 if path == '/api/passkey/register/options':
-                    inv = pk.find_invite(body.get('invite', ''))
-                    if not inv:
-                        return self.deny('invite')
+                    # 招待コード（invite）か、端末を足す番号（device。2026-11-18。10 分・1 回・数字 6 桁）
+                    if body.get('recovery'):
+                        # 復元の鍵（2026-11-19）。合えば、その利用者の 10 分・1 回の招待を作る（鍵そのものは使っても消えない）
+                        if recovery_guard.blocked():
+                            log_event('recovery-blocked', self.ip())
+                            return self.too_many()
+                        inv = pk.recovery_invite(body.get('recovery'))
+                        if not inv:
+                            recovery_guard.failed()
+                            log_event('recovery-fail', self.ip())
+                            return self.deny('recovery')
+                    elif body.get('device'):
+                        if device_guard.blocked():
+                            log_event('device-code-blocked', self.ip())
+                            return self.too_many()
+                        inv = pk.find_device_code(body.get('device'))
+                        if not inv:
+                            device_guard.failed()
+                            return self.deny('device-code')
+                    else:
+                        inv = pk.find_invite(body.get('invite', ''))
+                        if not inv:
+                            return self.deny('invite')
                     full = pk.full_for(inv)
                     if full:
                         return self.send_json(409, {'error': 'full', 'spaces': full, 'max': pk.max_per_space})
-                    chal = pk.new_challenge('create', inv['code_hash'])
+                    # パスキーの user.id は利用者の番号（2026-11-18）。新しい利用者は、ここで番号を決めて登録で使う
+                    kind, uid = pk.invite_target(inv)
+                    if kind == 'user':
+                        u = pk.find_user(uid) or {}
+                        uname = u.get('name', '')
+                    else:
+                        uid = 'u_' + secrets.token_hex(4)
+                        uname = clean_name(body.get('userName')) or inv.get('name', '')
+                    dname = clean_name(body.get('deviceName')) or inv.get('name', '') or uname
+                    chal = pk.new_challenge('create', inv['code_hash'],
+                                           {'user_id': uid, 'user_name': uname, 'device_name': dname})
                     return self.send_json(200, {'publicKey': {
                         'challenge': chal,
                         'rp': {'id': cfg.rp_id, 'name': 'Bubbles'},
-                        'user': {'id': pc.b64u_encode(secrets.token_bytes(16)), 'name': inv['name'], 'displayName': inv['name']},
+                        'user': {'id': pc.b64u_encode(uid.encode('ascii')), 'name': uname or dname,
+                                 'displayName': uname or dname},
                         'pubKeyCredParams': [{'type': 'public-key', 'alg': a} for a in pc.SUPPORTED_ALGS],
                         'authenticatorSelection': {'residentKey': 'required', 'requireResidentKey': True,
                                                    'userVerification': 'required'},
@@ -884,6 +1520,8 @@ def make_handler(spaces, cfg: Config = None):
                     inv = next((r for r in pk.list_invites() if r['code_hash'] == got['invite_hash']), None)
                     if not inv:
                         return self.deny('invite-used')
+                    if inv.get('kind') == 'device':
+                        device_guard.reset()
                     out = pc.verify_registration(cd, pc.b64u_decode(resp.get('attestationObject', '')),
                                                  challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
                                                  require_uv=cfg.require_uv)
@@ -892,13 +1530,20 @@ def make_handler(spaces, cfg: Config = None):
                         return self.send_json(409, {'error': 'full', 'spaces': full, 'max': pk.max_per_space})
                     if not pk.use_invite(inv['code_hash']):
                         return self.deny('invite-used')
-                    # 引っ越しの鍵（Issue #19）: いっぱいなら、引っ越す前の端末のパスキーを外して空ける
+                    # 引っ越しの鍵（Issue #19）: いっぱいなら、引っ越す前の端末のパスキーを外して空ける。
+                    # 復元の鍵（2026-11-19）: いっぱいなら、いちばん長く使っていないパスキーを外して空ける
+                    gone = pk._oldest_passkey(pk.invite_target(inv)[1]) if inv.get('kind') == 'recovery' else None
                     retired = pk.retire_for(inv)
                     if retired:
-                        cfg.devices.leave(inv.get('from'))
+                        cfg.devices.leave(gone['id'] if gone else inv.get('from'))
                         log_event('passkey-retired', self.ip(), f'name={retired}')
-                    name = pk.add_passkey(name=inv['name'], spaces=inv['spaces'], cred=out, person=inv.get('person'), by=inv.get('by'))
-                    tok, exp = pk.new_session(out['cred_id'], inv['spaces'])
+                    name, _u = pk.register(inv=inv, cred=out, name=got.get('device_name', ''),
+                                           user_id=got.get('user_id'), user_name=got.get('user_name', ''))
+                    if inv.get('kind') == 'recovery':
+                        recovery_guard.reset()
+                        pk.recovery_used(inv['user'], out['cred_id'], name)
+                        log_event('recovery-used', self.ip(), f'name={name}')
+                    tok, exp = pk.new_session(out['cred_id'])
                     log_event('passkey-registered', self.ip(), f'name={name}')
                     return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=name))
                 if path == '/api/passkey/login/options':
@@ -907,23 +1552,10 @@ def make_handler(spaces, cfg: Config = None):
                         'userVerification': 'required', 'timeout': 120000, 'allowCredentials': [],
                     }})
                 if path == '/api/passkey/login':
-                    cred = body.get('credential') or {}
-                    resp = cred.get('response') or {}
-                    cd = pc.b64u_decode(resp.get('clientDataJSON', ''))
-                    ch = json.loads(cd.decode('utf-8')).get('challenge', '')
-                    if not pk.take_challenge(ch, 'get'):
-                        return self.deny('challenge')
-                    row = pk.find_passkey(str(cred.get('id', '')))
+                    row = self.check_assertion(body.get('credential') or {})
                     if not row:
-                        return self.deny('unknown-passkey')
-                    count = pc.verify_assertion(public_key=row['public_key'], sign_count=row['sign_count'],
-                                                client_data_json=cd,
-                                                authenticator_data=pc.b64u_decode(resp.get('authenticatorData', '')),
-                                                signature=pc.b64u_decode(resp.get('signature', '')),
-                                                challenge=ch, origin=cfg.origin, rp_id=cfg.rp_id,
-                                                require_uv=cfg.require_uv)
-                    pk.touch_passkey(row['id'], count)
-                    tok, exp = pk.new_session(row['id'], row['spaces'])
+                        return
+                    tok, exp = pk.new_session(row['id'])
                     return self.send_json(200, dict(self.who_am_i(tok), session=tok, expires=exp, name=row['name']))
                 if path == '/api/passkey/invite':
                     # 端末から人を招く（2026-11-16）。入っている端末だけ。招ける範囲は passkey_store.py の invite_from
@@ -932,14 +1564,94 @@ def make_handler(spaces, cfg: Config = None):
                         return self.deny('invite-make')
                     try:
                         code, spaces, person = pk.invite_from(info, body.get('name', ''), str(body.get('sea', '')),
-                                                              bool(body.get('newPerson')))
+                                                              bool(body.get('newPerson')), str(body.get('role') or 'editor'))
                     except PermissionError as e:
                         return self.send_json(403, {'error': 'scope', 'message': str(e)})
                     except ValueError as e:
                         # 入場の失敗ではない（いっぱい・名前が無い）。失敗の数に入れない
                         return self.send_json(409, {'error': 'invite', 'message': str(e)})
                     log_event('invite-made', self.ip())
-                    return self.send_json(200, {'code': code, 'spaces': spaces, 'person': person})
+                    # 招待のリンク（2026-11-18）。開くと画面が招待コードを読み、登録か「この海に入る」を出す
+                    link = cfg.origin + '/#invite=' + code
+                    return self.send_json(200, {'code': code, 'spaces': spaces, 'person': person, 'link': link})
+                if path == '/api/passkey/invite/peek':
+                    # 招待の中身を見る（2026-11-18。登録の前に、だれからの・どの海への招待かを出すため）。コードは返さない
+                    inv = pk.find_invite(body.get('invite', ''))
+                    if not inv:
+                        return self.deny('invite-peek')
+                    out = pk.invite_info(inv)
+                    names = {r['id']: r['name'] for r in (cfg.sea_list.read() if cfg.sea_list else [])}
+                    for s in out['seas']:
+                        s['name'] = names.get(s['id'], '共有' if s['id'] == 'share' else s['id'])
+                    return self.send_json(200, out)
+                if path == '/api/passkey/invite/accept':
+                    # ログインしている利用者が、海への招待を受け取る（2026-11-18）
+                    info = self.session()
+                    if not info:
+                        return self.deny('invite-accept')
+                    try:
+                        seas = pk.accept_invite(body.get('invite', ''), info['user'])
+                    except ValueError as e:
+                        return self.send_json(409, {'error': 'invite', 'message': str(e)})
+                    if not seas:
+                        return self.deny('invite-accept')
+                    log_event('invite-accepted', self.ip())
+                    return self.send_json(200, dict(self.who_am_i(self.bearer()), joined=[s for s, _ in seas]))
+                if path in ('/api/passkey/devices', '/api/passkey/devices/remove'):
+                    # わたしの端末（2026-11-18。モック 3）。自分のパスキーの一覧と、外す。今の端末は confirm が要る
+                    info = self.session()
+                    if not info:
+                        return self.deny('devices')
+                    mine = [r for r in pk.passkeys() if r.get('user') == info['user']]
+                    if path.endswith('/remove'):
+                        name = str(body.get('name') or '')
+                        row = next((r for r in mine if r['name'] == name), None)
+                        if not row:
+                            return self.send_json(404, {'error': 'device'})
+                        if row['id'] == info['cred_id'] and body.get('confirm') is not True:
+                            return self.send_json(409, {'error': 'current', 'message': 'いま使っている端末。外すとこの端末はログアウトする'})
+                        pk.remove_passkey(name)
+                        cfg.devices.leave(row['id'])
+                        log_event('device-removed', self.ip())
+                        mine = [r for r in pk.passkeys() if r.get('user') == info['user']]
+                    return self.send_json(200, {'devices': [
+                        {'name': r['name'], 'created': r.get('created'), 'last_used': r.get('last_used'),
+                         'current': r['id'] == info['cred_id']} for r in mine]})
+                if path == '/api/passkey/avatar':
+                    # 自分のアイコンをプリセットから選ぶ（2026-11-18）→ /api/me と同じ形
+                    info = self.session()
+                    if not info:
+                        return self.deny('avatar')
+                    try:
+                        pk.set_avatar(info['user'], str(body.get('preset') or ''))
+                    except ValueError as e:
+                        return self.send_json(409, {'error': 'avatar', 'message': str(e)})
+                    return self.send_json(200, me_of(pk, cfg.sea_list, pk.session_info(self.bearer()) or info))
+                if path == '/api/passkey/device':
+                    # 端末を足す番号（2026-11-18。10 分・1 回）。ログインしている端末が出し、新しい端末が入れる
+                    info = self.session()
+                    if not info:
+                        return self.deny('device-make')
+                    try:
+                        code, exp = pk.add_device_code(info['user'])
+                    except ValueError as e:
+                        return self.send_json(409, {'error': 'device', 'message': str(e)})
+                    log_event('device-code', self.ip())
+                    return self.send_json(200, {'code': code, 'expires': exp})
+                if path == '/api/passkey/recovery':
+                    # 復元の鍵を作る・消す（2026-11-19）。ログインしている端末だけ。鍵を返すのは作ったときだけ
+                    info = self.session()
+                    if not info:
+                        return self.deny('recovery-make')
+                    if body.get('action') == 'remove':
+                        hit = pk.remove_recovery_key(info['user'])
+                        log_event('recovery-removed', self.ip())
+                        return self.send_json(200, {'ok': True, 'removed': hit})
+                    if body.get('action') != 'make':
+                        return self.send_json(400, {'error': 'action'})
+                    key, created = pk.add_recovery_key(info['user'])
+                    log_event('recovery-made', self.ip())
+                    return self.send_json(200, {'key': key, 'created': created})
                 if path == '/api/passkey/move':
                     # 引っ越しの鍵を作る（Issue #19）。入っている端末だけ。前に作った鍵は使えなくなる
                     info = self.session()
@@ -1037,14 +1749,21 @@ def token_command(data_dir: Path, cmd: str, name: str) -> int:
     return 0
 
 
-def where_of(row):
-    """passkey-list・invite-list に出す置き場。個人は番号つき"""
+def where_of(row, pk=None):
+    """招待・パスキーの行の入れる先の表示（2026-11-18 から利用者の名前と海）"""
+    if pk is not None:
+        u = pk.find_user(row.get('user')) if row.get('user') else None
+        seas = [s for s, _ in pk.invite_seas(row)] if 'code_hash' in row else [
+            s for s in (pk.roles_of(u['id']) if u else {}) if s != 'me']
+        who = f"{u['name']}（{u['id']}・個人 {u['person']}）" if u else ('新しい利用者' if 'code_hash' in row else '利用者なし')
+        return '・'.join([who] + [space_label(s) for s in seas])
     return ','.join(person_label(person_of(row)) if s == 'me' else space_label(s) for s in row.get('spaces', []))
 
 
-def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkeys: int = 3, value: str = '') -> int:
+def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkeys: int = 3, value: str = '', extra: str = '') -> int:
     """パスキーの操作（公開の形）。動いているサーバーは止めなくてよい"""
     pk = PasskeyStore(data_dir, max_per_space=max_passkeys)
+    pk.migrate()       # 前の人の番号を利用者へ（2026-11-18。済んでいれば何もしない）
 
     def parse_spaces():
         spaces, person = [], None
@@ -1092,13 +1811,13 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
             raise SystemExit(f'「{name}」の頼みはありません（request-list で確かめる）')
         print(f'「{name}」の頼みを断りました', flush=True)
     elif cmd == 'limit':
-        print(f'置き場ごとに登録できるパスキー: {pk.max_per_space} 台（変えるなら limit-set <数>）', flush=True)
+        print(f'利用者ごとに登録できるパスキー: {pk.max_per_space} 台（変えるなら limit-set <数>）', flush=True)
     elif cmd == 'limit-set':
         try:
             n = pk.set_limit(name)
         except ValueError as e:
             raise SystemExit(str(e)) from None
-        print(f'置き場ごとに登録できるパスキーを {n} 台にしました。動いているサーバーにも次の要求から効きます', flush=True)
+        print(f'利用者ごとに登録できるパスキーを {n} 台にしました。動いているサーバーにも次の要求から効きます', flush=True)
         for lab, c in pk.over_limit():
             print(f'（{lab}は {c} 台。外さずに残しますが、{n} 台より少なくなるまで新しい登録を断ります）', flush=True)
     elif cmd == 'invite-list':
@@ -1107,10 +1826,10 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
             print('使われていない招待コードはありません')
         for r in rows:
             if r.get('kind') == 'move':   # 引っ越しの鍵（Issue #19）
-                print(f"{r['name']}\t{where_of(r)}\t引っ越しの鍵（作った {time.strftime('%Y-%m-%d', time.localtime(r['created']))}）")
+                print(f"{r['name']}\t{where_of(r, pk)}\t引っ越しの鍵（作った {time.strftime('%Y-%m-%d', time.localtime(r['created']))}）")
             else:
                 by = f"\t招いた人 {r['by']}" if r.get('by') else ''
-                print(f"{r['name']}\t{where_of(r)}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}{by}")
+                print(f"{r['name']}\t{where_of(r, pk)}\t期限 {time.strftime('%m-%d %H:%M', time.localtime(r['expires']))}{by}")
     elif cmd == 'passkey-list':
         rows = pk.passkeys()
         if not rows:
@@ -1118,10 +1837,54 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
         for r in rows:
             last = time.strftime('%Y-%m-%d', time.localtime(r['last_used'])) if r.get('last_used') else '未使用'
             by = f"\t招いた人 {r['by']}" if r.get('by') else ''
-            print(f"{r['name']}\t{where_of(r)}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}{by}")
-        used = list(dict.fromkeys(['share'] + [s for r in rows for s in r.get('spaces', []) if s != 'me']))
-        counts = [f'{person_label(n)} {pk.count_in("me", n)}/{pk.max_per_space}' for n in pk.persons()]
-        print('（' + '・'.join(counts + [f'{space_label(s)} {pk.count_in(s)}/{pk.max_per_space}' for s in used]) + '）')
+            print(f"{r['name']}\t{where_of(r, pk)}\t登録 {time.strftime('%Y-%m-%d', time.localtime(r['created']))}\t最後 {last}{by}")
+        counts = [f"{u['name']} {pk.count_user(u['id'])}/{pk.max_per_space}" for u in pk.users()]
+        print('（利用者ごとのパスキー: ' + '・'.join(counts) + '）')
+    elif cmd == 'user-list':
+        users = pk.users()
+        if not users:
+            print('利用者はいません（invite-add <名前> me で招く）')
+        for u in users:
+            roles = pk.roles_of(u['id'])
+            seas = '・'.join(f"{space_label(s)}（{ROLE_LABEL[r]}）" for s, r in roles.items() if s != 'me') or 'なし'
+            keys = '・'.join(r['name'] for r in pk.passkeys() if r.get('user') == u['id']) or 'なし'
+            print(f"{u['id']}\t{u['name']}\t個人 {u['person']}\tパスキー: {keys}\t共有の海: {seas}")
+    elif cmd in ('admin-list', 'admin-add', 'admin-remove'):
+        # スーパーユーザー（app から新しい利用者を招ける人）。2026-11-18
+        if cmd != 'admin-list':
+            try:
+                u = pk.set_admin(name.strip(), cmd == 'admin-add')
+            except ValueError as e:
+                raise SystemExit(str(e)) from None
+            print(f"{u['name']}（{u['id']}）を" + ('スーパーユーザーにしました' if cmd == 'admin-add' else 'スーパーユーザーから外しました'), flush=True)
+        for u in pk.admins():
+            print(f"{u['id']}\t{u['name']}\t個人 {u['person']}" + ('' if u.get('admin') is True else '\t（だれにも付いていないので 1 番の人）'))
+    elif cmd == 'user-rename':
+        try:
+            got = pk.rename_user(name.strip(), value)
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
+        print(f'{name.strip()} の名前を「{got}」にしました', flush=True)
+    elif cmd in ('member-set', 'member-remove'):
+        # member-set <海の ID> <利用者の番号> <owner|editor|viewer> ／ member-remove <海の ID> <利用者の番号>
+        sea, uid = name.strip(), value.strip()
+        if not sea or not uid:
+            raise SystemExit(f'使い方: {cmd} <海の ID> <利用者の番号>' + (' <owner|editor|viewer>' if cmd == 'member-set' else ''))
+        if cmd == 'member-set':
+            role = (extra or 'editor').strip()
+            if role not in ('owner', 'editor', 'viewer'):
+                raise SystemExit('役割は owner（持ち主）・editor（書ける）・viewer（見るだけ）')
+            try:
+                pk.set_member(sea, uid, role)
+            except ValueError as e:
+                raise SystemExit(str(e)) from None
+            print(f'{space_label(sea)}の仲間: {uid}（{ROLE_LABEL[role]}）', flush=True)
+        else:
+            if not pk.remove_member(sea, uid):
+                raise SystemExit(f'{uid} は {space_label(sea)}の仲間ではありません（user-list で確かめる）')
+            print(f'{uid} を {space_label(sea)}の仲間から外しました（次の要求から入れない）', flush=True)
+    elif cmd == 'users-migrate':
+        print('前の人の番号を利用者へ移しました（済んでいれば何もしない）', flush=True)
     elif cmd == 'passkey-person':
         if not value.strip():
             raise SystemExit('移す先を入れてください（例: passkey-person 母のスマホ new ／ passkey-person 母のタブレット 2）')
@@ -1138,6 +1901,21 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
             raise SystemExit(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
         print(f'「{name}」のパスキーと通行証を取り消しました。その端末は次の要求から入れません', flush=True)
         print(f'（「{name}」が作った引っ越しの鍵は残しています。失くした端末の引っ越しに使うため。消すなら move-remove {name}）', flush=True)
+    elif cmd == 'recovery-list':
+        # 復元の鍵（2026-11-19）。鍵そのものは見られない（指紋だけ置いている）
+        users = {u['id']: u for u in pk.users()}
+        rows = [r for r in pk.recovery_list() if r['has']]
+        if not rows:
+            print('復元の鍵はありません（利用者が「わたしの端末」の［復元の鍵を作る］で作る）')
+        when = lambda t: time.strftime('%Y-%m-%d %H:%M', time.localtime(t)) if t else 'まだ'
+        for r in rows:
+            u = users.get(r['user'], {})
+            print(f"{r['user']}\t{u.get('name', '')}\t作った日 {when(r['created'])}\t最後に使った日 {when(r['last_used'])}")
+    elif cmd == 'recovery-remove':
+        uid = name.strip()
+        if not pk.remove_recovery_key(uid):
+            raise SystemExit(f'{uid} の復元の鍵はありません（recovery-list で確かめる）')
+        print(f'{uid} の復元の鍵を消しました。その鍵ではもう端末を足せません', flush=True)
     elif cmd == 'move-remove':
         n = pk.remove_move_keys(name)
         if not n:
@@ -1147,10 +1925,38 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
     return 0
 
 
-def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: bool) -> int:
-    """機械の鍵の操作（公開の形。共有の記録 v1.2 §8）。動いているサーバーは止めなくてよい"""
+def write_key_file(path: Path, key: str):
+    """鍵をファイルに書く（2026-11-17）。親のフォルダが無ければ 700 で作り、ファイルは 600。
+    すでにあれば（リンクでも）上書きせずに FileExistsError。リンクの先へは書かない"""
+    # 無いフォルダを上から順に 700 で作る（mkdir(parents=True) は途中のフォルダを umask の形で作るため）
+    missing = []
+    d = path.parent
+    while not d.exists():
+        missing.append(d)
+        d = d.parent
+    for d in reversed(missing):
+        d.mkdir(mode=0o700)
+        os.chmod(d, 0o700)
+    old = os.umask(0o077)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+    finally:
+        os.umask(old)
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(key + '\n')
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: bool, key_file: str = '') -> int:
+    """機械の鍵の操作（公開の形。共有の記録 v1.2 §8）。動いているサーバーは止めなくてよい。
+    key_file（--key-file）を付けると、鍵を画面に出さずにそのファイルへ書く（2026-11-17。画面とクリップボードを通さない）"""
     keys = MachineKeys(data_dir)
     if cmd == 'machine-add':
+        kpath = Path(key_file).expanduser() if key_file else None
+        if kpath is not None and (kpath.exists() or kpath.is_symlink()):
+            raise SystemExit(f'{kpath} はもうあります（上書きしない。前の鍵なら machine-remove のあと、ファイルを消すか別の名前で）')
         m = re.fullmatch(r'me(?::([1-9][0-9]{0,5}))?', (space or '').strip())
         if not m:
             raise SystemExit('置き場は me（個人 1）か me:<番号>（その人の個人）。例: machine-add gantt --space me')
@@ -1159,6 +1965,15 @@ def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: 
             raise SystemExit(f'{person_label(person)}はいません（passkey-list で番号を確かめる）')
         key = keys.add(name, person, read_only)
         how = '読むだけ' if read_only else '読み書き'
+        if kpath is not None:
+            try:
+                write_key_file(kpath, key)
+            except OSError as e:
+                keys.remove(name)       # 書けなかった鍵は残さない（誰も持たない鍵になる）
+                raise SystemExit(f'{kpath} に書けませんでした（{e.strerror or type(e).__name__}）。作った鍵は消しました')
+            print(f'「{name.strip()}」の機械の鍵（{person_label(person)}・{how}）を {kpath} に書きました（600。鍵は画面に出しません）。'
+                  f'確かめの印: {MachineKeys.digest(key)[:8]}（machine-list の「印」と同じ）', flush=True)
+            return 0
         # 鍵はここで1度だけ出す。サーバーにはハッシュだけが残る（失くしたら作り直す）
         print(f'「{name.strip()}」の機械の鍵（{person_label(person)}・{how}）: {key}', flush=True)
         print('この鍵はもう出せません。使う機械のファイルに入れ（例: chmod 600 の bubble_key.txt）、'
@@ -1169,7 +1984,7 @@ def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: 
             print('機械の鍵はありません（machine-add <名前> --space me で作る）')
         for r in rows:
             print(f"{r['name']}\t{person_label(r['person'])}\t{'読むだけ' if r.get('read_only') else '読み書き'}"
-                  f"\t作った {r.get('created', '')}")
+                  f"\t作った {r.get('created', '')}\t印 {r['hash'][:8]}")
     elif cmd == 'machine-remove':
         if not keys.remove(name):
             raise SystemExit(f'「{name}」は見つかりません（machine-list で名前を確かめる）')
@@ -1177,7 +1992,66 @@ def machine_command(data_dir: Path, cmd: str, name: str, space: str, read_only: 
     return 0
 
 
+def oauth_command(data_dir: Path, cmd: str, name: str) -> int:
+    """claude.ai の接続の許可の操作（2026-11-17）。動いているサーバーは止めなくてよい（次の要求から効く）。
+    値（通行証・更新の札）は出さない（ファイルにも無い）"""
+    st = oauth_server.OAuthStore(data_dir)
+    day = lambda t: time.strftime('%Y-%m-%d %H:%M', time.localtime(t)) if t else '未使用'   # noqa: E731
+    if cmd == 'oauth-list':
+        rows = st.grants()
+        if not rows:
+            print('許した接続はありません（claude.ai のコネクタから接続し、許可の画面で許すとできる）')
+        users = {u['id']: u['name'] for u in PasskeyStore(data_dir).users()}
+        for g in rows:
+            refresh = day(g['refresh_expires']) if g.get('refresh_expires') else 'なし（まだ code を替えていない）'
+            who = users.get(g.get('user'), '1 番の人' if not g.get('user') else g.get('user'))
+            what = '記録の API' if g.get('resource', '').rstrip('/') == g.get('resource', '').split('/mcp')[0].rstrip('/') and not g.get('resource', '').endswith('/mcp') else '/mcp'
+            print(f"{g['id']}\t{who}\t{g.get('client_name', '')}（{g.get('scope', '')}・{what}）\t{oauth_server.host_of(g.get('client_id', '')) or g.get('client_id', '')}"
+                  f"\t許した {day(g.get('created'))}\t最後 {day(g.get('last_used'))}\t更新の札の期限 {refresh}")
+        if rows:
+            print('取り消す: oauth-revoke <id>（全部なら oauth-revoke all）', flush=True)
+    elif cmd == 'oauth-revoke':
+        which = name.strip()
+        if not which:
+            raise SystemExit('取り消す許可の id か all を入れてください（例: oauth-revoke g_1a2b3c4d。oauth-list で見られる）')
+        n = st.revoke(which)
+        if not n:
+            raise SystemExit(f'「{which}」の許可はありません（oauth-list で id を確かめる）')
+        print(f'{n} 件の許可を取り消しました。その通行証と更新の札は次の要求から効きません', flush=True)
+    return 0
+
+
 SEA_COLORS = ('magma', 'moss', 'dusk', 'sand', 'ink')   # js/spacelist.js の COLORS
+
+
+def parse_app_urls(items):
+    """['gantt=https://…', 'diary=…'] → {'gantt': 'https://…'}（2026-11-18 取り決め §7.2）。名前は gantt・diary・bubble だけ、
+    住所は http(s) の根だけ（道・問い・# は落とす）。合わないものは止める"""
+    from urllib.parse import urlsplit
+    out = {}
+    for it in items or []:
+        it = (it or '').strip()
+        if not it:
+            continue
+        name, _, url = it.partition('=')
+        name = name.strip()
+        u = urlsplit(url.strip())
+        if name not in ('bubble', 'gantt', 'diary') or u.scheme not in ('http', 'https') or not u.netloc:
+            raise SystemExit(f'--app-url は gantt=https://… の形（名前は bubble・gantt・diary）: {it}')
+        out[name] = f'{u.scheme}://{u.netloc}'
+    return out
+
+
+def new_sea_id(now_ms=None) -> str:
+    """新しい海の ID（js/spacelist.js の newId と同じ形: s ＋ 時刻の 36 進 ＋ 4 字）"""
+    import string
+    n = int(now_ms if now_ms is not None else time.time() * 1000)
+    d = string.digits + string.ascii_lowercase
+    out = ''
+    while n:
+        n, r = divmod(n, 36)
+        out = d[r] + out
+    return 's' + (out or '0') + ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(4))
 
 
 def sea_command(data_dir: Path, args) -> int:
@@ -1203,9 +2077,11 @@ def sea_command(data_dir: Path, args) -> int:
         alive = [r for r in rows.values() if r.get('alive', 1)]
         if not alive:
             print('サーバーの海はありません（sea-add <名前> で作る）')
+        pk.migrate()
+        users = {u['id']: u['name'] for u in pk.users()}
         for r in alive:
-            who = [x['name'] for x in pk.passkeys() if r['id'] in x.get('spaces', [])]
-            print(f"{r['id']}\t{r['name']}\t{r['color']}\t入れる端末: {'・'.join(who) if who else 'なし'}")
+            who = [f"{users.get(m['user'], m['user'])}（{ROLE_LABEL[m['role']]}）" for m in pk.members_of(r['id'])]
+            print(f"{r['id']}\t{r['name']}\t{r['color']}\t仲間: {'・'.join(who) if who else 'なし'}")
         return 0
     if cmd == 'sea-add':
         name = args.name.strip()[:16]
@@ -1256,7 +2132,7 @@ def sea_command(data_dir: Path, args) -> int:
             got = pk.set_space(args.name, sea, op == 'add')
         except ValueError as e:
             raise SystemExit(str(e)) from None
-        print(f'「{args.name}」の入れる置き場: {where_of({"spaces": got, "person": None})}', flush=True)
+        print(f'「{args.name}」の利用者の入れる置き場: {"・".join(space_label(s) for s in got)}', flush=True)
     return 0
 
 
@@ -1292,7 +2168,10 @@ def main(argv=None):
                              'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person',
                              'move-remove', 'request-list', 'request-ok', 'request-no', 'limit', 'limit-set',
                              'machine-add', 'machine-list', 'machine-remove',
-                             'sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space'],
+                             'sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space',
+                             'oauth-list', 'oauth-revoke',
+                             'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate',
+                             'admin-list', 'admin-add', 'admin-remove', 'recovery-list', 'recovery-remove'],
                     help='serve（既定）か、合言葉・パスキーの操作')
     ap.add_argument('name', nargs='?', default='',
                     help='share-add / share-remove / invite-add / passkey-remove の名前、request-ok / request-no の字、limit-set の数')
@@ -1300,27 +2179,43 @@ def main(argv=None):
     ap.add_argument('extra', nargs='?', default='', help='passkey-space の海の ID')
     ap.add_argument('--sea-id', default='', help='sea-add で使う海の ID（端末の海の ⚙ に出る ID。省けば新しく作る）')
     ap.add_argument('--color', default='magma', help='sea-add の水の色（magma・moss・dusk・sand・ink）')
+    ap.add_argument('--key-file', default='',
+                    help='machine-add で、鍵を画面に出さずにこのファイルへ書く（600。親のフォルダが無ければ 700 で作る。あれば上書きしない）')
+    ap.add_argument('--app-url', action='append', default=None,
+                    help='3 つの app の住所の根（何度でも。例 --app-url gantt=https://gantt.example.org。'
+                         '既定は環境変数 BUBBLE_TODO_APP_URLS（gantt=…,diary=…）。無ければ画面が住所から決める）')
+    ap.add_argument('--oauth-client-host', action='append', default=None,
+                    help='claude.ai の接続で受ける相手の住所の名前（何度でも。既定は環境変数 '
+                         'BUBBLE_TODO_OAUTH_CLIENT_HOSTS（コンマで）か claude.ai）')
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir).expanduser().resolve()
     data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)   # 新しく作るときは持ち主だけ（Issue #48）
     if args.command in ('sea-list', 'sea-add', 'sea-rename', 'sea-remove', 'passkey-space'):
         return sea_command(data_dir, args)
+    if args.command in ('oauth-list', 'oauth-revoke'):
+        return oauth_command(data_dir, args.command, args.name)
     if args.command in ('machine-add', 'machine-list', 'machine-remove'):
         if args.command != 'machine-list' and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} gantt）')
         if args.command == 'machine-add' and args.space == 'share':
             raise SystemExit('置き場を --space me か --space me:<番号> で入れてください（例: machine-add gantt --space me）')
-        return machine_command(data_dir, args.command, args.name, args.space, args.read_only)
+        if args.key_file and args.command != 'machine-add':
+            raise SystemExit('--key-file は machine-add だけで使う')
+        return machine_command(data_dir, args.command, args.name, args.space, args.read_only, args.key_file)
     if args.command in ('invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person', 'move-remove',
-                        'request-list', 'request-ok', 'request-no', 'limit', 'limit-set'):
+                        'request-list', 'request-ok', 'request-no', 'limit', 'limit-set',
+                        'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate',
+                        'admin-list', 'admin-add', 'admin-remove', 'recovery-list', 'recovery-remove'):
+        if args.command == 'recovery-remove' and not args.name.strip():
+            raise SystemExit('利用者の番号を入れてください（例: recovery-remove u_1a2b3c4d。recovery-list で見られる）')
         if args.command in ('request-ok', 'request-no') and not args.name.strip():
             raise SystemExit(f'端末の画面に出ている字を入れてください（例: {args.command} ABC-DEF。request-list で見られる）')
         if args.command == 'limit-set' and not args.name.strip():
             raise SystemExit('上限の数を入れてください（例: limit-set 5）')
         if args.command in ('invite-add', 'passkey-remove', 'passkey-person', 'move-remove') and not args.name.strip():
             raise SystemExit(f'名前を入れてください（例: {args.command} 母のスマホ）')
-        return passkey_command(data_dir, args.command, args.name, args.space, args.max_passkeys, args.value)
+        return passkey_command(data_dir, args.command, args.name, args.space, args.max_passkeys, args.value, args.extra)
     if args.command != 'serve':
         return token_command(data_dir, args.command, args.name)
 
@@ -1334,10 +2229,20 @@ def main(argv=None):
         rp_id = args.rp_id or u.hostname
         if rp_id != u.hostname and not u.hostname.endswith('.' + rp_id):
             raise SystemExit('--rp-id は --origin の名前か、その親の名前にする')
-        cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy,
-                     allow_origins=args.allow_origin or (), passkeys=PasskeyStore(data_dir, max_per_space=args.max_passkeys),
+        passkeys = PasskeyStore(data_dir, max_per_space=args.max_passkeys)
+        moved = passkeys.migrate()     # 前の人の番号を利用者へ（2026-11-18。済んでいれば何もしない）
+        if any(moved.values()):
+            print(f"利用者へ移した: 利用者 {moved['users']}・パスキー {moved['passkeys']}・海の仲間 {moved['members']}", flush=True)
+        oauth = oauth_server.OAuth(data_dir, origin, passkeys, oauth_server.client_hosts_from(args.oauth_client_host))
+        # 要求の数の上限（接続元ごと 1 分。既定 120、画面のファイルは 600）。試しで 2 つの端末を同じ 127.0.0.1 から動かし、
+        # ログインのたびに読み直すときだけ上げる（2026-11-18）
+        guard = Guard(max_requests=int(os.environ.get('BUBBLE_TODO_MAX_REQUESTS', '120')),
+                      max_static=int(os.environ.get('BUBBLE_TODO_MAX_STATIC', '600')))
+        cfg = Config(auth='passkey', origin=origin, rp_id=rp_id, trust_proxy=args.trust_proxy, guard=guard,
+                     allow_origins=args.allow_origin or (), passkeys=passkeys,
                      stores=SeaStores(data_dir), devices=Devices(max_active=args.max_devices, window=args.device_window),
-                     sea_list=SeaList(data_dir), min_schema=args.min_schema, machines=MachineKeys(data_dir))
+                     sea_list=SeaList(data_dir), min_schema=args.min_schema, machines=MachineKeys(data_dir), oauth=oauth,
+                     app_urls=parse_app_urls(args.app_url or os.environ.get('BUBBLE_TODO_APP_URLS', '').split(',')))
         spaces = {}
     else:
         cfg = Config(auth='token', trust_proxy=args.trust_proxy,
@@ -1348,7 +2253,8 @@ def main(argv=None):
     Server.guard, Server.trust_proxy = cfg.guard, cfg.trust_proxy
     httpd = Server((args.host, args.port), make_handler(spaces, cfg))
     print(f'Bubbles server: http://{args.host}:{args.port}/  data: {data_dir}  auth: {cfg.auth}  min-schema: {cfg.min_schema}'
-          + (f'  origin: {cfg.origin}  rp_id: {cfg.rp_id}' if cfg.auth == 'passkey' else ''), flush=True)
+          + (f'  origin: {cfg.origin}  rp_id: {cfg.rp_id}  oauth-client-host: {",".join(sorted(cfg.oauth.client_hosts))}'
+             if cfg.auth == 'passkey' else ''), flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

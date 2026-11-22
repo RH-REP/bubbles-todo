@@ -183,3 +183,140 @@ export function applyServerSeas(rid, json, st = ls()) {
   }
   return changed;
 }
+
+/* ---- 個人の海は利用者 1 人に 1 つ（2026-11-18 ユーザーの指示「個人と個人サーバーが分かれている」「個人は全てのユーザーが１つもつ」）----
+   ログインしていない … この端末の個人。ログインしている … その利用者のサーバーの個人（端末にも写し）。「個人（サーバー）」は出さない。
+   ・はじめてログインした端末に、この端末の個人の泡があれば、サーバーの個人へ合わせる（unifyPersonal。記録ごとに新しいほう・
+     片方にしか無いものは両方残す。前の中身は控えの箱へ）
+   ・前に別の利用者がこの端末でログインしていて、その人の個人の写しが残っていれば、合わせずに聞く（replacePersonal で控えへ移す）
+   ・ログアウトのとき、写しを残す（既定）か消す（logoutPersonal）
+   だれの写しかは OWNER_KEY（利用者の番号）で覚える。 */
+export const OWNER_KEY = 'bubble_todo_personal_owner_v1';
+
+function liveCount(raw) {
+  const o = stateOf(raw).doc;
+  return Array.isArray(o.todos) ? o.todos.filter(t => t && !t.trashed).length : 0;
+}
+
+/* サーバーの個人の箱の名前（サーバーの繋ぎ先が無ければ null） */
+export function serverPersonalBox(st = ls()) {
+  const r = theServer(st);
+  return r ? boxKey(personalId(r.id, st)) : null;
+}
+
+/* ログインしたあと、どうするか → {kind: 'other', prev} | {kind: 'merge', n} | {kind: 'none'} */
+export function loginPlan(userId, st = ls()) {
+  if (!st) return { kind: 'none' };
+  const prev = st.getItem(OWNER_KEY);
+  const box = serverPersonalBox(st);
+  if (prev && userId && prev !== userId && box && liveCount(st.getItem(box)) > 0) return { kind: 'other', prev };
+  const kind = canUnify(st);
+  if (!kind) return { kind: 'none' };
+  /* 合わせる側（この端末の個人）の泡の数 */
+  const r = theServer(st);
+  const from = kind === 'intoServer' ? 'bubble_todo_me_local_v1' : boxKey('me');
+  const n = (kind === 'toServer' && r && r.legacyMe) ? 0 : liveCount(st.getItem(from));
+  return { kind: 'merge', n };
+}
+
+/* ログインを仕上げる（plan が merge なら合わせる）。だれの写しかを覚える → 合わせた泡の数 */
+export function applyLogin(userId, plan, now = Date.now(), st = ls()) {
+  let n = 0;
+  if (plan && plan.kind === 'merge') { if (unifyPersonal(now, st)) n = plan.n || 0; }
+  try { if (userId) st.setItem(OWNER_KEY, userId); } catch (e) { /* 次に覚える */ }
+  return n;
+}
+
+/* 別の利用者でログインした: 前の人の写しを控えへ移し、空の個人から始める（合わせない）→ 控えの箱の名前 */
+export function replacePersonal(userId, now = Date.now(), st = ls()) {
+  const box = serverPersonalBox(st);
+  if (!box) return null;
+  const pid = personalId(theServer(st).id, st);
+  const keep = box + '_before_user_' + now;
+  try {
+    const raw = st.getItem(box);
+    if (raw) st.setItem(keep, raw);
+    st.removeItem(box);
+    st.removeItem('bubble_todo_sync_seen_' + pid);
+    /* 同期が覚えている「前に合わせた個人の番号」も消す（js/sync.js の PERSON_KEY。新しい人の個人を最初から読む） */
+    st.removeItem('bubble_todo_sync_person');
+    st.removeItem('bubble_todo_sync_person_' + theServer(st).id);
+    if (userId) st.setItem(OWNER_KEY, userId);
+  } catch (e) { return null; }
+  return keep;
+}
+
+/* ログアウト: keep なら写しを残す（だれの写しかも覚えたまま）。消すなら個人の写しを消す（サーバーには残る） */
+export function logoutPersonal(keep, st = ls()) {
+  if (keep || !st) return;
+  const box = serverPersonalBox(st);
+  const r = theServer(st);
+  try {
+    if (box) st.removeItem(box);
+    if (r) st.removeItem('bubble_todo_sync_seen_' + personalId(r.id, st));
+    st.removeItem(OWNER_KEY);
+  } catch (e) { /* 消せなくても、ログアウトはする */ }
+}
+
+/* 個人の控え（設定の「記録」から戻す。2026-11-18 決定「合わせる前に控えを取り、設定の『記録』で戻せる」）。
+   合わせる（unify）・前の版の人の入れ替え（person。js/sync.js）・別の利用者（user）の前に取った箱 → 新しい順
+   [{key, kind: 'unify'|'person'|'user', at, n, other}] */
+const BACKUP_RE = /^bubble_todo_(?:v1|me_.+)_before_(unify|person|user)_(\d+)$/;
+export function personalBackups(st = ls()) {
+  const out = [];
+  if (!st) return out;
+  for (let i = 0; i < st.length; i++) {
+    const key = st.key(i);
+    const m = key && BACKUP_RE.exec(key);
+    if (m) out.push({ key, kind: m[1], at: Number(m[2]), n: liveCount(st.getItem(key)) });
+  }
+  /* 別の利用者に替わった（user の控え）ときより前の控えは、前の人のもの（other） */
+  const cut = Math.max(0, ...out.filter(b => b.kind === 'user').map(b => b.at));
+  out.forEach(b => { b.other = b.kind === 'user' || b.at <= cut; });
+  return out.sort((a, b) => b.at - a.at);
+}
+
+/* 控えを今の個人に重ねた状態 → {doc, stamps}（消さない・置き換えない。記録ごとに新しいほうが残る）。
+   前の人の控え（other。別の利用者に替わった時より前のもの）は、ログイン中は重ねない（ほかの人の泡を今の人のサーバーの個人へ送らないため）→ null */
+export function mergeBackup(key, current, loggedIn, st = ls()) {
+  const m = key && BACKUP_RE.exec(key);
+  if (!m || !st) return null;
+  if (loggedIn) {
+    const b = personalBackups(st).find(x => x.key === key);
+    if (!b || b.other) return null;
+  }
+  const raw = st.getItem(key);
+  if (!raw) return null;
+  return mergeState(current || { doc: {}, stamps: {} }, stateOf(raw));
+}
+
+/* 控えの中身そのもの → {doc, stamps}（上書きで戻すとき。2026-11-19）。重ねてよいかの決まりは mergeBackup と同じ → null */
+export function backupState(key, loggedIn, st = ls()) {
+  const m = key && BACKUP_RE.exec(key);
+  if (!m || !st) return null;
+  if (loggedIn) {
+    const b = personalBackups(st).find(x => x.key === key);
+    if (!b || b.other) return null;
+  }
+  const raw = st.getItem(key);
+  return raw ? stateOf(raw) : null;
+}
+
+/* 開いたとき（js/oneserver-boot.js）: 前の版のうちにログインしていた端末も、個人を 1 つにする（2026-11-18）。
+   ログインのとき（js/loginflow.js の finishLogin）にしか合わせていなかったので、版を上げる前からログインしていた端末では
+   「個人」と「個人（サーバー）」が並んだままだった。通行証が生きていて、合わせる先がこの端末で前にログインした人と同じ（か、まだ覚えていない）ときだけ合わせる。
+   別の人の写しなら合わせない（次にログインし直したとき、loginflow が聞く）→ 合わせた泡の数（合わせなければ 0。合わせて泡が 0 なら -1） */
+export function bootUnify(now = Date.now(), st = ls()) {
+  if (!st) return 0;
+  const r = theServer(st);
+  if (!r) return 0;
+  const c = regionConf(r.id, st);
+  if (!c || !c.session || !(Number(c.sessionExpires) * 1000 > Date.now())) return 0;
+  let uid = '';
+  try { const me = JSON.parse(st.getItem('bubble_todo_me_v1') || 'null'); uid = (me && me.user && me.user.id) || ''; } catch (e) { uid = ''; }
+  const plan = loginPlan(uid || undefined, st);
+  if (plan.kind !== 'merge') return 0;
+  const before = canUnify(st);
+  const n = applyLogin(uid || undefined, plan, now, st);
+  return n > 0 ? n : (before && !canUnify(st) ? -1 : 0);
+}
