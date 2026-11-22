@@ -35,7 +35,7 @@ const SHUF_D = 46;      /* 玉の直径 px。CSS の .today-shuffle .rnd-b と�
 /* --- 泡が多くて面に入らないとき（2026-11-21 Issue #87） ---
    海（Issue #2）と同じ考えで、泡の面積の合計を面の TODAY_FILL までに収める：
      1. まず縮める。ただし TODAY_SHRINK 倍まで（それより小さいと字が読めない）
-     2. それでも入らないときは、2段目の丸い ⇅ を「⇅ 一覧で見る」に伸ばして目立たせる（Issue #92 で丸い ⇅ にした）
+     2. それでも入らないときは、2段目の丸い ⇅ の縁を太く泡の色にして目立たせる（Issue #92 で丸い ⇅ にし、返事で字も無くした）
    海と違って**数は減らさない**。日付の水面は「その日に置いたという記録」なので、
    置いたものを隠すと置いた事実のほうが欠ける（上の dayItems の決めごと）。
    だから縮める下限は海（0.8）より一段小さくしてある（入らないぶんを隠す逃げ道が無いため）。
@@ -327,7 +327,7 @@ function setQuad(on) {
    > 今日TODOにもタグのフィルターを追加して
 
    海の「▽ フィルター」と同じ形・同じ選び方（js/screens/sea.js の openNarrowPop）。
-   ・2段目の左に置く（Issue #92 で形を海の「タグ無し ▽」にそろえた）。札は「ぜんぶ ▽」、選ぶとそのタグの名前を名乗る
+   ・1段目の ≡ の右に置く（Issue #92 で形と場所を海の「タグ無し ▽」にそろえた）。札は「ぜんぶ ▽」、選ぶとそのタグの名前を名乗る
    ・選んだタグの**どれかが付いているもの**を出す（「または」）。重ねて選べる。先頭の「ぜんぶ」で取り消す
    ・泡・四つに分ける・一覧・さいころの全部に効く（見えているものと引く対象を食い違わせない）
    ・並び：ぜんぶ → 自分のタグ → 最初からあるタグ → 「タグ無し」（海の一覧と同じ順。Issue #88）
@@ -1649,7 +1649,7 @@ const LIST_KEY = 'bubble_todo_today_list_v1';
 let listOn = false;
 let listBox = null;
 let listBtn = null;
-let listIc = null, listLabel = null;   /* 丸い ⇅ ⇄ ✕ の記号と、入りきらないときだけ出す字（Issue #92） */
+let listIc = null;        /* 丸い ⇅ ⇄ ✕ の記号（Issue #92） */
 let rowBoard = null;      /* { node, off } 行から開いた詳細の、その場かぎりの泡。2枚目は開かない */
 
 function loadListOn() {
@@ -1662,13 +1662,13 @@ function saveListOn(on) {
 
 function syncListBtn() {
   if (!listBtn) return;
-  /* 泡が多くて縮めても入りきらないときは、言葉を足して目立たせる（Issue #87）。
+  /* 泡が多くて縮めても入りきらないときは、縁を太く泡の色にして目立たせる（Issue #87）。
      赤や点滅は使わない。件数も言わない（契約 §0） */
   const crowd = !listOn && crowded;
   /* 海のリスト表示と同じ丸い記号（Issue #92）。泡の眺めでは ⇅、一覧の間は ✕。
-     字はふだん見せず、入りきらないときだけ「一覧で見る」を出す（css .today-listbtn.is-crowded .lb） */
+     字はいつも出さない（Issue #92 の返事「海と同じ記号で日本語の説明表示なくせる？」。前は入りきらないときだけ
+     「⇅ 一覧で見る」に伸びていた）。名前は aria-label と title が渡す */
   if (listIc) listIc.textContent = listOn ? '✕' : '⇅';
-  if (listLabel) listLabel.textContent = listOn ? '泡にもどす' : '一覧で見る';
   listBtn.classList.toggle('is-crowded', crowd);
   listBtn.classList.toggle('is-on', listOn);
   listBtn.setAttribute('aria-pressed', listOn ? 'true' : 'false');
@@ -1884,7 +1884,12 @@ export default {
     dayNext.addEventListener('click', ev => { ev.preventDefault(); goDay(shiftDay(curDay(), 1)); });
     dayRow.appendChild(dayNext);
 
-    stage.appendChild(dayRow);
+    /* 1段目の並び（2026-11-22 Issue #92 の返事「今日のタブの明日に切り替えるボタンを右に移動して、
+       海と同じ位置にタブのボタンを移動できる？」）。≡ の右に海と同じくタグのフィルター「ぜんぶ ▽」
+       （下で先頭に差し込む）、日付と ‹ › は右へ寄せて歯車の手前に置く。前は日付が ≡ の右、フィルターは 2段目の左 */
+    const topRow = el('div', 'today-top');
+    topRow.appendChild(dayRow);
+    stage.appendChild(topRow);
     syncDayBtn();
     stage.addEventListener('pointerdown', onDayDown);
 
@@ -1924,10 +1929,9 @@ export default {
     listBox.hidden = true;
     stage.appendChild(listBox);
     /* 2段目の並び（2026-11-22 Issue #92「海と今日のタグの選択とリストの選択のUIを海に似せて統一できる？」）。
-       海と同じ形にそろえた: 左にタグのフィルター「ぜんぶ ▽」（海の「タグ無し ▽」と同じ形）、
-       右に「四つ」（出しているとき）と丸い ⇅（海のリスト表示と同じ。一覧の間は ✕）。
-       ⇅ は泡が多いと「⇅ 一覧で見る」に伸びる（Issue #87）ので、並びは flex に任せる。
-       前（Issue #86・#89）は左に字の札「一覧」と「ぜんぶ ▽」を並べていた */
+       海と同じ形にそろえた: 右に「四つ」（出しているとき）と丸い ⇅（海のリスト表示と同じ。一覧の間は ✕。字は出さない）。
+       タグのフィルター「ぜんぶ ▽」は、返事で海と同じ 1段目の ≡ の右へ上げた（上の .today-top）。
+       前（Issue #86・#89）は 2段目の左に字の札「一覧」と「ぜんぶ ▽」を並べていた */
     const tools = el('div', 'today-tools');
     filterBtn = el('button', 'today-filterbtn');
     filterBtn.type = 'button';
@@ -1939,16 +1943,13 @@ export default {
     filterBtn.setAttribute('aria-haspopup', 'menu');
     filterBtn.setAttribute('aria-expanded', 'false');
     filterBtn.addEventListener('click', ev => { ev.preventDefault(); openFilterPop(); });
-    tools.appendChild(filterBtn);
+    topRow.insertBefore(filterBtn, dayRow);     /* フィルターは 1段目の左（海の「タグ無し ▽」の場所。Issue #92 の返事） */
     tools.appendChild(quadBtn);
     listBtn = el('button', 'today-listbtn');
     listBtn.type = 'button';
     listIc = el('span', 'ic', '⇅');
     listIc.setAttribute('aria-hidden', 'true');
-    listLabel = el('span', 'lb', '一覧で見る');
-    listLabel.setAttribute('aria-hidden', 'true');   /* 名前は aria-label が渡す */
-    listBtn.appendChild(listIc);
-    listBtn.appendChild(listLabel);
+    listBtn.appendChild(listIc);                /* 字は出さない（Issue #92 の返事。名前は aria-label・title が渡す） */
     listBtn.addEventListener('click', ev => { ev.preventDefault(); setList(!listOn); });
     tools.appendChild(listBtn);
     stage.appendChild(tools);

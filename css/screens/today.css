@@ -226,11 +226,22 @@ body:not(.pref-dice) .today-random { display: none !important; }
      「!」を既定で隠して歯車が右上の隅へ寄ったので、間が約 250px（幅 375 の画面）空き、日付と ‹ › が入る。
      右端は歯車の手前で止める（「!」を出しているときは、その左どなりの歯車の手前）。
      長い日付（「一昨日 12/31（水）」）が入りきらないときは、日付の札の字を「…」で縮める */
-  position: absolute; z-index: 8; left: 62px; top: 10px;
+  /* 2026-11-22 Issue #92 の返事「今日のタブの明日に切り替えるボタンを右に移動して、海と同じ位置にタブのボタンを移動できる？」:
+     1段目の並び（.today-top）の右へ寄せ、歯車の手前に置く。≡ の右（海の「タグ無し ▽」の場所）はタグのフィルター */
   display: flex; align-items: center; gap: 2px;
-  max-width: calc(100% - 176px);
+  flex: 0 1 auto; min-width: 0; margin-left: auto;
 }
-body:not(.pref-fb) .today-dayrow { max-width: calc(100% - 124px); }
+/* 1段目の並び（Issue #92 の返事）。左にタグのフィルター、右に日付と ‹ ›。右端は歯車の手前
+   （歯車は「!」を出しているとき右から 62px、隠しているとき 10px。どちらも幅 44＋間 8）。
+   並び自体は指を通し（空いた所をなぞって日を移せるように）、中の札だけが受ける。
+   入りきらないときは、日付とフィルターの名前が「…」で縮む */
+.today-top {
+  position: absolute; z-index: 8; top: 10px; left: 62px; right: 114px;
+  display: flex; align-items: center; gap: 8px;
+  pointer-events: none;
+}
+.today-top > * { pointer-events: auto; }
+body:not(.pref-fb) .today-top { right: 62px; }
 /* 44×44（レビューの指摘）。36 で置いていたが、契約 §15 に例外として
    記録していなかった。カレンダーの枡と違って幅の制約は無いので、素直に 44 にする */
 .today-daystep {
@@ -424,8 +435,6 @@ body:not(.pref-fb) .today-dayrow { max-width: calc(100% - 124px); }
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
   pointer-events: none;
 }
-/* フィルターは左の端へ寄せ、残りを右へ押す（フィルターが出ないときも ⇅ は右に残る） */
-.today-tools > .today-filterbtn { margin-right: auto; }
 .today-tools > * { pointer-events: auto; }
 body:not(.pref-dice) .today-tools { right: 10px; }
 
@@ -454,20 +463,18 @@ body:not(.pref-dice) .today-tools { right: 10px; }
   border-color: var(--bub-edge);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
 }
-/* 泡が多くて縮めても入りきらないとき（2026-11-21 Issue #87）。丸から伸びて「⇅ 一覧で見る」と字を出し、
-   縁を泡の色にして少し起こす。赤・点滅・件数は使わない。色だけに頼らず、言葉と縁の太さでも伝える */
+/* 泡が多くて縮めても入りきらないとき（2026-11-21 Issue #87）。縁を泡の色で太くし、地を少し起こす。
+   赤・点滅・件数は使わない。色だけに頼らず、縁の太さでも伝える。
+   字は出さない（Issue #92 の返事「海と同じ記号で日本語の説明表示なくせる？」。前は「⇅ 一覧で見る」に伸びていた） */
 .today-listbtn.is-crowded {
-  width: auto; padding: 0 14px 0 12px; gap: 6px;
   color: var(--text); border: 2px solid var(--bub-edge);
   background: color-mix(in srgb, var(--bub-edge) 12%, var(--surface));
 }
-.today-listbtn.is-crowded .ic { font-size: 13px; }
-.today-listbtn.is-crowded .lb { display: inline; white-space: nowrap; font-size: 12.5px; }
 .today-stage.is-bubdrag .today-listbtn { opacity: 0; pointer-events: none; }
 
 /* ---------- タグのフィルター（2026-11-21 Issue #89。形は 2026-11-22 Issue #92 で海にそろえた） ----------
    海のフィルター「タグ無し ▽」（css/screens/sea.css の .sea-narrow・.sea-narrow-pop）と同じ形・同じ大きさ。
-   札は 2段目の左。選ぶとタグの名前を名乗り、縁を起こす。一覧は札の真下 */
+   札は 1段目の ≡ の右（Issue #92 の返事で海と同じ場所へ。前は 2段目の左）。選ぶとタグの名前を名乗り、縁を起こす。一覧は札の真下 */
 .today-filterbtn {
   flex: 0 1 auto; min-width: 0;
   appearance: none; cursor: pointer; font: inherit;
@@ -491,12 +498,21 @@ body:not(.pref-dice) .today-tools { right: 10px; }
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
 }
 .today-stage.is-bubdrag .today-filterbtn { opacity: 0; pointer-events: none; }
+/* 1段目に置いたとき（Issue #92 の返事）。海の 1段目の「タグ無し ▽」と同じく字を濃く。
+   日付に場所を残すため、長いタグの名前でも並びの 4割までで「…」に縮める */
+.today-top > .today-filterbtn { color: var(--text); max-width: 40%; }
+/* 狭い画面（iPhone SE など）では、フィルターと日付の余白を詰めて日付の字を残す */
+@media (max-width: 400px) {
+  .today-top > .today-filterbtn { padding: 0 12px; letter-spacing: 0; }
+  .today-top .today-day { padding: 0 9px; letter-spacing: 0; }
+}
 
 .today-filter-pop {
-  position: absolute; top: 110px; left: 10px; z-index: 26;
+  /* フィルターのボタンが 1段目へ上がった（Issue #92 の返事）ので、その真下（海の .sea-narrow-pop と同じ。前は top:110 left:10） */
+  position: absolute; top: 60px; left: 62px; z-index: 26;
   display: flex; flex-direction: column;
   min-width: 168px; max-width: min(72vw, 260px);
-  max-height: calc(100% - 124px); overflow-y: auto; overscroll-behavior: contain;
+  max-height: calc(100% - 74px); overflow-y: auto; overscroll-behavior: contain;
   touch-action: pan-y;                    /* 面は touch-action:none。タグが多いときに指で送れるように */
   padding: 5px; border-radius: 12px;
   border: 1px solid var(--line-strong); background: var(--surface);
