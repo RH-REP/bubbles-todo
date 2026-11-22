@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   PREFS_KEY, TAB_IDS, defaults, normalize, checkValue, applyChanges, changedFromDefault, changeLines,
   loadPrefs, savePrefs, buildPrefsPrompt, readPrefsReply, proposalText, proposalTitle, valueText, ITEMS, PAGES, BOARD_SHOW_FEW,
+  visibleTabs,
 } from '../js/prefs.js';
 
 test('どの項目も、どの画面を変えるか（PAGES）のどれかに入る（Issue #49 の返事）', () => {
@@ -87,6 +88,18 @@ test('隠している機能を 4 つのスイッチに分ける（Issue #80 の�
   const m2 = mem();
   savePrefs(applyChanges(loadPrefs(m2), { showPeriod: true }).next, m2);
   assert.deepEqual(JSON.parse(m2.getItem(PREFS_KEY)), { showPeriod: true });
+});
+
+test('下のタブの出し入れ（Issue #80 の返事「海、今日、きっかけ、すきま、週月の表示非表示」）', () => {
+  assert.deepEqual(defaults().tabShow, TAB_IDS);
+  assert.deepEqual(visibleTabs(defaults()), TAB_IDS);
+  const p = applyChanges(defaults(), { tabShow: ['today', 'gap'], showPeriod: true }).next;
+  assert.deepEqual(visibleTabs(p), ['today', 'gap', 'period']);
+  /* 並べ替えにも付いていく */
+  assert.deepEqual(visibleTabs(applyChanges(p, { tabOrder: ['gap', 'plan', 'sea', 'today'] }).next), ['gap', 'today', 'period']);
+  /* 1 つも出さない値は、全部出すに戻す（週・月だけ出すのはよい） */
+  assert.deepEqual(normalize({ tabShow: [] }).tabShow, TAB_IDS);
+  assert.deepEqual(visibleTabs({ tabShow: [], showPeriod: true }), ['period']);
 });
 
 test('既定: 起動は海・風は出さない・タグは出す・タブはいつもの並び', () => {

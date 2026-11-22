@@ -48,7 +48,7 @@ import { askFull, hasKey } from './ai.js';
 import { isSolo, aiOn } from './edition.js';
 import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js';
 /* この端末の表示（Issue #36）。起動時の画面・タブの並び・body の印（pref-wind・pref-hide-tags） */
-import { loadPrefs, PREFS_EVENT } from './prefs.js';
+import { loadPrefs, PREFS_EVENT, visibleTabs } from './prefs.js';
 import { startLocalMods, pauseLocalMods } from './localmod.js';
 import { actorFor, fetchMe, seaMembers, myRole, userName, initialOf, meInfo } from './me.js';
 import { moveTargets, openMoveSea } from './movesea.js';
@@ -205,7 +205,12 @@ gearIc.className = 'ic';
 gearIc.setAttribute('aria-hidden', 'true');
 gear.appendChild(gearIc);
 gear.addEventListener('click', () => {
-  if (current && UNDER_GEAR.has(current.id)) show(lastOpen || 'sea');
+  if (current && UNDER_GEAR.has(current.id)) {
+    /* 設定でその画面のタブを隠していたら、出ているタブの先頭へ戻る（2026-11-22 Issue #80 の返事） */
+    const vis = visibleTabs(prefs);
+    const back = lastOpen || 'sea';
+    show(vis.length && TABS.indexOf(back) >= 0 && vis.indexOf(back) < 0 ? vis[0] : back);
+  }
   else show('settings');
 });
 
@@ -967,8 +972,13 @@ function applyPrefs() {
   });
   /* 畳むタブ（週・月）は並びの設定に無いので、いつも右の端へ */
   btns.filter(x => EXTRA_TABS.has(x.dataset.screen)).forEach(b => tabbar.appendChild(b));
-  /* 週・月の画面にいる間にそのタブを隠したら、海へ戻す（タブが消えて戻れなくなるため） */
-  if (!prefs.showPeriod && current && EXTRA_TABS.has(current.id)) show('sea');
+  /* 下のタブの出し入れ（2026-11-22 Issue #80 の返事「海、今日、きっかけ、すきま、週月の表示非表示も切り替えられる様に」）。
+     週・月は .opt-period（showPeriod）で、ほかは .is-tabhidden（tabShow）で隠す（css/base.css） */
+  const vis = visibleTabs(prefs);
+  btns.forEach(b => b.classList.toggle('is-tabhidden', TABS.indexOf(b.dataset.screen) >= 0 && !EXTRA_TABS.has(b.dataset.screen)
+    && vis.indexOf(b.dataset.screen) < 0));
+  /* 隠したタブの画面にいる間なら、出ているタブの先頭へ移る（タブが消えて戻れなくなるため。設定・ふりかえりはそのまま） */
+  if (current && TABS.indexOf(current.id) >= 0 && vis.indexOf(current.id) < 0 && vis.length) show(vis[0]);
   if (drawer) renderDrawer();
 }
 applyPrefs();
@@ -985,7 +995,12 @@ if (isSolo()) {
   } catch (e) { /* 当てられなくても app は動かす */ }
 }
 
-show(SCREENS.some(s => s.id === prefs.start) ? prefs.start : SCREENS[0].id);
+/* 起動したときに開く画面のタブを隠していたら、出ているタブの先頭を開く（2026-11-22 Issue #80 の返事） */
+{
+  const vis0 = visibleTabs(prefs);
+  const want = SCREENS.some(s => s.id === prefs.start) ? prefs.start : SCREENS[0].id;
+  show(vis0.length && vis0.indexOf(want) < 0 ? vis0[0] : want);
+}
 
 /* ---------------- 戻る（Android の戻るボタン。利用者の指示） ----------------
 

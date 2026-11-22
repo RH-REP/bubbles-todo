@@ -5403,6 +5403,8 @@ function prefsBox(onRender) {
     const outer = controls;
     const changed = changedFromDefault(cur);
     ITEMS.forEach(it => {
+      /* 下のタブの出し入れ（tabShow）と週・月（showPeriod）は、「下のタブ」の並びの行のスイッチで出す（2026-11-22 Issue #80 の返事） */
+      if (it.id === 'tabShow' || it.id === 'showPeriod') return;
       /* 項目ごとの囲い。data-pages で「どの画面を変えるか」の選びに合わせて出し入れする（Issue #49 の返事） */
       const controls = el('div', 'prefs-item');
       controls.dataset.pages = (it.pages || ['all']).join(' ');
@@ -5503,15 +5505,44 @@ function prefsBox(onRender) {
         return;
       }
       if (it.type === 'order') {
-        controls.appendChild(textEl('p', 'note', it.label + '（↑↓ で動かす）'));
+        /* 2026-11-22 Issue #80 の返事「海、今日、きっかけ、すきま、週月の表示非表示も切り替えられる様にできる？」:
+           行ごとに出す・隠すのスイッチを置き（tabShow）、いちばん下に週・月の行（showPeriod。並べ替えはできず、いつも右の端）。
+           見出しは前は p.note で、説明として ⓘ の裏に隠れていたので、見える字にした */
+        const shown = new Set(cur.tabShow || []);
+        const visibleCount = () => shown.size + (cur.showPeriod ? 1 : 0);
+        const lb = textEl('div', 'look-lb', '下のタブ（スイッチで出す・隠す、↑↓ で並べ替え）');
+        if (isChanged || changed.tabShow || changed.showPeriod) lb.appendChild(mark());
+        lb.style.cssText = 'margin:8px 0 2px;font-size:14px';
+        controls.appendChild(lb);
+        const sw = (name, on, onChange) => {
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.className = 'look-switch';
+          cb.setAttribute('role', 'switch');
+          cb.setAttribute('aria-label', name + 'のタブを出す');
+          cb.checked = on;
+          cb.addEventListener('change', () => {
+            if (!cb.checked && visibleCount() <= 1) {
+              cb.checked = true;
+              toast('下のタブを全部は隠せない（どれか 1 つは出す）');
+              return;
+            }
+            onChange(cb.checked);
+          });
+          return cb;
+        };
         const list = el('div', 'prefs-order');
         list.setAttribute('role', 'list');
         cur[it.id].forEach((id, i, arr) => {
           const r = el('div', 'prefs-order-row');
           r.setAttribute('role', 'listitem');
           r.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:4px;font-size:13.5px';
+          r.appendChild(sw(TAB_LABEL[id] || id, shown.has(id), on => {
+            const next = (cur.tabShow || []).filter(x => x !== id).concat(on ? [id] : []);
+            commit(applyChanges(cur, { tabShow: next }).next, '下のタブ「' + (TAB_LABEL[id] || id) + '」: ' + (on ? '出す' : '隠す'));
+          }));
           const nm = el('span', null, TAB_LABEL[id] || id);
-          nm.style.cssText = 'flex:1';
+          nm.style.cssText = 'flex:1' + (shown.has(id) ? '' : ';color:var(--text-2)');
           r.appendChild(nm);
           [[-1, '↑', '上へ'], [1, '↓', '下へ']].forEach(([d, mk, lb]) => {
             const b = el('button', 'btn', mk);
@@ -5529,6 +5560,18 @@ function prefsBox(onRender) {
           });
           list.appendChild(r);
         });
+        /* 週・月（並べ替えはできない。いつも右の端） */
+        const pr = el('div', 'prefs-order-row');
+        pr.setAttribute('role', 'listitem');
+        pr.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:4px;font-size:13.5px;min-height:44px';
+        pr.appendChild(sw('週・月', !!cur.showPeriod, on => {
+          commit(applyChanges(cur, { showPeriod: on }).next, '下のタブ「週・月」: ' + (on ? '出す' : '隠す'));
+        }));
+        const pn = el('span', null);
+        pn.textContent = '週・月（今週・今月・月ごとに見る画面。いつも右の端）';
+        pn.style.cssText = 'flex:1' + (cur.showPeriod ? '' : ';color:var(--text-2)');
+        pr.appendChild(pn);
+        list.appendChild(pr);
         controls.appendChild(list);
       }
     });

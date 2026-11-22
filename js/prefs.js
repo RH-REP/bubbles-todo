@@ -161,6 +161,14 @@ export const ITEMS = [
     id: 'tabOrder', type: 'order', def: TAB_IDS.slice(), pages: ['all'],
     label: '下のタブの並び',
   },
+  {
+    /* 2026-11-22 Issue #80 の返事「海、今日、きっかけ、すきま、週月の表示非表示も切り替えられる様にできる？」。
+       設定では「下のタブの並び」の各行のスイッチで出し入れする（js/screens/settings.js）。週・月は showPeriod。
+       全部を隠すことはできない（normalize が全部出すに戻す。設定も止める） */
+    id: 'tabShow', type: 'set', def: TAB_IDS.slice(), pages: ['all'],
+    label: '下のタブに出すもの',
+    choices: TAB_IDS.map(id => [id, TAB_LABEL[id]]),
+  },
 ];
 
 const byId = Object.fromEntries(ITEMS.map(it => [it.id, it]));
@@ -218,6 +226,8 @@ export function normalize(raw) {
   if (raw.allTools === true && raw.optV !== OPT_V) {
     ['showPeriod', 'showCal', 'showSuggest', 'showQuad'].forEach(id => { if (raw[id] === undefined) out[id] = true; });
   }
+  /* 下のタブを 1 つも出さない値は読まない（2026-11-22 Issue #80 の返事。設定の歯車からは戻れるが、画面を移る道が無くなる） */
+  if (Array.isArray(out.tabShow) && !out.tabShow.length && !out.showPeriod) out.tabShow = TAB_IDS.slice();
   /* 前の版（boardShowV が 3 でない）で置いた boardShow は、新しい既定に替える（2026-11-18 ユーザーの決定。
      前は「名前だけ」を既定にしていて、その値を置いた端末が多い。並びと言葉も替わったので、そのまま読むと畳まれすぎる） */
   if (Array.isArray(raw.boardShow) && raw.boardShowV === 3 && Array.isArray(out.boardShow)) {
@@ -230,6 +240,15 @@ export function normalize(raw) {
     /* 2026-11-19: 次にやること・作業の記録を出すと選んでいた値は、まとめた先の作業記録を出す */
     out.boardShow = checkValue('boardShow', out.boardShow.concat('detail'));
   }
+  return out;
+}
+
+/* 下のタブに出ているものを、出る順に（2026-11-22 Issue #80 の返事）。週・月はいつも右の端 */
+export function visibleTabs(p) {
+  const n = normalize(p);
+  const show = new Set(n.tabShow || TAB_IDS);
+  const out = n.tabOrder.filter(id => show.has(id));
+  if (n.showPeriod) out.push('period');
   return out;
 }
 

@@ -534,6 +534,8 @@ body:not(.pref-show-period) .opt-period,
 body:not(.pref-show-cal) .opt-cal,
 body:not(.pref-show-suggest) .opt-suggest,
 body:not(.pref-show-quad) .opt-quad { display: none !important; }
+/* 下のタブで隠したもの（設定の「下のタブ」の行のスイッチ。js/app.js の applyPrefs。Issue #80 の返事） */
+.tabbar button.is-tabhidden { display: none !important; }
 
 /* iPhone の Safari は、字が 16px より小さい入力欄を触ると画面を拡大し、抜けても戻さない
    （2026-11-16 Issue #68 の返事「設定画面でiPhoneから文字入力のために画面が拡大するけど、抜けた後も拡大のままになる。他の画面でも同じ」）。
