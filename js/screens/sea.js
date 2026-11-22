@@ -3818,7 +3818,7 @@ export default {
     calBtn.setAttribute('aria-label', 'はじめた日のカレンダー');
     calBtn.title = 'はじめた日のカレンダー（［始める］を押した日）';
     calBtn.appendChild(calIcon());
-    calBtn.classList.add('is-extra');      /* あまり使わない機能（Issue #40）。設定の「この端末の表示」で出す */
+    calBtn.classList.add('opt-cal');       /* 既定は隠す。設定の「海の右上に『はじめた日』のカレンダーを出す」で出す（2026-11-22 Issue #80 の返事。前は .is-extra） */
     calBtn.addEventListener('click', ev => {
       ev.preventDefault();
       openCalendar({ was: calBtn });

@@ -1875,14 +1875,14 @@ export default {
     /* おすすめ（Issue #12）。さいころの下。押すと板が開く（送るのは板の [AI で選び直す] を押したときだけ） */
     suggestBtn = el('button', 'today-suggest', 'おすすめ');
     suggestBtn.type = 'button';
-    suggestBtn.classList.add('is-extra');  /* あまり使わない機能（Issue #40）。設定の「この端末の表示」で出す */
+    suggestBtn.classList.add('opt-suggest');  /* 既定は隠す。設定の「今日の画面に『おすすめ』を出す」で出す（2026-11-22 Issue #80 の返事。前は .is-extra） */
     suggestBtn.addEventListener('click', ev => { ev.preventDefault(); toggleSuggest(); });
     stage.appendChild(suggestBtn);
 
     /* 四つに分ける切り替え。さいころの左（海ではフィルターの隣） */
     quadBtn = quadButton(() => setQuad(!quadOn));
     quadBtn.classList.add('today-quadbtn');
-    quadBtn.classList.add('is-extra');     /* 同上（Issue #40） */
+    quadBtn.classList.add('opt-quad');     /* 設定の「今日の画面に『四つに分ける』を出す」で出す（同上） */
     /* 置くのは下の 2段目の並び（.today-tools。Issue #92）、⇅ の左どなり */
 
     /* drift は opts の直下から handlers を読む。将来 opts.handlers を見る作りに

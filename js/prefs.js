@@ -44,6 +44,8 @@ export const BOARD_SHOW_FEW = ['name', 'start', 'done', 'detail'];
 /* 3 … 2026-11-18 の作り直し。前の版で置いた値（名前だけ、など）は新しい既定に替える（決めてほしいこと 1 の答え）
    4 … 2026-11-19 くりかえしの札を足した。3 の値はそのまま読み、期間を出すと選んでいればくりかえしも出す */
 const BOARD_SHOW_V = 4;
+/* 隠している機能を 4 つのスイッチに分けた版の印（2026-11-22 Issue #80 の返事。savePrefs が置き、normalize が見る） */
+const OPT_V = 1;
 export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
 /* 既定で出す欄（Issue #40 までの姿。お気に入り・優先度・リンクは畳む）。
    期間（開始日・終了日）は 2026-11-16 Issue #76「サーバーなし版のTODOの期限の設定がサーバーあり版と異なる？」で既定に足した。
@@ -106,13 +108,30 @@ export const ITEMS = [
     /* Issue #40。既定ではあまり使わない機能を畳んでおく。オンにすると畳まずに全部出す。
        名前は 2026-11-22 Issue #80 の返事「(あまり使わない機能も出す)がよくわからない。適切な表現に直せる？」で、
        何が出るのかが名前で分かるように替えた（前の名前「あまり使わない機能も出す」） */
-    id: 'allTools', type: 'bool', def: false, pages: ['all', 'sea', 'today', 'board'],
-    label: 'ふだん隠している機能も表示する（週・月のタブ、今日のおすすめ など）',
-    /* 「はじめた日」のカレンダーは 2026-11-22 Issue #80 の返事「はじめた日の機能ってなに？」で、何をするものかを書き足した */
-    note: '出るもの: 下の「週・月」のタブ、海の右上の「はじめた日」のカレンダー（泡の［始める］を押した日を、'
-      + 'その日に押した数の濃さで半年ぶん並べる）、今日の「おすすめ」「四つに分ける」、'
-      + '詳細の「その他」の中身、設定の箱（開いた姿で始める）。'
-      + 'オフでも、詳細は「その他」、設定はそれぞれの箱の行を押せば出る',
+    /* 2026-11-22 Issue #80 の返事「週・月のタブ、今日のおすすめ など 分けれる？」で、週・月のタブ・はじめた日のカレンダー・
+       おすすめ・四つに分けるは下の 4 つのスイッチに分けた。ここに残るのは、詳細の「その他」の中身と設定の箱だけ */
+    id: 'allTools', type: 'bool', def: false, pages: ['all', 'board'],
+    label: '詳細の「その他」の中身と、設定の箱を、はじめから開いて出す',
+    note: 'オフでも、詳細は「その他」、設定はそれぞれの箱の行を押せば出る',
+  },
+  /* 隠している機能を 1 つずつ出す（2026-11-22 Issue #80 の返事「分けれる？」）。どれも既定は隠す。
+     前の版で「ふだん隠している機能も表示する」（allTools）をオンにしていた端末は、4 つともオンで読む（normalize） */
+  {
+    id: 'showPeriod', type: 'bool', def: false, pages: ['all'],
+    label: '下のタブに「週・月」を出す（今週・今月・月ごとに、日ごとの TODO を見る画面）',
+  },
+  {
+    id: 'showCal', type: 'bool', def: false, pages: ['sea'],
+    label: '海の右上に「はじめた日」のカレンダーを出す（［始める］を押した日を濃さで見る）',
+    note: '押した数の濃さで約半年ぶん並べる。0 の日は色を付けない。連続日数や割合は出さない',
+  },
+  {
+    id: 'showSuggest', type: 'bool', def: false, pages: ['today'],
+    label: '今日の画面に「おすすめ」を出す（今日に置くとよさそうな泡を選んで出す）',
+  },
+  {
+    id: 'showQuad', type: 'bool', def: false, pages: ['today'],
+    label: '今日の画面に「四つに分ける」を出す（急ぐ・大事で 4 つに分けて見る）',
   },
   {
     /* 2026-11-21 Issue #84「サイコロ機能と github に書き込む機能は設定の中に移したらいいんじゃない？」。
@@ -194,6 +213,11 @@ export function normalize(raw) {
     const v = checkValue(it.id, raw[it.id]);
     if (v !== undefined) out[it.id] = v;
   });
+  /* 2026-11-22 Issue #80 の返事「分けれる？」: 前は allTools 1 つで 週・月のタブ・はじめた日・おすすめ・四つに分ける も出していた。
+     その版でオンにしていた端末（4 つの値をまだ置いていない）は、4 つともオンで読む（急に消えないように） */
+  if (raw.allTools === true && raw.optV !== OPT_V) {
+    ['showPeriod', 'showCal', 'showSuggest', 'showQuad'].forEach(id => { if (raw[id] === undefined) out[id] = true; });
+  }
   /* 前の版（boardShowV が 3 でない）で置いた boardShow は、新しい既定に替える（2026-11-18 ユーザーの決定。
      前は「名前だけ」を既定にしていて、その値を置いた端末が多い。並びと言葉も替わったので、そのまま読むと畳まれすぎる） */
   if (Array.isArray(raw.boardShow) && raw.boardShowV === 3 && Array.isArray(out.boardShow)) {
@@ -280,6 +304,9 @@ export function savePrefs(p, storage) {
   if (!s) return false;
   const diff = changedFromDefault(p);
   if (diff.boardShow) diff.boardShowV = BOARD_SHOW_V;   /* 下のボタンも選べる版の値（normalize を見る） */
+  /* 4 つのスイッチに分けたあとの版で置いた値の印（normalize が allTools から 4 つを読み替えるのは、印の無い前の版の値だけ）。
+     読み替えが起きるのは allTools がオンのときだけなので、そのときだけ置く */
+  if (diff.allTools === true) diff.optV = OPT_V;
   try {
     if (Object.keys(diff).length) s.setItem(PREFS_KEY, JSON.stringify(diff));
     else s.removeItem(PREFS_KEY);

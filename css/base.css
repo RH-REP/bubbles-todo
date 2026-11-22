@@ -528,6 +528,13 @@ body.is-dragging .tabbar button.is-over {
    出すときはこの規則が外れるだけなので、元の display に戻る */
 body:not(.pref-all-tools) .is-extra:not(.show-extra .is-extra) { display: none !important; }
 
+/* ---------- 隠している機能を 1 つずつ出す（2026-11-22 Issue #80 の返事「週・月のタブ、今日のおすすめ など 分けれる？」） ----------
+   設定の「音と表示を変える」のスイッチ 1 つに、部品 1 つ。body の印は js/app.js の applyPrefs が付ける */
+body:not(.pref-show-period) .opt-period,
+body:not(.pref-show-cal) .opt-cal,
+body:not(.pref-show-suggest) .opt-suggest,
+body:not(.pref-show-quad) .opt-quad { display: none !important; }
+
 /* iPhone の Safari は、字が 16px より小さい入力欄を触ると画面を拡大し、抜けても戻さない
    （2026-11-16 Issue #68 の返事「設定画面でiPhoneから文字入力のために画面が拡大するけど、抜けた後も拡大のままになる。他の画面でも同じ」）。
    指で操作する端末では、入力欄の字を 16px にして拡大させない。拡大そのもの（ピンチ）は止めない */

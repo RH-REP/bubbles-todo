@@ -69,6 +69,26 @@ function mem() {
   };
 }
 
+test('隠している機能を 4 つのスイッチに分ける（Issue #80 の返事「分けれる？」）', () => {
+  const four = ['showPeriod', 'showCal', 'showSuggest', 'showQuad'];
+  four.forEach(id => assert.equal(defaults()[id], false, id + ' の既定は隠す'));
+  /* 前の版で allTools をオンにしていた端末は、4 つともオンで読む */
+  const old = normalize({ allTools: true });
+  four.forEach(id => assert.equal(old[id], true, id));
+  /* 分けた版で 1 つだけ切ったら、読み直しても切ったまま（印 optV で読み替えない） */
+  const m = mem();
+  m.setItem(PREFS_KEY, JSON.stringify({ allTools: true }));
+  savePrefs(applyChanges(loadPrefs(m), { showSuggest: false }).next, m);
+  const p = loadPrefs(m);
+  assert.equal(p.showSuggest, false);
+  assert.equal(p.showPeriod, true);
+  assert.equal(p.allTools, true);
+  /* 1 つだけ出す（allTools は触らない） */
+  const m2 = mem();
+  savePrefs(applyChanges(loadPrefs(m2), { showPeriod: true }).next, m2);
+  assert.deepEqual(JSON.parse(m2.getItem(PREFS_KEY)), { showPeriod: true });
+});
+
 test('既定: 起動は海・風は出さない・タグは出す・タブはいつもの並び', () => {
   const d = defaults();
   assert.equal(d.start, 'sea');

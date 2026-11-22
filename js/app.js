@@ -90,8 +90,9 @@ const DROPPABLE = new Set(['sea', 'today', 'plan', 'gap']);
        その頻度ではない。同じ重みで並べる理由が無い
    これで下タブは**全部が落とし先**になり、data-drop="no" は出なくなる。 */
 const TABS = ['sea', 'today', 'plan', 'gap', 'period'];
-/* あまり使わない機能として畳むタブ（.is-extra。設定の「ふだん隠している機能も表示する」で出る。前の名前「あまり使わない機能も出す」）。
-   週・月（2026-11-22 Issue #80 の返事「今日のタブと同じく感じ、今週の今月のタブ」。始めの頼み「オプション表示で」）。
+/* 既定では隠すタブ。週・月（2026-11-22 Issue #80 の返事「今日のタブと同じく感じ、今週の今月のタブ」。始めの頼み「オプション表示で」）。
+   出すのは設定の「下のタブに『週・月』を出す」（prefs.showPeriod。印 .opt-period は css/base.css。
+   同じ日の返事「分けれる？」で、ほかの隠している機能とスイッチを分けた）。
    読むだけの画面なので、バブルの落とし先ではない（data-drop="no"）。並びはいつも右の端（タブの並びの設定に入れない） */
 const EXTRA_TABS = new Set(['period']);
 
@@ -570,7 +571,7 @@ SCREENS.forEach(s => {
   btn.dataset.screen = s.id;
   btn.dataset.id = s.id;
   btn.dataset.drop = DROPPABLE.has(s.id) ? 'yes' : 'no';
-  if (EXTRA_TABS.has(s.id)) btn.classList.add('is-extra');
+  if (EXTRA_TABS.has(s.id)) btn.classList.add('opt-period');
   const ic = document.createElement('span');
   ic.className = 'ic';
   ic.textContent = s.icon;
@@ -954,6 +955,11 @@ function applyPrefs() {
   /* さいころと右上の「!」（Issue #84。既定は隠す。中身は css/base.css・各画面の CSS） */
   document.body.classList.toggle('pref-dice', !!prefs.dice);
   document.body.classList.toggle('pref-fb', !!prefs.fbBtn);
+  /* 隠している機能を 1 つずつ（2026-11-22 Issue #80 の返事「分けれる？」。中身は css/base.css の .opt-*） */
+  document.body.classList.toggle('pref-show-period', !!prefs.showPeriod);
+  document.body.classList.toggle('pref-show-cal', !!prefs.showCal);
+  document.body.classList.toggle('pref-show-suggest', !!prefs.showSuggest);
+  document.body.classList.toggle('pref-show-quad', !!prefs.showQuad);
   const btns = [...tabbar.children];
   prefs.tabOrder.forEach(id => {
     const b = btns.find(x => x.dataset.screen === id);
@@ -961,8 +967,8 @@ function applyPrefs() {
   });
   /* 畳むタブ（週・月）は並びの設定に無いので、いつも右の端へ */
   btns.filter(x => EXTRA_TABS.has(x.dataset.screen)).forEach(b => tabbar.appendChild(b));
-  /* 畳んだタブの画面にいる間に「あまり使わない機能も出す」を外したら、海へ戻す（タブが消えて戻れなくなるため） */
-  if (!prefs.allTools && current && EXTRA_TABS.has(current.id)) show('sea');
+  /* 週・月の画面にいる間にそのタブを隠したら、海へ戻す（タブが消えて戻れなくなるため） */
+  if (!prefs.showPeriod && current && EXTRA_TABS.has(current.id)) show('sea');
   if (drawer) renderDrawer();
 }
 applyPrefs();
