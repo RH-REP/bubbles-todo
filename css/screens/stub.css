@@ -269,3 +269,74 @@
 .stub .region-new input { flex-basis: 100%; }
 .stub .region-tx .nm.is-sea-btn::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); margin-right: 6px; vertical-align: middle; }
 .stub .region-head .btn, .stub .region-sea .btn { flex: none; white-space: nowrap; }
+
+/* ---------- 音と表示を変える（2026-11-22 Issue #80 の返事「設定方法をもっとわかりやすいUIに」） ----------
+   画面ごとの節を枠にし、上の札で節へ移る。オン/オフは名前を左・切り替えを右（スマホの設定と同じ形）。
+   1つ選ぶ項目は選べるものを全部ボタンで並べる。既定から変えた項目には「変更あり」。赤は使わない。数は出さない */
+.stub .look-jump { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+.stub .look-jumpbtn {
+  appearance: none; cursor: pointer; font: inherit; font-size: 13px;
+  min-height: 40px; padding: 0 14px; border-radius: 20px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text);
+}
+.stub .look-jumpbtn:hover { border-color: var(--bub-edge); }
+.stub .look-jumpbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.stub .look-jumpbtn[hidden] { display: none; }
+/* 変えた項目のある節の札には小さな点 */
+.stub .look-jumpbtn.has-changed::after {
+  content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--bub-edge); margin-left: 6px; vertical-align: middle;
+}
+.stub .look-sec {
+  margin: 14px 0 0; padding: 4px 14px 10px;
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  background: var(--surface);
+  scroll-margin-top: 62px;                 /* 札で移ったとき、右上の歯車の下に見出しが来るように */
+}
+.stub .look-sec[hidden] { display: none; }
+.stub .look-sec > .look-h { margin: 8px 0 2px; font-size: 14px; font-weight: 700; }
+/* 項目どうしを細い線で区切る */
+.stub .look-sec > .setrow, .stub .look-sec > .prefs-item { border-top: 1px solid var(--line); }
+.stub .look-sec > .look-h + .setrow, .stub .look-sec > .look-h + .prefs-item { border-top: 0; }
+.stub .look-sec > .prefs-item { padding: 4px 0 8px; }
+
+/* オン/オフ: 名前を左、切り替えを右。詳細の欄のように「いくつでも選ぶ」四角（fieldset の中）は今までどおり */
+.stub .look-sec > .setrow, .stub .look-sec > .prefs-item > .setrow { justify-content: space-between; gap: 14px; padding: 6px 0; min-height: 48px; }
+.stub .look-sec > .setrow > span, .stub .look-sec > .prefs-item > .setrow > .look-lb { flex: 1; min-width: 0; order: 1; line-height: 1.5; }
+.stub .look-sec > .setrow > input[type="checkbox"], .stub .look-sec > .prefs-item > .setrow > input[type="checkbox"] {
+  order: 2; flex: none;
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  position: relative; width: 50px; height: 30px; margin: 0; border-radius: 15px;
+  background: var(--line-strong); transition: background-color .15s;
+}
+.stub .look-sec > .setrow > input[type="checkbox"]::after, .stub .look-sec > .prefs-item > .setrow > input[type="checkbox"]::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s;
+}
+.stub .look-sec > .setrow > input[type="checkbox"]:checked, .stub .look-sec > .prefs-item > .setrow > input[type="checkbox"]:checked { background: var(--bub-edge); }
+.stub .look-sec > .setrow > input[type="checkbox"]:checked::after, .stub .look-sec > .prefs-item > .setrow > input[type="checkbox"]:checked::after { transform: translateX(20px); }
+.stub .look-sec > .setrow > input[type="checkbox"]:focus-visible, .stub .look-sec > .prefs-item > .setrow > input[type="checkbox"]:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .stub .look-sec input[type="checkbox"], .stub .look-sec input[type="checkbox"]::after { transition: none; }
+}
+
+/* 1つ選ぶ: 選べるものを全部ボタンで並べる */
+.stub .look-choice { padding: 8px 0 2px; font-size: 14px; }
+.stub .look-choice > .look-lb { margin-bottom: 6px; line-height: 1.5; }
+.stub .look-seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.stub .look-segbtn {
+  appearance: none; cursor: pointer; font: inherit; font-size: 13px;
+  min-height: 40px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text-2);
+}
+.stub .look-segbtn:hover { border-color: var(--bub-edge); color: var(--text); }
+.stub .look-segbtn[aria-checked="true"] { color: var(--text); border: 2px solid var(--bub-edge); font-weight: 600; }
+.stub .look-segbtn[aria-checked="true"]::before { content: '✓ '; }
+.stub .look-segbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* 既定から変えた項目の印（色だけに頼らず字で書く） */
+.stub .look-changed {
+  display: inline-block; margin-left: 8px; padding: 0 7px; vertical-align: 1px;
+  font-size: 11px; font-weight: 600; line-height: 18px; border-radius: 9px;
+  border: 1px solid var(--bub-edge); color: var(--text);
+}

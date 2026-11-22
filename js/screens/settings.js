@@ -364,6 +364,16 @@ export default {
        項目は data-pages の最初の画面の見出しの下へ動かす（prefsBox は描き直すたびに新しい項目を作るので、そのたびに並べ直す）。
        上の pageRow（選ぶボタン）は作るが置かない */
     void pageRow; void pageHint;
+    /* 2026-11-22 Issue #80 の返事「音と表示を変えるの設定方法をもっとわかりやすいUIに工夫できる？」:
+       ・画面ごとの節を枠（カード）にし、上に「どの画面の設定か」の札を並べて、押すとその節へ移る
+       ・オン/オフの項目は、名前を左・切り替えを右に置く（スマホの設定と同じ形）
+       ・いくつかから1つ選ぶ項目は、選択の欄（select）でなく、選べるものを全部ボタンで並べる（js/screens/settings.js の prefsBox）
+       ・既定から変えた項目には「変更あり」と出す
+       作り: css/screens/stub.css の .look-* */
+    const lookJump = el('div', 'look-jump');
+    lookJump.setAttribute('role', 'navigation');
+    lookJump.setAttribute('aria-label', 'どの画面の設定へ移るか');
+    gLook.appendChild(lookJump);
     const lookSecs = new Map();
     const lookRows = [];
     const applyLookPage = () => {
@@ -371,17 +381,35 @@ export default {
         if (!lookSecs.has(pid)) {
           const s = el('div', 'look-sec');
           s.dataset.page = pid;
-          const h = el('h4', 'look-h', name);
-          h.style.cssText = 'margin:14px 0 4px;font-size:13.5px';
+          const h = el('h4', 'look-h');
+          h.textContent = name;
           s.appendChild(h);
           lookSecs.set(pid, s);
+          const j = el('button', 'look-jumpbtn');
+          j.type = 'button';
+          j.dataset.page = pid;
+          j.textContent = name.replace(/（.*$/, '');
+          j.addEventListener('click', ev => {
+            ev.preventDefault();
+            s.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+          lookJump.appendChild(j);
         }
       });
       lookSecs.forEach(s => s.querySelectorAll(':scope > .prefs-item').forEach(n => n.remove()));
       const first = (n) => (n.dataset.pages || 'all').split(' ')[0];
       lookRows.forEach(n => { const s = lookSecs.get(first(n)) || lookSecs.get('all'); s.appendChild(n); });
       gLook.querySelectorAll('.prefs-ctl > [data-pages]').forEach(n => { const s = lookSecs.get(first(n)) || lookSecs.get('all'); s.appendChild(n); });
-      lookSecs.forEach(s => { gLook.appendChild(s); s.hidden = s.children.length <= 1; });
+      lookSecs.forEach((s, pid) => {
+        gLook.appendChild(s);
+        s.hidden = s.children.length <= 1;
+        const j = lookJump.querySelector('[data-page="' + pid + '"]');
+        if (j) {
+          j.hidden = s.hidden;
+          /* 変えた項目のある節の札に印（数は出さない） */
+          j.classList.toggle('has-changed', !!s.querySelector('.prefs-item.is-changed'));
+        }
+      });
     };
 
     /* --- 音 --- */
@@ -5338,8 +5366,6 @@ function textEl(tag, cls, text) {
   n.textContent = String(text == null ? '' : text);
   return n;
 }
-const selStyle = 'font:inherit;font-size:16px;min-height:40px;padding:0 8px;border-radius:10px;'
-  + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text)';
 
 /* 「音と表示を変える」で選んでいる画面（js/prefs.js の PAGES の id）。設定を開き直しても覚える */
 let lookPage = 'all';
@@ -5375,39 +5401,60 @@ function prefsBox(onRender) {
   function renderControls() {
     controls.textContent = '';
     const outer = controls;
+    const changed = changedFromDefault(cur);
     ITEMS.forEach(it => {
       /* 項目ごとの囲い。data-pages で「どの画面を変えるか」の選びに合わせて出し入れする（Issue #49 の返事） */
       const controls = el('div', 'prefs-item');
       controls.dataset.pages = (it.pages || ['all']).join(' ');
+      /* 既定から変えた項目（2026-11-22 Issue #80 の返事）。名前の横に「変更あり」 */
+      const isChanged = Object.prototype.hasOwnProperty.call(changed, it.id);
+      if (isChanged) controls.classList.add('is-changed');
+      const mark = () => { const m = el('span', 'look-changed'); m.textContent = '変更あり'; return m; };
       outer.appendChild(controls);
       if (it.type === 'bool') {
+        /* 名前を左、切り替えを右（css/screens/stub.css の .look-sec .setrow。2026-11-22 Issue #80 の返事） */
         const row = el('label', 'setrow');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
+        cb.setAttribute('role', 'switch');
         cb.checked = !!cur[it.id];
         cb.addEventListener('change', () => {
           commit(applyChanges(cur, { [it.id]: cb.checked }).next, it.label.replace(/（.*$/, '') + ': ' + (cb.checked ? 'オン' : 'オフ'));
         });
         row.appendChild(cb);
-        row.appendChild(textEl('span', null, it.label));
+        const tx = textEl('span', 'look-lb', it.label);
+        if (isChanged) tx.appendChild(mark());
+        row.appendChild(tx);
         controls.appendChild(row);
         if (it.note) controls.appendChild(textEl('p', 'note', it.note));
         return;
       }
       if (it.type === 'choice') {
-        const row = el('label', 'row');
-        row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center;font-size:13.5px';
-        row.appendChild(textEl('span', null, it.label));
-        const sel = document.createElement('select');
-        sel.setAttribute('aria-label', it.label);
-        sel.style.cssText = selStyle;
-        it.choices.forEach(c => { const op = document.createElement('option'); op.value = c[0]; op.textContent = c[1]; sel.appendChild(op); });
-        sel.value = cur[it.id];
-        sel.addEventListener('change', () => {
-          commit(applyChanges(cur, { [it.id]: sel.value }).next, it.label + ': ' + sel.options[sel.selectedIndex].textContent + '（次に開いたときから）');
+        /* 選べるものを全部ボタンで並べ、選んでいるものを塗る（前は選択の欄。開くまで何が選べるか見えなかった。
+           2026-11-22 Issue #80 の返事「音と表示を変えるの設定方法をもっとわかりやすいUIに」） */
+        const box = el('div', 'look-choice');
+        const lb = textEl('div', 'look-lb', it.label);
+        if (isChanged) lb.appendChild(mark());
+        box.appendChild(lb);
+        const seg = el('div', 'look-seg');
+        seg.setAttribute('role', 'radiogroup');
+        seg.setAttribute('aria-label', it.label);
+        it.choices.forEach(([val, name]) => {
+          const b = el('button', 'look-segbtn');
+          b.type = 'button';
+          b.textContent = name;
+          b.setAttribute('role', 'radio');
+          b.setAttribute('aria-checked', cur[it.id] === val ? 'true' : 'false');
+          b.addEventListener('click', ev => {
+            ev.preventDefault();
+            if (cur[it.id] === val) return;
+            commit(applyChanges(cur, { [it.id]: val }).next, it.label + ': ' + name + '（次に開いたときから）');
+          });
+          seg.appendChild(b);
         });
-        row.appendChild(sel);
-        controls.appendChild(row);
+        box.appendChild(seg);
+        controls.appendChild(box);
+        if (it.note) controls.appendChild(textEl('p', 'note', it.note));
         return;
       }
       if (it.type === 'set') {
