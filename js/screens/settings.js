@@ -1721,7 +1721,7 @@ function localBox(mode) {
       + 'それにも備えるなら、ファイル・フォルダ・サーバーにも書き出す。'));
   } else {
     wrap.appendChild(el('p', 'note',
-      '「書き出す」→「この端末（自動）」で残したものを、今の記録に重ねる（消さない。記録ごとに新しく書き換えたほうが残る）。'
+      '「書き出す」→「この端末（自動）」で残したものから戻す。［戻す］を押すと、上書き（丸ごと入れ替える。今の記録は先にこの端末の中に残す）か追加（今の記録に足す）かを聞く。'
       + '［ファイルに保存］で、ほかの端末で読み込めるファイル（bubbles-backup。暗号化しない）にもできる。'));
   }
   if (!ok) {
@@ -1852,11 +1852,22 @@ function localBox(mode) {
       back.addEventListener('click', async () => {
         let p;
         try { p = await localBackup.read(s.id); } catch (e) { toast((e && e.message) || '読めない'); paint(); return; }
-        if (!window.confirm('このバックアップをこの端末に戻す？\n残した時刻: ' + when(s.at) + '\n海 ' + s.seas + ' つ・todo ' + s.todos + ' 件'
-          + '\nいまの記録は消さずに重ねる（新しく書き換えたほうが残る）。')) return;
+        /* 上書き（入れ替える）か追加かを聞く（2026-11-22 Issue #83 の返事「今の版で入れ替えるがある？」。
+           前は重ねるだけだった。ファイル・サーバーのバックアップと同じ問い） */
+        const mode = await askReplaceOrAdd('この端末の中のバックアップから戻す', [when(s.at) + (s.device ? '（' + s.device + '）' : ''),
+          '海 ' + s.seas + ' つ・todo ' + s.todos + ' 件'], { before: 'この端末の中に残してから' });
+        if (!mode) return;
         try {
-          const n = mergeIntoDevice(p, { askLocal: true });
-          line.textContent = '海 ' + n + ' つの記録を戻した。';
+          let said = '';
+          if (mode === 'replace') {
+            /* 入れ替える前の今の記録は、まずこの端末の中に残す。残せなければ、ほかの戻し方と同じ控え（サーバーかファイル）へ */
+            line.textContent = '今の記録を控えている…';
+            const r = await localBackup.runNow(true);
+            said = r.saved ? '今の記録をこの端末の中に残した（入れ替える前）' : await backupBeforeReplace();
+          }
+          const n = mergeIntoDevice(p, { askLocal: true, replace: mode === 'replace', add: mode === 'add' });
+          line.textContent = (said ? said + '。' : '') + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '入れ替えた。' : '戻した（今の記録に重ねた）。');
+          toast(mode === 'replace' ? 'バックアップ（' + when(s.at) + '）で入れ替えた' : 'バックアップ（' + when(s.at) + '）を重ねた');
         } catch (e) { toast('戻せなかった: ' + ((e && e.message) || e)); }
       });
       save.addEventListener('click', async () => {
@@ -5867,7 +5878,7 @@ function backupWhen(ms) {
 
 /* 上書きか追加かを聞く（2026-11-19「読み出したものは上書きするか追加するかきいて」）→ 'replace' | 'add' | null（やめる）。
    板の形は泡の記録を直す板（css/bubble.css の .bh-edit-*）と同じ */
-function askReplaceOrAdd(title, lines) {
+function askReplaceOrAdd(title, lines, opts = {}) {
   return new Promise(resolve => {
     const back = el('div', 'bh-edit-back');
     const box = el('div', 'bh-edit-box');
@@ -5880,7 +5891,9 @@ function askReplaceOrAdd(title, lines) {
     box.appendChild(tt);
     (lines || []).filter(Boolean).forEach(t => { const p = el('p', 'why'); p.textContent = t; box.appendChild(p); });
     const how = el('p', 'why');
-    how.textContent = '上書き … 今の記録をサーバーに控えてから（ログインしていなければファイルに書き出してから）、読み込んだもので丸ごと入れ替える（読み込んだものに無い泡は消える）。'
+    /* opts.before … 上書きの前に今の記録をどこへ控えるか（この端末の中のバックアップから戻すときは、この端末の中。Issue #83） */
+    how.textContent = '上書き … 今の記録を' + (opts.before || 'サーバーに控えてから（ログインしていなければファイルに書き出してから）')
+      + '、読み込んだもので丸ごと入れ替える（読み込んだものに無い泡は消える）。'
       + '追加 … 今の記録に足す（今の泡は消さない。両方にある泡は新しく書き換えたほうが残り、読み込んだものにあって今は無い泡は戻る）。';
     box.appendChild(how);
     const row = el('div', 'row');
@@ -5907,7 +5920,9 @@ function personalBackupBox(owner) {
   const w = document.createElement('div');
   w.className = 'pbk';
   w.dataset.name = 'バックアップ';
-  const KIND = { unify: 'ログインで同じ記録にする前', person: '前の版で入れ替える前', user: '別の利用者に替わる前' };
+  /* person の名前（2026-11-22 Issue #83 の返事）: 前は「前の版で入れ替える前」で、app の版（更新）の前に取った控えと読まれた。
+     中身は、サーバーで個人の持ち主（人の番号）が替わり、手元の個人をサーバーのものへ入れ替える前に取ったもの（js/sync.js） */
+  const KIND = { unify: 'ログインで同じ記録にする前', person: 'サーバーで個人の持ち主が替わる前', user: '別の利用者に替わる前' };
   const fmt = backupWhen;
   const rowOf = (text, onBack, blocked) => {
     const r = document.createElement('div');
@@ -5998,7 +6013,7 @@ function personalBackupBox(owner) {
       w.appendChild(lh);
       const ln = document.createElement('p');
       ln.className = 'note';
-      ln.textContent = '同じ記録にする・入れ替える前に取った、個人の海の前の中身。';
+      ln.textContent = 'サーバーとの間で個人の海を同じ記録にする・入れ替える前に、app が自動で取った前の中身（「この端末（自動）」のバックアップとは別のもの）。泡 0 は、そのとき個人の海が空だったもの。';
       w.appendChild(ln);
       const here = isPersonal(store.space());
       const login = !!loggedIn();
