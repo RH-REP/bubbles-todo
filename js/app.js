@@ -69,9 +69,10 @@ import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
-import settings, { syncSharedSea, readSharedSea, pushSeaDirect, directCount } from './screens/settings.js';
+import period from './screens/period.js';
+import settings,{ syncSharedSea, readSharedSea, pushSeaDirect, directCount } from './screens/settings.js';
 
-const SCREENS = [sea, today, plan, gap, review, settings];
+const SCREENS = [sea, today, plan, gap, period, review, settings];
 
 /* ブロックチェーンの共有の海（署名・同期）と直の通信（WebRTC）を使う版か。サーバーなし版（noserver.html）だけ。
    サーバーあり版（index.html）では盤にも出さない（2026-11-17 Issue #78。js/edition.js） */
@@ -88,7 +89,11 @@ const DROPPABLE = new Set(['sea', 'today', 'plan', 'gap']);
      ・毎日触るのは海・今日・きっかけ・すきまの4つ。設定とふりかえりは
        その頻度ではない。同じ重みで並べる理由が無い
    これで下タブは**全部が落とし先**になり、data-drop="no" は出なくなる。 */
-const TABS = ['sea', 'today', 'plan', 'gap'];
+const TABS = ['sea', 'today', 'plan', 'gap', 'period'];
+/* あまり使わない機能として畳むタブ（.is-extra。設定の「あまり使わない機能も出す」で出る）。
+   週・月（2026-11-22 Issue #80 の返事「今日のタブと同じく感じ、今週の今月のタブ」。始めの頼み「オプション表示で」）。
+   読むだけの画面なので、バブルの落とし先ではない（data-drop="no"）。並びはいつも右の端（タブの並びの設定に入れない） */
+const EXTRA_TABS = new Set(['period']);
 
 /* 歯車から開く画面。ここに居るあいだ、歯車は「閉じる」になる */
 const UNDER_GEAR = new Set(['settings', 'review']);
@@ -565,6 +570,7 @@ SCREENS.forEach(s => {
   btn.dataset.screen = s.id;
   btn.dataset.id = s.id;
   btn.dataset.drop = DROPPABLE.has(s.id) ? 'yes' : 'no';
+  if (EXTRA_TABS.has(s.id)) btn.classList.add('is-extra');
   const ic = document.createElement('span');
   ic.className = 'ic';
   ic.textContent = s.icon;
@@ -953,6 +959,10 @@ function applyPrefs() {
     const b = btns.find(x => x.dataset.screen === id);
     if (b) tabbar.appendChild(b);
   });
+  /* 畳むタブ（週・月）は並びの設定に無いので、いつも右の端へ */
+  btns.filter(x => EXTRA_TABS.has(x.dataset.screen)).forEach(b => tabbar.appendChild(b));
+  /* 畳んだタブの画面にいる間に「あまり使わない機能も出す」を外したら、海へ戻す（タブが消えて戻れなくなるため） */
+  if (!prefs.allTools && current && EXTRA_TABS.has(current.id)) show('sea');
   if (drawer) renderDrawer();
 }
 applyPrefs();

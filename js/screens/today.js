@@ -17,7 +17,6 @@ import { playComplete, playSfx } from '../sound.js';
 import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest } from '../suggest.js';
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
-import { periodDays, monthSpanDays } from '../deadline.js';
 
 /* 詳細の入力を書き終わりまで待たずに保存する間隔（plan.js と同じ） */
 const SAVE_MS = 400;
@@ -721,7 +720,7 @@ function onDayDown(ev) {
   if (swipe || dayPop) return;
   if (ev.button != null && ev.button !== 0) return;
   const t = ev.target;
-  if (!t || !t.closest || t.closest('.bub, button, a, input, textarea, select, .today-periodbox, .today-filter-pop')) return;
+  if (!t || !t.closest || t.closest('.bub, button, a, input, textarea, select, .today-filter-pop')) return;
   swipe = { pid: ev.pointerId, x0: ev.clientX, y0: ev.clientY, dx: 0, axis: null };
   window.addEventListener('pointermove', onDayMove, true);
   window.addEventListener('pointerup', onDayUp, true);
@@ -775,7 +774,6 @@ function render() {
   renderComposerTags();          /* 設定でタグが増減していることがある */
   syncRandomBtn();
   syncSuggest();
-  syncPeriod();
   /* 過去は記録なので触らせない（足すと、その日の記録が後から変わる） */
   if (stage) stage.classList.toggle('is-readonly', isPast());
 
@@ -1486,7 +1484,6 @@ function toggleSuggest() {
   if (suggest) { closeSuggest(); return; }
   if (isPast() || !stage) return;
   closeMenu();
-  closePeriod();
   const day = curDay();
   const box = el('div', 'today-suggestbox');
   box.setAttribute('role', 'dialog');
@@ -1600,125 +1597,14 @@ async function askSuggest() {
   renderSuggest();
 }
 
-/* ---------------- まとめて見る（1週間・1か月。2026-11-21 Issue #80） ----------------
-
-   > 1週間と1ヶ月のTODOをまとめて確認したい。オプション表示で
-
-   さいころの下の段、おすすめの左の札「週・月」。あまり使わない機能として畳む（.is-extra。
-   設定の「あまり使わない機能も出す」で出る）。押すと小さな板が開き、映している日から
-   1週間（7日）か1か月（翌月の同じ日の前日まで）を、日ごとに名前で並べる。
-   日に出るのは、その日に置いたものと、期間の始まる日・終わる日（計算は js/deadline.js の periodDays）。
-   何も無い日は並べない。件数・割合・「期限切れ」は出さない。読むだけの板で、
-   日の見出しか名前を押すと、その日の水面へ移る（泡はそこで今までどおり触れる）。 */
-
-let periodBtn = null;
-let period = null;        /* { box, list, ttl, tabs } 開いている間だけ */
-let periodLen = 'week';   /* 'week' | 'month'。この画面を開いている間だけ覚える */
-
-function syncPeriod() {
-  if (!periodBtn) return;
-  periodBtn.setAttribute('aria-expanded', period ? 'true' : 'false');
-  if (period) renderPeriod();
-}
-
-function togglePeriod() {
-  if (period) { closePeriod(); return; }
-  if (!stage) return;
-  closeMenu();
-  closeSuggest();
-  const box = el('div', 'today-periodbox');
-  box.setAttribute('role', 'dialog');
-  box.setAttribute('aria-label', 'まとめて見る');
-  box.dataset.screen = 'today.period'; box.dataset.screenLayer = '3';
-  const head = el('div', 'tpd-head');
-  const ttl = el('span', 'tpd-ttl');
-  head.appendChild(ttl);
-  const x = el('button', 'tpd-close', '×');
-  x.type = 'button';
-  x.setAttribute('aria-label', '閉じる');
-  x.addEventListener('click', ev => { ev.preventDefault(); closePeriod(); });
-  head.appendChild(x);
-  box.appendChild(head);
-  const tabsRow = el('div', 'tpd-tabs');
-  tabsRow.setAttribute('role', 'group');
-  tabsRow.setAttribute('aria-label', '見る長さ');
-  const tabs = {};
-  [['week', '1週間'], ['month', '1か月']].forEach(([k, lb]) => {
-    const b = el('button', 'tpd-tab', lb);
-    b.type = 'button';
-    b.addEventListener('click', ev => { ev.preventDefault(); periodLen = k; renderPeriod(); });
-    tabs[k] = b;
-    tabsRow.appendChild(b);
-  });
-  box.appendChild(tabsRow);
-  const list = el('div', 'tpd-list');
-  box.appendChild(list);
-  stage.appendChild(box);
-  period = { box, list, ttl, tabs };
-  syncPeriod();
-}
-
-function closePeriod() {
-  if (!period) return;
-  period.box.remove();
-  period = null;
-  if (periodBtn) periodBtn.setAttribute('aria-expanded', 'false');
-}
-
-function mdw(key) {
-  const d = dayToDate(key);
-  return (d.getMonth() + 1) + '/' + d.getDate() + '（' + DOW[d.getDay()] + '）';
-}
-
-const PERIOD_KIND = { start: '始まる日', end: '終わる日' };
-
-function renderPeriod() {
-  const p = period;
-  if (!p) return;
-  const from = curDay();
-  const n = periodLen === 'month' ? monthSpanDays(from) : 7;
-  const to = shiftDay(from, n - 1);
-  p.ttl.textContent = mdw(from) + ' 〜 ' + mdw(to);
-  Object.keys(p.tabs).forEach(k => p.tabs[k].setAttribute('aria-pressed', k === periodLen ? 'true' : 'false'));
-  const all = (typeof store.all === 'function') ? store.all() : [];
-  const days = periodDays(all, from, n).filter(d => d.rows.length);
-  p.list.textContent = '';
-  if (!days.length) {
-    p.list.appendChild(el('p', 'tpd-empty', 'この間に置いたもの・期間のあるものは見当たらない'));
-    return;
-  }
-  days.forEach(d => {
-    const sec = el('section', 'tpd-day');
-    if (d.off) sec.classList.add('is-off');
-    else if (d.sat) sec.classList.add('is-sat');
-    const hd = el('button', 'tpd-dhead');
-    hd.type = 'button';
-    const off = offsetOf(d.key);
-    const word = off === 0 ? '今日' : off === 1 ? '明日' : off === -1 ? '昨日' : '';
-    hd.textContent = mdw(d.key) + (word ? ' ' + word : '') + (d.hol ? ' ' + d.hol : '');
-    hd.setAttribute('aria-label', mdw(d.key) + 'の水面へ');
-    hd.addEventListener('click', ev => { ev.preventDefault(); closePeriod(); goDay(d.key); });
-    sec.appendChild(hd);
-    const ul = el('ul', 'tpd-rows');
-    d.rows.forEach(r => {
-      const li = el('li', 'tpd-row');
-      if (r.done) li.classList.add('is-done');
-      const b = el('button', 'tpd-item');
-      b.type = 'button';
-      const nm = el('span', 'tpd-nm');
-      nm.textContent = (r.done ? '✓ ' : '') + r.text;          /* ユーザーの文字 */
-      b.appendChild(nm);
-      const kinds = r.kinds.filter(k => PERIOD_KIND[k]).map(k => PERIOD_KIND[k]);
-      if (kinds.length) b.appendChild(el('span', 'tpd-kind', kinds.join('・')));
-      b.setAttribute('aria-label', '「' + trim(r.text) + '」。' + mdw(d.key) + 'の水面へ');
-      b.addEventListener('click', ev => { ev.preventDefault(); closePeriod(); goDay(d.key); });
-      li.appendChild(b);
-      ul.appendChild(li);
-    });
-    sec.appendChild(ul);
-    p.list.appendChild(sec);
-  });
-}
+/* ---------------- 週・月の画面からその日へ（2026-11-22 Issue #80 の返事） ----------------
+   前の版（2026-11-21）はこの画面に「週・月」の板を置いていた。返事「今日のタブと同じく感じ、今週の今月のタブ」で
+   下のタブの画面（js/screens/period.js）に移し、板は外した。
+   週・月の画面で日や名前を押すと、この画面へ移ってから bubbles:showday { key } が届く（画面どうしは import しない） */
+window.addEventListener('bubbles:showday', ev => {
+  const key = ev && ev.detail && ev.detail.key;
+  if (typeof key === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(key)) goDay(key);
+});
 
 /* ---------------- 一覧で見る（2026-11-21 Issue #86） ----------------
 
@@ -1993,16 +1879,6 @@ export default {
     suggestBtn.addEventListener('click', ev => { ev.preventDefault(); toggleSuggest(); });
     stage.appendChild(suggestBtn);
 
-    /* まとめて見る（1週間・1か月。Issue #80）。おすすめの左。同じく畳む */
-    periodBtn = el('button', 'today-period', '週・月');
-    periodBtn.type = 'button';
-    periodBtn.classList.add('is-extra');
-    periodBtn.title = '1週間・1か月をまとめて見る';
-    periodBtn.setAttribute('aria-label', periodBtn.title);
-    periodBtn.setAttribute('aria-expanded', 'false');
-    periodBtn.addEventListener('click', ev => { ev.preventDefault(); togglePeriod(); });
-    stage.appendChild(periodBtn);
-
     /* 四つに分ける切り替え。さいころの左（海ではフィルターの隣） */
     quadBtn = quadButton(() => setQuad(!quadOn));
     quadBtn.classList.add('today-quadbtn');
@@ -2141,7 +2017,6 @@ export default {
     if (filterPop) { closeFilterPop(true); return true; }
     if (dayPop) { closeDayPop(); return true; }
     if (suggest) { closeSuggest(); return true; }
-    if (period) { closePeriod(); return true; }
     if (detail) { closeDetail(); return true; }
     if (viewDay) { goDay(todayKey()); return true; }
     return false;
@@ -2152,7 +2027,6 @@ export default {
     closeMenu();
     closeDetail();
     closeSuggest();
-    closePeriod();
     closeFilterPop(false);
     cancelShuffle();         /* 混ぜかけのまま裏に回ったら畳む。開かない */
     if (field) field.stop();

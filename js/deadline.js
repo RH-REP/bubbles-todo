@@ -184,9 +184,10 @@ export function columns(today, n, dir = 1) {
 }
 
 /* ---- まとめて見る（1週間・1か月。2026-11-21 Issue #80） ----
-   今日の画面の「週・月」の板の中身。from の日から n 日ぶんを日ごとに並べる。
+   下のタブ「週・月」の画面（js/screens/period.js。2026-11-22 Issue #80 の返事で板から画面にした）の中身。
+   from の日から n 日ぶんを日ごとに並べる。
    日に出すのは、その日に置いたもの（days）と、期間（start・due。欄の無い古い記録は本文の行）の
-   始まる日・終わる日。完了したものも出す（今日の水面と同じく、その日に何をしたかが残るように）。
+   始まる日・終わる日と、完了した日（doneAt）。完了したものも出す（今日の水面と同じく、その日に何をしたかが残るように）。
    過ぎた日を数えたり、「期限切れ」と出したりはしない。 */
 
 /* from の日から、翌月の同じ日の前日までの日数（月末はその月の末日につぶす。1/31 → 2/28 まで） */
@@ -199,7 +200,21 @@ export function monthSpanDays(from) {
   return Math.round((to - d) / 86400000);
 }
 
-/* -> [{ key, m, d, wd, sat, sun, hol, off, rows: [{ id, text, done, kinds: ['day'|'start'|'end'] }] }]
+/* その日を含む週の月曜（2026-11-22 Issue #80 の返事。週・月の画面の「今週」は月曜から日曜） */
+export function weekStart(key) {
+  const d = dateOf(key);
+  if (!d) return null;
+  return addDays(key, -((d.getDay() + 6) % 7));
+}
+
+/* その月の 1 日と日数。y は西暦、m は 1〜12 */
+export function monthRange(y, m) {
+  const yy = Math.floor(Number(y)), mm = Math.floor(Number(m));
+  if (!(yy >= 1970 && yy <= 9999 && mm >= 1 && mm <= 12)) return null;
+  return { from: yy + '-' + z(mm) + '-01', n: new Date(yy, mm, 0, 12).getDate() };
+}
+
+/* -> [{ key, m, d, wd, sat, sun, hol, off, rows: [{ id, text, done, kinds: ['day'|'start'|'end'|'done'] }] }]
    rows は書いた順（古いほうが上）。何も無い日も返す（板が畳む） */
 export function periodDays(items, from, n) {
   const cols = dateOf(from) && n > 0 ? columns(from, n) : [];
@@ -221,6 +236,9 @@ export function periodDays(items, from, n) {
       if (sp.start !== sp.end) mark(t, sp.start, 'start');
       mark(t, sp.end, 'end');
     }
+    /* 完了した日（2026-11-22 Issue #80 の返事「過去分も確認できる」）。完了の時刻を持つものだけ */
+    const at2 = Number(t.doneAt);
+    if (t.done && Number.isFinite(at2) && at2 > 0) mark(t, keyOf(new Date(at2)), 'done');
   });
   return cols.map(c => {
     const rows = [...at.get(c.key).values()].sort((p, q) => p.createdAt - q.createdAt);

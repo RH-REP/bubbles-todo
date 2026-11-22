@@ -1,0 +1,79 @@
+/* 画面「週・月」（js/screens/period.js。2026-11-22 Issue #80 の返事）— 1週間・1か月の TODO を日ごとに読むだけの画面。
+   色の決まり: 休みの日の見出しは「日付で見る」と同じ（日曜・祝日は杏、土曜は空）。赤・警告色は使わない。件数は出さない。
+   上は 62px から（右上の歯車 10..54px の下。ふりかえりと同じ） */
+
+.period {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  background: linear-gradient(180deg, var(--today-fill), transparent 40%), var(--bg);
+}
+.period .pd-head {
+  flex: none; padding: 62px 16px 8px;
+  display: flex; flex-direction: column; gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.period .pd-body {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px 16px calc(20px + var(--safe-b));
+}
+
+/* 今週・今月の切り替え（押している側をもう一度押すと今週・今月へ戻る） */
+.period .pd-tabs { display: flex; gap: 6px; }
+.period .pd-tab, .period .pd-month {
+  appearance: none; cursor: pointer; font: inherit;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2);
+}
+.period .pd-tab { flex: 1; font-size: 14px; min-height: 44px; border-radius: 22px; }
+.period .pd-tab[aria-pressed="true"], .period .pd-month[aria-pressed="true"] {
+  color: var(--text); border-color: var(--bub-edge); border-width: 2px; font-weight: 600;
+}
+.period .pd-tab:focus-visible, .period .pd-month:focus-visible, .period .pd-step:focus-visible,
+.period .pd-ystep:focus-visible, .period .pd-label:focus-visible, .period .pd-dhead:focus-visible,
+.period .pd-item:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+
+/* ‹ 見出し › （今日の画面の日の見出しと同じ形） */
+.period .pd-steprow, .period .pd-yearrow { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.period .pd-step, .period .pd-ystep {
+  appearance: none; cursor: pointer; font: inherit; font-size: 20px; line-height: 1;
+  min-width: 44px; min-height: 44px; border: 0; border-radius: 22px;
+  background: none; color: var(--text-2);
+}
+.period .pd-ystep { min-height: 36px; font-size: 17px; }
+.period .pd-step:hover, .period .pd-ystep:hover { color: var(--text); }
+.period .pd-label {
+  appearance: none; cursor: pointer; font: inherit; font-size: 15px; font-weight: 600;
+  min-height: 44px; padding: 0 12px; border: 0; border-radius: 22px;
+  background: none; color: var(--text);
+}
+/* 今週・今月から離れているときは、押すと戻れることを縁で示す */
+.period .pd-label.is-away { border: 1px dashed var(--line-strong); }
+.period .pd-year { font-size: 13px; color: var(--text-2); min-width: 4.5em; text-align: center; }
+
+/* 1月〜12月。狭い画面では 6 列 × 2 段 */
+.period .pd-months { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+@media (min-width: 560px) { .period .pd-months { grid-template-columns: repeat(12, 1fr); } }
+.period .pd-month { font-size: 13px; min-height: 40px; border-radius: 10px; padding: 0; }
+.period .pd-month.is-now:not([aria-pressed="true"]) { border-style: dashed; border-color: var(--bub-edge); }
+
+/* 日ごとの並び */
+.period .pd-day { border-top: 1px solid var(--line); padding: 4px 0; }
+.period .pd-day:first-child { border-top: 0; }
+.period .pd-dhead {
+  appearance: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+  display: block; width: 100%; text-align: left;
+  min-height: 36px; padding: 0 8px; border: 0; border-radius: 6px;
+  background: none; color: var(--text);
+}
+.period .pd-day.is-off .pd-dhead { background: var(--q-now-f); }
+.period .pd-day.is-sat .pd-dhead { background: var(--q-quick-f); }
+.period .pd-day.is-today .pd-dhead { box-shadow: inset 3px 0 0 var(--bub-edge); }
+.period .pd-rows { list-style: none; margin: 0; padding: 0; }
+.period .pd-item {
+  appearance: none; cursor: pointer; font: inherit; font-size: 14px;
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  min-height: 40px; padding: 6px 8px 6px 16px; border: 0; background: none; color: var(--text);
+}
+.period .pd-item:hover { background: var(--q-quick-f); border-radius: 6px; }
+.period .pd-nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.period .pd-row.is-done .pd-nm { color: var(--text-2); }
+.period .pd-kind { flex: none; font-size: 12px; color: var(--text-2); }
+.period .pd-empty { padding: 24px 4px; margin: 0; color: var(--text-2); font-size: 13.5px; text-align: center; }

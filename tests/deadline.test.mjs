@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   deadlineOf, deadlineRows, doneRows, agoLabel, columnCount, columns, cellMark, inSpan, leftLabel, spanFromDetail, daysBetween, withSpan,
-  COLS_MIN, COLS_MAX, periodDays, monthSpanDays,
+  COLS_MIN, COLS_MAX, periodDays, monthSpanDays, weekStart, monthRange,
 } from '../js/deadline.js';
 import { holidaysOf, holidayName } from '../js/holiday.js';
 
@@ -184,4 +184,22 @@ test('まとめて見る: 1週間・1か月の日ごとの並び（Issue #80）'
   assert.deepEqual(ds[6].rows.map(r => [r.id, r.kinds]), [['f', ['end']]]);
   assert.ok(ds.every(d => d.rows.every(r => r.id !== 'd' && r.id !== 'e')));
   assert.deepEqual(periodDays([], 'x', 7), []);
+});
+
+test('週・月の画面: 週の頭・月の範囲・完了した日（Issue #80 の返事）', () => {
+  assert.equal(weekStart('2026-11-22'), '2026-11-16');      /* 日曜 → その週の月曜 */
+  assert.equal(weekStart('2026-11-16'), '2026-11-16');      /* 月曜はそのまま */
+  assert.equal(weekStart('2026-03-01'), '2026-02-23');      /* 月をまたぐ */
+  assert.equal(weekStart('x'), null);
+  assert.deepEqual(monthRange(2026, 2), { from: '2026-02-01', n: 28 });
+  assert.deepEqual(monthRange(2028, 2), { from: '2028-02-01', n: 29 });
+  assert.deepEqual(monthRange(2026, 12), { from: '2026-12-01', n: 31 });
+  assert.equal(monthRange(2026, 13), null);
+  const at = (d, h) => new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10), h).getTime();
+  const ds = periodDays([
+    { id: 'a', text: 'a', days: [], done: true, doneAt: at('2026-10-03', 9) },
+    { id: 'b', text: 'b', days: ['2026-10-03'], done: true, doneAt: at('2026-10-03', 20) },
+    { id: 'c', text: 'c', days: [], done: false, doneAt: at('2026-10-03', 9) },   /* 未完了にもどした */
+  ], '2026-10-01', 31);
+  assert.deepEqual(ds[2].rows.map(r => [r.id, r.kinds]), [['a', ['done']], ['b', ['day', 'done']]]);
 });
