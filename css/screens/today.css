@@ -73,9 +73,8 @@
   transition: transform .1s, color .12s, border-color .12s;
 }
 /* 既定で隠す（2026-11-21 Issue #84。海の .sea-random と同じ。設定の「さいころのボタンを出す」で出す）。
-   隠している間は、四つに分ける切り替え（出しているとき）が右の端へ寄る */
+   隠している間は、2段目の右の並び（四つ・⇅。.today-tools）が右の端へ寄る（Issue #92） */
 body:not(.pref-dice) .today-random { display: none !important; }
-body:not(.pref-dice) .today-quadbtn { right: 10px; }
 .today-random svg { display: block; width: 22px; height: 22px; }
 .today-random:not(:disabled):hover { color: var(--text); border-color: var(--bub-edge); }
 .today-random:not(:disabled):active { transform: scale(.95); }
@@ -403,51 +402,77 @@ body:not(.pref-fb) .today-dayrow { max-width: calc(100% - 124px); }
    形は css/quad.css。ここは今日の面の上での置き場だけ。上は 2段目（日付と ‹ ›・さいころ）の下から。
    左右は掴んでいる間に出る日の帯より内側 */
 .today-quad { z-index: 6; padding: 108px 24px 10px; }
-.today-quadbtn { position: absolute; top: 60px; right: 66px; z-index: 8; }
+/* 置き場は 2段目の並び（.today-tools）の右、⇅ の左どなり（2026-11-22 Issue #92） */
+.today-quadbtn { flex: none; }
 .today-stage.is-bubdrag .today-quadbtn { opacity: 0; pointer-events: none; }
 /* 過去の日でも出す。印は日ではなく泡に付くので、見る・分けるはどの日からでもできる */
 
 /* ---------- 一覧で見る（2026-11-21 Issue #86） ----------
-   札は 2段目の左（日付を 1段目へ上げて空いた所。Issue #84）。既定で出す。
+   札は 2段目の右の丸い ⇅（2026-11-22 Issue #92 で海のリスト表示にそろえた。前は 2段目の左の字の札「一覧」）。既定で出す。
    一覧は面いっぱい。上は 2段目の札の下から（「あまり使わない機能」を出しているときは 3段目の札の下から）。
    縦に指で送れるように pan-y（面は touch-action:none）。件数は出さない。赤は使わない */
-/* 2段目の左の並び（「一覧」と、タグのフィルター。Issue #89）。右は「四つ」の札（右から 66px＋44px）の手前で止める */
-.today-lefttools {
-  position: absolute; top: 60px; left: 10px; z-index: 8;
-  display: flex; align-items: center; gap: 8px;
-  max-width: calc(100% - 132px);
+/* 2段目の並び（2026-11-22 Issue #92「海と今日のタグの選択とリストの選択のUIを海に似せて統一できる？」）。
+   左にタグのフィルター「ぜんぶ ▽」、右に「四つ」（出しているとき）と丸い ⇅（一覧）。海と同じく、
+   ⇅ はさいころの左どなり（右から 66px）、さいころを隠しているときは右の端（右から 10px）。
+   並び自体は指を通し（面をなぞって日を移せるように）、ボタンだけが受ける。
+   フィルターの名前は、右のボタンに届く手前で「…」に縮む（flex に任せる）。
+   前（Issue #86・#89）は左に字の札「一覧」と「ぜんぶ ▽」を並べ、四つは右に別に置いていた */
+.today-tools {
+  position: absolute; top: 60px; left: 10px; right: 66px; z-index: 8;
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  pointer-events: none;
 }
-body:not(.pref-all-tools) .today-lefttools { max-width: calc(100% - 76px); }
+/* フィルターは左の端へ寄せ、残りを右へ押す（フィルターが出ないときも ⇅ は右に残る） */
+.today-tools > .today-filterbtn { margin-right: auto; }
+.today-tools > * { pointer-events: auto; }
+body:not(.pref-dice) .today-tools { right: 10px; }
+
+/* ---------- 一覧で見る（丸い ⇅ ⇄ ✕。2026-11-22 Issue #92） ----------
+   海のリスト表示（css/screens/sea.css の .sea-gather）と同じ形・同じ記号。泡の眺めでは ⇅、一覧の間は ✕。
+   字が無いぶん、読み上げには aria-label、指を置けば title で名前を渡す（js/screens/today.js syncListBtn） */
 .today-listbtn {
   flex: none;
-  appearance: none; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600;
-  min-width: 56px; min-height: 44px; padding: 0 12px;   /* タップ目標は 44 を下回らない */
-  border-radius: 22px;
+  appearance: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0;
+  width: 44px; height: 44px; min-height: 44px; padding: 0;   /* タップ目標は 44 を下回らない */
+  font-size: 13px; font-weight: 600;
+  border-radius: 999px;
   border: 1px solid var(--line-strong);
   background: var(--surface); color: var(--text-2);
   box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  transition: transform .1s, color .12s, border-color .12s;
+  user-select: none; -webkit-user-select: none;
 }
-.today-listbtn:hover { color: var(--text); border-color: var(--bub-edge); }
-.today-listbtn[aria-pressed="true"] { color: var(--text); border-color: var(--bub-edge); background: var(--surface-2); }
+.today-listbtn .ic { font-size: 17px; line-height: 1; }
+.today-listbtn .lb { display: none; }
+.today-listbtn:hover { color: var(--text); }
 .today-listbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
-/* 泡が多くて縮めても入りきらないとき（2026-11-21 Issue #87）。札の言葉が「一覧で見る」に伸び、
+.today-listbtn.is-on {
+  color: var(--text);
+  border-color: var(--bub-edge);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
+}
+/* 泡が多くて縮めても入りきらないとき（2026-11-21 Issue #87）。丸から伸びて「⇅ 一覧で見る」と字を出し、
    縁を泡の色にして少し起こす。赤・点滅・件数は使わない。色だけに頼らず、言葉と縁の太さでも伝える */
 .today-listbtn.is-crowded {
+  width: auto; padding: 0 14px 0 12px; gap: 6px;
   color: var(--text); border: 2px solid var(--bub-edge);
   background: color-mix(in srgb, var(--bub-edge) 12%, var(--surface));
 }
+.today-listbtn.is-crowded .ic { font-size: 13px; }
+.today-listbtn.is-crowded .lb { display: inline; white-space: nowrap; font-size: 12.5px; }
 .today-stage.is-bubdrag .today-listbtn { opacity: 0; pointer-events: none; }
 
-/* ---------- タグのフィルター（2026-11-21 Issue #89） ----------
-   海の「▽ フィルター」と同じ形（css/screens/sea.css の .sea-narrow・.sea-narrow-pop）。
-   札は「一覧」の右どなり。選ぶとタグの名前を名乗り、縁を起こす。一覧は札の真下 */
+/* ---------- タグのフィルター（2026-11-21 Issue #89。形は 2026-11-22 Issue #92 で海にそろえた） ----------
+   海のフィルター「タグ無し ▽」（css/screens/sea.css の .sea-narrow・.sea-narrow-pop）と同じ形・同じ大きさ。
+   札は 2段目の左。選ぶとタグの名前を名乗り、縁を起こす。一覧は札の真下 */
 .today-filterbtn {
   flex: 0 1 auto; min-width: 0;
   appearance: none; cursor: pointer; font: inherit;
   display: inline-flex; align-items: center; gap: 6px;
-  min-height: 44px; padding: 0 14px;      /* タップ目標は 44 を下回らない */
-  font-size: 12.5px; font-weight: 600; letter-spacing: .04em;
-  border-radius: 22px;
+  min-height: 44px; padding: 0 16px;      /* タップ目標は 44 を下回らない */
+  font-size: 13px; font-weight: 600; letter-spacing: .04em;
+  border-radius: 999px;
   border: 1px solid var(--line-strong);
   background: var(--surface); color: var(--text-2);
   box-shadow: 0 2px 10px rgba(0,0,0,.08);
@@ -456,7 +481,7 @@ body:not(.pref-all-tools) .today-lefttools { max-width: calc(100% - 76px); }
 .today-filterbtn[hidden] { display: none; }
 .today-filterbtn .ic { flex: none; font-size: 11px; line-height: 1; }
 .today-filterbtn .lb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.today-filterbtn:hover { color: var(--text); border-color: var(--bub-edge); }
+.today-filterbtn:hover { color: var(--text); }
 .today-filterbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .today-filterbtn.is-on {
   color: var(--text);
