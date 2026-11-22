@@ -1747,7 +1747,49 @@ function localBox(mode) {
     [onBtn, nowBtn, offBtn].forEach(b => row.appendChild(b));
     wrap.appendChild(row);
     wrap.appendChild(line);
+    /* 同時にフォルダにも書き出す（2026-11-22 Issue #83 の返事「同時に指定したファイルに書き出すことはできる？ ローカルでキャッシュが消えた時用に」）。
+       フォルダは「フォルダ（自動）」と同じもの（js/localbackup.js の alsoFolder） */
+    const fbOk = folderBackupSupported() && !!folderBackup;
+    const fh = el('h4', null, '同時にフォルダにも書き出す');
+    wrap.appendChild(fh);
+    wrap.appendChild(el('p', 'note',
+      'ブラウザのデータ（キャッシュ）が消えると、この端末の中のバックアップも一緒に消える。フォルダを選んでおくと、この端末の中に新しく残すたびに、'
+      + 'そのフォルダの「bubbles-backup-日付.json」にも書く（1日1つ。その日のうちは上書き）。フォルダは「書き出す」→「フォルダ（自動）」と同じもので、'
+      + 'そちらの時機（書き換えて 30 秒・10 分ごと）でも書く。止めるのは「フォルダ（自動）」の［止める］。'
+      + 'ブラウザは押す操作なしにファイルを書かせないので、使えるのは Chrome・Edge だけ。ほかのブラウザでは「読み込む」→「この端末」の［ファイルに保存］で、手でファイルにする。'));
+    const fRow = el('div', 'row');
+    fRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+    const fPick = el('button', 'btn', 'フォルダを選ぶ');
+    fPick.type = 'button';
+    if (fbOk) fRow.appendChild(fPick);
+    wrap.appendChild(fRow);
+    const fLine = el('p', 'note');
+    fLine.setAttribute('aria-live', 'polite');
+    wrap.appendChild(fLine);
+    const paintFolder = () => {
+      if (!fbOk) { fLine.textContent = 'このブラウザではフォルダに書けない（Chrome か Edge で開く）。'; return; }
+      const s = folderBackup.status();
+      const c = s.conf;
+      fPick.textContent = c.on ? 'フォルダを選び直す' : 'フォルダを選ぶ';
+      if (!c.on) fLine.textContent = 'フォルダを選んでいない（この端末の中だけに残す）。';
+      else if (s.state === 'need-permission') fLine.textContent = '「' + c.folder + '」への書き込みの許可が切れている。「フォルダ（自動）」の［書き込みを許可し直す］を押すまで書かない。';
+      else if (s.state === 'error') fLine.textContent = '「' + c.folder + '」に書けなかった: ' + s.message;
+      else fLine.textContent = '「' + c.folder + '」にも書き出している。' + (c.lastAt ? '最後に書いたのは ' + when(c.lastAt) + '（' + c.lastName + '）。' : '');
+    };
+    if (fbOk) folderBackup.on(paintFolder);
+    paintFolder();
+    fPick.addEventListener('click', async () => {
+      let dir;
+      try { dir = await window.showDirectoryPicker({ id: 'bubbles-backup', mode: 'readwrite' }); }
+      catch (e) { if (e && e.name !== 'AbortError') toast((e && e.message) || '選べなかった'); return; }
+      fPick.disabled = true;
+      try { await folderBackup.useFolder(dir); } catch (e) { toast((e && e.message) || '覚えられなかった'); }
+      fPick.disabled = false;
+      paintFolder();
+      if (folderBackup.status().state === 'ok') toast('「' + dir.name + '」にも書き出した（' + backupFileName() + '）');
+    });
     const paint = async () => {
+      paintFolder();
       const s = localBackup.status();
       const on = s.conf.on;
       onBtn.hidden = on;

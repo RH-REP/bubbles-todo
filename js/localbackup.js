@@ -29,7 +29,7 @@
 import { store } from './store.js';
 import { allEntries } from './spacelist.js';
 import { regionList, regionsPayload } from './regions.js';
-import { collectBoxes, buildBackup, readBackup, backupSummary } from './folderbackup.js';
+import { collectBoxes, buildBackup, readBackup, backupSummary, folderBackup } from './folderbackup.js';
 import { deviceLabel } from './device.js';
 
 export const CONF_KEY = 'bubble_todo_local_backup';
@@ -104,6 +104,8 @@ export function createLocalBackup(deps = {}) {
   const regions = deps.regions || (() => regionsPayload(regionList().map(r => r.id)));
   const supported = 'supported' in deps ? !!deps.supported : localBackupSupported();
   const keep = deps.keep || KEEP;
+  /* 新しく1つ残したあとに呼ぶ（フォルダにも同時に書き出す。Issue #83 の返事。待たない・落ちても残したものはそのまま） */
+  const after = typeof deps.after === 'function' ? deps.after : null;
 
   let state = { state: supported ? (loadConf(ls).on ? 'ok' : 'off') : 'unsupported', message: '' };
   let checkTimer = null, running = null;
@@ -150,6 +152,7 @@ export function createLocalBackup(deps = {}) {
       }
       saveConf(Object.assign(loadConf(ls), { lastAt: at }), ls);
       set(loadConf(ls).on ? 'ok' : 'off');
+      if (after) { try { Promise.resolve(after()).catch(() => {}); } catch (e) { /* 残したものはそのまま */ } }
       return { state: 'ok', saved: true };
     })();
     try { return await running; }
@@ -205,9 +208,20 @@ export function createLocalBackup(deps = {}) {
   };
 }
 
+/* 同時にフォルダにも書き出す（2026-11-22 Issue #83 の返事「この端末（自動）でバックアップした時に、同時に指定したファイルに書き出すことはできる？
+   ローカルでキャッシュが消えた時用に」）。フォルダへの自動の書き出し（js/folderbackup.js）を入れてあれば、
+   この端末の中に新しく1つ残すたびに、そのフォルダのその日のファイルにも書く（ブラウザのデータが消えてもフォルダのファイルは残る）。
+   ブラウザは、押す操作なしにファイルを書かせないので、フォルダに書けるのは File System Access API のある Chrome・Edge だけ。
+   フォルダの許可が切れていれば書かない（その知らせは app.js のトーストと設定に出る） */
+export function alsoFolder(fb = folderBackup) {
+  if (!fb) return null;
+  const c = fb.status().conf;
+  return c && c.on ? fb.runNow(true) : null;
+}
+
 /* 画面で使う1つ。app.js が読み込んだら動き出す（設定で切ってあれば何もしない） */
 export const localBackup = (typeof window !== 'undefined' && !globalThis.__BUBBLES_NO_AUTO_MOUNT__)
-  ? createLocalBackup({ device: deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1) })
+  ? createLocalBackup({ device: deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1), after: () => alsoFolder() })
   : null;
 if (localBackup) {
   localBackup.start();

@@ -172,5 +172,36 @@ await test('置き場に書けないときは状態に出す', async () => {
   assert.equal(b.status().message, '入りきらない');
 });
 
+await test('新しく残したときだけ after（フォルダにも書く）を呼ぶ。中身が同じなら呼ばない', async () => {
+  let n = 0;
+  const { store, b } = await setup({ after: async () => { n++; } });
+  await b.turnOn();
+  assert.equal(n, 1);
+  fakeNow += 60 * 1000;
+  await b.runNow();
+  assert.equal(n, 1, '同じ中身で呼んだ');
+  store.add('架空の泡');
+  fakeNow += 60 * 1000;
+  await b.runNow();
+  assert.equal(n, 2);
+});
+
+await test('after が落ちても、残したものはそのまま', async () => {
+  const { b, snaps } = await setup({ after: () => { throw new Error('フォルダに書けない'); } });
+  const r = await b.turnOn();
+  assert.deepEqual([r.state, r.saved], ['ok', true]);
+  assert.equal(snaps.m.size, 1);
+});
+
+await test('alsoFolder: フォルダを入れてあれば書き、入れていなければ何もしない', async () => {
+  const { lb } = await setup();
+  let w = 0;
+  const fb = on => ({ status: () => ({ conf: { on } }), runNow: async () => { w++; } });
+  assert.equal(lb.alsoFolder(fb(false)), null);
+  await lb.alsoFolder(fb(true));
+  assert.equal(w, 1);
+  assert.equal(lb.alsoFolder(null), null);
+});
+
 console.log(`\n${pass} ok, ${failed.length} failed`);
 if (failed.length) process.exit(1);
