@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   deadlineOf, deadlineRows, doneRows, agoLabel, columnCount, columns, cellMark, inSpan, leftLabel, spanFromDetail, daysBetween, withSpan,
-  COLS_MIN, COLS_MAX, periodDays, monthSpanDays, weekStart, monthRange,
+  COLS_MIN, COLS_MAX, periodDays, monthSpanDays, weekStart, monthRange, arrangeRows,
 } from '../js/deadline.js';
 import { holidaysOf, holidayName } from '../js/holiday.js';
 
@@ -184,6 +184,23 @@ test('まとめて見る: 1週間・1か月の日ごとの並び（Issue #80）'
   assert.deepEqual(ds[6].rows.map(r => [r.id, r.kinds]), [['f', ['end']]]);
   assert.ok(ds.every(d => d.rows.every(r => r.id !== 'd' && r.id !== 'e')));
   assert.deepEqual(periodDays([], 'x', 7), []);
+});
+
+test('週・月の画面: 完了と未完了を分ける・並べ替え（Issue #80 の返事）', () => {
+  const rows = [
+    { id: 'a', text: 'う', done: true, createdAt: 1 },
+    { id: 'b', text: 'あ', done: false, createdAt: 3 },
+    { id: 'c', text: 'い', done: false, createdAt: 2 },
+    { id: 'd', text: 'え', done: true, createdAt: 4 },
+  ];
+  const ids = o => arrangeRows(rows, o).map(r => r.id);
+  assert.deepEqual(ids({}), ['c', 'b', 'a', 'd']);                          /* まだ → 済んだ、それぞれ書いた順 */
+  assert.deepEqual(ids({ order: 'new' }), ['b', 'c', 'd', 'a']);
+  assert.deepEqual(ids({ order: 'name' }), ['b', 'c', 'a', 'd']);
+  assert.deepEqual(ids({ show: 'todo' }), ['c', 'b']);
+  assert.deepEqual(ids({ show: 'done', order: 'new' }), ['d', 'a']);
+  assert.deepEqual(ids({ show: 'x', order: 'y' }), ['c', 'b', 'a', 'd']);   /* 知らない値は既定 */
+  assert.equal(rows[0].id, 'a');                                             /* 元の並びは変えない */
 });
 
 test('週・月の画面: 週の頭・月の範囲・完了した日（Issue #80 の返事）', () => {

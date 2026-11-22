@@ -288,6 +288,8 @@ body:not(.pref-fb) .today-dayrow { max-width: calc(100% - 124px); }
 .today-daych[aria-current="true"] { background: var(--surface-2); font-weight: 600; }
 .today-daych:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -2px; }
 .today-daych .dt { color: var(--text-2); font-size: 12px; }
+/* 今週・今月をまとめて見る（2026-11-22 Issue #80 の返事）。日の候補と線で分ける */
+.today-daysep { height: 1px; margin: 4px 6px; background: var(--line); }
 
 /* なぞっている間は、指の追従を優先して滑らかさを捨てる（海と同じ扱い） */
 .today-stage.is-daymove { cursor: grabbing; }

@@ -683,6 +683,31 @@ function openDayPop(anchor) {
     box.appendChild(b);
   });
 
+  /* 今週・今月をまとめて見る（2026-11-22 Issue #80 の返事「週月のタブからの遷移にプラスして、…今日の長押しの中に項目を増やして
+     そこから確認できるようにできる？」）。押すと週・月の画面（js/screens/period.js）の今週・今月を開く。
+     週・月のタブを隠していても開ける（画面はタブと別にある） */
+  const sep = el('div', 'today-daysep');
+  sep.setAttribute('role', 'separator');
+  box.appendChild(sep);
+  [['week', '今週をまとめて見る'], ['month', '今月をまとめて見る']].forEach(([face, label]) => {
+    const b = el('button', 'today-daych is-period');
+    b.type = 'button';
+    b.setAttribute('role', 'menuitem');
+    const nm = el('span', 'nm');
+    nm.textContent = label;
+    b.appendChild(nm);
+    const ar = el('span', 'dt');
+    ar.textContent = '▦';
+    ar.setAttribute('aria-hidden', 'true');
+    b.appendChild(ar);
+    b.addEventListener('click', ev => {
+      ev.preventDefault();
+      closeDayPop();
+      window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'period', face } }));
+    });
+    box.appendChild(b);
+  });
+
   const eat = ev => { ev.preventDefault(); ev.stopPropagation(); };
   back.addEventListener('pointerdown', eat);
   back.addEventListener('click', eat);

@@ -17,9 +17,28 @@
 
 import { store } from '../store.js';
 import { el } from '../ui.js';
-import { periodDays, weekStart, monthRange, addDays } from '../deadline.js';
+import { periodDays, weekStart, monthRange, addDays, arrangeRows, PERIOD_SHOW, PERIOD_ORDER } from '../deadline.js';
 
 const DOW = ['日', '月', '火', '水', '木', '金', '土'];
+
+/* 表示（すべて・まだ・済んだ）と並び（2026-11-22 Issue #80 の返事「完了と未完了を分けて表示とソートできるようにできる？」）。
+   この端末にだけ置く（同期・引っ越しに乗らない。この画面の見方の好みなので） */
+const VIEW_KEY = 'bubble_todo_period_view';
+function loadView() {
+  let v = null;
+  try { v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch (e) { v = null; }
+  v = v && typeof v === 'object' ? v : {};
+  return {
+    show: PERIOD_SHOW.indexOf(v.show) >= 0 ? v.show : 'all',
+    order: PERIOD_ORDER.indexOf(v.order) >= 0 ? v.order : 'old',
+  };
+}
+function saveView() {
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) { /* 置けなくても今は効く */ }
+}
+let view = loadView();
+const SHOW_LB = [['all', 'すべて'], ['todo', 'まだ'], ['done', '済んだ']];
+const ORDER_LB = [['old', '書いた順'], ['new', '新しい順'], ['name', '名前順']];
 
 let pane = null;
 let body = null;
@@ -141,16 +160,52 @@ function renderHead(r) {
 
 const KIND = { start: '始まる日', end: '終わる日', done: '完了' };
 
+/* 表示（すべて・まだ・済んだ）と並びの段。押すとすぐ変わり、この端末に残る */
+function viewRow() {
+  const wrap = el('div', 'pd-view');
+  [['表示', SHOW_LB, 'show'], ['並び', ORDER_LB, 'order']].forEach(([title, list, key]) => {
+    const g = el('div', 'pd-viewgrp');
+    g.setAttribute('role', 'radiogroup');
+    g.setAttribute('aria-label', title);
+    const t = el('span', 'pd-viewlb');
+    t.textContent = title;
+    g.appendChild(t);
+    list.forEach(([val, name]) => {
+      const b = button('pd-viewbtn', name, null, () => {
+        if (view[key] === val) return;
+        view = Object.assign({}, view, { [key]: val });
+        saveView();
+        render();
+      });
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', view[key] === val ? 'true' : 'false');
+      g.appendChild(b);
+    });
+    wrap.appendChild(g);
+  });
+  return wrap;
+}
+
+const EMPTY = {
+  all: 'この間に置いたもの・期間のあるもの・完了したものは見当たらない',
+  todo: 'この間に、まだのものは見当たらない',
+  done: 'この間に、済んだものは見当たらない',
+};
+
 function render() {
   if (!body) return;
   const r = range();
   renderHead(r);
+  headEl.appendChild(viewRow());
   body.textContent = '';
   const all = (typeof store.all === 'function') ? store.all() : [];
   const today = todayKey();
-  const days = periodDays(all, r.from, r.n).filter(d => d.rows.length);
+  /* 日ごとに、表示で絞って並べ替える。すべてのときは、まだ → 済んだ の順に分ける（js/deadline.js の arrangeRows） */
+  const days = periodDays(all, r.from, r.n)
+    .map(d => Object.assign({}, d, { rows: arrangeRows(d.rows, view) }))
+    .filter(d => d.rows.length);
   if (!days.length) {
-    body.appendChild(el('p', 'pd-empty', 'この間に置いたもの・期間のあるもの・完了したものは見当たらない'));
+    body.appendChild(el('p', 'pd-empty', EMPTY[view.show] || EMPTY.all));
     return;
   }
   days.forEach(d => {
@@ -163,7 +218,15 @@ function render() {
     const head = mdw(d.key) + (word ? ' ' + word : '') + (d.hol ? ' ' + d.hol : '');
     sec.appendChild(button('pd-dhead', head, mdw(d.key) + 'の今日の画面へ', () => openDay(d.key)));
     const ul = el('ul', 'pd-rows');
-    d.rows.forEach(row => {
+    const hasTodo = d.rows.some(x => !x.done);
+    d.rows.forEach((row, i) => {
+      /* すべてのときは、済んだものの前に小さな見出し（まだのものがある日だけ） */
+      if (view.show === 'all' && row.done && hasTodo && !d.rows[i - 1].done) {
+        const sub = el('li', 'pd-sub');
+        sub.textContent = '済んだ';
+        sub.setAttribute('role', 'presentation');
+        ul.appendChild(sub);
+      }
       const li = el('li', 'pd-row');
       if (row.done) li.classList.add('is-done');
       const b = el('button', 'pd-item');
@@ -207,6 +270,14 @@ export default {
 
   onShow() {
     if (typeof store.rollover === 'function') store.rollover();
+    render();
+  },
+
+  /* 今日の長押しの「今週をまとめて見る」「今月をまとめて見る」から（2026-11-22 Issue #80 の返事。js/app.js の bubbles:goto） */
+  openFace(face) {
+    if (face !== 'week' && face !== 'month') return;
+    mode = face;
+    if (face === 'month') ym = null; else weekFrom = null;
     render();
   },
 

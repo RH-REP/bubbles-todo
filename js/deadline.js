@@ -200,6 +200,23 @@ export function monthSpanDays(from) {
   return Math.round((to - d) / 86400000);
 }
 
+/* 週・月の画面の、1 日ぶんの行の絞り込みと並び（2026-11-22 Issue #80 の返事「完了と未完了を分けて表示とソートできるようにできる？」）。
+   show: 'all'（まだ → 済んだ の順に分けて全部）・'todo'（まだだけ）・'done'（済んだだけ）
+   order: 'old'（書いた順）・'new'（新しい順）・'name'（名前の順） */
+export const PERIOD_SHOW = ['all', 'todo', 'done'];
+export const PERIOD_ORDER = ['old', 'new', 'name'];
+export function arrangeRows(rows, opt = {}) {
+  const show = PERIOD_SHOW.indexOf(opt.show) >= 0 ? opt.show : 'all';
+  const order = PERIOD_ORDER.indexOf(opt.order) >= 0 ? opt.order : 'old';
+  let a = (rows || []).filter(r => show === 'all' || (show === 'done' ? r.done : !r.done));
+  const cmp = order === 'name'
+    ? (p, q) => String(p.text || '').localeCompare(String(q.text || ''), 'ja')
+    : order === 'new' ? (p, q) => (q.createdAt || 0) - (p.createdAt || 0)
+      : (p, q) => (p.createdAt || 0) - (q.createdAt || 0);
+  a = a.slice().sort((p, q) => (show === 'all' && !!p.done !== !!q.done) ? (p.done ? 1 : -1) : cmp(p, q));
+  return a;
+}
+
 /* その日を含む週の月曜（2026-11-22 Issue #80 の返事。週・月の画面の「今週」は月曜から日曜） */
 export function weekStart(key) {
   const d = dateOf(key);
