@@ -684,7 +684,7 @@ function openDayPop(anchor) {
   });
 
   /* 今週・今月をまとめて見る（2026-11-22 Issue #80 の返事「週月のタブからの遷移にプラスして、…今日の長押しの中に項目を増やして
-     そこから確認できるようにできる？」）。押すと週・月の画面（js/screens/period.js）の今週・今月を開く。
+     そこから確認できるようにできる？」）。押すと海のリスト表示の「週」「月」（js/periodview.js）の今週・今月を開く。
      週・月のタブを隠していても開ける（画面はタブと別にある） */
   const sep = el('div', 'today-daysep');
   sep.setAttribute('role', 'separator');
@@ -703,7 +703,8 @@ function openDayPop(anchor) {
     b.addEventListener('click', ev => {
       ev.preventDefault();
       closeDayPop();
-      window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'period', face } }));
+      /* 2026-11-23 の返事で週・月はリスト表示の形に移ったので、海のリスト表示の週・月を開く */
+      window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'sea', list: face } }));
     });
     box.appendChild(b);
   });
@@ -1622,10 +1623,10 @@ async function askSuggest() {
   renderSuggest();
 }
 
-/* ---------------- 週・月の画面からその日へ（2026-11-22 Issue #80 の返事） ----------------
-   前の版（2026-11-21）はこの画面に「週・月」の板を置いていた。返事「今日のタブと同じく感じ、今週の今月のタブ」で
-   下のタブの画面（js/screens/period.js）に移し、板は外した。
-   週・月の画面で日や名前を押すと、この画面へ移ってから bubbles:showday { key } が届く（画面どうしは import しない） */
+/* ---------------- 週・月で見るからその日へ（2026-11-22 Issue #80 の返事） ----------------
+   前の版（2026-11-21）はこの画面に「週・月」の板を置いていた。下のタブの画面を経て、2026-11-23 からは海のリスト表示の形
+   （js/periodview.js）。そこで日の見出しを押すと、この画面へ移ってから bubbles:showday { key } が届く（画面どうしは import しない）。
+   id 付きの呼び方は、リスト表示に移ってからは使っていない（名前は海の側で詳細を開く）が、口は残す */
 window.addEventListener('bubbles:showday', ev => {
   const d = (ev && ev.detail) || {};
   const key = d.key;

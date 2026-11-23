@@ -70,36 +70,42 @@ function mem() {
   };
 }
 
-test('隠している機能を 4 つのスイッチに分ける（Issue #80 の返事「分けれる？」）', () => {
-  const four = ['showPeriod', 'showCal', 'showSuggest', 'showQuad'];
-  four.forEach(id => assert.equal(defaults()[id], false, id + ' の既定は隠す'));
-  /* 前の版で allTools をオンにしていた端末は、4 つともオンで読む */
+test('隠している機能を 1 つずつのスイッチに分ける（Issue #80 の返事「分けれる？」）', () => {
+  const three = ['showCal', 'showSuggest', 'showQuad'];
+  three.forEach(id => assert.equal(defaults()[id], false, id + ' の既定は隠す'));
+  /* 週・月はリスト表示の形に移ったので、スイッチは無い（2026-11-23 の返事） */
+  assert.equal(ITEMS.some(it => it.id === 'showPeriod'), false);
+  /* 前の版で allTools をオンにしていた端末は、3 つともオンで読む */
   const old = normalize({ allTools: true });
-  four.forEach(id => assert.equal(old[id], true, id));
+  three.forEach(id => assert.equal(old[id], true, id));
   /* 分けた版で 1 つだけ切ったら、読み直しても切ったまま（印 optV で読み替えない） */
   const m = mem();
   m.setItem(PREFS_KEY, JSON.stringify({ allTools: true }));
   savePrefs(applyChanges(loadPrefs(m), { showSuggest: false }).next, m);
   const p = loadPrefs(m);
   assert.equal(p.showSuggest, false);
-  assert.equal(p.showPeriod, true);
+  assert.equal(p.showCal, true);
   assert.equal(p.allTools, true);
   /* 1 つだけ出す（allTools は触らない） */
   const m2 = mem();
-  savePrefs(applyChanges(loadPrefs(m2), { showPeriod: true }).next, m2);
-  assert.deepEqual(JSON.parse(m2.getItem(PREFS_KEY)), { showPeriod: true });
+  savePrefs(applyChanges(loadPrefs(m2), { showCal: true }).next, m2);
+  assert.deepEqual(JSON.parse(m2.getItem(PREFS_KEY)), { showCal: true });
+});
+
+test('リスト表示を開いたときの形に、週・月がある（Issue #80 の返事「リスト表示の…週と月を増やして」）', () => {
+  assert.equal(checkValue('listStart', 'week'), 'week');
+  assert.equal(checkValue('listStart', 'month'), 'month');
 });
 
 test('下のタブの出し入れ（Issue #80 の返事「海、今日、きっかけ、すきま、週月の表示非表示」）', () => {
   assert.deepEqual(defaults().tabShow, TAB_IDS);
   assert.deepEqual(visibleTabs(defaults()), TAB_IDS);
-  const p = applyChanges(defaults(), { tabShow: ['today', 'gap'], showPeriod: true }).next;
-  assert.deepEqual(visibleTabs(p), ['today', 'gap', 'period']);
+  const p = applyChanges(defaults(), { tabShow: ['today', 'gap'] }).next;
+  assert.deepEqual(visibleTabs(p), ['today', 'gap']);
   /* 並べ替えにも付いていく */
-  assert.deepEqual(visibleTabs(applyChanges(p, { tabOrder: ['gap', 'plan', 'sea', 'today'] }).next), ['gap', 'today', 'period']);
-  /* 1 つも出さない値は、全部出すに戻す（週・月だけ出すのはよい） */
+  assert.deepEqual(visibleTabs(applyChanges(p, { tabOrder: ['gap', 'plan', 'sea', 'today'] }).next), ['gap', 'today']);
+  /* 1 つも出さない値は、全部出すに戻す */
   assert.deepEqual(normalize({ tabShow: [] }).tabShow, TAB_IDS);
-  assert.deepEqual(visibleTabs({ tabShow: [], showPeriod: true }), ['period']);
 });
 
 test('既定: 起動は海・風は出さない・タグは出す・タブはいつもの並び', () => {

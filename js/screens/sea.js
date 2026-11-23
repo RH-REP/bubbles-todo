@@ -34,6 +34,7 @@ import { playComplete, playSfx } from '../sound.js';
 import { dropDay } from './today.js';
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { createDeadlineView, deadlineButton, syncDeadlineButton } from '../deadlineview.js';
+import { createPeriodView } from '../periodview.js';
 import { loadPrefs, savePrefs, applyChanges, PREFS_EVENT } from '../prefs.js';     /* リスト表示を開いたときの形（Issue #40）・一覧の並び（Issue #69） */
 
 /* --- 海に出すバブルの上限（利用者の指示）---
@@ -245,6 +246,9 @@ let quadBtn = null;               /* 四つに分ける切り替え（フィル�
 /* 'days'＝日付で見る（終了日の近い順。2026-11-07 Issue #24）。これも**リスト表示のもう1つの形** */
 let dl = null;                    /* 日付で見る表（js/deadlineview.js） */
 let dlBtn = null;                 /* その切り替え（四つに分けるの隣） */
+/* 'week'・'month'＝週・月で見る（2026-11-23 Issue #80 の返事「リスト表示の一覧、日付、4つに、週と月を増やして」。js/periodview.js） */
+let pv = null;
+const isPeriodMode = m => m === 'week' || m === 'month';
 
 /* ---- 海のズーム（利用者の指示）----
 
@@ -2398,9 +2402,10 @@ function setGathering(on) {
   grid.hidden = !on || gridMode !== 'list';
   if (quad) quad.el.hidden = !on || gridMode !== 'quad';
   if (dl) dl.el.hidden = !on || gridMode !== 'days';
+  if (pv) { pv.el.hidden = !on || !isPeriodMode(gridMode); if (!on) pv.clear(); }
   stage.classList.toggle('is-gathering', on);
   stage.classList.toggle('is-quad', on && gridMode === 'quad');
-  stage.classList.toggle('is-days', on && gridMode === 'days');
+  stage.classList.toggle('is-days', on && (gridMode === 'days' || isPeriodMode(gridMode)));
 
   /* 整列中は、海の物理側のバブルを画面から降ろす。
      グリッドが全件を並べるので、浮遊ぶんを出したままだと同じものが2つ見える。
@@ -3146,6 +3151,7 @@ function completePicked() {
 function renderGrid() {
   if (gridMode === 'quad') { renderQuad(); return; }
   if (gridMode === 'days') { renderDays(); return; }
+  if (isPeriodMode(gridMode)) { renderPeriod(); return; }
   const q = normQ(gridQ);
   /* 中身は listItems() が決める。**フィルターも長期保留・完了の扱いも、
      海の側（centerItems / faceItems）が持っている規則をそのまま使う**——
@@ -3341,11 +3347,13 @@ function setGridMode(mode) {
   clearGrid();
   if (mode !== 'quad') clearQuad();
   if (mode !== 'days' && dl) dl.clear();
+  if (!isPeriodMode(mode) && pv) pv.clear();
   grid.hidden = mode !== 'list';     /* 一覧へもどすとき（Issue #40 の切り替え）は一覧を出す */
   quad.el.hidden = mode !== 'quad';
   if (dl) dl.el.hidden = mode !== 'days';
+  if (pv) pv.el.hidden = !isPeriodMode(mode);
   stage.classList.toggle('is-quad', mode === 'quad');
-  stage.classList.toggle('is-days', mode === 'days');
+  stage.classList.toggle('is-days', mode === 'days' || isPeriodMode(mode));
   renderGrid();
   renderChrome();
 }
@@ -3361,6 +3369,13 @@ function renderDays() {
   /* 完了の海では、完了した日を過去へ並べる（2026-11-13 Issue #57。js/deadline.js doneRows） */
   if (isDoneFace()) { dl.render(store.all().filter(isDoneItem), { done: true }); return; }
   dl.render(store.all());
+}
+
+/* 週・月で見る（2026-11-23 Issue #80 の返事）。日付で見ると同じく、どの海のものも並べる（フィルターは掛けない） */
+function renderPeriod() {
+  if (!pv) return;
+  pv.setMode(gridMode);
+  pv.render(store.all());
 }
 
 function clearQuad() { if (quad) quad.clear(); }
@@ -3843,6 +3858,7 @@ export default {
         let m = 'list';
         try { m = loadPrefs().listStart || 'list'; } catch (e) { /* 読めなければ一覧 */ }
         if (m === 'days' && !dl) m = 'list';
+        if (isPeriodMode(m) && !pv) m = 'list';
         if (m !== 'list') { setGridMode(m); return; }
       }
       setGathering(!gathering);
@@ -3883,7 +3899,8 @@ export default {
     const modeSeg = el('div', 'sea-mode');
     modeSeg.setAttribute('role', 'group');
     modeSeg.setAttribute('aria-label', 'リストの形');
-    [['list', '≡', '一覧'], ['days', '▤', '日付'], ['quad', '⊞', '四つ']].forEach(([mode, ic, name]) => {
+    /* 週・月（2026-11-23 Issue #80 の返事「リスト表示の一覧、日付、4つに、週と月を増やして」）。js/periodview.js */
+    [['list', '≡', '一覧'], ['days', '▤', '日付'], ['quad', '⊞', '四つ'], ['week', '▦', '週'], ['month', '▩', '月']].forEach(([mode, ic, name]) => {
       const b = el('button', 'sea-mode-b');
       b.type = 'button';
       b.dataset.mode = mode;
@@ -3983,6 +4000,17 @@ export default {
 
     /* --- 日付で見る（終了日の近い順。2026-11-07 Issue #24）--- */
     dl = createDeadlineView(stage, { className: 'sea-days', open: (id, node) => openBoardFor(id, node) });
+    /* 週・月で見る（2026-11-23 Issue #80 の返事）。名前は一覧と同じ盤、日の見出しは今日の画面のその日 */
+    pv = createPeriodView(stage, {
+      className: 'sea-period',
+      open: (id, node) => openBoardFor(id, node),
+      today: () => (has('todayKey') ? store.todayKey() : ''),
+      onDay: key => {
+        window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'today' } }));
+        window.dispatchEvent(new CustomEvent('bubbles:showday', { detail: { key } }));
+      },
+    });
+    pv.el.dataset.screen = 'sea.period';
     dl.el.dataset.screen = 'sea.days';
 
     /* overflow:clip を知らないブラウザでは、ステージがスクロール容器のままになる。
@@ -4136,6 +4164,8 @@ export default {
     if (seaMapOpen()) { closeSeaMap(true); return true; }
     if (narrowPop) { closeNarrowPop(true); return true; }
     if (openDetailId) { closeDetail(); return true; }
+    /* 週・月で今週・今月から離れていたら、まず戻す（2026-11-23 Issue #80 の返事） */
+    if (gathering && isPeriodMode(gridMode) && pv && pv.away()) { pv.goNow(); renderGrid(); return true; }
     if (gathering) { setGathering(false); return true; }
     if (curFace !== 'center') { cancelSwipe(); goFace('center'); return true; }
     return false;
@@ -4171,6 +4201,15 @@ export default {
      移動のアニメーションは付けない。goFace() は setWorldFace() で面を差し替えるだけで、
      滑らせるのは指でなぞったときの cancelSwipe/settle 経路。タブを切り替えた直後なので、
      ここは「もうその面が開いている」状態で見えるのが素直。 */
+  /* リスト表示を、決めた形で開く（2026-11-23 Issue #80 の返事。今日の長押しの「今週・今月をまとめて見る」から。
+     js/app.js の bubbles:goto の list） */
+  openList(mode) {
+    if (['list', 'days', 'quad', 'week', 'month'].indexOf(mode) < 0) return false;
+    if (isPeriodMode(mode) && pv) pv.goNow();
+    setGridMode(mode);
+    return true;
+  },
+
   openFace(face, opt) {
     if (typeof face !== 'string' || !face) return false;
     forgetSeas();

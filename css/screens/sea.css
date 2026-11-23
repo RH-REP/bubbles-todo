@@ -361,8 +361,9 @@
 .sea-mode-b:hover { color: var(--text); }
 .sea-mode-b:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: -3px; }
 .sea-mode-b[aria-pressed="true"] { color: var(--text); background: var(--surface-2); }
-/* 狭い画面では印を外して字だけ（右上のさいころに届かないように） */
-@media (max-width: 380px) { .sea-mode-b .ic { display: none; } }
+/* 狭い画面では印を外して字だけ（右上のさいころに届かないように）。
+   2026-11-23 Issue #80 の返事で「週」「月」を足して 5 つになったので、外す幅を 380px → 520px に広げ、横の余白も詰める */
+@media (max-width: 520px) { .sea-mode-b .ic { display: none; } .sea-mode-b { padding: 0 8px; min-width: 40px; } }
 
 /* フィルターと名札を1つにした（2026-11-21 Issue #84「フィルターと現在表示されてるタグはまとめてもいいんじゃない？」）。
    中央の海では、名札（.sea-face-name）の場所＝1段目の ≡ の右に、名札の代わりにこのボタンを置き、
@@ -576,6 +577,12 @@ body:not(.pref-dice) .sea-gather { right: 10px; }
 /* ---------- 日付で見る（終了日の近い順。2026-11-07 Issue #24）----------
    形は css/deadline.css。ここは海の上での置き場だけ（上の余白は四つに分けると同じ） */
 .sea-days { z-index: 6; padding: 104px 24px 10px; }
+/* 週・月で見る（リスト表示の形。2026-11-23 Issue #80 の返事。js/periodview.js・css/screens/period.css）。日付で見ると同じ置き場 */
+.sea-period { position: absolute; inset: 0; z-index: 6; padding-top: 104px; }
+.sea-period[hidden] { display: none !important; }
+.sea-period .pd-head { padding-top: 0; }
+/* 海の面は指の動きを止めているので、ここだけ縦に送れるようにする。下は入力欄のぶん（一覧の .sea-grid と同じ） */
+.sea-period .pd-body { touch-action: pan-y; padding-bottom: 88px; }
 .sea-stage.is-days:not(.is-bubdrag) > .sea-edge { visibility: hidden; }
 
 .sea-grid-cap,
@@ -912,7 +919,7 @@ body:not(.pref-dice) .sea-gather { right: 10px; }
    `syncNarrowBtn` は直したのに、**この規則が `!important` で消していた**——
    JS では `hidden=false`、CSS では `display:none`。決めたはずの機能に手が届かない。
    **ここに足し忘れると、JS 側でいくら出しても画面には出ない。** */
-.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-days):not(.sea-gather):not(.sea-tools):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal):not(.sea-pick-bar) {
+.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-days):not(.sea-period):not(.sea-gather):not(.sea-tools):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal):not(.sea-pick-bar) {
   display: none !important;
 }
 

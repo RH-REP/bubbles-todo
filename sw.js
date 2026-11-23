@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-23d';
+const VERSION = '2026-11-23e';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -62,7 +62,7 @@ const ASSETS = [
   './css/screens/plan.css',
   './css/screens/gap.css',
   './css/screens/review.css',
-  './css/screens/period.css',   /* 週・月の画面（2026-11-22 Issue #80 の返事） */
+  './css/screens/period.css',   /* 週・月で見る（リスト表示の形。2026-11-23 Issue #80 の返事） */
   './css/screens/stub.css',
   './css/help.css',       /* ヘルプ画面（2026-11-04 Issue #9） */
   './css/space.css',
@@ -88,7 +88,7 @@ const ASSETS = [
   './js/screens/gap.js',
   './js/screens/plan.js',
   './js/screens/review.js',
-  './js/screens/period.js',     /* 週・月の画面（2026-11-22 Issue #80 の返事） */
+  './js/periodview.js',         /* 週・月で見る（リスト表示の形。2026-11-23 Issue #80 の返事） */
   './js/screens/sea.js',
   './js/screens/settings.js',
   './js/screens/today.js',

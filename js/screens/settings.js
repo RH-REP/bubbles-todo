@@ -5456,8 +5456,8 @@ function prefsBox(onRender) {
     const outer = controls;
     const changed = changedFromDefault(cur);
     ITEMS.forEach(it => {
-      /* 下のタブの出し入れ（tabShow）と週・月（showPeriod）は、「下のタブ」の並びの行のスイッチで出す（2026-11-22 Issue #80 の返事） */
-      if (it.id === 'tabShow' || it.id === 'showPeriod') return;
+      /* 下のタブの出し入れ（tabShow）は、「下のタブ」の並びの行のスイッチで出す（2026-11-22 Issue #80 の返事） */
+      if (it.id === 'tabShow') return;
       /* 項目ごとの囲い。data-pages で「どの画面を変えるか」の選びに合わせて出し入れする（Issue #49 の返事） */
       const controls = el('div', 'prefs-item');
       controls.dataset.pages = (it.pages || ['all']).join(' ');
@@ -5559,12 +5559,12 @@ function prefsBox(onRender) {
       }
       if (it.type === 'order') {
         /* 2026-11-22 Issue #80 の返事「海、今日、きっかけ、すきま、週月の表示非表示も切り替えられる様にできる？」:
-           行ごとに出す・隠すのスイッチを置き（tabShow）、いちばん下に週・月の行（showPeriod。並べ替えはできず、いつも右の端）。
+           行ごとに出す・隠すのスイッチを置く（tabShow）。
            見出しは前は p.note で、説明として ⓘ の裏に隠れていたので、見える字にした */
         const shown = new Set(cur.tabShow || []);
-        const visibleCount = () => shown.size + (cur.showPeriod ? 1 : 0);
+        const visibleCount = () => shown.size;
         const lb = textEl('div', 'look-lb', '下のタブ（スイッチで出す・隠す、↑↓ で並べ替え）');
-        if (isChanged || changed.tabShow || changed.showPeriod) lb.appendChild(mark());
+        if (isChanged || changed.tabShow) lb.appendChild(mark());
         lb.style.cssText = 'margin:8px 0 2px;font-size:14px';
         controls.appendChild(lb);
         const sw = (name, on, onChange) => {
@@ -5613,18 +5613,7 @@ function prefsBox(onRender) {
           });
           list.appendChild(r);
         });
-        /* 週・月（並べ替えはできない。いつも右の端） */
-        const pr = el('div', 'prefs-order-row');
-        pr.setAttribute('role', 'listitem');
-        pr.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:4px;font-size:13.5px;min-height:44px';
-        pr.appendChild(sw('週・月', !!cur.showPeriod, on => {
-          commit(applyChanges(cur, { showPeriod: on }).next, '下のタブ「週・月」: ' + (on ? '出す' : '隠す'));
-        }));
-        const pn = el('span', null);
-        pn.textContent = '週・月（今週・今月・月ごとに見る画面。いつも右の端）';
-        pn.style.cssText = 'flex:1' + (cur.showPeriod ? '' : ';color:var(--text-2)');
-        pr.appendChild(pn);
-        list.appendChild(pr);
+        /* 週・月の行は 2026-11-23 の返事で外した（週・月はリスト表示の形になった） */
         controls.appendChild(list);
       }
     });

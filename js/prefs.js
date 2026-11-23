@@ -84,7 +84,9 @@ export const ITEMS = [
     /* Issue #40 の返事。海の「リスト表示」を押したときに、はじめに出す形（js/screens/sea.js の gatherBtn） */
     id: 'listStart', type: 'choice', def: 'list', pages: ['list'],
     label: 'リスト表示を開いたときの形',
-    choices: [['list', '一覧（書いた順）'], ['days', '日付（終了日の近い順と天気）'], ['quad', '四つ（急ぐ・大事）']],
+    /* 週・月は 2026-11-23 Issue #80 の返事でリスト表示の形に足した（js/periodview.js） */
+    choices: [['list', '一覧（書いた順）'], ['days', '日付（終了日の近い順と天気）'], ['quad', '四つ（急ぐ・大事）'],
+      ['week', '週（今週を日ごとに）'], ['month', '月（今月を日ごとに）']],
   },
   {
     /* Issue #69「デフォルトは新しい順で並びを入れ替えられるようにできる？」。
@@ -115,11 +117,8 @@ export const ITEMS = [
     note: 'オフでも、詳細は「その他」、設定はそれぞれの箱の行を押せば出る',
   },
   /* 隠している機能を 1 つずつ出す（2026-11-22 Issue #80 の返事「分けれる？」）。どれも既定は隠す。
-     前の版で「ふだん隠している機能も表示する」（allTools）をオンにしていた端末は、4 つともオンで読む（normalize） */
-  {
-    id: 'showPeriod', type: 'bool', def: false, pages: ['all'],
-    label: '下のタブに「週・月」を出す（今週・今月・月ごとに、日ごとの TODO を見る画面）',
-  },
+     前の版で「ふだん隠している機能も表示する」（allTools）をオンにしていた端末は、3 つともオンで読む（normalize）。
+     下のタブ「週・月」のスイッチ（showPeriod）は、2026-11-23 の返事で週・月をリスト表示の形に移したので外した */
   {
     id: 'showCal', type: 'bool', def: false, pages: ['sea'],
     label: '海の右上に「はじめた日」のカレンダーを出す（［始める］を押した日を濃さで見る）',
@@ -163,7 +162,7 @@ export const ITEMS = [
   },
   {
     /* 2026-11-22 Issue #80 の返事「海、今日、きっかけ、すきま、週月の表示非表示も切り替えられる様にできる？」。
-       設定では「下のタブの並び」の各行のスイッチで出し入れする（js/screens/settings.js）。週・月は showPeriod。
+       設定では「下のタブの並び」の各行のスイッチで出し入れする（js/screens/settings.js）。
        全部を隠すことはできない（normalize が全部出すに戻す。設定も止める） */
     id: 'tabShow', type: 'set', def: TAB_IDS.slice(), pages: ['all'],
     label: '下のタブに出すもの',
@@ -224,10 +223,10 @@ export function normalize(raw) {
   /* 2026-11-22 Issue #80 の返事「分けれる？」: 前は allTools 1 つで 週・月のタブ・はじめた日・おすすめ・四つに分ける も出していた。
      その版でオンにしていた端末（4 つの値をまだ置いていない）は、4 つともオンで読む（急に消えないように） */
   if (raw.allTools === true && raw.optV !== OPT_V) {
-    ['showPeriod', 'showCal', 'showSuggest', 'showQuad'].forEach(id => { if (raw[id] === undefined) out[id] = true; });
+    ['showCal', 'showSuggest', 'showQuad'].forEach(id => { if (raw[id] === undefined) out[id] = true; });
   }
   /* 下のタブを 1 つも出さない値は読まない（2026-11-22 Issue #80 の返事。設定の歯車からは戻れるが、画面を移る道が無くなる） */
-  if (Array.isArray(out.tabShow) && !out.tabShow.length && !out.showPeriod) out.tabShow = TAB_IDS.slice();
+  if (Array.isArray(out.tabShow) && !out.tabShow.length) out.tabShow = TAB_IDS.slice();
   /* 前の版（boardShowV が 3 でない）で置いた boardShow は、新しい既定に替える（2026-11-18 ユーザーの決定。
      前は「名前だけ」を既定にしていて、その値を置いた端末が多い。並びと言葉も替わったので、そのまま読むと畳まれすぎる） */
   if (Array.isArray(raw.boardShow) && raw.boardShowV === 3 && Array.isArray(out.boardShow)) {
@@ -243,12 +242,11 @@ export function normalize(raw) {
   return out;
 }
 
-/* 下のタブに出ているものを、出る順に（2026-11-22 Issue #80 の返事）。週・月はいつも右の端 */
+/* 下のタブに出ているものを、出る順に（2026-11-22 Issue #80 の返事） */
 export function visibleTabs(p) {
   const n = normalize(p);
   const show = new Set(n.tabShow || TAB_IDS);
   const out = n.tabOrder.filter(id => show.has(id));
-  if (n.showPeriod) out.push('period');
   return out;
 }
 

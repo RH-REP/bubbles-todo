@@ -656,4 +656,4 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
 .today-suggestbox .tsg-ai { width: 100%; }
 .today-suggestbox .tsg-ai:disabled { cursor: default; border-style: dashed; color: var(--text-2); }
 .today-suggestbox .tsg-note { margin: 6px 0 0; font-size: 11px; color: var(--text-2); }
-/* 前の版（2026-11-21）の「週・月」の板は、下のタブの画面に移した（css/screens/period.css。Issue #80 の返事） */
+/* 前の版（2026-11-21）の「週・月」の板は、いまは海のリスト表示の形「週」「月」（css/screens/period.css。Issue #80 の返事） */

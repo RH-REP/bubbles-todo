@@ -530,7 +530,6 @@ body:not(.pref-all-tools) .is-extra:not(.show-extra .is-extra) { display: none !
 
 /* ---------- 隠している機能を 1 つずつ出す（2026-11-22 Issue #80 の返事「週・月のタブ、今日のおすすめ など 分けれる？」） ----------
    設定の「音と表示を変える」のスイッチ 1 つに、部品 1 つ。body の印は js/app.js の applyPrefs が付ける */
-body:not(.pref-show-period) .opt-period,
 body:not(.pref-show-cal) .opt-cal,
 body:not(.pref-show-suggest) .opt-suggest,
 body:not(.pref-show-quad) .opt-quad { display: none !important; }

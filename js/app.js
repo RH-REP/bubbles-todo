@@ -69,7 +69,6 @@ import today, { openDayPicker, dayBadge } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
-import period from './screens/period.js';
 /* 設定の画面は、起動のときには読まない（2026-11-23 Issue #93「起動時間の高速化」）。
    js/screens/settings.js は 1 本で約 400KB（本体の JS の 2 割近く）あり、その先の seapanel.js などとあわせて、
    最初の画面を出す前に読み・解釈するぶんが重かった。設定は歯車から開く画面で、起動の直後には要らない。
@@ -113,7 +112,7 @@ const settings = {
   },
 };
 
-const SCREENS = [sea, today, plan, gap, period, review, settings];
+const SCREENS = [sea, today, plan, gap, review, settings];
 
 /* ブロックチェーンの共有の海（署名・同期）と直の通信（WebRTC）を使う版か。サーバーなし版（noserver.html）だけ。
    サーバーあり版（index.html）では盤にも出さない（2026-11-17 Issue #78。js/edition.js） */
@@ -130,12 +129,9 @@ const DROPPABLE = new Set(['sea', 'today', 'plan', 'gap']);
      ・毎日触るのは海・今日・きっかけ・すきまの4つ。設定とふりかえりは
        その頻度ではない。同じ重みで並べる理由が無い
    これで下タブは**全部が落とし先**になり、data-drop="no" は出なくなる。 */
-const TABS = ['sea', 'today', 'plan', 'gap', 'period'];
-/* 既定では隠すタブ。週・月（2026-11-22 Issue #80 の返事「今日のタブと同じく感じ、今週の今月のタブ」。始めの頼み「オプション表示で」）。
-   出すのは設定の「下のタブに『週・月』を出す」（prefs.showPeriod。印 .opt-period は css/base.css。
-   同じ日の返事「分けれる？」で、ほかの隠している機能とスイッチを分けた）。
-   読むだけの画面なので、バブルの落とし先ではない（data-drop="no"）。並びはいつも右の端（タブの並びの設定に入れない） */
-const EXTRA_TABS = new Set(['period']);
+/* 2026-11-22 Issue #80 の返事で足した下のタブ「週・月」は、2026-11-23 の返事「下のタブではなく、リスト表示の一覧、日付、4つに、週と月を増やして」で
+   外し、海のリスト表示の形にした（js/periodview.js） */
+const TABS = ['sea', 'today', 'plan', 'gap'];
 
 /* 歯車から開く画面。ここに居るあいだ、歯車は「閉じる」になる */
 const UNDER_GEAR = new Set(['settings', 'review']);
@@ -617,7 +613,6 @@ SCREENS.forEach(s => {
   btn.dataset.screen = s.id;
   btn.dataset.id = s.id;
   btn.dataset.drop = DROPPABLE.has(s.id) ? 'yes' : 'no';
-  if (EXTRA_TABS.has(s.id)) btn.classList.add('opt-period');
   const ic = document.createElement('span');
   ic.className = 'ic';
   ic.textContent = s.icon;
@@ -986,6 +981,8 @@ window.addEventListener('bubbles:goto', (ev) => {
   if (!target) return;
   show(target.id);
   if (d.face && typeof target.openFace === 'function') target.openFace(d.face, d);
+  /* リスト表示を決めた形で開く（海だけ。2026-11-23 Issue #80 の返事。今日の長押しの「今週・今月をまとめて見る」） */
+  if (d.list && typeof target.openList === 'function') target.openList(d.list);
 });
 
 /* ---- この端末の表示（2026-11-10。Issue #36。js/prefs.js）----
@@ -1004,7 +1001,6 @@ function applyPrefs() {
   document.body.classList.toggle('pref-dice', !!prefs.dice);
   document.body.classList.toggle('pref-fb', !!prefs.fbBtn);
   /* 隠している機能を 1 つずつ（2026-11-22 Issue #80 の返事「分けれる？」。中身は css/base.css の .opt-*） */
-  document.body.classList.toggle('pref-show-period', !!prefs.showPeriod);
   document.body.classList.toggle('pref-show-cal', !!prefs.showCal);
   document.body.classList.toggle('pref-show-suggest', !!prefs.showSuggest);
   document.body.classList.toggle('pref-show-quad', !!prefs.showQuad);
@@ -1013,13 +1009,10 @@ function applyPrefs() {
     const b = btns.find(x => x.dataset.screen === id);
     if (b) tabbar.appendChild(b);
   });
-  /* 畳むタブ（週・月）は並びの設定に無いので、いつも右の端へ */
-  btns.filter(x => EXTRA_TABS.has(x.dataset.screen)).forEach(b => tabbar.appendChild(b));
   /* 下のタブの出し入れ（2026-11-22 Issue #80 の返事「海、今日、きっかけ、すきま、週月の表示非表示も切り替えられる様に」）。
-     週・月は .opt-period（showPeriod）で、ほかは .is-tabhidden（tabShow）で隠す（css/base.css） */
+     隠すのは .is-tabhidden（tabShow。css/base.css） */
   const vis = visibleTabs(prefs);
-  btns.forEach(b => b.classList.toggle('is-tabhidden', TABS.indexOf(b.dataset.screen) >= 0 && !EXTRA_TABS.has(b.dataset.screen)
-    && vis.indexOf(b.dataset.screen) < 0));
+  btns.forEach(b => b.classList.toggle('is-tabhidden', TABS.indexOf(b.dataset.screen) >= 0 && vis.indexOf(b.dataset.screen) < 0));
   /* 隠したタブの画面にいる間なら、出ているタブの先頭へ移る（タブが消えて戻れなくなるため。設定・ふりかえりはそのまま） */
   if (current && TABS.indexOf(current.id) >= 0 && vis.indexOf(current.id) < 0 && vis.length) show(vis[0]);
   if (drawer) renderDrawer();
