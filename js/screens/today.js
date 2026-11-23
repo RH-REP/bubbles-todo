@@ -1627,8 +1627,16 @@ async function askSuggest() {
    下のタブの画面（js/screens/period.js）に移し、板は外した。
    週・月の画面で日や名前を押すと、この画面へ移ってから bubbles:showday { key } が届く（画面どうしは import しない） */
 window.addEventListener('bubbles:showday', ev => {
-  const key = ev && ev.detail && ev.detail.key;
+  const d = (ev && ev.detail) || {};
+  const key = d.key;
   if (typeof key === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(key)) goDay(key);
+  /* 名前を押したときは、その泡の詳細をそのまま開く（2026-11-23 Issue #80 の返事「今週からTODOを選択した場合に遷移先にTODOが、
+     表示されない場合がある」）。週・月の画面には、その日に置いたものだけでなく、期間の始まる日・終わる日・完了した日の泡も並ぶ。
+     それらはその日の水面には浮かばず（置いた日ではないため）、フィルターで隠れていることもあるので、
+     水面で探さずに、その場かぎりの泡から詳細を開く（一覧の行から開くのと同じ openBoardFor） */
+  if (typeof d.id === 'string' && store.get(d.id)) {
+    setTimeout(() => { if (stage && stage.clientWidth) openBoardFor(d.id, stage); }, 60);
+  }
 });
 
 /* ---------------- 一覧で見る（2026-11-21 Issue #86） ----------------

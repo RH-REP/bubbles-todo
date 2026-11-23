@@ -103,9 +103,11 @@ function goNow() {
 }
 
 /* 今日の画面のその日へ。先に画面を移す（今日の画面は開いたときに過ぎた日を今日へ戻すため、日はそのあとで渡す） */
-function openDay(key) {
+/* id を渡すと、移った先でその泡の詳細も開く（2026-11-23 Issue #80 の返事。期間の始まり・終わり・完了した日だけで並ぶ泡は
+   その日の水面に浮かばないため。js/screens/today.js の bubbles:showday） */
+function openDay(key, id) {
   window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'today' } }));
-  window.dispatchEvent(new CustomEvent('bubbles:showday', { detail: { key } }));
+  window.dispatchEvent(new CustomEvent('bubbles:showday', { detail: { key, id: id || null } }));
 }
 
 function button(cls, text, label, on) {
@@ -241,8 +243,8 @@ function render() {
         b.appendChild(k);
       }
       const short = row.text.length > 18 ? row.text.slice(0, 18) + '…' : row.text;
-      b.setAttribute('aria-label', '「' + short + '」。' + mdw(d.key) + 'の今日の画面へ');
-      b.addEventListener('click', ev => { ev.preventDefault(); openDay(d.key); });
+      b.setAttribute('aria-label', '「' + short + '」の詳細を開く（' + mdw(d.key) + 'の今日の画面で）');
+      b.addEventListener('click', ev => { ev.preventDefault(); openDay(d.key, row.id); });
       li.appendChild(b);
       ul.appendChild(li);
     });
