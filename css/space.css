@@ -239,3 +239,8 @@ html.has-me .space-state { right: 36px; }
 .space-sheet .space-shared { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
 .move-sheet .move-to { display: block; width: 100%; text-align: left; margin: 4px 0; }
 .move-sheet .move-note { margin: 4px 0; font-weight: 600; }
+
+/* 海を押してから読み直すまで（2026-11-23 Issue #94「海切り替えの高速化」。js/space.js の switchTo）。
+   帯の印と水の色はもう新しい海。前の海の中身は薄くして、押しても動かないようにする */
+html.is-switching [id^="pane-"] { opacity: .35; transition: opacity .1s ease-out; }
+html.is-switching .app { pointer-events: none; }

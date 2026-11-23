@@ -33,7 +33,7 @@ if (folderBackup) {
    開いたとき（サーバーと合わせる前）と 1 日 1 回残す */
 import './localbackup.js';
 /* 海の切り替え（space.js。2026-11-02 Issue #4 で名前を付けて複数作れる海に）。薄い帯の表示と、引き出しの頭の切り替え。持ち主は store が開くときに決まっている */
-import { spaceSwitcher } from './space.js';
+import { spaceSwitcher, SWITCH_SCREEN_KEY } from './space.js';
 import { toast, holdRing, fromFeedback, undoLast } from './ui.js';
 import { playSfx } from './sound.js';
 
@@ -1041,7 +1041,13 @@ if (isSolo()) {
 /* 起動したときに開く画面のタブを隠していたら、出ているタブの先頭を開く（2026-11-22 Issue #80 の返事） */
 {
   const vis0 = visibleTabs(prefs);
-  const want = SCREENS.some(s => s.id === prefs.start) ? prefs.start : SCREENS[0].id;
+  /* 海を切り替えて読み直したときは、押す前にいたタブを開く（2026-11-23 Issue #94「海切り替えの高速化」。
+     起動の画面へ戻ると、元のタブを押し直す手間が要った）。覚えるのは js/space.js の switchTo。1 回だけ使う。
+     下のタブ（出しているもの）だけ。設定などにいたときは、ふだんどおり起動の画面 */
+  let back = null;
+  try { back = sessionStorage.getItem(SWITCH_SCREEN_KEY); sessionStorage.removeItem(SWITCH_SCREEN_KEY); } catch (e) { back = null; }
+  const backOk = back && TABS.indexOf(back) >= 0 && vis0.indexOf(back) >= 0;
+  const want = backOk ? back : (SCREENS.some(s => s.id === prefs.start) ? prefs.start : SCREENS[0].id);
   show(vis0.length && vis0.indexOf(want) < 0 ? vis0[0] : want);
 }
 /* 設定の画面を先に読んでおく（Issue #93。上の loadSettings）。最初の画面を描いたあとにする。

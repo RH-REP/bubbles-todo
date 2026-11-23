@@ -39,9 +39,29 @@ const REGION = regionOfSpace(SPACE) || defaultRegionId();
 const root = document.documentElement;
 root.classList.add('has-strip');
 root.classList.toggle('is-sea', !isPersonal(SPACE));
+/* 水の色を、次に開くときの head（js/boot-sea.js）にも残す（2026-11-23 Issue #94「海切り替えの高速化」）。
+   色は 'me'（個人。空色）か 'sea:<色>'（色の無い海は 'sea:'）。どの海の色かも一緒に残し、
+   head では開く海（bubble_todo_space）と同じときだけ塗る（ほかの所が開く海を書き換えても、違う色を挟まない）。
+   残すのは海の ID と色の名前だけで、記録の中身は入らない */
+export const PAINT_KEY = 'bubble_todo_sea_paint';
+function paintValue(id) {
+  if (isPersonal(id)) return 'me';
+  const e = findSea(id);
+  return 'sea:' + (e && e.color ? e.color : '');
+}
+function rememberPaint(id, v) {
+  try { localStorage.setItem(PAINT_KEY, JSON.stringify({ id, paint: v })); } catch (e) { /* 残せなくても、読み直したあとで塗る */ }
+}
+function applyPaint(v) {
+  const sea = v !== 'me';
+  root.classList.toggle('is-sea', sea);
+  const c = sea ? v.slice(4) : '';
+  if (c) root.dataset.sea = c; else delete root.dataset.sea;
+}
 function paintColor() {
   const e = findSea(SPACE);
   if (e) root.dataset.sea = e.color; else delete root.dataset.sea;
+  rememberPaint(SPACE, paintValue(SPACE));
 }
 paintColor();
 
@@ -56,12 +76,36 @@ function entries() {
   return allSeas();
 }
 
-/* 海を替える。今の書きかけ（位置など）を残してから読み直す */
+/* 海を替える。今の書きかけ（位置など）を残してから読み直す。
+   2026-11-23 Issue #94「海切り替えの高速化」: 読み直しは残したまま（海ごとに開き直す作りは変えない）、待ちを短く見せる。
+     ・押したその場で、帯の白い印と水の色を新しい海に替え、画面を薄くする（読み直しを待たずに替わったと分かる）
+     ・新しい色は head（js/boot-sea.js）でも塗る（読み直しの途中で、前の海の色・空色が挟まらない）
+     ・今いるタブ（今日・きっかけなど）を覚え、読み直したあともそのタブを開く（app.js。起動の画面へ戻さない） */
+export const SWITCH_SCREEN_KEY = 'bubble_todo_switch_screen';
+let switching = false;
 function switchTo(id) {
-  if (id === SPACE) return;
+  if (id === SPACE || switching) return;
   try { store.flush(); } catch (e) { /* 替えるのは止めない */ }
   try { localStorage.setItem(SPACE_KEY, id); } catch (e) { toast('切り替えを覚えられなかった'); return; }
-  location.reload();
+  switching = true;
+  const paint = paintValue(id);
+  rememberPaint(id, paint);
+  try {
+    const pane = document.querySelector('[id^="pane-"].is-active');
+    if (pane) sessionStorage.setItem(SWITCH_SCREEN_KEY, pane.id.slice(5));
+  } catch (e) { /* 覚えられなければ起動の画面を開く */ }
+  document.querySelectorAll('button[data-space]').forEach(b => {
+    const on = b.dataset.space === id;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  applyPaint(paint);
+  root.classList.add('is-switching');
+  /* 替えた色と印を 1 度描いてから読み直す（rAF が来ないときのために時間でも） */
+  let gone = false;
+  const go = () => { if (!gone) { gone = true; location.reload(); } };
+  requestAnimationFrame(() => requestAnimationFrame(go));
+  setTimeout(go, 120);
 }
 
 function seaButton(e) {
