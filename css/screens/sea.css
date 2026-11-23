@@ -1263,3 +1263,9 @@ body.is-dragging .sea-cal { opacity: .25; pointer-events: none; }
 
 /* 利用者のアイコンが左上に来たので（2026-11-18。≡ は left:62px）、面の名前はさらに右（≡ の右どなり）へ */
 html.has-userbtn .sea-face-name { left: 114px; max-width: min(36%, calc(100% - 280px)); }
+/* フィルター「タグ無し ▽」とその選び札も同じく ≡ の右どなりへ（2026-11-23 Issue #92 の返事
+   「タグフィルターの位置が、隣のボタン重なっていて短い名前のタグだとフィルターではなく隣のボタンをタップしてしまう」）。
+   前は left:62px のままで、上に重なる ≡（z-index 30）が短い札をほとんど覆い、押すと引き出しが開いていた */
+html.has-userbtn .sea-stage > .sea-narrow { left: 114px; max-width: min(40%, calc(100% - 280px)); }
+html.has-userbtn body:not(.pref-fb) .sea-stage > .sea-narrow { max-width: calc(100% - 228px); }
+html.has-userbtn .sea-narrow-pop { left: 114px; }

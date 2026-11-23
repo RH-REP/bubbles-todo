@@ -1395,6 +1395,7 @@ bash tests/server-setup.test.sh
 - 今日のフィルターの札の名前は「ぜんぶ」のまま（今日の画面は何も選ばなければタグ無しに限らず全部出すので、海の「タグ無し」を名乗ると嘘になる）
 - 1段目に入りきらないときは、日付とフィルターの名前が「…」で縮む（フィルターは並びの 4割まで）。幅 400 以下では両方の余白を詰める
 - 1段目・2段目の並びは指を通す（空いた所をなぞっても日を移せる）。ボタンだけが受ける
+- **2026-11-23 返事「タグフィルターの位置が、隣のボタン重なっていて短い名前のタグだとフィルターではなく隣のボタンをタップしてしまう」**: 利用者のアイコン（左上）があると ≡ が `left:62px` へ寄るのに、フィルターは `left:62px` のままで、上に重なる ≡（z-index 30）が短い札をほとんど覆い、押すと引き出しが開いていた。**海の「タグ無し ▽」も同じだった。**アイコンがあるとき（`html.has-userbtn`）は、今日・海ともフィルターとその選び札を ≡ の右どなり（`left:114px`）から始める。今日の画面は、そのうえ幅 400 以下では日付の字を残すため ‹ › を畳む（日付を押して選ぶ・面を左右になぞるで移れる）。作り: `css/screens/today.css` の `html.has-userbtn .today-top`・`.today-filter-pop`、`css/screens/sea.css` の `html.has-userbtn .sea-stage > .sea-narrow`・`.sea-narrow-pop`
 - 作り: `js/screens/today.js` の `syncListBtn`（`listIc`）と組み立て（`.today-top`・`.today-tools`）、`css/screens/today.css` の `.today-top`・`.today-dayrow`・`.today-tools`・`.today-listbtn`・`.today-filterbtn`・`.today-filter-pop`
 
 #### 開始日と終了日の入れ方（盤の「期間」。2026-11-10。Issue #34）

@@ -242,6 +242,15 @@ body:not(.pref-dice) .today-random { display: none !important; }
 }
 .today-top > * { pointer-events: auto; }
 body:not(.pref-fb) .today-top { right: 62px; }
+/* 利用者のアイコンがあると ≡ が left:62px へ寄る（css/base.css の html.has-userbtn）。並びもその右どなりから始める
+   （2026-11-23 Issue #92 の返事「タグフィルターの位置が、隣のボタン重なっていて短い名前のタグだとフィルターではなく
+   隣のボタンをタップしてしまう」。前は left:62px のままで、上に重なる ≡（z-index 30）が短い札をほとんど覆っていた） */
+html.has-userbtn .today-top { left: 114px; }
+/* そのうえ狭い画面（幅 400 以下）では、日付の字を残すために ‹ › を畳む。
+   日は今までどおり、日付を押して選ぶ・面を左右になぞるで移れる */
+@media (max-width: 400px) {
+  html.has-userbtn .today-top .today-daystep { display: none; }
+}
 /* 44×44（レビューの指摘）。36 で置いていたが、契約 §15 に例外として
    記録していなかった。カレンダーの枡と違って幅の制約は無いので、素直に 44 にする */
 .today-daystep {
@@ -546,6 +555,8 @@ body:not(.pref-dice) .today-tools { right: 10px; }
   font-size: 11px; color: var(--text-2); letter-spacing: .04em;
   user-select: none; -webkit-user-select: none;
 }
+/* 利用者のアイコンがあるときは、ボタンと同じく ≡ の右どなりの真下（Issue #92 の返事） */
+html.has-userbtn .today-filter-pop { left: 114px; }
 
 .today-list {
   position: absolute; inset: 0; z-index: 6;
