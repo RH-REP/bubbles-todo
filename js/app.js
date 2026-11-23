@@ -70,7 +70,48 @@ import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
 import period from './screens/period.js';
-import settings,{ syncSharedSea, readSharedSea, pushSeaDirect, directCount } from './screens/settings.js';
+/* 設定の画面は、起動のときには読まない（2026-11-23 Issue #93「起動時間の高速化」）。
+   js/screens/settings.js は 1 本で約 400KB（本体の JS の 2 割近く）あり、その先の seapanel.js などとあわせて、
+   最初の画面を出す前に読み・解釈するぶんが重かった。設定は歯車から開く画面で、起動の直後には要らない。
+   ・開いたとき（歯車・招待のリンク）に読む。まだ読めていなければ「読み込み中…」を出し、読めたら mount と onShow を呼ぶ
+   ・最初の画面を出したあと、少し間をおいて先に読んでおく（開くときに待たせないため）。
+     サーバーなし版は、settings.js が読み込みのときに見張り（startChainWatch・startSharedWatch）を始めるので、すぐ読む
+   ・盤から呼ぶ同期の口（syncShared など。サーバーなし版だけ）は、読めていればその場で呼ぶ
+     （パスキーは押した手の続きで呼ぶので、読めているときに await を挟まない） */
+let settingsMod = null;
+let settingsLoad = null;
+function loadSettings() {
+  if (!settingsLoad) {
+    settingsLoad = import('./screens/settings.js').then(m => (settingsMod = m));
+    settingsLoad.catch(() => { settingsLoad = null; });   /* 読めなければ次に開いたときにまた試す */
+  }
+  return settingsLoad;
+}
+function viaSettings(fn) { return settingsMod ? fn(settingsMod) : loadSettings().then(fn); }
+const settings = {
+  id: 'settings',
+  label: '設定',
+  icon: '⚙',
+  mount(pane) {
+    pane.textContent = '';   /* 前に読めなかったときの知らせを消す */
+    if (settingsMod) { settingsMod.default.mount(pane); return; }
+    const wait = document.createElement('div');
+    wait.className = 'stub';
+    wait.textContent = '読み込み中…';
+    pane.appendChild(wait);
+    loadSettings().then(m => {
+      wait.remove();
+      m.default.mount(pane);
+      if (current && current.id === 'settings' && typeof m.default.onShow === 'function') m.default.onShow();
+    }).catch(() => {
+      wait.textContent = '設定を読み込めなかった。閉じて開き直してください';
+      mounted.delete('settings');   /* 次に開いたときに mount からやり直す */
+    });
+  },
+  onShow() {
+    if (settingsMod && typeof settingsMod.default.onShow === 'function') settingsMod.default.onShow();
+  },
+};
 
 const SCREENS = [sea, today, plan, gap, period, review, settings];
 
@@ -872,13 +913,15 @@ setCenterHandler({
   /* 盤のひとことの横の「同期」（2026-11-15 Issue #68 の返事）。ブロックチェーンで共有している海で、この端末がブロックチェーンを始めているときだけ。
      設定の「同期する」と同じ（取り込み・新しい書き込みがあれば送る）。押した手の続きで呼ぶ */
   shareSyncOn:   () => CHAIN_ON && signingOn(store.space()),
-  syncShared:    (say) => syncSharedSea(store.space(), say),
+  /* settings.js は起動のあとで読む（Issue #93）。viaSettings は、読めていればその場で呼ぶ */
+  syncShared:    (say) => viaSettings(m => m.syncSharedSea(store.space(), say)),
   /* ひとことを送ったあとの読み込みだけ（Issue #68 の返事「TODOのメッセージを送る時に読み込みだけは行った方がいいのでは？」） */
-  readShared:    (say) => readSharedSea(store.space(), say),
+  readShared:    (say) => viaSettings(m => m.readSharedSea(store.space(), say)),
   /* 直につながっている相手へ、いまの海の記録をすぐ送る（ひとことを積んだあと。手数料なし。2026-11-16 Issue #68 の C1） */
-  pushShared:    () => (CHAIN_ON ? pushSeaDirect(store.space()) : null),
-  /* 盤のひとことの欄に出す、直につながっている台数（Issue #68 の返事「動いてないように見える」: 盤で様子が見えなかった） */
-  directCount:   () => (CHAIN_ON ? directCount(store.space()) : 0),
+  pushShared:    () => (CHAIN_ON ? viaSettings(m => m.pushSeaDirect(store.space())) : null),
+  /* 盤のひとことの欄に出す、直につながっている台数（Issue #68 の返事「動いてないように見える」: 盤で様子が見えなかった）。
+     settings.js がまだ読めていなければ 0（直の通信もまだ始まっていない） */
+  directCount:   () => (CHAIN_ON && settingsMod ? settingsMod.directCount(store.space()) : 0),
   noteName:      () => noteName(),
   setNoteName:   (v) => setNoteName(v),
   hasNewNote:    (id) => has('notesOf')
@@ -1001,6 +1044,9 @@ if (isSolo()) {
   const want = SCREENS.some(s => s.id === prefs.start) ? prefs.start : SCREENS[0].id;
   show(vis0.length && vis0.indexOf(want) < 0 ? vis0[0] : want);
 }
+/* 設定の画面を先に読んでおく（Issue #93。上の loadSettings）。最初の画面を描いたあとにする。
+   サーバーなし版は見張りを始めるためにすぐ、サーバーあり版は起動の直後の操作の邪魔をしないよう少し待つ */
+setTimeout(() => { loadSettings().catch(() => { /* 開いたときにまた試す */ }); }, isSolo() ? 0 : 2000);
 
 /* ---------------- 戻る（Android の戻るボタン。利用者の指示） ----------------
 
