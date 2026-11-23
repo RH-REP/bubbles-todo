@@ -44,6 +44,14 @@
 }
 /* 今週・今月から離れているときは、押すと戻れることを縁で示す */
 .period .pd-label.is-away { border: 1px dashed var(--line-strong); }
+/* 年・月の札の出し入れ（2026-11-23 Issue #80 の返事。既定は隠す） */
+.period .pd-pick {
+  appearance: none; cursor: pointer; font: inherit; font-size: 12.5px;
+  min-height: 36px; padding: 0 10px; border-radius: 18px; margin-left: 4px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-2);
+}
+.period .pd-pick[aria-expanded="true"] { color: var(--text); border-color: var(--bub-edge); }
+.period .pd-pick:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .period .pd-year { font-size: 13px; color: var(--text-2); min-width: 4.5em; text-align: center; }
 
 /* 1月〜12月。狭い画面では 6 列 × 2 段 */

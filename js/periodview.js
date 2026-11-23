@@ -3,7 +3,7 @@
    前は下のタブの画面（js/screens/period.js。2026-11-22）だった。返事で、海のリスト表示の形
    「一覧・日付・四つ・週・月」の 2 つに移した（日付で見る js/deadlineview.js と同じ作り）。
    - 週は月曜〜日曜、月はその月の 1 日〜末日。‹ › で前後へ、真ん中の見出しで今週・今月へ戻る
-   - 月のときは年（‹ 2026年 ›）と 1月〜12月 の札（過去の月も）
+   - 月のときは年（‹ 2026年 ›）と 1月〜12月 の札（過去の月も）。既定は隠し、［月を選ぶ ▾］で出し入れ（2026-11-23）
    - 表示［すべて］［まだ］［済んだ］と並び［書いた順］［新しい順］［名前順］（この端末に残る）
    - 日に出るのは、置いた日・期間の始まる日・終わる日・完了した日（js/deadline.js の periodDays）。何も無い日は出さない
    - 名前を押すと、一覧と同じく泡を押したときの詳細（opts.open(id, node)。海の openBoardFor）
@@ -66,6 +66,7 @@ export function createPeriodView(host, opts = {}) {
   let ym = null;           /* 見ている月 { y, m }。null なら今月 */
   let view = loadView();
   let lastItems = [];
+  let pickOpen = false;    /* 月のときの年・月の札を出しているか（既定は隠す） */
 
   const thisMonth = () => { const d = dateOf(todayKey()); return { y: d.getFullYear(), m: d.getMonth() + 1 }; };
   const curWeek = () => weekFrom || weekStart(todayKey());
@@ -106,9 +107,18 @@ export function createPeriodView(host, opts = {}) {
     if (!r.isNow) lb.classList.add('is-away');
     row.appendChild(lb);
     row.appendChild(button('pd-step', '›', '次の' + unit + 'へ', () => step(1)));
+    /* 年と 1月〜12月 の札は初めは隠し、この札で出し入れする（2026-11-23 Issue #80 の返事
+       「月の年選択ボタンと月選択ボタンのUIをデフォルト非表示で、タップで表示非表示を切り替えられるようにできる？」）。
+       開いたかどうかは、アプリを開いている間だけ覚える */
+    if (mode === 'month') {
+      const tg = button('pd-pick', pickOpen ? '月を選ぶ ▴' : '月を選ぶ ▾', null, () => { pickOpen = !pickOpen; rerender(); });
+      tg.setAttribute('aria-expanded', pickOpen ? 'true' : 'false');
+      tg.setAttribute('aria-label', pickOpen ? '年と月の札を隠す' : '年と月の札を出す');
+      row.appendChild(tg);
+    }
     headEl.appendChild(row);
 
-    if (mode === 'month') {
+    if (mode === 'month' && pickOpen) {
       const c = curMonth(), t = thisMonth();
       const yr = el('div', 'pd-yearrow');
       yr.appendChild(button('pd-ystep', '‹', (c.y - 1) + '年へ', () => { ym = { y: c.y - 1, m: c.m }; rerender(); }));
