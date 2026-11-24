@@ -29,6 +29,7 @@ import { createField } from '../drift.js';
 import { openSeaMap, closeSeaMap, isOpen as seaMapOpen } from '../seamap.js';
 import { openCalendar, closeCalendar, isOpen as calOpen } from '../calendar.js';
 import { playComplete, playSfx } from '../sound.js';
+import { giveSeat, openedOf, markOpened, unravel, THANKS } from '../glow.js';
 /* 「今日」タブの落とし先は、今日の画面がいま映している日（利用者の指示）。
    today.js は sea.js を読まないので、循環にはならない。 */
 import { dropDay } from './today.js';
@@ -732,8 +733,44 @@ function capForSea(list, face) {
   const max = fitCount(byNew, budget, shrinkOf(byNew.slice(0, SEA_MAX), budget, SEA_SHRINK));
   seaClipped = list.length > max;          /* 直後に読むこと（syncMore を参照） */
   if (!seaClipped) { if (face) delete swaps[face]; return list; }
-  const keep = swappedKeep(face, list, max) || new Set(byNew.slice(0, max).map(t => t.id));
+  const keep0 = swappedKeep(face, list, max) || new Set(byNew.slice(0, max).map(t => t.id));
+  /* 輝きの席（2026-11-24。js/glow.js）：今日の輝く泡が隠れる側にいたら、出す泡のいちばん古い 1 つと入れ替える。数は上限のまま。
+     開いたあとも、その日は席を持たせる（開いた途端に消えないため） */
+  const g = glowToday();
+  const keep = giveSeat(keep0, byNew, g && g.id);
   return list.filter(t => keep.has(t.id));
+}
+
+/* ---------------- 輝く泡（2026-11-24。js/glow.js、app_spec の minutes/261124_輝く泡.md）----------------
+   今日の輝く泡は store.glowItem()。光る（is-lit）のは、この端末でまだ開いていない間だけ。
+   泡ごとに何度も読むので、短い間だけ覚える（store の書き換えで捨てる） */
+let glowMemo = null;
+function glowToday() {
+  if (glowMemo && Date.now() - glowMemo.at < 250) return glowMemo.t;
+  let t = null;
+  if (has('glowItem')) { try { t = store.glowItem() || null; } catch (err) { t = null; } }
+  glowMemo = { at: Date.now(), t };
+  return t;
+}
+function litIdNow() {
+  const t = glowToday();
+  if (!t) return null;
+  let ls = null;
+  try { ls = window.localStorage; } catch (err) { ls = null; }
+  return openedOf(ls, todayKeySafe()) === t.id ? null : t.id;
+}
+/* 輝く泡のいる海（端の札に光の点を出す先）。タグの海にいればその海（いくつでも）、無ければ中央 */
+function glowFaces() {
+  const id = litIdNow();
+  const out = new Set();
+  if (!id) return out;
+  const tags = tagsOfSafe(id);
+  liveFaces().forEach(f => {
+    const tag = f !== 'center' && faceTag(f);
+    if (tag && tags.indexOf(tag.id) >= 0) out.add(f);
+  });
+  if (!out.size) out.add('center');
+  return out;
 }
 
 /* ---------------- 気孔で入れ替える（利用者の指示 2026-10-25）----------------
@@ -881,7 +918,8 @@ function itemOf(t) {
   /* spanNote は期間の外で長期保留の海にいるものの添え字（§11。bubble.js が小さく下に出す） */
   /* assignee・done_by は泡の右下の担当の丸のため（共有の記録 v1.2。bubble.js の whoMark） */
   return { id: t.id, text: t.text, started: isStarted(t), urgent: t.urgent, important: t.important,
-    spanNote: spanNoteOf(t), assignee: t.assignee || null, done_by: t.done_by || null, done: !!t.done };
+    spanNote: spanNoteOf(t), assignee: t.assignee || null, done_by: t.done_by || null, done: !!t.done,
+    lit: !t.done && t.id === litIdNow() };
 }
 
 /* 追補4 §1：タグは点（marks）ではなく、バブルそのものの色で表す。
@@ -1075,7 +1113,7 @@ function diceIcon() {
 /* 中央の盤に出す操作。副作用を持たせない（返すだけ）。
    これを渡すと、bubble.js は onMenu を横取りしなくなる。 */
 function actionsFor(id) {
-  return {
+  const a = {
     isDone: has('isDone') ? !!store.isDone(id) : false,
     onStarted: () => { markStarted(id); render(); },
     onComplete: () => {
@@ -1083,6 +1121,28 @@ function actionsFor(id) {
       completeWithUndo(id);
     },
     onDelete: (node) => removeWithUndo(id, node),
+  };
+  return Object.assign(a, glowExtras(id));
+}
+
+/* 輝く泡を開いた（2026-11-24）：光がほどける。盤の上に一行、輪と粒、効果音 lit。今日には入れない・何も求めない。
+   onOpened は盤が開いたあとに bubble.js が 1 回だけ呼ぶ（ここで呼ぶと、開かずに終わった経路でも消えてしまう）。
+   漂う海の泡は drift が onActions を渡さず、bubble.js が長押しメニューの中身（menuFor）を借りて盤を組むので、
+   actionsFor と menuFor の両方に足す（長押しのメニューは thanks・onOpened を読まないので何も変わらない） */
+function glowExtras(id) {
+  if (id !== litIdNow()) return {};
+  return {
+    thanks: THANKS,
+    onOpened: (node) => {
+      let ls = null;
+      try { ls = window.localStorage; } catch (err) { ls = null; }
+      markOpened(ls, todayKeySafe(), id);
+      glowMemo = null;
+      unravel(node);
+      playSfx('lit');
+      if (node && node.classList) node.classList.remove('is-lit');
+      renderSigns();
+    },
   };
 }
 
@@ -1097,7 +1157,7 @@ function menuFor(id, node) {
   lastMenuAt = now;
   /* 完了したものの上では、メニューの「完了」が「海にもどす」に入れ替わる。
      完了の海から戻す道は、ここにしか無い。 */
-  openMenu(node, {
+  openMenu(node, Object.assign({
     isDone: has('isDone') ? !!store.isDone(id) : false,
     onDetail:  () => openDetail(id),
     onFocus:   () => openFive(id),
@@ -1107,7 +1167,7 @@ function menuFor(id, node) {
       completeWithUndo(id);
     },
     onDelete:  () => removeWithUndo(id, node),
-  });
+  }, glowExtras(id)));
 }
 
 /* ---------------- 一覧の行から盤を開く（Issue #56） ----------------
@@ -2122,6 +2182,7 @@ function syncFloor() {
    両方出ると「行ける」と「付く」が同時に見えて読めなくなる。 */
 function renderSigns() {
   const quiet = !!bubbleDrag || gathering;
+  const gf = glowFaces();
   liveFaces().forEach(f => {
     const rec = faces[f] && faces[f].signs;
     if (!rec) return;
@@ -2138,10 +2199,13 @@ function renderSigns() {
       const name = to === 'center' ? CENTER_NAME : nameOf(tag);
       s.nm.textContent = name;                       /* タグ名はユーザーの文字 */
       s.btn.dataset.to = to;
-      s.btn.setAttribute('aria-label', name + 'へ');
       /* 看板にもその海の色を1点だけ載せる。名前だけを手がかりにしない（1.4.1） */
       if (tag) s.btn.style.setProperty('--sign-c', colorOf(tag, to));
       else s.btn.style.removeProperty('--sign-c');
+      /* 輝く泡がその海にいれば、札に小さな光の点（2026-11-24。数は出さない） */
+      const lit = gf.has(to);
+      s.btn.classList.toggle('has-glow', lit);
+      s.btn.setAttribute('aria-label', name + 'へ' + (lit ? '（輝いている泡がある）' : ''));
       s.btn.hidden = false;
     });
   });

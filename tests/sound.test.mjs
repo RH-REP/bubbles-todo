@@ -2,6 +2,7 @@
    偽の AudioContext で「鳴らす／鳴らさない」の門番と、例外を投げないことだけを見る。 */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 const mem = new Map();
 globalThis.localStorage = {
@@ -40,8 +41,8 @@ test('効果音は既定でオン、完了音とは別のスイッチ', () => {
   s.setOn(true);
 });
 
-test('3つの効果音が鳴る（発振器が動く）', () => {
-  assert.deepEqual([...s._sfxNames].sort(), ['add', 'place', 'start']);
+test('4つの効果音が鳴る（発振器が動く。lit は 2026-11-24 の輝く泡）', () => {
+  assert.deepEqual([...s._sfxNames].sort(), ['add', 'lit', 'place', 'start']);
   for (const n of s._sfxNames) {
     const before = started;
     s.playSfx(n);
@@ -74,4 +75,16 @@ test('完了音は効果音のスイッチに左右されない', () => {
   s.playComplete();
   assert.ok(started > before);
   s.setSfxOn(true);
+});
+
+test('輝く泡の lit は完了音より静か（相対ピークの和と最大が完了音より小さい）', () => {
+  const src = readFileSync(new URL('../js/sound.js', import.meta.url), 'utf8');
+  const peaks = name => {
+    const m = new RegExp(name + ':\\s*(\\[\\[[^\\n]*\\]\\]),').exec(src);
+    return JSON.parse(m[1]).map(v => v[4]);
+  };
+  const lit = peaks('lit');
+  const done = [0.80, 0.18, 0.68, 0.13];
+  assert.ok(lit.reduce((a, b) => a + b, 0) < done.reduce((a, b) => a + b, 0));
+  assert.ok(Math.max(...lit) < Math.max(...done));
 });

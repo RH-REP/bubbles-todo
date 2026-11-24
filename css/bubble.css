@@ -1863,3 +1863,67 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
 .bub-center .bc-mdays[hidden] { display: none; }
 .bub-center .bc-mday { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13.5px; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); cursor: pointer; }
 .bub-center .bc-mday[aria-pressed="true"] { background: var(--bub-edge); border-color: var(--bub-edge); color: #fff; font-weight: 700; }
+
+/* ---------- 輝く泡（2026-11-24。js/glow.js、app_spec の minutes/261124_輝く泡.md）----------
+   日の切り替えで選んだ 1 つの泡に、金色寄りの暖かい光の輪と光の粒。赤は使わない。
+   .glow は泡の最初の子（膜より先に描くので、膜の後ろに光る）。動きは transform / opacity だけ。
+   開くと .glow-fx の層に輪（.glow-burst）と粒（.glow-spark）を出して消す（光がほどける）。 */
+:root { --lit-rgb: 255, 206, 110; }
+.bub .glow {
+  position: absolute; inset: -34%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(var(--lit-rgb), .55) 0%, rgba(var(--lit-rgb), .2) 48%, transparent 100%);
+  animation: glow-breathe 4.2s ease-in-out infinite;
+}
+.bub .glow[hidden] { display: none; }
+.bub.is-lit .skin {
+  box-shadow:
+    inset 0 0 0 1px var(--bub-edge-soft),
+    0 0 0 2px rgba(var(--lit-rgb), .85),
+    0 0 16px 3px rgba(var(--lit-rgb), .55);
+}
+.bub .glow-mote {
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(var(--lit-rgb), .95); box-shadow: 0 0 6px rgba(var(--lit-rgb), .9);
+  left: 42%; top: 30%; opacity: 0;
+  animation: glow-mote 3.6s ease-out infinite;
+}
+.bub .glow-mote:nth-child(1) { --mx: -8px; left: 36%; }
+.bub .glow-mote:nth-child(2) { --mx: 7px; left: 58%; top: 26%; animation-delay: 1.2s; }
+.bub .glow-mote:nth-child(3) { --mx: 2px; left: 48%; top: 34%; animation-delay: 2.4s; }
+@keyframes glow-breathe { 0%, 100% { transform: scale(.92); opacity: .75; } 50% { transform: scale(1.06); opacity: 1; } }
+@keyframes glow-mote {
+  0% { opacity: 0; transform: translate(0, 0) scale(.6); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--mx, 6px), -46px) scale(1); }
+}
+.glow-fx { position: fixed; inset: 0; pointer-events: none; z-index: 95; }
+.glow-burst {
+  position: absolute; border-radius: 50%;
+  border: 2px solid rgba(var(--lit-rgb), .9); box-shadow: 0 0 18px rgba(var(--lit-rgb), .7);
+  animation: glow-burst .9s ease-out forwards;
+}
+@keyframes glow-burst { from { transform: scale(.9); opacity: 1; } to { transform: scale(2.1); opacity: 0; } }
+.glow-spark {
+  position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
+  background: rgb(var(--lit-rgb)); box-shadow: 0 0 8px rgba(var(--lit-rgb), .9);
+  animation: glow-spark 1.1s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+@keyframes glow-spark {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  70% { opacity: .9; }
+  100% { opacity: 0; transform: translate(var(--sx), var(--sy)) scale(.4); }
+}
+/* 盤のいちばん上の「思い出してくれて、ありがとう」 */
+.bc-thanks {
+  margin: 0 0 8px; padding: 6px 10px; border-radius: 10px;
+  font-size: 13px; color: #7a5608; background: rgba(var(--lit-rgb), .24);
+  pointer-events: auto;
+  animation: glow-thanks .5s ease-out;
+}
+@media (prefers-color-scheme: dark) { .bc-thanks { color: #ffd98a; background: rgba(var(--lit-rgb), .16); } }
+@keyframes glow-thanks { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .bub .glow, .bc-thanks { animation: none; }
+  .bub .glow-mote { display: none; }
+  .glow-fx { display: none; }
+}

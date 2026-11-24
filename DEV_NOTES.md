@@ -2619,3 +2619,15 @@ VM で上げるのは `tools/server-setup.sh min-schema-set <版>`（控え `.se
 - 今日の画面の枠（`.today-plate`）は drift の keepOut（海の端の札と同じ）。枠に出す泡は漂う面に渡さない。ただし盤を開いている泡は閉じるまで面に残す（消すと盤ごと閉じる）。そのため drift の onHold が画面の `opts.onHold` も呼ぶようにした。
 - おすすめの点は 大事さ ÷ 見当。比べるときは掛け合わせて比べる（割り算の誤差を避ける）。最近はじめた・お気に入り・次にやることありは同点のときだけ。
 - 盤の印の段は「その他」から出し、名前のすぐ下（ORDER の `pick`・`prio`）。設定の「詳細にはじめから出す欄」から「優先度」を外した（いつも出すので）。
+
+## 輝く泡（2026-11-24）
+
+ユーザーの決定「OK,推奨で実施」（`app_spec/self_management/bubble_todo/minutes/261124_輝く泡.md`、モック `mock/glow-1124.html`）。
+
+- 記録の鍵 `litAt`（todo。輝いた時刻 ms）を足した。**記録の形の版（SCHEMA）は上げていない**：足しただけで、前の版の bubble・gantt（`bubble_store.py`）・秘書（`secretary.py`）は知らない欄としてそのまま残す（2026-11-24 に gantt の write_spans・write_first_span と秘書の edit_one で残ることを確かめた）。
+- 選ぶのは `store.rollover` の日が変わったときだけ（`lightGlow`）。はじめて開いた（lastDay が無い）ときは選ばない。今日の litAt を持つ泡がすでにあれば選ばない（2 つあれば litAt の早いほう。`litOfDay`）。
+- 触れた時刻は `usedTimes`（最近つかった `recentItems` と同じ数え方。recentItems もこれを使うようにした）と litAt の大きいほう。stamps は使わない。
+- 輝きの席は `capForSea` の最後（`giveSeat`）。気孔の入れ替え（swaps）の列には入れない。開いたあとも、その日は席を持たせる。
+- 漂う海（drift）は `onActions` を bubble.js へ渡さず、盤は長押しメニューの中身（`menuFor` → `harvestActions`）を借りて組む。だから `thanks`・`onOpened` は `actionsFor` と `menuFor` の両方に足した（`glowExtras`）。onOpened は盤を置いたあとに 1 回だけ呼ぶ。
+- 開いたかは端末だけ（`bubble_todo_glow_opened_v1` = {day, id}）。ほかの端末ではまだ光る。
+

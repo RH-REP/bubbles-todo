@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-24g';
+const VERSION = '2026-11-24h';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -100,6 +100,7 @@ const ASSETS = [
   './js/space.js',
   './js/spacelist.js',
   './js/store.js',
+  './js/glow.js',     /* 輝く泡（2026-11-24） */
   './js/priority.js',
   './js/quadview.js',
   './js/deadline.js',      /* 日付で見る（2026-11-07 Issue #24） */

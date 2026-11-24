@@ -547,6 +547,18 @@ export function updateBubble(node, item, opts = {}) {
   }
   if (knote) { knote.textContent = kNote; knote.hidden = !kNote; }
   node.classList.toggle('is-heavy', !!(item && item.heavy));
+  /* ---- 輝く泡（2026-11-24。js/glow.js）----
+     item.lit なら光の輪と光の粒（.glow。泡の後ろ）。渡さない画面では何も変わらない */
+  const lit = !!(item && item.lit);
+  let glow = node.querySelector(':scope > .glow');
+  if (lit && !glow) {
+    glow = el('span', 'glow');
+    glow.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 3; i++) glow.appendChild(el('span', 'glow-mote'));
+    node.insertBefore(glow, node.firstChild);
+  }
+  if (glow) glow.hidden = !lit;
+  node.classList.toggle('is-lit', lit);
   /* ---- 担当（共有の記録 v1.2。2026-11-18）----
      共有の海の泡に、担当の人の名前の頭 1 字を右下の小さな丸に。自分が担当なら縁を太くする（is-mine）。
      終えた泡には、終えた人の頭 1 字に ✓。預け先に whoMark が無い版・共有でない海では出ない */
@@ -566,6 +578,7 @@ export function updateBubble(node, item, opts = {}) {
   if (spanNote) label += '、' + spanNote;
   if (kNote) label += '、' + kNote;
   if (fresh) label += '、新しいひとことあり';
+  if (lit) label += '、輝いている';
   node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
   node.dataset.id = item.id;
   return node;
@@ -3472,6 +3485,17 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     root.insertBefore(ro, root.firstChild);
   }
 
+  /* 輝く泡を開いたときの一行（2026-11-24。js/glow.js）。盤のいちばん上 */
+  if (actions && typeof actions.thanks === 'string' && actions.thanks) {
+    const th = el('p', 'bc-thanks');
+    th.textContent = actions.thanks;
+    th.setAttribute('role', 'status');
+    th.dataset.name = 'ありがとうの一行';
+    /* 盤の札（fields）の中のいちばん上。root の直下に置くと札の外（画面の左上）に出る */
+    const box = fields || root;
+    box.insertBefore(th, box.firstChild);
+  }
+
   return {
     root, place,
     /* タグは最後に書く。書いた瞬間に画面が組み直されるので、
@@ -3940,6 +3964,10 @@ export function attachGestures(node, handlers = {}) {
       tagInfoOf(node));
     layerEl().appendChild(panel.root);
     panel.place(cx, cy, W);
+    /* 輝く泡なら光がほどける（2026-11-24。画面側の onOpened が輪・粒・音を出す）。1 回だけ */
+    if (actions && typeof actions.onOpened === 'function') {
+      try { actions.onOpened(node); } catch (err) { /* 光のために盤を壊さない */ }
+    }
 
     /* 指で開いたなら、このタップが生む click を1つだけ捨てる。
        盤を組んだあとに張る（張る前に return する枝は無いが、順番を読みやすくするため） */

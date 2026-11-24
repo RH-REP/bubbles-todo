@@ -119,6 +119,7 @@ import { quadrantFor, sizeOf, FIRST_MAX } from './priority.js';
 import { findSea, boxKey } from './spacelist.js';
 import { isPersonal, regionOfSpace } from './regions.js';
 import { normalizeRepeat, spanAt, nextSpan, nextDay } from './repeat.js';
+import { usedTimes, pickGlow, litOfDay, litAtOf } from './glow.js';
 import { normalizeNotes, normalizeNote, notesFor, makeNote, canRemove, byTime, CHAT_TODO, chatFor } from './notes.js';
 
 /* 持ち主（2026-10-23。利用者の指示：個人と共有の海を切り替える）。
@@ -1054,6 +1055,8 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
        これまでの記録の形を変えないため */
     ...sharedFields(t, tagIds),
     ...whoFields(t),
+    /* 輝いた時刻（2026-11-24。js/glow.js）。形の合わないもの・無いものは欄を置かない */
+    ...(litAtOf(t) ? { litAt: litAtOf(t) } : {}),
   }));
 }
 
@@ -1066,6 +1069,7 @@ const TODO_KNOWN = new Set([
   'size', 'dueKind', 'key', 'first',
   'start', 'due', 'project', 'ext', 'firstSpan',
   'assignee', 'added_by', 'done_by',
+  'litAt',
 ]);
 
 /* 選ぶときの基準の欄（2026-11-24 ユーザーの決定。app_spec の minutes/261124_選ぶときの基準.md）。
@@ -1507,6 +1511,10 @@ function rollover() {
   /* today は days から出る派生値なので、作り直す仕事はもう無い
      （日が変わった時点で、昨日ぶんは読むだけで外れている） */
   lastDay = day;
+  /* 輝く泡（2026-11-24。js/glow.js）。日の切り替えのたびに 1 つ選び、litAt を書く。
+     今日の litAt を持つ泡がすでにあれば（ほかの端末が先に選んで合わさった）選ばない。
+     はじめて開いた（first）ときは選ばない（いつの日の切り替えか判らない） */
+  if (!first) lightGlow(day);
   persist(dayStartMs(day));
   /* **日が変わったこと自体を知らせる。**中身を書き替えていなくても、
      today / タグ / その日の水面の見え方はもう変わっている。
@@ -1516,6 +1524,27 @@ function rollover() {
      **戻す動作そのものが無くなった**ので、いつでも 0。
      呼んでいるのは review.js / plan.js の2か所だけで、どちらも戻り値を見ていない。 */
   return n;
+}
+
+/* 輝く泡の候補：生きていて、終えていない・長期保留でない・期間の外でない・先の日に置いていない・
+   きっかけ・すきまに置いていない（海に出ない泡）。タグの海の泡は候補に入る */
+function glowCandidate(t, day) {
+  if (!isLive(t) || t.done || t.hold || t.plan || t.gap) return false;
+  if (spanHeldOf(t, day)) return false;
+  return !(Array.isArray(t.days) && t.days.some(d => d > day));
+}
+function glowOf(day) {
+  const from = dayStartMs(day), to = dayStartMs(addDays(day, 1));
+  const t = litOfDay(items.filter(x => isLive(x) && !x.done), from, to);
+  return t || null;
+}
+function lightGlow(day) {
+  if (glowOf(day)) return null;
+  const used = usedTimes(items, { todayLogs, focusLogs }, startedOf);
+  const pick = pickGlow(items.filter(t => glowCandidate(t, day)), used);
+  if (!pick) return null;
+  pick.litAt = Math.max(Date.now(), dayStartMs(day));
+  return pick;
 }
 
 function useData(data) {
@@ -2325,6 +2354,14 @@ export const store = {
     return !!(t && Array.isArray(t.first) && t.first.indexOf(day) >= 0);
   },
 
+  /* --- 輝く泡（2026-11-24。js/glow.js、app_spec の minutes/261124_輝く泡.md）---
+     その日の輝く泡（無ければ null）。終えた・消した泡は返さない。day を省けば今日 */
+  glowItem(day) {
+    const k = dayKeyOrNull(day) || todayKey();
+    const t = glowOf(k);
+    return t && glowCandidate(t, k) ? t : null;
+  },
+
   /* --- 最近つかった（F7）---
      保存しない。**読むたびに記録から出す派生値**。
      「使った」＝ 書いた／はじめた／一手を記録した／完了した／今日に置いた／集中画面を開いた。
@@ -2333,25 +2370,9 @@ export const store = {
      順番だけを返す。回数も日数も持たない（画面にも出さない）。 */
   recentItems(n) {
     const lim = Number.isFinite(Number(n)) && Number(n) > 0 ? Number(n) : 20;
-    /* ログは項目ごとに最後の時刻だけ要る。一度なめて Map に寄せる */
-    const last = new Map();
-    const touch = (id, at) => {
-      const v = Number(at);
-      if (!id || !Number.isFinite(v)) return;
-      if (!last.has(id) || last.get(id) < v) last.set(id, v);
-    };
-    todayLogs.forEach(e => touch(e.id, e.at));
-    focusLogs.forEach(e => touch(e.id, e.at));
-    const stamp = (t) => {
-      let m = Number(t.createdAt) || 0;
-      const st = startedOf(t);
-      Object.keys(st).forEach(k => { const v = Number(st[k]); if (v > m) m = v; });
-      (Array.isArray(t.steps) ? t.steps : []).forEach(e => { const v = Number(e && e.at); if (v > m) m = v; });
-      if (Number(t.doneAt) > m) m = Number(t.doneAt);
-      const l = last.get(t.id);
-      if (l > m) m = l;
-      return m;
-    };
+    /* 数え方は輝く泡の「触れた」と同じもの（js/glow.js の usedTimes。輝いたことはここでは数えない） */
+    const used = usedTimes(items, { todayLogs, focusLogs }, startedOf);
+    const stamp = (t) => used.get(t.id) || 0;
     return items.filter(t => isLive(t) && !t.done && !t.hold)
       .map(t => ({ t, at: stamp(t) }))
       .sort((a, b) => (b.at - a.at) || ((b.t.createdAt || 0) - (a.t.createdAt || 0)))
