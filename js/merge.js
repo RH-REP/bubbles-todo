@@ -99,6 +99,24 @@ export function initialStamps(doc, at) {
   return stamps;
 }
 
+/* 最初の期間（todo の firstSpan。2026-11-24）は書いたら変えない欄なので、記録ごとの新しいほうに任せない。
+   勝ったほうに無くても（firstSpan を知らない古い写しが後から書いても）、両方のうち早く書いたほう（at の小さいほう）を残す。
+   受け取った記録は書き換えない（写しを返す） */
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+function okFirstSpan(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v) && DAY_RE.test(v.due)
+    && (v.start === null || v.start === undefined || DAY_RE.test(v.start))
+    && Number.isFinite(Number(v.at)) && Number(v.at) > 0;
+}
+function keepFirstSpan(k, win, ra, rb) {
+  if (!k.startsWith('todo:') || !win || typeof win !== 'object') return win;
+  const c = [ra, rb].map(r => r && r.firstSpan).filter(okFirstSpan)
+    .sort((x, y) => (Number(x.at) - Number(y.at)) || (JSON.stringify(x) < JSON.stringify(y) ? -1 : 1));
+  if (!c.length) return win;
+  if (JSON.stringify(win.firstSpan) === JSON.stringify(c[0])) return win;
+  return Object.assign({}, win, { firstSpan: JSON.parse(JSON.stringify(c[0])) });
+}
+
 /* どちらを残すか。新しいほう。同じ時刻なら中身の文字列で決める */
 function pick(sa, va, sb, vb) {
   if (sa[0] !== sb[0]) return sa[0] > sb[0] ? 'a' : 'b';
@@ -145,7 +163,7 @@ export function mergeState(a, b) {
     const s = w === 'a' ? sa : sb;
     if (s[0] < 0) return;                       /* どちらにも無い */
     stamps[k] = s;
-    if (s[1]) recs.set(k, w === 'a' ? ra.get(k) : rb.get(k));
+    if (s[1]) recs.set(k, keepFirstSpan(k, w === 'a' ? ra.get(k) : rb.get(k), ra.get(k), rb.get(k)));
   });
 
   const doc = buildDoc(recs, Object.assign({}, B.doc, A.doc));

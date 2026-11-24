@@ -148,6 +148,28 @@ TYPES = {
 }
 
 
+def keep_first_span(old, new):
+    """最初の期間（todo の firstSpan。2026-11-24 ユーザーの決定）は、書いたら変えない欄。
+    持っている todo に firstSpan があれば、届いた todo に無くても（firstSpan を知らない古い写しの端末が書いても）、
+    届いたものが違っても、持っているほうを残す。届いた data をその場で直す。持っていない todo には触らない"""
+    try:
+        old_todos = old['doc']['todos']
+        new_todos = new['doc']['todos']
+    except (TypeError, KeyError):
+        return
+    if not isinstance(old_todos, list) or not isinstance(new_todos, list):
+        return
+    held = {}
+    for t in old_todos:
+        if isinstance(t, dict) and isinstance(t.get('id'), str) and isinstance(t.get('firstSpan'), dict):
+            held[t['id']] = t['firstSpan']
+    if not held:
+        return
+    for t in new_todos:
+        if isinstance(t, dict) and t.get('id') in held and t.get('firstSpan') != held[t['id']]:
+            t['firstSpan'] = held[t['id']]
+
+
 class Store:
     """版つきで JSON を1つ預かる。書き込みは1本ずつ（lock）"""
 
@@ -171,6 +193,7 @@ class Store:
             cur = self.read()
             if base != cur['version']:
                 return False, cur
+            keep_first_span(cur.get('data'), data)
             nxt = {'version': cur['version'] + 1, 'data': data, 'savedAt': int(time.time() * 1000)}
             if self.path.exists():
                 self._backup()

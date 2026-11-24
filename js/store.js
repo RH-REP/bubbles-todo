@@ -1055,7 +1055,7 @@ const TODO_KNOWN = new Set([
   'id', 'text', 'days', 'today', 'hold', 'holdUntil', 'createdAt', 'fx', 'fy', 'slots', 'anchors', 'anchorAt',
   'started', 'firstStep', 'url', 'detail', 'gap', 'gapSlots', 'gapSlot', 'gapAt', 'plan', 'steps', 'draft',
   'tags', 'done', 'doneAt', 'trashed', 'trashedAt', 'fav', 'urgent', 'important',
-  'start', 'due', 'project', 'ext',
+  'start', 'due', 'project', 'ext', 'firstSpan',
   'assignee', 'added_by', 'done_by',
 ]);
 
@@ -1092,6 +1092,25 @@ function unknownFields(o, known) {
   return out;
 }
 
+/* 最初の期間（2026-11-24 ユーザーの決定。gantt の minutes/261124_目安と週の組み立て.md の 1）。
+   { start: 'YYYY-MM-DD'|null（期限だけ入れたとき）, due: 'YYYY-MM-DD', at: 書いた時刻 ms }。
+   期間を初めて書いたときに 1 回だけ書き、あとで期間を直しても外しても変えない。gantt が「目安」を数えるのに読む。
+   形の合うものだけの写しを返す（合わなければ null） */
+export function firstSpanOf(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const due = dayKeyOrNull(v.due);
+  const start = v.start == null ? null : dayKeyOrNull(v.start);
+  const at = Number(v.at);
+  if (!due || (v.start != null && !start) || !Number.isFinite(at) || at <= 0) return null;
+  return { start, due, at };
+}
+/* 期間が空から値になったときだけ書く（すでにあれば書かない）。start は入れたまま（期限だけなら null） */
+function noteFirstSpan(t, start, due, at) {
+  if (firstSpanOf(t.firstSpan) || !due) return false;
+  t.firstSpan = { start: start || null, due, at: Number.isFinite(at) ? at : Date.now() };
+  return true;
+}
+
 /* プロジェクトの id（記録の形の版 2。2026-11-24。gantt が作る。'p_' ＋英数字・_・-） */
 export const PROJECT_ID_RE = /^p_[A-Za-z0-9_-]{1,40}$/;
 function isProjectId(v) { return typeof v === 'string' && PROJECT_ID_RE.test(v); }
@@ -1101,6 +1120,7 @@ function isProjectId(v) { return typeof v === 'string' && PROJECT_ID_RE.test(v);
      project    … プロジェクトの id（'p_' で始まる。記録の形の版 2）なら、指す先が無くても残す（ほかの app の書いた値を守る）。
                   それ以外は、今あるふつうのタグの id だけ残す（特別なタグは入れない。v1.1）
      ext        … app ごとの持ち物。中は見ずにそのまま残す。オブジェクト以外は {}
+     firstSpan  … 最初の期間 {start: 日|null, due: 日, at: ms}（2026-11-24。形の合わないものは欄を置かない）
    null と {} は欄を置かない */
 function sharedFields(t, tagIds) {
   const out = {};
@@ -1113,6 +1133,8 @@ function sharedFields(t, tagIds) {
   if (t.ext && typeof t.ext === 'object' && !Array.isArray(t.ext) && Object.keys(t.ext).length) {
     out.ext = JSON.parse(JSON.stringify(t.ext));
   }
+  const fs = firstSpanOf(t.firstSpan);
+  if (fs) out.firstSpan = fs;
   return out;
 }
 
@@ -1615,6 +1637,8 @@ function spawnRepeat(t) {
     writeRepeat(c, Object.assign(keep, { n: nx.n }));
     c.start = nx.start;
     c.due = nx.due;
+    /* 最初の期間は元のものを写さず、写しの期間で新しく書く（2026-11-24） */
+    noteFirstSpan(c, nx.start, nx.due, Date.now());
   } else {
     writeRepeat(c, Object.assign(keep, { at: day }));
     c.days = [day];
@@ -2524,11 +2548,15 @@ export const store = {
     const t = store.get(id);
     if (!t) return false;
     let a = dayKeyOrNull(start), b = dayKeyOrNull(due);
+    const inStart = a;                       /* 最初の期間は入れたままの start（期限だけなら null） */
+    const wasEmpty = !t.start && !t.due;
     if (!a) a = b;
     if (!b) b = a;
     if (a && b && b < a) { const x = a; a = b; b = x; }
     if ((t.start || null) === a && (t.due || null) === b) return false;
     if (a) { t.start = a; t.due = b; } else { delete t.start; delete t.due; }
+    /* 最初の期間：期間が空から値になった最初の 1 回だけ（2026-11-24） */
+    if (a && wasEmpty) noteFirstSpan(t, inStart ? a : null, b, Date.now());
     /* 毎月くりかえす（Issue #60）：期間を直したら、その期間を新しい元にする。期間を外したら、くりかえしも外す */
     const r = repeatOfItem(t);
     if (r && r.of === 'span') writeRepeat(t, a ? Object.assign({}, r, { from: a, to: b, n: 0 }) : null);

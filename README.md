@@ -894,6 +894,17 @@ bash tests/server-setup.test.sh
   **知らない欄は丸ごと残す**：todo の知らない欄（`normalizeTodo` の `TODO_KNOWN` に無いもの）、保存データの頂上の知らない欄（`docOf()` の `docExtra`）、
   サーバーの `data` の頂上（`doc`・`stamps` の横）の知らない欄（`js/sync.js` が PUT に載せ直す）。
   形の決まりはこの repo の外の仕様書（共有の記録 v1.1）が正。テスト: `node tests/shared-fields.test.mjs`・`node tests/schema.test.mjs`
+  - **最初の期間 `firstSpan`（2026-11-24 ユーザーの決定。gantt の議事録 `261124_目安と週の組み立て` の 1）**: todo の頂上の共有の欄（`ext` の外）
+    `firstSpan = { start: 'YYYY-MM-DD'|null, due: 'YYYY-MM-DD', at: 書いた時刻 ms }`。gantt が「目安」を数えるのに読む。bubble の画面には出さない
+    - 期間が**空から値になった最初の 1 回だけ**書く。すでにあれば書かない。あとで期間を直しても、外しても、付け直しても変えない・消さない
+    - 期限だけ入れたときは、`setSpan` が start＝due にする前の入力のまま `start: null`。開始だけのときはその日 1 日（`due`＝`start`）
+    - 書き手は 4 か所：bubble の `store.setSpan`（先の予定 `js/events.js` もここを通る）、gantt、秘書（todo_secretary）の `span`・`add`。
+      bubble のくりかえしの写しは、元のものを写さず写しの期間で新しく書く。この版より前から期間を持っていた泡には、あとから書かない（初めて書いた時が分からない）
+    - 消えない守り：端末の合わせ方（`js/merge.js` の `keepFirstSpan`）は、記録の新しいほうに無くても、両方のうち早く書いたほう（`at` の小さいほう）を残す。
+      サーバー（`server.py` の `keep_first_span`。書き込みのすべての道）は、持っている todo にあれば、届いたものに無くても・違っても、持っているほうを残す
+    - **記録の形の版は上げない**：前の bubble も知らない欄として丸ごと残し（v1.1）、firstSpan を知らない古い写しが書いても上のサーバーの守りで戻る。
+      前の版が書かないのは「最初の期間が無い」になるだけ（gantt は目安を出さない）
+    - テスト: `node tests/firstspan.test.mjs`、`python3 -m unittest tests.test_server -k first_span`
 - **記録の形の版（2026-11-10。共有の記録 v1.1 §6。利用者の指示「非互換性 update を通知するための機能」）**:
   古い版の端末は、新しい欄を知らずに落とし、印が変わらないまま広げてしまう
   （`tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md`）。そこで版で守る。

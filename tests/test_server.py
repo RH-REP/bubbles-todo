@@ -340,6 +340,24 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(got['data']['doc'], doc)
         self.assertEqual(got['data']['stamps'], stamps)
 
+    def test_put_keeps_held_first_span(self):
+        """最初の期間（firstSpan。2026-11-24）：持っている todo にあれば、firstSpan を知らない古い写しの PUT
+        （欄が無い）でも、違う値の PUT でも、持っているほうを残す。持っていない todo の firstSpan はそのまま受ける"""
+        fs = {'start': None, 'due': '2026-12-01', 'at': 1764000000000}
+        doc = {'todos': [{'id': 'a', 'text': '架空', 'due': '2026-12-01', 'start': '2026-12-01', 'firstSpan': fs}]}
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 0, 'data': {'doc': doc, 'stamps': {}}})[0], 200)
+        old = {'todos': [{'id': 'a', 'text': '架空（直した）', 'due': '2026-12-05', 'start': '2026-12-05'},
+                         {'id': 'b', 'text': '新しい架空', 'firstSpan': {'start': '2026-12-02', 'due': '2026-12-03', 'at': 5}}]}
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 1, 'data': {'doc': old, 'stamps': {}}})[0], 200)
+        got = json.loads(self.req('GET', '/api/data')[1])['data']['doc']['todos']
+        self.assertEqual(got[0]['firstSpan'], fs, '古い写しの PUT で消えない')
+        self.assertEqual(got[0]['text'], '架空（直した）', 'ほかの欄は届いたもの')
+        self.assertEqual(got[1]['firstSpan']['due'], '2026-12-03', '持っていない todo のものはそのまま')
+        other = {'todos': [{'id': 'a', 'text': '架空', 'firstSpan': {'start': '2026-11-30', 'due': '2026-12-09', 'at': 9}}]}
+        self.assertEqual(self.req('PUT', '/api/data', {'base': 2, 'data': {'doc': other, 'stamps': {}}})[0], 200)
+        got = json.loads(self.req('GET', '/api/data')[1])['data']['doc']['todos']
+        self.assertEqual(got[0]['firstSpan'], fs, '違う値が届いても変えない')
+
     def test_token_file_created(self):
         d = self.data / 'other'
         d.mkdir()
