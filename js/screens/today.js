@@ -393,7 +393,8 @@ function renderPlate(ps) {
       b.appendChild(nm);
       if (t.urgent === true && t.dueKind === 'ext') b.appendChild(el('span', 'tp-seat-k', '外の約束'));
       b.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
-      b.addEventListener('click', ev => { ev.preventDefault(); openBoardFor(t.id, b); });
+      b.addEventListener('click', ev => { ev.preventDefault(); if (seatDragged(b)) return; openBoardFor(t.id, b); });
+      seatDrag(b, t, 'first', day);
       seats.appendChild(b);
     });
     /* 空いた席（2026-11-24）：空いている数だけ点線の席を出す。押すとおすすめ、泡を落としても入る */
@@ -432,7 +433,8 @@ function renderPlate(ps) {
     bub.appendChild(btx);
     if (t.important === true) bub.classList.add('is-heavy');
     bub.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
-    bub.addEventListener('click', ev => { ev.preventDefault(); openBoardFor(t.id, bub); });
+    bub.addEventListener('click', ev => { ev.preventDefault(); if (seatDragged(bub)) return; openBoardFor(t.id, bub); });
+    if (!isPast()) seatDrag(bub, t, 'key', day);
     body.appendChild(bub);
     const tx = el('div', 'tp-key-tx');
     const next = detailOf('firstStepOf', t.id);
@@ -461,6 +463,96 @@ function renderPlate(ps) {
     plate.appendChild(none);
   }
   plate.hidden = !plate.children.length;
+}
+
+/* ---- 枠から出す（2026-11-24 利用者の指示「きっかけのところを参考に、入れた枠から出せる様にして」）----
+   きっかけの画面の泡と同じ考え方：枠の中の泡（先に済ませるの席・今日大事なことの泡）を掴んで動かすと写しが指に付き、
+     ・枠の外で離す   … その枠から外す（今日には残る）。トーストで言い、［元に戻す］で入れ直せる（きっかけの「未分類へもどした」と同じ）
+     ・もう片方の枠で離す … そちらへ移す（入れ方・断り方は泡を枠へ落としたときと同じ）
+     ・同じ枠で離す・動かさない … 何もしない（押しただけなら、これまでどおり盤を開く）
+   下のタブの上で離したときも何もしない。動かしたかどうかは 8px で決め、動かしたあとの click は捨てる */
+const SEAT_MOVE = 8;
+function seatDragged(node) {
+  if (node.dataset.dragged !== '1') return false;
+  delete node.dataset.dragged;
+  return true;
+}
+function seatDrag(node, t, kind, day) {
+  node.style.touchAction = 'none';
+  node.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    const x0 = ev.clientX, y0 = ev.clientY;
+    let ghost = null, ox = 0, oy = 0, pt = { x: x0, y: y0 };
+    const move = e => {
+      pt = { x: e.clientX, y: e.clientY };
+      if (!ghost) {
+        if (Math.hypot(pt.x - x0, pt.y - y0) < SEAT_MOVE) return;
+        const r = node.getBoundingClientRect();
+        ox = x0 - r.left; oy = y0 - r.top;
+        ghost = node.cloneNode(true);
+        ghost.classList.add('tp-ghost');
+        ghost.style.width = r.width + 'px';
+        ghost.style.height = r.height + 'px';
+        (document.getElementById('drag-layer') || document.body).appendChild(ghost);
+        node.classList.add('is-lifted');
+        node.dataset.dragged = '1';
+      }
+      e.preventDefault();
+      ghost.style.transform = 'translate(' + (pt.x - ox) + 'px,' + (pt.y - oy) + 'px)';
+      const hit = plateHitAt(pt.x, pt.y);
+      markPlateDrop(hit && hit.kind !== kind ? hit : null);
+      ghost.classList.toggle('is-out', !hit);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+      if (!ghost) return;
+      ghost.remove();
+      node.classList.remove('is-lifted');
+      markPlateDrop(null);
+      /* 押したあとに来る click を捨てる（来ないこともあるので、少しして印を消す） */
+      setTimeout(() => { delete node.dataset.dragged; }, 400);
+      const bar = document.getElementById('tabbar');
+      if (bar) {
+        const r = bar.getBoundingClientRect();
+        if (pt.x >= r.left && pt.x <= r.right && pt.y >= r.top && pt.y <= r.bottom) return;
+      }
+      const hit = plateHitAt(pt.x, pt.y);
+      if (hit && hit.kind === kind) return;
+      if (hit) { moveSeat(t.id, kind, hit.kind, day); return; }
+      takeOutSeat(t.id, kind, day);
+    };
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+  });
+}
+/* 枠から外す。今日には残す。［元に戻す］で同じ枠へ入れ直す */
+function takeOutSeat(id, kind, day) {
+  const t = store.get(id);
+  if (!t) return;
+  const name = kind === 'key' ? (day === todayKey() ? '今日大事なこと' : '大事なこと') : '先に済ませる';
+  const ok = kind === 'key' ? store.setKey(id, day, false) : store.setFirst(id, day, false) === 'ok';
+  if (!ok) return;
+  playSfx('place');
+  toast('「' + trim(t.text) + '」を' + name + 'から外した', {
+    label: '元に戻す',
+    on: () => { if (kind === 'key') store.setKey(id, day, true); else store.setFirst(id, day, true); },
+  });
+}
+/* もう片方の枠へ移す。入れられなければ（席がいっぱい・さっとでない）元の枠に残す */
+function moveSeat(id, from, to, day) {
+  if (to === 'key') {
+    if (from === 'first') store.setFirst(id, day, false);
+    const before = store.keyItem(day);
+    placeKey(id, day);
+    if (from === 'first' && !store.isKey(id, day) && (!before || before.id !== id)) store.setFirst(id, day, true);
+    return;
+  }
+  /* 今日大事なこと → 先に済ませる。先に入れてみて、入ったときだけ大事なことから外す */
+  placeFirst(id, true);
+  if (store.isFirst(id, day)) store.setKey(id, day, false);
 }
 
 function setQuad(on) {

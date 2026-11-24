@@ -681,16 +681,16 @@ body.pref-show-suggest .today-plate { right: 72px; }
 .today-plate .tp-first-h { color: var(--text-2); }
 .today-plate .tp-first-t { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .today-plate .tp-seats { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
-.today-plate .tp-seat {
+.today-plate .tp-seat, .tp-ghost.tp-seat {
   appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
   min-height: 32px; padding: 2px 10px; border-radius: 999px;
   border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font-size: 12.5px;
 }
-.today-plate .tp-seat-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-plate .tp-seat-nm, .tp-ghost .tp-seat-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-plate .tp-seat.is-done { color: var(--text-2); }
 .today-plate .tp-seat.is-empty { border-style: dashed; color: var(--text-2); min-width: 44px; justify-content: center; }
-.today-plate .tp-seat-k { font-size: 10.5px; color: var(--text-2); }
+.today-plate .tp-seat-k, .tp-ghost .tp-seat-k { font-size: 10.5px; color: var(--text-2); }
 
 .today-plate .tp-key {
   padding: 8px 12px 10px; border: 1px solid var(--line-strong); border-radius: 16px;
@@ -701,7 +701,7 @@ body.pref-show-suggest .today-plate { right: 72px; }
 .today-plate .tp-key.is-lit { box-shadow: 0 0 0 2px var(--bub-edge), 0 0 14px var(--bub-edge); }
 .today-plate .tp-key-h { font-size: 12px; color: var(--text-2); }
 .today-plate .tp-key-body { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
-.today-plate .tp-key-bub {
+.today-plate .tp-key-bub, .tp-ghost.tp-key-bub {
   appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
   flex: 0 0 auto; width: 88px; height: 88px; padding: 8px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; text-align: center;
@@ -739,3 +739,13 @@ body.pref-show-suggest .today-plate { right: 72px; }
   outline: 2px solid var(--accent-a); outline-offset: 2px;
   background: color-mix(in srgb, var(--accent-a) 10%, var(--surface, #fff));
 }
+
+/* 枠から出す（2026-11-24）：掴んでいる間、指に付く写しと、元の席の薄い跡。枠の外にいる間は写しの縁を点線に（離すと外れる合図） */
+.tp-ghost {
+  position: fixed; left: 0; top: 0; z-index: 60;
+  margin: 0; pointer-events: none;
+  box-shadow: 0 8px 22px rgba(0,0,0,.18);
+  opacity: .95;
+}
+.tp-ghost.is-out { border-style: dashed; opacity: .8; }
+.tp-seat.is-lifted, .tp-key-bub.is-lifted { opacity: .35; }
