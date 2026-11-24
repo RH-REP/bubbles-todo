@@ -911,6 +911,19 @@ bash tests/server-setup.test.sh
     2. 新しい版を**先に配る**（サーバーの `update.command`。PWA は次に開いたとき、または帯・設定の [今すぐ更新] で入れ替わる）
     3. Android の app（Capacitor。`www/` を中に同梱）は**自動では入れ替わらない**。`npm run android:build` で作り直して入れ直す
     4. 配り終えてから、サーバーを `--min-schema <新しい版>` で起動し直す。まだ古い端末は 426 で止まり、帯で更新を求められる（記録は消えない）
+       - VM では `tools/server-setup.sh` の `min-schema-set <版>` で上げる（2026-11-24）。控え `<記録の置き場>/.setup.<サービス名>` に `MIN_SCHEMA` を覚え、
+         unit の ExecStart に `--min-schema <版>` を載せて restart する。`update`（oracle_apps の自動の取り込みを含む）で unit を書き直しても、控えから読むので残る。
+         今の値は `min-schema` で見る（控えと unit の両方を出す）
+       - **同じ記録の置き場を書くサービスは、全部で上げる。**片方だけ上げると、古い端末がもう片方の住所から書けてしまう。
+         今の公開の形は、`bubbles-public`（前の住所）と `bubbles-lab`（新しい住所）の2つが同じ置き場 `$HOME/bubbles-public` を書く:
+         ```bash
+         BUBBLES_DATA=$HOME/bubbles-public BUBBLES_SERVICE=bubbles-public BUBBLES_PORT=8932 bash $HOME/bubbles-public-code/tools/server-setup.sh min-schema-set 2
+         BUBBLES_DATA=$HOME/bubbles-public BUBBLES_SERVICE=bubbles-lab BUBBLES_PORT=8933 bash $HOME/bubbles-lab-code/tools/server-setup.sh min-schema-set 2
+         ```
+       - **上げる前に確かめること**: 両方の住所で、新しい版（版 2 なら 2026-11-24d 以降）が配られていること。
+         `curl -s https://<前の住所>/js/version.js` と `curl -s https://<新しい住所>/js/version.js` の `BUBBLES_VERSION`。
+         古いままなら、先にそのサービスで `update`（両方の clone に `min-schema-set` が入るのも、取り込んだあと）
+       - 戻すときは `min-schema-set 1`
     5. 同じ記録を読み書きする gantt_todo・diary も、同じ版を送るように直す（仕様書 §6）
   - **版 2（2026-11-24 ユーザーの決定。議事録 `261124_プロジェクトを海の中の記録にする`）**: プロジェクトを海の記録の1件にする。
     - `doc.projects[]` = `{ id: 'p_…', name, color, start, due, goal, lead, status: 'active'|'paused'|'done', createdAt, ext, …知らない欄 }`。印は `project:<id>`・`order:project`。

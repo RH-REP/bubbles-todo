@@ -109,6 +109,24 @@ grep -q "が応えた" <<<"$out3" || fail "update のあと応えない"
 grep -q -- "--auth passkey --origin https://bubbles.example.org" "$u" || fail "環境変数なしの update で形が変わった"
 pass "2回目も update も、環境変数なしで同じ形のまま通る"
 
+# --- 記録の形の版（2026-11-24）: min-schema・min-schema-set。控えに覚え、update・install で unit を書き直しても残る ---
+if grep -q -- "--min-schema" "$u"; then fail "既定で --min-schema が付いた"; fi
+grep -q "控え 1・unit 1" <<<"$(setup min-schema 2>&1)" || fail "min-schema が既定の 1 を出さない"
+if setup min-schema-set abc >/dev/null 2>&1; then fail "数でない版を受けた"; fi
+if setup min-schema-set 0 >/dev/null 2>&1; then fail "版 0 を受けた"; fi
+outm="$(setup min-schema-set 2 2>&1)" || { echo "$outm"; fail "min-schema-set が止まった"; }
+grep -q "が応えた" <<<"$outm" || { echo "$outm"; fail "min-schema-set のあと応えない"; }
+grep -q -- "--trust-proxy --min-schema 2$" "$u" || fail "unit の ExecStart に --min-schema 2 が無い: $(grep ExecStart "$u")"
+grep -q "^MIN_SCHEMA=2$" "$T/home/bubbles-data/.setup.bubbles-todo" || fail "控えに MIN_SCHEMA=2 が無い"
+grep -q -- "--min-schema 2" <<<"$(ps -o args= -p "$(cat "$T/server.pid")")" || fail "動いている server.py に --min-schema 2 が渡っていない"
+grep -q "控え 2・unit 2" <<<"$(setup min-schema 2>&1)" || fail "min-schema が 2 を出さない"
+outmu="$(setup update 2>&1)" || { echo "$outmu"; fail "min-schema-set のあとの update が止まった"; }
+grep -q -- "--min-schema 2$" "$u" || fail "update で --min-schema が消えた: $(grep ExecStart "$u")"
+outmi="$(setup install 2>&1)" || { echo "$outmi"; fail "min-schema-set のあとの install が止まった"; }
+grep -q -- "--min-schema 2$" "$u" && grep -q "^MIN_SCHEMA=2$" "$T/home/bubbles-data/.setup.bubbles-todo" \
+  || fail "install で --min-schema か控えが消えた"
+pass "min-schema-set 2 が控え・unit・動いている server.py に載り、update と install のあとも残る（既定では付かない）"
+
 # --- clone の設定に branch.main.merge が2つあっても取り込める（2026-11-18。名前なしの git pull は
 #     「Cannot fast-forward to multiple branches」で止まる）。版が進めば、取り込んだ版のスクリプトで打ち直す ---
 br="$(git -C "$T/code" symbolic-ref --short HEAD)"

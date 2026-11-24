@@ -2579,6 +2579,7 @@ inset box-shadow のぼかし、`.tint` のマスク。
 ## 記録の形の版
 
 端末（`js/sync.js` の `SCHEMA`）とサーバー（`server.py --min-schema`）の取り決め。手順は README「記録の形の版」。
+VM で上げるのは `tools/server-setup.sh min-schema-set <版>`（控え `.setup.<サービス名>` の `MIN_SCHEMA` から unit を書くので、`update` のあとも残る。2026-11-24）。同じ置き場を書くサービスは全部で打つ。
 古い版の端末が新しい欄を知らずに落とし、印が変わらないまま広げる（`tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md`）のを、版で止める。
 
 | 版 | 入れた日 | 中身 |

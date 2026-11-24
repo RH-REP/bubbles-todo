@@ -62,6 +62,11 @@
 #   BUBBLES_CADDY    main（既定。/etc/caddy/Caddyfile を雛形で書き直す）か site（/etc/caddy/sites/<サービス名>.caddy だけを置く）
 #   BUBBLES_FROM     copy-data で写す元の記録の置き場
 #
+# 記録の形の版（2026-11-24）:
+#   bash bubbles-todo/tools/server-setup.sh min-schema        # 受け付ける最も古い版（--min-schema）を見る
+#   bash bubbles-todo/tools/server-setup.sh min-schema-set 2  # 上げる（控え .setup.<サービス名> に覚え、unit に載せて restart）
+#   同じ記録の置き場を2つのサービスが書くなら、両方のサービスで打つ（README「記録の形の版」）
+#
 # 2026-10-25: Tailscale の形（合言葉で入り、tailscale serve で tailnet にだけ見せる）は外した（利用者の指示）。
 #   手順と考え方は tech_stack の記録に残し、例のコードはこの repo の履歴（commit 0263e6a まで）にある。
 set -euo pipefail
@@ -80,9 +85,13 @@ SETUP_FILE="$DATA/.setup.$SERVICE"
 SETUP_READ="$SETUP_FILE"
 [[ -f "$SETUP_READ" ]] || SETUP_READ="$DATA/.setup"
 OLD_MODE=""
+MIN_SCHEMA=""    # 受け付ける最も古い記録の形の版（server.py --min-schema）。空なら付けない（server.py の既定 1）
 if [[ -f "$SETUP_READ" ]]; then
   while IFS='=' read -r k v; do
-    case "$k" in MODE) OLD_MODE="$v" ;; DOMAIN) [[ -z "$DOMAIN" ]] && DOMAIN="$v" ;; CADDY) [[ -z "$CADDY" ]] && CADDY="$v" ;; esac
+    case "$k" in
+      MODE) OLD_MODE="$v" ;; DOMAIN) [[ -z "$DOMAIN" ]] && DOMAIN="$v" ;; CADDY) [[ -z "$CADDY" ]] && CADDY="$v" ;;
+      MIN_SCHEMA) [[ "$v" =~ ^[1-9][0-9]{0,2}$ ]] && MIN_SCHEMA="$v" ;;
+    esac
   done < "$SETUP_READ"
 fi
 CADDY="${CADDY:-main}"
@@ -157,11 +166,18 @@ pull_clone() {
   exec env BUBBLES_PULLED=1 bash "$DIR/tools/server-setup.sh" "$CMD"
 }
 
+# 控え（.setup.<サービス名>）を書く。update・2回目の install で書き直しても、記録の形の版（MIN_SCHEMA）は残す
+save_setup() {
+  { printf 'MODE=public\nDOMAIN=%s\nCADDY=%s\n' "$DOMAIN" "$CADDY"
+    if [[ -n "$MIN_SCHEMA" ]]; then printf 'MIN_SCHEMA=%s\n' "$MIN_SCHEMA"; fi
+  } > "$SETUP_FILE"
+}
+
 make_data() {
   say "3. 記録の置き場（${DATA}）"
   mkdir -p "$DATA"
   chmod 700 "$DATA"
-  printf 'MODE=public\nDOMAIN=%s\nCADDY=%s\n' "$DOMAIN" "$CADDY" > "$SETUP_FILE"
+  save_setup
   ok "$(ls -ld "$DATA")"
 }
 
@@ -188,7 +204,11 @@ need_mode() {
   [[ "$SERVICE" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || die "BUBBLES_SERVICE は英小文字・数字・- だけ（いまは ${SERVICE}）"
 }
 
-server_args() { printf -- '--auth passkey --origin https://%s --trust-proxy' "$DOMAIN"; }
+server_args() {
+  printf -- '--auth passkey --origin https://%s --trust-proxy' "$DOMAIN"
+  [[ -n "$MIN_SCHEMA" ]] && printf -- ' --min-schema %s' "$MIN_SCHEMA"
+  return 0
+}
 
 write_unit() {
   say "5. 常駐（systemd: ${SERVICE}）"
@@ -446,6 +466,29 @@ sys.stdout.write("\n".join(lines[:start] + repl + lines[end + 1:]))
   else ok "$old の節を外しました（前の形は ${bak}）。DuckDNS の名前を消すかは別に決める"; fi
 }
 
+# 記録の形の版（2026-11-24）。受け付ける最も古い版を見る・上げる。
+# 上げると、それより古い版の端末の書き込みは 426 で断られ、端末に「古い版」の帯が出る（記録は消えない）。
+# 先に新しい版の端末を配ってから上げる（README「記録の形の版」）。コードの取り込みとテストはしない（update で行う）
+cmd_min_schema() {
+  local unit_v=""
+  [[ -f "$UNIT" ]] && unit_v="$(sed -n 's/^ExecStart=.*--min-schema \([0-9]*\).*/\1/p' "$UNIT")"
+  printf '   %s: 控え %s・unit %s（空なら server.py の既定 1）\n' "$SERVICE" "${MIN_SCHEMA:-1}" "${unit_v:-1}"
+}
+cmd_min_schema_set() {
+  local n="${1:-}"
+  [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || die "版の数を入れてください（例: min-schema-set 2）"
+  need_mode; need_linux
+  PY="$(command -v python3)" || die "python3 がありません"
+  [[ -f "$UNIT" ]] || die "$UNIT がありません（先に install する）"
+  say "記録の形の版（${SERVICE}）: ${MIN_SCHEMA:-1} → $n"
+  MIN_SCHEMA="$n"
+  save_setup
+  ok "$SETUP_FILE に MIN_SCHEMA=$n を覚えた（update で unit を書き直しても残る）"
+  write_unit
+  health
+  ok "$SERVICE は版 $n より古い端末の書き込みを 426 で断る。同じ記録の置き場を書くほかのサービスでも打つ"
+}
+
 token_cmd() {
   PY="$(command -v python3)" || die "python3 がありません"
   "$PY" "$DIR/server.py" --data-dir "$DATA" "$@"
@@ -475,9 +518,11 @@ case "$CMD" in
   machine-remove) [[ -n "${2:-}" ]] || die "名前を入れてください（例: machine-remove diary）"; token_cmd machine-remove "$2" ;;
   oauth-list) token_cmd oauth-list ;;
   oauth-revoke) [[ -n "${2:-}" ]] || die "id か all を入れてください（oauth-list で見られる）"; token_cmd oauth-revoke "$2" ;;
+  min-schema) cmd_min_schema ;;
+  min-schema-set) cmd_min_schema_set "${2:-}" ;;
   install) cmd_install ;;
   update) cmd_update ;;
   status) cmd_status ;;
   uninstall) cmd_uninstall ;;
-  *) die "使い方: bash $0 [install|update|status|uninstall|copy-data|old-name redirect|remove|machine-add 名前 [--key-file パス] [--read-only]|machine-list|machine-remove 名前|oauth-list|oauth-revoke id|invite-add 名前 [me|me:<番号>|share|海の ID をコンマで]|invite-list|passkey-list|passkey-person 名前 <番号|new>|passkey-space 名前 add|remove ID|sea-list|sea-add 名前 [ID] [色]|sea-rename ID 名前|sea-remove ID|passkey-remove 名前|request-list|request-ok 字 [置き場]|request-no 字|limit|limit-set 数]" ;;
+  *) die "使い方: bash $0 [install|update|status|uninstall|copy-data|old-name redirect|remove|machine-add 名前 [--key-file パス] [--read-only]|machine-list|machine-remove 名前|oauth-list|oauth-revoke id|invite-add 名前 [me|me:<番号>|share|海の ID をコンマで]|invite-list|passkey-list|passkey-person 名前 <番号|new>|passkey-space 名前 add|remove ID|sea-list|sea-add 名前 [ID] [色]|sea-rename ID 名前|sea-remove ID|passkey-remove 名前|request-list|request-ok 字 [置き場]|request-no 字|limit|limit-set 数|min-schema|min-schema-set 版]" ;;
 esac
