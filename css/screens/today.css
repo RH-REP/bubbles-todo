@@ -731,3 +731,11 @@ body.pref-show-suggest .today-plate { right: 72px; }
 .today-plate button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 /* おすすめの板の［★ 大事なことに］［↑ 先に］ */
 .today-suggestbox .tsg-put.is-key, .today-suggestbox .tsg-put.is-first { white-space: nowrap; }
+
+/* 枠へ落とす（2026-11-24 ユーザーの指示「今日優先の枠にドロップできるように（先にも同じ）」）。
+   泡を掴んでいる間は、落とせる枠の縁を点線で見せ、指の下の枠は縁を濃く（is-drop） */
+.is-bubdrag .today-plate [data-drop] { outline: 1.5px dashed var(--line-strong, var(--line)); outline-offset: 2px; }
+.today-plate [data-drop].is-drop {
+  outline: 2px solid var(--accent-a); outline-offset: 2px;
+  background: color-mix(in srgb, var(--accent-a) 10%, var(--surface, #fff));
+}

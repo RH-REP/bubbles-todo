@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { mergeState } from '../js/merge.js';
-import { firstState, FIRST_MAX, effectiveSize, quadrantFor } from '../js/priority.js';
+import { firstState, FIRST_MAX, effectiveSize, quadrantFor, showFirstRow } from '../js/priority.js';
 import { firstStartedAt, markFirstStarted, firstMinutes, PREFS_KEY, FIRST_AT_KEY } from '../js/prefs.js';
 
 const KEY = 'bubble_todo_v1';
@@ -209,6 +209,15 @@ await test('くりかえしの写しは見当・急ぐの分け方を写し、�
   assert.equal(c.size, 's');
   assert.equal(c.dueKind, 'ext');
   assert.equal('key' in c || 'first' in c, false);
+});
+
+await test('先に済ませるの段を出すとき（2026-11-24「先にやるの枠がない」）: 1 つも入れていない朝も出す。全部済む・区切りの時間が過ぎたら畳む', () => {
+  const t0 = ms(2026, 11, 25, 9, 0);
+  assert.equal(showFirstRow(firstState([], null, 30, t0), 0), true, 'まだ入れていない＝空いた席を見せる');
+  assert.equal(showFirstRow(firstState([{ done: false }], t0, 30, t0 + 60000), 1), true);
+  assert.equal(showFirstRow(firstState([{ done: true }], t0, 30, t0 + 60000), 1), false, '全部済んだら畳む');
+  assert.equal(showFirstRow(firstState([{ done: false }], t0, 30, t0 + 31 * 60000), 1), false, '区切りの時間が過ぎたら畳む');
+  assert.equal(showFirstRow(null, 0), false);
 });
 
 console.log('\n' + pass + ' passed, ' + failed.length + ' failed');

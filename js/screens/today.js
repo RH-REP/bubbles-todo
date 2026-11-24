@@ -15,7 +15,7 @@ import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from
 import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete, playSfx } from '../sound.js';
 import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest, keyable, firstable } from '../suggest.js';
-import { SIZES, FIRST_MAX, firstState } from '../priority.js';
+import { SIZES, FIRST_MAX, firstState, showFirstRow } from '../priority.js';
 import { firstStartedAt, markFirstStarted, firstMinutes } from '../prefs.js';
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
@@ -343,7 +343,12 @@ function plateState() {
     if (rows.length && at === null) at = markFirstStarted(day, Date.now());
     st = firstState(rows.map(t => ({ done: isDoneItem(t) })), at, firstMinutes(), Date.now());
   }
-  return { key, rows, st };
+  /* 段を出すか（2026-11-24 ユーザーの指示「先にやるの枠がない」）。前は入れた泡があるときだけ出していたので、
+     まだ 1 つも入れていない朝は段そのものが無く、入れる場所が見えなかった。
+     今日で、区切りの時間が過ぎておらず、入れた泡がまだ済んでいない（open）か、1 つも入れていないときに出す。
+     全部済んだ・区切りの時間が過ぎたときは今までどおり畳む */
+  const showFirst = isToday() && typeof store.setFirst === 'function' && showFirstRow(st, rows.length);
+  return { key, rows, st, showFirst };
 }
 
 function hhmm(ms) {
@@ -366,11 +371,12 @@ function renderPlate(ps) {
   const day = curDay();
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
 
-  if (ps.st.open) {
+  if (ps.showFirst) {
     const row = el('div', 'tp-first');
     row.dataset.name = '先に済ませる';
+    row.dataset.drop = 'first';
     row.setAttribute('role', 'group');
-    row.setAttribute('aria-label', '先に済ませる（区切りの時間 ' + hhmm(ps.st.endAt) + '）');
+    row.setAttribute('aria-label', ps.st.endAt ? '先に済ませる（区切りの時間 ' + hhmm(ps.st.endAt) + '）' : '先に済ませる（まだ入れていない。泡をここへ落とすと入る）');
     row.appendChild(el('span', 'tp-first-h', '先に済ませる'));
     if (ps.st.endAt) {
       const tm = el('span', 'tp-first-t', '〜 ' + hhmm(ps.st.endAt));
@@ -390,13 +396,16 @@ function renderPlate(ps) {
       b.addEventListener('click', ev => { ev.preventDefault(); openBoardFor(t.id, b); });
       seats.appendChild(b);
     });
-    if (ps.st.canAdd && ps.rows.length < FIRST_MAX) {
-      const add = el('button', 'tp-seat is-empty', '＋');
-      add.type = 'button';
-      add.dataset.name = '先に済ませるの空いた席';
-      add.setAttribute('aria-label', '先に済ませるに入れる泡を、おすすめから選ぶ');
-      add.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
-      seats.appendChild(add);
+    /* 空いた席（2026-11-24）：空いている数だけ点線の席を出す。押すとおすすめ、泡を落としても入る */
+    if (ps.st.canAdd || !ps.rows.length) {
+      for (let i = ps.rows.length; i < FIRST_MAX; i++) {
+        const add = el('button', 'tp-seat is-empty', '＋');
+        add.type = 'button';
+        add.dataset.name = '先に済ませるの空いた席';
+        add.setAttribute('aria-label', '先に済ませるに入れる泡を、おすすめから選ぶ（泡を落としても入る）');
+        add.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
+        seats.appendChild(add);
+      }
     }
     row.appendChild(seats);
     plate.appendChild(row);
@@ -409,6 +418,7 @@ function renderPlate(ps) {
     const done = isDoneItem(t);
     const box = el('div', 'tp-key');
     box.dataset.name = '今日大事なこと';
+    box.dataset.drop = 'key';
     /* 先に済ませるを畳んだあと（今日、入れた泡があって、段が閉じた）は縁が光る */
     if (isToday() && ps.rows.length && !ps.st.open) box.classList.add('is-lit');
     if (done) box.classList.add('is-done');
@@ -441,6 +451,7 @@ function renderPlate(ps) {
   } else if (!isPast()) {
     const none = el('div', 'tp-none');
     none.dataset.name = '今日大事なことは、まだ';
+    none.dataset.drop = 'key';
     none.appendChild(el('span', 'tp-none-tx', (isToday() ? '今日大事なこと' : word + 'の大事なこと') + 'は、まだ'));
     const pick = el('button', 'tp-none-pick', '選ぶ');
     pick.type = 'button';
@@ -1571,6 +1582,28 @@ function markDayEdge(dir) {
 function onBubPointer(ev) {
   bubPt = { x: ev.clientX, y: ev.clientY };
   markDayEdge(dayEdgeAt(bubPt.x, bubPt.y));
+  markPlateDrop(plateHitAt(bubPt.x, bubPt.y));
+}
+
+/* ---- 今日大事なこと・先に済ませるの枠へ落とす（2026-11-24 ユーザーの指示「今日優先の枠にドロップできるように（先にも同じ）」）----
+   枠（data-drop="key"|"first"）の上で泡を離すと、そこへ入れる。掴んでいる間は、指の下の枠の縁を明るくする（is-drop） */
+function plateHitAt(x, y) {
+  if (!plate || !(x >= 0)) return null;
+  const nodes = plate.querySelectorAll('[data-drop]');
+  for (const n of nodes) {
+    const r = n.getBoundingClientRect();
+    if (r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { kind: n.dataset.drop, node: n };
+  }
+  return null;
+}
+function markPlateDrop(hit) {
+  if (!plate) return;
+  plate.querySelectorAll('[data-drop].is-drop').forEach(n => { if (!hit || n !== hit.node) n.classList.remove('is-drop'); });
+  if (hit) hit.node.classList.add('is-drop');
+}
+function dropToPlate(id, kind) {
+  if (kind === 'key') placeKey(id, curDay());
+  else if (kind === 'first') placeFirst(id, true);
 }
 
 function beginBubDrag(id) {
@@ -1588,7 +1621,9 @@ function beginBubDrag(id) {
 function endBubDrag() {
   const d = bubDrag;
   const pt = bubPt;
-  const dir = (d && !tabDropped) ? dayEdgeAt(pt.x, pt.y) : null;
+  const hit = (d && !tabDropped) ? plateHitAt(pt.x, pt.y) : null;
+  markPlateDrop(null);
+  const dir = (d && !tabDropped && !hit) ? dayEdgeAt(pt.x, pt.y) : null;
   const to = dir ? edgeDayFor(dir) : null;
   bubDrag = null;
   overEdge = null;
@@ -1596,6 +1631,11 @@ function endBubDrag() {
   window.removeEventListener('pointerup', onBubPointer, true);
   if (stage) stage.classList.remove('is-bubdrag');
   renderDayEdges();
+  /* 枠へ落とした（今日大事なこと・先に済ませる）。下タブへの落としと競るので、マイクロタスク 1 つぶん待つ */
+  if (d && hit) {
+    Promise.resolve().then(() => { if (!tabDropped) dropToPlate(d.id, hit.kind); });
+    return;
+  }
   /* 四つに分けている間は、区分へ落としたかを先に見る（日の帯より内側にある） */
   const qk = (d && quadOn && quad) ? quad.hitAt(pt.x, pt.y) : undefined;
   if (d && qk !== undefined && !to) {
@@ -1774,38 +1814,56 @@ function placeSuggest(id) {
 
 /* ［★ 大事なことに］: その日に置いて、その日の大事なことにする（store.setKey が置くのも一緒にする）。取り消せる */
 function placeSuggestKey(id) {
-  const s = suggest;
+  if (suggest) placeKey(id, suggest.day);
+}
+/* その日の大事なことにする（おすすめの［★］と、枠へ落としたとき）。取り消せる */
+function placeKey(id, day) {
   const t = store.get(id);
-  if (!s || !t || typeof store.setKey !== 'function') return;
-  const day = s.day;
+  if (!t || !day || typeof store.setKey !== 'function') return;
   const prev = store.keyItem(day);
+  if (prev && prev.id === id) return;
+  const had = store.daysOf ? (store.daysOf(id) || []).indexOf(day) >= 0 : false;
   if (!store.setKey(id, day, true)) return;
   playSfx('place');
   toast('「' + trim(t.text) + '」を' + (day === todayKey() ? '今日' : '') + '大事なことにした', {
     label: '取り消す',
     on: () => {
       store.setKey(id, day, false);
-      store.setDay(id, day, false);
+      if (!had) store.setDay(id, day, false);
       if (prev && store.get(prev.id)) store.setKey(prev.id, day, true);
     },
   });
 }
 
 /* ［↑ 先に］: 今日の先に済ませるに入れる（今日に置くのも一緒）。取り消せる */
-function placeSuggestFirst(id) {
+function placeSuggestFirst(id) { placeFirst(id, false); }
+/* 先に済ませるに入れる。dropped は枠へ落としたとき：見当がまだの泡は、落とした＝さっとと決めたとみなして
+   さっとにしてから入れる（取り消すと見当も戻す）。半日まで・何回もの泡は入れない（さっとの泡だけの席） */
+function placeFirst(id, dropped) {
   const t = store.get(id);
   const day = todayKey();
   if (!t || typeof store.setFirst !== 'function') return;
+  if (plateState().st.passed) { toast('先に済ませるは、今日はもう畳んだ'); return; }
+  const had = store.daysOf ? (store.daysOf(id) || []).indexOf(day) >= 0 : false;
+  let sized = false;
+  if (dropped && !t.size && typeof store.setSize === 'function') sized = store.setSize(id, 's');
   const r = store.setFirst(id, day, true);
   if (r !== 'ok') {
+    if (sized) store.setSize(id, null);
+    if (r === 'same') return;
     toast(r === 'full' ? '先に済ませるの席は 3 つまで' : r === 'size' ? '先に済ませるは、さっとの泡だけ' : '先に済ませるに入れられなかった');
+    render();
     return;
   }
   markFirstStarted(day, Date.now());
   playSfx('place');
-  toast('「' + trim(t.text) + '」を先に済ませるに入れた', {
+  toast('「' + trim(t.text) + '」を先に済ませるに入れた' + (sized ? '（さっとにした）' : ''), {
     label: '取り消す',
-    on: () => { store.setFirst(id, day, false); store.setDay(id, day, false); },
+    on: () => {
+      store.setFirst(id, day, false);
+      if (!had) store.setDay(id, day, false);
+      if (sized) store.setSize(id, null);
+    },
   });
 }
 

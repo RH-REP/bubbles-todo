@@ -62,3 +62,10 @@ export function firstState(rows, startAt, minutes, now) {
   const canAdd = !passed && list.length < FIRST_MAX;
   return { open, endAt, canAdd, passed };
 }
+
+/* 先に済ませるの段を出すか（2026-11-24 ユーザーの指示「先にやるの枠がない」）。
+   st は firstState の答え、n は入れた泡の数。区切りの時間が過ぎておらず、
+   入れた泡がまだ済んでいない（open）か、1 つも入れていない（空いた席を見せて、押す・落とすで入れられる）とき */
+export function showFirstRow(st, n) {
+  return !!st && !st.passed && (!!st.open || !(n > 0));
+}
