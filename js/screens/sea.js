@@ -1357,8 +1357,43 @@ let overEdge = null;
 
 function onBubblePointer(ev) {
   lastPt = { x: ev.clientX, y: ev.clientY };
-  markEdge(edgeHitAt(lastPt.x, lastPt.y));
+  const pk = placeHitAt(lastPt.x, lastPt.y);
+  markPlace(pk);
+  markEdge(pk ? null : edgeHitAt(lastPt.x, lastPt.y));
   markOff(offHitAt(lastPt.x, lastPt.y));
+}
+
+/* ---------------- 今日大事なこと・先に済ませるへ落とす枠（2026-11-24 利用者の指示
+   「先にするや重要に入れられるように、ドラッグで外に出せる様にして」）----------------
+   泡を掴んでいる間だけ、下（タグを外す枠と下の端の帯より上）に 2 つ並べて出す。
+   指先がその上で離れたら、今日の画面の枠と同じ道（bubbles:place → today.js の placeKey・placeFirst）で入れる。
+   入れると今日にも置く。取り消せる。端の帯（タグを付ける）より先に見る。
+   完了・長期保留の海と、四つに分けて見ている間は出さない（そこから今日に入れるのは筋が違う／区分と重なる）。
+   当たり判定は指先の座標で、枠そのものは指を透かす（タグを外す枠と同じ） */
+let placeRow = null;
+function placeRowOn() {
+  if (!bubbleDrag || !placeRow) return false;
+  if (gathering && gridMode === 'quad') return false;
+  const tag = faceTag(curFace);
+  return !(tag && (tag.id === 'done' || tag.id === 'hold'));
+}
+function placeHitAt(x, y) {
+  if (!placeRow || placeRow.hidden) return null;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  for (const n of placeRow.children) {
+    const q = n.getBoundingClientRect();
+    if (q.width && x >= q.left && x <= q.right && y >= q.top && y <= q.bottom) return n.dataset.place;
+  }
+  return null;
+}
+function markPlace(kind) {
+  if (!placeRow) return;
+  for (const n of placeRow.children) n.classList.toggle('is-over', !!kind && n.dataset.place === kind);
+}
+function renderPlace() {
+  if (!placeRow) return;
+  placeRow.hidden = !placeRowOn();
+  if (placeRow.hidden) markPlace(null);
 }
 
 /* ---------------- タグを外す枠（利用者の指示） ----------------
@@ -1486,7 +1521,7 @@ function beginBubbleDrag(id) {
   window.addEventListener('pointerup', onBubblePointer, true);
   stage.classList.add('is-bubdrag');
   clearOff();
-  renderEdges(); renderSigns(); renderOff();
+  renderEdges(); renderSigns(); renderOff(); renderPlace();
 }
 
 function endBubbleDrag() {
@@ -1499,15 +1534,17 @@ function endBubbleDrag() {
   /* 外す枠の判定は**畳む前に**。畳むと矩形が取れない。
      置いた時間が足りていなければ（offArmed が偽）、ここは何もしない */
   const offT = (offArmed && offHitAt(pt.x, pt.y)) ? offTag() : null;
+  const pk = placeHitAt(pt.x, pt.y);         /* 畳む前に（畳むと矩形が取れない） */
   markEdge(null);
   clearOff();
-  renderEdges(); renderSigns(); renderOff();
+  renderEdges(); renderSigns(); renderOff(); renderPlace();
   if (!d) return;
   /* onDropToTab と onDragEnd のどちらが先に来るかは決まっていないので、
      マイクロタスク1つぶん待ってから見る（plan.js と同じ間合い） */
   Promise.resolve().then(() => {
     if (tabDropped) return;
     if (overTabbar(pt)) return;
+    if (pk) { window.dispatchEvent(new CustomEvent('bubbles:place', { detail: { id: d.id, kind: pk } })); return; }
     if (offT) { untagHere(d.id, offT); return; }
     const qk = quadHitAt(pt.x, pt.y);
     if (qk !== undefined) { if (!dropToQuad(d.id, qk)) renderQuad(); return; }
@@ -3889,6 +3926,17 @@ export default {
     offLabel = el('span', 'lb');
     dropOff.appendChild(offLabel);
     stage.appendChild(dropOff);
+
+    /* --- 今日大事なこと・先に済ませるへ落とす枠（掴んでいる間だけ。2026-11-24）--- */
+    placeRow = el('div', 'sea-place');
+    placeRow.hidden = true;
+    placeRow.setAttribute('aria-hidden', 'true');
+    [['key', '★ 今日大事なこと'], ['first', '↑ 先に済ませる']].forEach(([k, lb]) => {
+      const c = el('div', 'sea-place-to', lb);
+      c.dataset.place = k;
+      placeRow.appendChild(c);
+    });
+    stage.appendChild(placeRow);
 
     /* --- はじめた日のカレンダー（利用者の指示）---
        1段目の右、歯車の左。**海に置く**のが肝で、

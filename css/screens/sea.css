@@ -919,7 +919,7 @@ body:not(.pref-dice) .sea-gather { right: 10px; }
    `syncNarrowBtn` は直したのに、**この規則が `!important` で消していた**——
    JS では `hidden=false`、CSS では `display:none`。決めたはずの機能に手が届かない。
    **ここに足し忘れると、JS 側でいくら出しても画面には出ない。** */
-.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-days):not(.sea-period):not(.sea-gather):not(.sea-tools):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-random):not(.sea-shuffle):not(.sea-cal):not(.sea-pick-bar) {
+.sea-stage.is-gathering > :not(.sea-grid):not(.sea-quad):not(.sea-days):not(.sea-period):not(.sea-gather):not(.sea-tools):not(.sea-narrow):not(.sea-narrow-pop):not(.sea-face-name):not(.sea-edge):not(.sea-dropoff):not(.sea-place):not(.sea-random):not(.sea-shuffle):not(.sea-cal):not(.sea-pick-bar) {
   display: none !important;
 }
 
@@ -1004,6 +1004,27 @@ body:not(.pref-dice) .sea-gather { right: 10px; }
   isolation: isolate;
 }
 .sea-dropoff .lb { position: relative; z-index: 1; }
+
+/* ---------- 今日大事なこと・先に済ませるへ落とす枠（掴んでいる間だけ。2026-11-24）----------
+   タグを外す枠（下 16px・高さ 60px）と下の端の帯（下 64px・高さ 21px）より上に置く。指は透かす（判定は指先の座標） */
+.sea-place {
+  position: absolute; z-index: 9;
+  left: 50%; bottom: 96px; transform: translateX(-50%);
+  width: min(340px, calc(100% - 56px));
+  display: flex; gap: 10px;
+  pointer-events: none;
+}
+.sea-place[hidden] { display: none; }
+.sea-place-to {
+  flex: 1 1 0; min-width: 0; min-height: 52px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 8px 10px; border-radius: 16px;
+  border: 1.5px dashed var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text-2);
+  font-size: 13px; font-weight: 600; text-align: center; white-space: nowrap;
+}
+.sea-place-to.is-over { border-style: solid; border-color: var(--text-2); color: var(--text); }
 
 /* 置いている間の手応え。左から満ちて、満ちたら外れる合図になる。
    時間そのもの（0.5秒）は数字で出さない——満ち具合が、そのまま残り時間 */

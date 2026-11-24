@@ -1900,6 +1900,16 @@ async function askSuggest() {
    前の版（2026-11-21）はこの画面に「週・月」の板を置いていた。下のタブの画面を経て、2026-11-23 からは海のリスト表示の形
    （js/periodview.js）。そこで日の見出しを押すと、この画面へ移ってから bubbles:showday { key } が届く（画面どうしは import しない）。
    id 付きの呼び方は、リスト表示に移ってからは使っていない（名前は海の側で詳細を開く）が、口は残す */
+/* 海の面から、泡を今日大事なこと・先に済ませるへ落としたとき（2026-11-24 利用者の指示
+   「先にするや重要に入れられるように、ドラッグで外に出せる様にして」）。入れ方・断り方・取り消しは今日の画面の枠と同じ。
+   日はいつも今日（海には日を選ぶ札が無い） */
+window.addEventListener('bubbles:place', ev => {
+  const d = (ev && ev.detail) || {};
+  if (!d.id) return;
+  if (d.kind === 'key') placeKey(d.id, todayKey());
+  else if (d.kind === 'first') placeFirst(d.id, true);
+});
+
 window.addEventListener('bubbles:showday', ev => {
   const d = (ev && ev.detail) || {};
   const key = d.key;

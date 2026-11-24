@@ -793,19 +793,14 @@ export default {
       box.appendChild(gSave);
       /* 共有の海の面とチャットは出さない（チャットは 2026-11-24 に外した。利用者の指示「使わないので外して」） */
       shareHub.hidden = true;
-      const etc = document.createElement('details');
-      etc.className = 'set-more set-etc';
-      const es = document.createElement('summary');
-      const et = el('span', 'tx');
-      et.appendChild(el('span', 'nm', 'そのほか'));
-      et.appendChild(el('span', 'sub', '使い方・版を確かめる・不具合を調べる・初期化'));
-      es.appendChild(et);
-      etc.appendChild(es);
-      etc.appendChild(help);
-      if (aiOn()) etc.appendChild(ask);
-      etc.appendChild(gVer);
-      etc.appendChild(gEtc);
-      box.appendChild(etc);
+      /* 2026-11-24 利用者の指示「設定のその他の中が２重に折りたたまれているので解消して」:
+         前は「そのほか」を畳み、その中に「版」「不具合を調べる・初期化する」をまた畳んでいた。
+         「そのほか」は bubble と同じ節の見出しにし、中の行は 1 回だけ畳む */
+      box.appendChild(sec('そのほか', '使い方・版・不具合'));
+      box.appendChild(help);
+      if (aiOn()) box.appendChild(ask);
+      box.appendChild(gVer);
+      box.appendChild(gEtc);
       /* 利用者の札の［はじめての端末］から: 海の欄のログインを開く */
       window.addEventListener('bubbles:open-login', () => { seasEl.open = true; if (typeof seasEl.openServer === 'function') seasEl.openServer(); });
     }
@@ -5613,12 +5608,11 @@ function upcomingBox() {
 }
 
 /* 画面の大きさの記録。js/boot-dvh.js が立ち上げから測った値（大きさだけ。記録の中身は入らない） */
+/* 2026-11-24 利用者の指示「設定のその他の中が２重に折りたたまれているので解消して」: 前は畳んだ節（その他／不具合を調べる・初期化する）の中で、
+   ここをもう一度畳んでいた。見出しと中身をそのまま出す（記録の字は高さ 240px までで中を送る） */
 function sizeBox() {
-  const d = document.createElement('details');
-  d.className = 'size-log';
-  const sum = document.createElement('summary');
-  sum.textContent = '画面の大きさを記録する（不具合を調べる用）';
-  d.appendChild(sum);
+  const d = el('div', 'size-log');
+  d.appendChild(el('p', 'size-log-h', '画面の大きさの記録（不具合を調べる用）'));
   const pre = document.createElement('pre');
   const copy = el('button', 'btn', 'コピー');
   copy.type = 'button';
@@ -5630,7 +5624,7 @@ function sizeBox() {
     return head + log.map(e => [e.t + 'ms', e.why, 'inner ' + e.inner, 'vv ' + e.vv, 'client ' + e.client,
       'page ' + e.page, e.mode, e.standalone ? 'standalone' : 'browser'].join(' ')).join('\n');
   };
-  d.addEventListener('toggle', () => { if (d.open) pre.textContent = text(); });
+  pre.textContent = text();
   copy.addEventListener('click', async () => {
     pre.textContent = text();
     try { await navigator.clipboard.writeText(pre.textContent); toast('コピーした'); }
