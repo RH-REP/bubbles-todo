@@ -48,7 +48,8 @@ import { askFull, hasKey } from './ai.js';
 import { isSolo, aiOn } from './edition.js';
 import { buildIssueTitlePrompt, cleanIssueTitle, failLine } from './research.js';
 /* この端末の表示（Issue #36）。起動時の画面・タブの並び・body の印（pref-wind・pref-hide-tags） */
-import { loadPrefs, PREFS_EVENT, visibleTabs } from './prefs.js';
+import { loadPrefs, PREFS_EVENT, visibleTabs, firstStartedAt, markFirstStarted, firstMinutes } from './prefs.js';
+import { firstState, FIRST_MAX } from './priority.js';
 import { startLocalMods, pauseLocalMods } from './localmod.js';
 import { actorFor, fetchMe, seaMembers, myRole, userName, initialOf, meInfo } from './me.js';
 import { moveTargets, openMoveSea } from './movesea.js';
@@ -951,6 +952,31 @@ setCenterHandler({
   /* 優先度（急ぐ・大事）。盤の2つの切り替えが読み書きする。無ければ盤は出さない */
   priorityOf:   (id) => { const t = store.get(id); return t ? { urgent: t.urgent, important: t.important } : null; },
   setPriority:  (id, p) => (has('setPriority') ? store.setPriority(id, p) : false),
+  /* 選ぶときの基準（2026-11-24）: 大事・見当・急ぐの段と、［★ 今日大事なことにする］［↑ 先に済ませるに入れる］。
+     日はこの端末の今日。先に済ませるの区切りの時間は端末に覚えた始めた時刻＋設定の分（js/prefs.js） */
+  choiceOf:     (id) => (has('choiceOf') ? store.choiceOf(id) : null),
+  isKey:        (id) => (has('isKey') ? store.isKey(id, store.todayKey()) : false),
+  setKey:       (id, on) => (has('setKey') ? store.setKey(id, store.todayKey(), on) : false),
+  firstInfo:    (id) => {
+    if (!has('firstItems')) return null;
+    const day = store.todayKey();
+    const rows = store.firstItems(day);
+    const st = firstState(rows.map(t => ({ done: !!t.done })), firstStartedAt(day), firstMinutes(), Date.now());
+    return { has: store.isFirst(id, day), canAdd: st.canAdd,
+      why: st.passed ? '先に済ませるは、今日はもう畳んだ' : rows.length >= FIRST_MAX ? '先に済ませるの席は 3 つまで' : '' };
+  },
+  setFirst:     (id, on) => {
+    if (!has('setFirst')) return '';
+    const day = store.todayKey();
+    if (on) {
+      const rows = store.firstItems(day);
+      const st = firstState(rows.map(t => ({ done: !!t.done })), firstStartedAt(day), firstMinutes(), Date.now());
+      if (st.passed) return 'closed';
+    }
+    const r = store.setFirst(id, day, on);
+    if (r === 'ok' && on) markFirstStarted(day, Date.now());
+    return r;
+  },
   todayKey:     () => (has('todayKey') ? store.todayKey() : null),
   dayAfter:     (n) => (has('dayAfter') ? store.dayAfter(n) : null),
   monthAfter:   (n) => (has('monthAfter') ? store.monthAfter(n) : null),

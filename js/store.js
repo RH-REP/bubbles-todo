@@ -63,6 +63,11 @@
      draft:     {did,next}  書きかけ。記録ではない。既定 { did:'', next:'' }。
                            打った文字を失わせないためだけの控えで、
                            commitStep で1件積んだ時点で空に戻る
+     size:      's'|'m'|'l'  見当（さっと・半日まで・何回も）。無ければ欄ごと無い（まだ）。2026-11-24
+     dueKind:   'ext'|'self' 急ぐの分け方（外の約束・自分の目安）。urgent:true のときだけ。無ければ自分の目安
+     key:       string[]   今日大事なことにした日（'YYYY-MM-DD'）。1 日に 1 つ（setKey がほかから外す）
+     first:     string[]   先に済ませるに入れた日。さっとの泡だけ・1 日に 3 つまで（setFirst が断る）
+                           この 4 つは値が無ければ欄を置かない（前の版の記録の形のまま。知らない欄として前の版も残す）
    }
    fx/fy は画面サイズが変わっても位置が破綻しないよう割合で持つ。
 
@@ -110,7 +115,7 @@
    （あとから繋いだときに、どれが新しいかが判るように）。 */
 
 import { stampChanges, initialStamps, recordsOf } from './merge.js';
-import { quadrantFor } from './priority.js';
+import { quadrantFor, sizeOf, FIRST_MAX } from './priority.js';
 import { findSea, boxKey } from './spacelist.js';
 import { isPersonal, regionOfSpace } from './regions.js';
 import { normalizeRepeat, spanAt, nextSpan, nextDay } from './repeat.js';
@@ -1040,6 +1045,9 @@ function normalizeTodo(t, anchorIds, tagIds, gapSlotIds, migrateDay) {
        旧データには無いので null から始まる。日付から自動では付けない */
     urgent: triState(t.urgent),
     important: triState(t.important),
+    /* 選ぶときの基準（2026-11-24）: 見当（size）・急ぐの分け方（dueKind）・今日大事なこと（key）・先に済ませる（first）。
+       どれも値の無いものは欄ごと省く（これまでの記録の形を変えない） */
+    ...choiceFields(t),
     /* 3つの app（bubble・gantt・diary）が共有する欄（共有の記録 v1。2026-11-10）。
        gantt が書く。bubble が落とすと、開いた時点で gantt の書いたものを消し、新しい印で上書きしてしまう。
        値の無いものは欄ごと省く（仕様で「省いてよい」。省いた欄は null / {} として読む）——
@@ -1055,9 +1063,41 @@ const TODO_KNOWN = new Set([
   'id', 'text', 'days', 'today', 'hold', 'holdUntil', 'createdAt', 'fx', 'fy', 'slots', 'anchors', 'anchorAt',
   'started', 'firstStep', 'url', 'detail', 'gap', 'gapSlots', 'gapSlot', 'gapAt', 'plan', 'steps', 'draft',
   'tags', 'done', 'doneAt', 'trashed', 'trashedAt', 'fav', 'urgent', 'important',
+  'size', 'dueKind', 'key', 'first',
   'start', 'due', 'project', 'ext', 'firstSpan',
   'assignee', 'added_by', 'done_by',
 ]);
+
+/* 選ぶときの基準の欄（2026-11-24 ユーザーの決定。app_spec の minutes/261124_選ぶときの基準.md）。
+     size    … 見当 's'（さっと）・'m'（半日まで）・'l'（何回も）。ほかは欄を置かない（まだ）
+     dueKind … 急ぐの分け方 'ext'（外の約束）・'self'（自分の目安）。ほかは欄を置かない（urgent:true なら自分の目安として読む）
+     key     … 今日大事なことにした日の並び（'YYYY-MM-DD'）。1 日に 1 つにするのは setKey の仕事
+     first   … 先に済ませるに入れた日の並び。さっとの泡だけ・1 日に FIRST_MAX までは setFirst の仕事
+   日の並びは形の合うものだけを、重なりを落として古い順に。空なら欄を置かない */
+function dayList(v) {
+  if (!Array.isArray(v)) return [];
+  return v.filter((d, i, arr) => dayKeyOrNull(d) && arr.indexOf(d) === i).sort();
+}
+function choiceFields(t) {
+  const out = {};
+  const size = sizeOf(t.size);
+  if (size) out.size = size;
+  if (t.dueKind === 'ext' || t.dueKind === 'self') out.dueKind = t.dueKind;
+  const key = dayList(t.key);
+  if (key.length) out.key = key;
+  const first = dayList(t.first);
+  if (first.length) out.first = first;
+  return out;
+}
+/* 日の並びの欄（key・first）に日を足す・外す。空になったら欄ごと消す。-> 変わったか */
+function setDayList(t, k, day, on) {
+  const cur = dayList(t[k]);
+  const has = cur.indexOf(day) >= 0;
+  if (has === !!on) return false;
+  const next = on ? dayList(cur.concat(day)) : cur.filter(d => d !== day);
+  if (next.length) t[k] = next; else delete t[k];
+  return true;
+}
 
 /* だれの欄（共有の記録 v1.2 §3。2026-11-18）。どれも利用者の番号（u_ ＋ 16 進 8 桁）か null。
      assignee … 担当（共有の海の泡を受け持つ人）
@@ -1629,6 +1669,9 @@ function spawnRepeat(t) {
   if (typeof t.project === 'string') c.project = t.project;
   c.urgent = triState(t.urgent);
   c.important = triState(t.important);
+  /* 見当・急ぐの分け方も写す（今日大事なこと・先に済ませるは日ごとのものなので写さない） */
+  if (sizeOf(t.size)) c.size = t.size;
+  if (c.urgent === true && (t.dueKind === 'ext' || t.dueKind === 'self')) c.dueKind = t.dueKind;
   c.fav = t.fav === true;
   if (t.ext && typeof t.ext === 'object') c.ext = JSON.parse(JSON.stringify(t.ext));
   const keep = Object.assign({}, r);
@@ -1967,6 +2010,8 @@ export const store = {
     t.days = on ? normalizeDays(t.days.concat(key)) : t.days.filter(d => d !== key);
     /* 今日から外れたときだけ、時間帯タグを落とす（あれは today の中の軸） */
     if (wasToday && !t.today) t.slots = [];
+    /* その日から外したら、その日の今日大事なこと・先に済ませるも外す（置いていない日の印を残さない。2026-11-24） */
+    if (!on) { setDayList(t, 'key', key, false); setDayList(t, 'first', key, false); }
     /* ログには「いつ決めたか（at）」と「どの日のぶんか（day）」の両方を残す。
        未来の日に置いたとき、決めた日で数えると期間の集計がずれるため */
     if (on) todayLogs.push({ id: t.id, text: t.text, at: Date.now(), day: key });
@@ -2151,6 +2196,20 @@ export const store = {
       const v = triState(patch[k]);
       if (t[k] !== v) { t[k] = v; changed = true; }
     });
+    /* 急ぐの分け方（2026-11-24）。'dueKind' を入れたときは 'ext'・'self' を書き、ほかは欄を消す。
+       急ぐでなくなった泡からは、入れなくても消す（urgent:true のときだけ意味を持つ欄） */
+    const kind = t.urgent !== true ? null
+      : ('dueKind' in patch ? ((patch.dueKind === 'ext' || patch.dueKind === 'self') ? patch.dueKind : null) : (t.dueKind || null));
+    if ((t.dueKind || null) !== kind) { if (kind) t.dueKind = kind; else delete t.dueKind; changed = true; }
+    /* 見当（2026-11-24）。'size' を入れたときだけ。さっとでなくなったら先に済ませるからも外す */
+    if ('size' in patch) {
+      const sz = sizeOf(patch.size);
+      if ((sizeOf(t.size) || null) !== sz) {
+        if (sz) t.size = sz; else delete t.size;
+        if (sz !== 's' && Array.isArray(t.first)) delete t.first;
+        changed = true;
+      }
+    }
     if (!changed) return false;
     persist(); emit();
     return true;
@@ -2164,6 +2223,106 @@ export const store = {
   quadrantOf(id) {
     const t = store.get(id);
     return t ? quadrantFor(t.urgent, t.important) : null;
+  },
+
+  /* --- 選ぶときの基準（2026-11-24 ユーザーの決定。app_spec の minutes/261124_選ぶときの基準.md）---
+     見当（size）・急ぐの分け方（dueKind）・今日大事なこと（key）・先に済ませる（first）。 */
+
+  /* 急ぐ・大事・急ぐの分け方・見当をまとめて読む（盤が使う） */
+  choiceOf(id) {
+    const t = store.get(id);
+    if (!t) return null;
+    return { urgent: t.urgent, important: t.important, dueKind: (t.urgent === true ? (t.dueKind === 'ext' ? 'ext' : 'self') : null),
+      size: sizeOf(t.size) };
+  },
+  /* 見当を付ける。null・それ以外の値は「まだ」（欄を消す）-> 変わったか */
+  setSize(id, v) {
+    const t = store.get(id);
+    if (!t) return false;
+    const next = sizeOf(v);
+    if ((sizeOf(t.size) || null) === next) return false;
+    if (next) t.size = next; else delete t.size;
+    /* さっとでなくなったら、先に済ませるには居られない（さっとの泡だけの席） */
+    if (next !== 's' && Array.isArray(t.first)) delete t.first;
+    persist(); emit();
+    return true;
+  },
+  sizeOf(id) {
+    const t = store.get(id);
+    return t ? sizeOf(t.size) : null;
+  },
+  /* 急ぐの分け方。'ext'・'self'・null（欄を消す）。急ぐでない泡には付けない -> 変わったか */
+  setDueKind(id, v) {
+    const t = store.get(id);
+    if (!t) return false;
+    const next = (t.urgent === true && (v === 'ext' || v === 'self')) ? v : null;
+    if ((t.dueKind || null) === next) return false;
+    if (next) t.dueKind = next; else delete t.dueKind;
+    persist(); emit();
+    return true;
+  },
+
+  /* 今日大事なこと。その日に 1 つだけ。付けるとき、ほかの泡（消したもの・完了したものも）から同じ日を外し、
+     その泡をその日に置く（今日の水面の上の枠は、その日に置いた泡から出す）。-> 変わったか */
+  setKey(id, day, on) {
+    const t = store.get(id);
+    if (!t || !dayKeyOrNull(day)) return false;
+    let changed = false;
+    if (on) {
+      items.forEach(o => { if (o !== t && setDayList(o, 'key', day, false)) changed = true; });
+      if (t.days.indexOf(day) < 0) {
+        t.days = normalizeDays(t.days.concat(day));
+        todayLogs.push({ id: t.id, text: t.text, at: Date.now(), day });
+        changed = true;
+      }
+    }
+    if (setDayList(t, 'key', day, on)) changed = true;
+    if (!changed) return false;
+    persist(); emit();
+    return true;
+  },
+  /* その日の今日大事なこと（その日に置いた泡のうち、key にその日を持つもの）。無ければ null。
+     2 つの端末で別々に決めて合わさったときは、書いた時刻の新しいほう（無ければ先に並ぶほう） */
+  keyItem(day) {
+    if (!dayKeyOrNull(day)) return null;
+    const c = items.filter(t => isLive(t) && t.days.indexOf(day) >= 0 && Array.isArray(t.key) && t.key.indexOf(day) >= 0);
+    if (c.length <= 1) return c[0] || null;
+    const at = t => { const v = stamps && stamps['todo:' + t.id]; return Number(Array.isArray(v) ? v[0] : v) || 0; };
+    return c.slice().sort((a, b) => at(b) - at(a))[0];
+  },
+  isKey(id, day) {
+    const t = store.get(id);
+    return !!(t && Array.isArray(t.key) && t.key.indexOf(day) >= 0);
+  },
+
+  /* 先に済ませる。さっとの泡だけ・1 日に FIRST_MAX まで（ここで断る）。入れるとき、その泡をその日に置く。
+     区切りの時間（畳む時刻）は画面と端末の仕事（ここは日の並びだけ）。
+     -> 'ok'（変わった）・'same'（すでにその状態）・'size'（さっとでない）・'full'（席が埋まっている）・''（無い泡・変な日） */
+  setFirst(id, day, on) {
+    const t = store.get(id);
+    if (!t || !dayKeyOrNull(day)) return '';
+    const has = Array.isArray(t.first) && t.first.indexOf(day) >= 0;
+    if (has === !!on) return 'same';
+    if (on) {
+      if (sizeOf(t.size) !== 's') return 'size';
+      if (store.firstItems(day).length >= FIRST_MAX) return 'full';
+      if (t.days.indexOf(day) < 0) {
+        t.days = normalizeDays(t.days.concat(day));
+        todayLogs.push({ id: t.id, text: t.text, at: Date.now(), day });
+      }
+    }
+    setDayList(t, 'first', day, on);
+    persist(); emit();
+    return 'ok';
+  },
+  /* その日の先に済ませる（その日に置いた泡のうち、first にその日を持つもの。完了したものも含む。並びは記録の順） */
+  firstItems(day) {
+    if (!dayKeyOrNull(day)) return [];
+    return items.filter(t => isLive(t) && t.days.indexOf(day) >= 0 && Array.isArray(t.first) && t.first.indexOf(day) >= 0);
+  },
+  isFirst(id, day) {
+    const t = store.get(id);
+    return !!(t && Array.isArray(t.first) && t.first.indexOf(day) >= 0);
   },
 
   /* --- 最近つかった（F7）---
@@ -3612,7 +3771,7 @@ export const store = {
    口を足したらここにも足す（tests/sync.test.mjs が、persist() を呼ぶ口の漏れを見る） */
 export const WRITE_METHODS = [
   'add', 'remove', 'untrash', 'complete', 'uncomplete', 'restore', 'setDay', 'setToday', 'setHold', 'setHoldUntil',
-  'setFav', 'setAssignee', 'moveOut', 'setPriority', 'setQuadrant', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
+  'setFav', 'setAssignee', 'moveOut', 'setPriority', 'setQuadrant', 'setSize', 'setDueKind', 'setKey', 'setFirst', 'setSlot', 'moveSlot', 'clearSlots', 'addAnchor', 'setAnchorSchedule', 'renameAnchor', 'removeAnchor',
   'moveAnchor', 'setAnchor', 'moveItemAnchor', 'clearAnchors', 'setPlan', 'setText', 'setDetail', 'setFirstStep', 'setUrl', 'setGap',
   'addGapSlot', 'renameGapSlot', 'removeGapSlot', 'moveGapSlot', 'setGapSlot', 'moveToGapSlot', 'clearGapSlots',
   'addTag', 'renameTag', 'setTagColor', 'setTagHidden', 'removeTag', 'addSea', 'removeSea', 'moveSea', 'setTagDir', 'setTag',

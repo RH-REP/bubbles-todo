@@ -38,7 +38,7 @@ await test('候補にしない: 完了・消した・保留・もうその日に
   assert.equal(S.eligible(item({ text: '  ' }), TODAY), false);
 });
 
-await test('規則: 急ぐ・大事が上、最近はじめた・次の一手・お気に入りで足す。理由は2つまで', () => {
+await test('規則（2026-11-24）: 点は大事さ ÷ 見当。最近はじめた・お気に入り・次にやることありは同点のときだけ。理由は 3 つまで', () => {
   const list = [
     cand({ id: 'a', text: 'ふつう' }),
     cand({ id: 'b', text: '両方', urgent: true, important: true }),
@@ -46,13 +46,69 @@ await test('規則: 急ぐ・大事が上、最近はじめた・次の一手・
     cand({ id: 'd', text: '最近', started: { _: NOW - 2 * DAY } }),
   ];
   const r = S.rank(list, NOW);
-  assert.deepEqual(r.map(c => c.id), ['b', 'c', 'd', 'a']);
-  assert.equal(r[0].reason, '急ぐ・大事');
-  assert.equal(r[1].reason, '大事・次の一手が書いてある');
+  /* b と c はどちらも 3 ÷ 2（自分の目安の急ぐは足さない）。同点なのでお気に入りの c が上。d と a も同点で、最近はじめた d が上 */
+  assert.deepEqual(r.map(c => c.id), ['c', 'b', 'd', 'a']);
+  assert.equal(r[0].reason, '大事・次にやることあり・お気に入り');
+  assert.equal(r[1].reason, '大事');
   assert.equal(r[2].reason, '最近はじめた');
+  assert.equal(r[0].score, 1.5);
 });
 
-await test('端末だけ: 点の付いたものが少なければ、新しく書いたもので 3 件まで埋める', () => {
+/* モック app_spec の mock/choose-1124.html の 4（架空の 5 件） */
+function mock5() {
+  return [
+    cand({ id: 'keihi', text: '経費の提出', urgent: true, dueKind: 'ext', important: true, size: 's' }),
+    cand({ id: 'shinsei', text: '申請書の3章を書く', important: true, size: 'l' }, { firstStep: true }),
+    cand({ id: 'henshin', text: '返信メール', urgent: true, important: false, size: 's' }),
+    cand({ id: 'tsukue', text: '机の片付け', size: 's' }),
+    cand({ id: 'ronbun', text: '論文を読む', important: true, size: 'l' }),
+  ];
+}
+
+await test('モックの 5 件: 経費の提出 → 申請書の3章を書く → （返信メール・机の片付け）→ 論文を読む', () => {
+  const r = S.rank(mock5(), NOW);
+  assert.equal(r[0].id, 'keihi');
+  assert.equal(r[1].id, 'shinsei');
+  assert.deepEqual(r.slice(2, 4).map(c => c.id).sort(), ['henshin', 'tsukue']);
+  assert.equal(r[4].id, 'ronbun');
+  const by = Object.fromEntries(r.map(c => [c.id, c]));
+  assert.equal(by.keihi.score, 4);
+  assert.equal(by.shinsei.score, 1.5);
+  assert.equal(by.henshin.score, 1);
+  assert.equal(by.tsukue.score, 1);
+  assert.equal(by.ronbun.score, 0.75);
+  assert.equal(by.shinsei.reason, '大事・1 回分・次にやることあり');
+  assert.equal(by.keihi.reason, '大事・さっと・外の約束');
+  assert.equal(by.henshin.reason, 'さっと');
+  assert.equal(by.ronbun.reason, '大事・何回も');
+});
+
+await test('1 回分: 何回もの泡は、次にやることが書いてあると半日までとして数える', () => {
+  const l = cand({ id: 'l', important: true, size: 'l' });
+  const l1 = cand({ id: 'l1', important: true, size: 'l' }, { firstStep: true });
+  assert.equal(S.timeOf(l), 4);
+  assert.equal(S.timeOf(l1), 2);
+  assert.equal(S.oneShot(l1), true);
+  assert.equal(S.oneShot(l), false);
+  assert.equal(S.timeOf(cand({ id: 'x' })), 2, '見当がまだなら 2');
+  assert.deepEqual(S.rank([l, l1], NOW).map(c => c.id), ['l1', 'l']);
+});
+
+await test('今日大事なことの候補はさっとでない泡。先に済ませるの候補は外の約束のさっとの泡', () => {
+  const [keihi, shinsei, henshin] = mock5();
+  assert.equal(S.keyable(keihi), false);
+  assert.equal(S.keyable(shinsei), true);
+  assert.equal(S.firstable(keihi), true);
+  assert.equal(S.firstable(henshin), false, '自分の目安の急ぐは候補にしない');
+  assert.equal(S.firstable(shinsei), false);
+});
+
+await test('点は画面に出さない（今日の画面のコードに score を出す所が無い）', () => {
+  const src = readFileSync(new URL('../js/screens/today.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /\.score\b/);
+});
+
+await test('端末だけ: 上から 5 件まで。理由の言葉が無い泡で、7 日のうちに書いたものは「最近書いた」', () => {
   const list = [
     cand({ id: 'old', createdAt: NOW - 90 * DAY }),
     cand({ id: 'new', createdAt: NOW - 1 * DAY }),
@@ -60,8 +116,10 @@ await test('端末だけ: 点の付いたものが少なければ、新しく書
     cand({ id: 'u', urgent: true }),
   ];
   const p = S.localPicks(list, NOW);
-  assert.deepEqual(p.map(c => c.id), ['u', 'new', 'mid']);
-  assert.equal(p[1].reason, '最近書いた');
+  /* どれも 1 ÷ 2 で同点。新しく書いた順 */
+  assert.deepEqual(p.map(c => c.id), ['new', 'mid', 'u', 'old']);
+  assert.equal(p[0].reason, '最近書いた');
+  assert.equal(p[1].reason, '');
 });
 
 await test('端末だけ: 多くても 5 件まで', () => {
@@ -85,6 +143,14 @@ await test('送る文: 名前と印だけ。本文・次の一手の文・リン
   assert.match(p.system, /2026-11-07（土）/);
   assert.match(p.system, /命令形/);
   assert.match(p.system, /JSON/);
+});
+
+await test('送る文: 見当（1 回分）と外の約束の印を足す', () => {
+  const c = S.describe(item({ text: '経費の提出', urgent: true, dueKind: 'ext', important: true, size: 's' }), {});
+  assert.match(S.lineOf(c, 1), /^1\. 経費の提出 ［急ぐ（外の約束）、大事、見当:さっと、/);
+  const d = S.describe(item({ text: '申請書', important: true, size: 'l' }), { firstStep: true });
+  assert.match(S.lineOf(d, 2), /見当:何回も（1 回分）/);
+  assert.match(S.buildSuggestPrompt([c, d], TODAY).system, /外の約束/);
 });
 
 await test('返事を読む: 番号で候補に戻し、重なり・範囲外は落とす。囲みや前置きがあっても読む', () => {

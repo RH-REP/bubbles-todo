@@ -14,7 +14,9 @@ import { openMenu, attachGestures, makeBubble, diameterFor, centerBubble } from 
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete, playSfx } from '../sound.js';
-import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest } from '../suggest.js';
+import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest, keyable, firstable } from '../suggest.js';
+import { SIZES, FIRST_MAX, firstState } from '../priority.js';
+import { firstStartedAt, markFirstStarted, firstMinutes } from '../prefs.js';
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
 
@@ -301,7 +303,153 @@ function itemFor(t) {
     /* 右上の区分の点（並べ替えはしない） */
     urgent: t.urgent,
     important: t.important,
+    /* 2026-11-24（モック mock/choose-1124.html の 2）: 大事な泡は縁を太く、見当と外の約束を泡の中に小さく。今日の水面だけ */
+    heavy: t.important === true,
+    knote: kNoteOf(t),
   });
+}
+
+/* 泡の中に小さく出す字（「さっと・外の約束」など）。無ければ '' */
+function kNoteOf(t) {
+  const w = [];
+  if (t && SIZES[t.size]) w.push(SIZES[t.size]);
+  if (t && t.urgent === true && t.dueKind === 'ext') w.push('外の約束');
+  return w.join('・');
+}
+
+/* ---------------- 今日大事なこと・先に済ませる（2026-11-24 ユーザーの決定「OK、推奨で実施」） ----------------
+   app_spec の minutes/261124_選ぶときの基準.md、モック mock/choose-1124.html の 2・2a。
+   ・面の上に枠（.today-plate）を置く。泡にとっては海の端の札と同じく壁（drift の keepOut）。枠の下を泡が漂う
+   ・先に済ませる … 一番上の細い 1 段。さっとの泡の席が 3 つと、区切りの時間（〜 9:30）。今日を映しているときだけ。
+     区切りの時間が過ぎるか、入れた泡が全部済むと畳む。残った泡は今日の水面に戻る（次の日へは移さない）
+   ・今日大事なこと … その下の大きな枠。泡（押すと詳細）と次にやること。先に済ませるを畳んだあとは縁が光る
+   ・決めていない日は点線の 1 行「今日大事なことは、まだ」と［選ぶ］（おすすめの板を開く）。押さなくても使える。過ぎた日には出さない
+   ・一覧・四つに分けて見ている間は枠を出さない（同じ泡が 2 か所に出ないように、そちらには全部を並べる）
+   言い方は命令形にしない。件数・割合は出さない。赤は使わない */
+let plate = null;
+let plateTimer = 0;
+let lastPlate = { key: null, rows: [], st: { open: false } };
+let heldId = null;        /* 盤を開いている（中央に持っている）泡の id。drift の onHold から */
+
+/* 映している日の枠の中身。-> { key, rows, st }（st は firstState。先に済ませるは今日だけ） */
+function plateState() {
+  const day = curDay();
+  const key = (typeof store.keyItem === 'function') ? store.keyItem(day) : null;
+  let rows = [], st = { open: false, endAt: null, canAdd: false, passed: false };
+  if (isToday() && typeof store.firstItems === 'function') {
+    rows = store.firstItems(day);
+    let at = firstStartedAt(day);
+    /* ほかの端末で入れた泡は、この端末で初めて見た時刻から数える */
+    if (rows.length && at === null) at = markFirstStarted(day, Date.now());
+    st = firstState(rows.map(t => ({ done: isDoneItem(t) })), at, firstMinutes(), Date.now());
+  }
+  return { key, rows, st };
+}
+
+function hhmm(ms) {
+  const d = new Date(ms);
+  return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+/* 枠に出している泡の id（漂う面には渡さない） */
+function plateIds(ps) {
+  const out = new Set();
+  if (ps.key) out.add(ps.key.id);
+  if (ps.st.open) ps.rows.forEach(t => out.add(t.id));
+  return out;
+}
+
+function renderPlate(ps) {
+  if (!plate) return;
+  if (plateTimer) { clearTimeout(plateTimer); plateTimer = 0; }
+  plate.textContent = '';
+  const day = curDay();
+  const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
+
+  if (ps.st.open) {
+    const row = el('div', 'tp-first');
+    row.dataset.name = '先に済ませる';
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', '先に済ませる（区切りの時間 ' + hhmm(ps.st.endAt) + '）');
+    row.appendChild(el('span', 'tp-first-h', '先に済ませる'));
+    if (ps.st.endAt) {
+      const tm = el('span', 'tp-first-t', '〜 ' + hhmm(ps.st.endAt));
+      tm.dataset.name = '区切りの時間';
+      row.appendChild(tm);
+    }
+    const seats = el('div', 'tp-seats');
+    ps.rows.forEach(t => {
+      const done = isDoneItem(t);
+      const b = el('button', 'tp-seat' + (done ? ' is-done' : ''));
+      b.type = 'button';
+      const nm = el('span', 'tp-seat-nm');
+      nm.textContent = (done ? '✓ ' : '') + trim(t.text, 12);   /* ユーザーの文字。innerHTML には入れない */
+      b.appendChild(nm);
+      if (t.urgent === true && t.dueKind === 'ext') b.appendChild(el('span', 'tp-seat-k', '外の約束'));
+      b.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
+      b.addEventListener('click', ev => { ev.preventDefault(); openBoardFor(t.id, b); });
+      seats.appendChild(b);
+    });
+    if (ps.st.canAdd && ps.rows.length < FIRST_MAX) {
+      const add = el('button', 'tp-seat is-empty', '＋');
+      add.type = 'button';
+      add.dataset.name = '先に済ませるの空いた席';
+      add.setAttribute('aria-label', '先に済ませるに入れる泡を、おすすめから選ぶ');
+      add.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
+      seats.appendChild(add);
+    }
+    row.appendChild(seats);
+    plate.appendChild(row);
+    /* 区切りの時間が来たら畳む */
+    if (ps.st.endAt) plateTimer = setTimeout(() => { plateTimer = 0; render(); }, Math.max(1000, ps.st.endAt - Date.now() + 500));
+  }
+
+  if (ps.key) {
+    const t = ps.key;
+    const done = isDoneItem(t);
+    const box = el('div', 'tp-key');
+    box.dataset.name = '今日大事なこと';
+    /* 先に済ませるを畳んだあと（今日、入れた泡があって、段が閉じた）は縁が光る */
+    if (isToday() && ps.rows.length && !ps.st.open) box.classList.add('is-lit');
+    if (done) box.classList.add('is-done');
+    box.appendChild(el('span', 'tp-key-h', isToday() ? '今日大事なこと' : word + 'の大事なこと'));
+    const body = el('div', 'tp-key-body');
+    const bub = el('button', 'tp-key-bub');
+    bub.type = 'button';
+    bub.dataset.name = '今日大事なことの泡';
+    const btx = el('span', 'tp-key-bub-tx');
+    btx.textContent = (done ? '✓ ' : '') + trim(t.text, 24);   /* ユーザーの文字。innerHTML には入れない */
+    bub.appendChild(btx);
+    if (t.important === true) bub.classList.add('is-heavy');
+    bub.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
+    bub.addEventListener('click', ev => { ev.preventDefault(); openBoardFor(t.id, bub); });
+    body.appendChild(bub);
+    const tx = el('div', 'tp-key-tx');
+    const next = detailOf('firstStepOf', t.id);
+    if (next) {
+      const p = el('p', 'tp-key-next');
+      p.appendChild(el('span', 'tp-key-lb', '次にやること'));
+      p.appendChild(document.createTextNode(' ' + next.split('\n')[0]));
+      tx.appendChild(p);
+    }
+    const k = kNoteOf(t);
+    if (k) tx.appendChild(el('p', 'tp-key-k', k));
+    if (ps.st.open) tx.appendChild(el('p', 'tp-key-after', '先に済ませるのあと'));
+    body.appendChild(tx);
+    box.appendChild(body);
+    plate.appendChild(box);
+  } else if (!isPast()) {
+    const none = el('div', 'tp-none');
+    none.dataset.name = '今日大事なことは、まだ';
+    none.appendChild(el('span', 'tp-none-tx', (isToday() ? '今日大事なこと' : word + 'の大事なこと') + 'は、まだ'));
+    const pick = el('button', 'tp-none-pick', '選ぶ');
+    pick.type = 'button';
+    pick.setAttribute('aria-label', (isToday() ? '今日大事なこと' : word + 'の大事なこと') + 'を、おすすめから選ぶ');
+    pick.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
+    none.appendChild(pick);
+    plate.appendChild(none);
+  }
+  plate.hidden = !plate.children.length;
 }
 
 function setQuad(on) {
@@ -782,13 +930,21 @@ function render() {
   pruneFilter();                 /* 消えたタグで絞ったまま全部が隠れないように、集める前に */
   const items = itemsForField();
   crowded = false;               /* 漂う面に出すときだけ fitItems が決め直す */
+  lastPlate = plateState();
+  renderPlate(lastPlate);
   if (listOn && listBox) {
     /* 一覧で見ている間も漂う面に渡さない（同じものが泡と行の2つ出る。Issue #86） */
     renderList(items);
   } else if (quadOn && quad) {
     /* 分けている間は漂う面に渡さない（同じ泡が2つ出る） */
     quad.render(items.map(it => ({ id: it.id, item: it, opts: { size: QUAD_BUB, colors: it.colors, tagNames: it.tagNames, marks: [] } })));
-  } else field.setItems(fitItems(items));
+  } else {
+    /* 今日大事なこと・先に済ませるの枠に出している泡は、漂う面には渡さない（2026-11-24） */
+    const hide = plateIds(lastPlate);
+    /* 盤を開いている泡は、閉じるまで漂う面に残す（消すと盤ごと閉じる。閉じたら onHold が描き直す） */
+    if (heldId) hide.delete(heldId);
+    field.setItems(fitItems(hide.size ? items.filter(it => !hide.has(it.id)) : items));
+  }
   syncListBtn();                 /* 入りきらないかどうかで札の言い方が変わる（Issue #87） */
   syncFilterBtn();               /* タグが増減していることがある（Issue #89） */
   if (emptyNote) {
@@ -1539,6 +1695,11 @@ function toggleSuggest() {
   syncSuggest();
 }
 
+/* おすすめの板を開く（今日大事なことの［選ぶ］・先に済ませるの［＋］から。開いていればそのまま） */
+function openSuggest() {
+  if (!suggest) toggleSuggest();
+}
+
 function closeSuggest() {
   if (!suggest) return;
   suggest.seq++;               /* 待っている返事は捨てる */
@@ -1557,6 +1718,10 @@ function renderSuggest() {
   if (!live.length) {
     s.list.appendChild(el('li', 'tsg-empty', '海に、ここへ置けるものが見当たらない'));
   }
+  const noKey = typeof store.keyItem === 'function' && !store.keyItem(s.day);
+  const top = noKey ? live.find(c => keyable(c)) : null;
+  const keyPick = top ? top.id : null;
+  const firstOk = s.day === todayKey() && plateState().st.canAdd;
   live.forEach(c => {
     const li = el('li', 'tsg-row');
     const tx = el('span', 'tsg-tx');
@@ -1565,10 +1730,23 @@ function renderSuggest() {
     tx.appendChild(nm);
     if (c.reason) { const rs = el('span', 'tsg-why'); rs.textContent = c.reason; tx.appendChild(rs); }
     li.appendChild(tx);
-    const put = el('button', 'tsg-put', '置く');
+    /* 2026-11-24（モック mock/choose-1124.html の 3）: 今日大事なことがまだなら、さっとでない一番上の候補に［★ 大事なことに］。
+       外の約束のさっとの泡には［↑ 先に］（今日を映していて、先に済ませるに入れられるときだけ）。ほかは［置く］ */
+    let put;
+    if (c.id === keyPick) {
+      put = el('button', 'tsg-put is-key', '★ 大事なことに');
+      put.setAttribute('aria-label', '「' + trim(c.text) + '」を' + word + 'に置いて、大事なことにする');
+      put.addEventListener('click', ev => { ev.preventDefault(); placeSuggestKey(c.id); });
+    } else if (firstOk && firstable(c)) {
+      put = el('button', 'tsg-put is-first', '↑ 先に');
+      put.setAttribute('aria-label', '「' + trim(c.text) + '」を今日の先に済ませるに入れる');
+      put.addEventListener('click', ev => { ev.preventDefault(); placeSuggestFirst(c.id); });
+    } else {
+      put = el('button', 'tsg-put', '置く');
+      put.setAttribute('aria-label', '「' + trim(c.text) + '」を' + word + 'に置く');
+      put.addEventListener('click', ev => { ev.preventDefault(); placeSuggest(c.id); });
+    }
     put.type = 'button';
-    put.setAttribute('aria-label', '「' + trim(c.text) + '」を' + word + 'に置く');
-    put.addEventListener('click', ev => { ev.preventDefault(); placeSuggest(c.id); });
     li.appendChild(put);
     s.list.appendChild(li);
   });
@@ -1591,6 +1769,43 @@ function placeSuggest(id) {
   toast('「' + trim(t.text) + '」を ' + where + ' に置いた', {
     label: '取り消す',
     on: () => { store.setDay(id, day, false); },
+  });
+}
+
+/* ［★ 大事なことに］: その日に置いて、その日の大事なことにする（store.setKey が置くのも一緒にする）。取り消せる */
+function placeSuggestKey(id) {
+  const s = suggest;
+  const t = store.get(id);
+  if (!s || !t || typeof store.setKey !== 'function') return;
+  const day = s.day;
+  const prev = store.keyItem(day);
+  if (!store.setKey(id, day, true)) return;
+  playSfx('place');
+  toast('「' + trim(t.text) + '」を' + (day === todayKey() ? '今日' : '') + '大事なことにした', {
+    label: '取り消す',
+    on: () => {
+      store.setKey(id, day, false);
+      store.setDay(id, day, false);
+      if (prev && store.get(prev.id)) store.setKey(prev.id, day, true);
+    },
+  });
+}
+
+/* ［↑ 先に］: 今日の先に済ませるに入れる（今日に置くのも一緒）。取り消せる */
+function placeSuggestFirst(id) {
+  const t = store.get(id);
+  const day = todayKey();
+  if (!t || typeof store.setFirst !== 'function') return;
+  const r = store.setFirst(id, day, true);
+  if (r !== 'ok') {
+    toast(r === 'full' ? '先に済ませるの席は 3 つまで' : r === 'size' ? '先に済ませるは、さっとの泡だけ' : '先に済ませるに入れられなかった');
+    return;
+  }
+  markFirstStarted(day, Date.now());
+  playSfx('place');
+  toast('「' + trim(t.text) + '」を先に済ませるに入れた', {
+    label: '取り消す',
+    on: () => { store.setFirst(id, day, false); store.setDay(id, day, false); },
   });
 }
 
@@ -1809,6 +2024,12 @@ function openBoardFor(id, row) {
 }
 
 const handlers = {
+  /* 盤を開いた・閉じた（drift が知らせる。2026-11-24）。閉じた泡が枠に移るものなら描き直す */
+  onHold: (id, on) => {
+    if (on) { heldId = id; return; }
+    if (heldId === id) heldId = null;
+    if (plateIds(lastPlate).has(id)) setTimeout(() => { if (!heldId) render(); }, 0);
+  },
   onFocusRequest: id => openFive(id),
   onMenu: (id, node) => onMenu(id, node),
   /* 中央の盤に出す操作。これを渡すと bubble.js は onMenu を横取りしない */
@@ -1926,7 +2147,12 @@ export default {
 
     /* drift は opts の直下から handlers を読む。将来 opts.handlers を見る作りに
        変わっても落ちないよう、まとめたものも一緒に渡しておく（余分なキーは無視される） */
-    field = createField(stage, Object.assign({ size: 'text', handlers }, handlers));
+    /* 今日大事なこと・先に済ませるの枠（2026-11-24）。面の子にして、泡を入れない（drift の keepOut。海の端の札と同じ作り） */
+    plate = el('div', 'today-plate');
+    plate.dataset.screen = 'today.plate'; plate.dataset.screenLayer = '2';
+    plate.hidden = true;
+    stage.appendChild(plate);
+    field = createField(stage, Object.assign({ size: 'text', handlers, keepOut: '.today-plate' }, handlers));
     quad = createQuadView(stage, { className: 'today-quad', bind: (node) => attachGestures(node, handlers) });
     quad.el.dataset.screen = 'today.quad';
 
@@ -2071,6 +2297,7 @@ export default {
   /* テスト・後片付け用。app.js は今のところ呼ばない */
   destroy() {
     if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+    if (plateTimer) { clearTimeout(plateTimer); plateTimer = 0; }
     if (ro) { ro.disconnect(); ro = null; }
     document.removeEventListener('pointerdown', onFilterOutside, true);
     if (field) { field.destroy(); field = null; }

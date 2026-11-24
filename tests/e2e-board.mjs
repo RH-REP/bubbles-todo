@@ -117,17 +117,41 @@ try {
     const open = await js(`${VIS} const f = document.querySelector('.bc-fields');
       const after = [...f.children].slice([...f.children].indexOf(f.querySelector('.bc-more')) + 1).filter(vis).map(n => n.dataset.part).filter(Boolean);
       return { after, chat: vis(f.querySelector('.bc-chat')), del: f.querySelector('[data-part="del"]')?.textContent }`);
-    assert.deepEqual(open.after, ['fav', 'prio', 'url', 'del'], '「その他」の中の並び');
+    assert.deepEqual(open.after, ['fav', 'url', 'del'], '「その他」の中の並び（優先度は 2026-11-24 から名前の下）');
     assert.equal(open.chat, false, '「その他」を開いてもコメントは出ない（個人の海）');
     assert.equal(open.del, '削除');
   });
 
-  await step('優先度: 押した札をもう一度押すと印が外れる（［印を外す］は無い）', async () => {
-    const got = await js(`${VIS} const box = document.querySelector('.bc-fields [data-part="prio"]');
-      const u = [...box.querySelectorAll('.bc-prio-b')].find(b => b.dataset.key === 'urgent');
-      u.click(); const on = u.getAttribute('aria-pressed'); u.click(); const off = u.getAttribute('aria-pressed');
-      return { on, off, clear: vis(box.querySelector('.bc-prio-clear')), note: /まだ分けていない/.test(box.textContent) }`);
-    assert.deepEqual(got, { on: 'true', off: 'false', clear: false, note: false });
+  await step('印の 3 つの段（2026-11-24）: 名前のすぐ下に 今日大事なこと・大事・見当・急ぐ。何回もで 1 回分の案内。片方を決めるともう片方は「いいえ」', async () => {
+    const got = await js(`${VIS} const f = document.querySelector('.bc-fields');
+      const parts = [...f.children].filter(vis).map(n => n.dataset.part).filter(Boolean).slice(0, 3);
+      const box = f.querySelector('[data-part="prio"]');
+      const rows = [...box.querySelectorAll('.bc-mk')].map(r => r.querySelector('.bc-mk-h').textContent);
+      const chip = (seg, t) => [...box.querySelectorAll('.bc-mk[data-seg="' + seg + '"] .bc-chip')].find(b => b.textContent === t);
+      const pressed = seg => [...box.querySelectorAll('.bc-mk[data-seg="' + seg + '"] .bc-chip')].filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent);
+      const hint0 = vis(box.querySelector('.bc-mk-hint'));
+      chip('imp', '◆ 大事').click();
+      const due1 = pressed('due');
+      chip('size', '何回も').click();
+      const hint1 = vis(box.querySelector('.bc-mk-hint'));
+      const first1 = vis(f.querySelector('.bc-first'));
+      chip('size', 'さっと（30 分まで）').click();
+      const first2 = vis(f.querySelector('.bc-first'));
+      chip('due', '外の約束').click();
+      const where = box.querySelector('.bc-prio-where').textContent;
+      chip('imp', 'まだ').click(); chip('due', 'まだ').click(); chip('size', 'まだ').click();
+      return { parts, rows, hint0, due1, hint1, first1, first2, where, key: f.querySelector('.bc-key')?.textContent,
+        clear: !!box.querySelector('.bc-prio-clear') }`);
+    assert.deepEqual(got.parts, ['name', 'pick', 'prio']);
+    assert.deepEqual(got.rows, ['大事', '見当', '急ぐ']);
+    assert.equal(got.hint0, false, '何回もでないときは 1 回分の案内を出さない');
+    assert.deepEqual(got.due1, ['急がない'], '大事を決めると、急ぐの「まだ」は「急がない」になる');
+    assert.equal(got.hint1, true);
+    assert.equal(got.first1, false, '［↑ 先に済ませるに入れる］はさっとのときだけ');
+    assert.equal(got.first2, true);
+    assert.equal(got.where, 'いまの区分: いま（急ぐ・大事）');
+    assert.equal(got.key, '★ 今日大事なことにする');
+    assert.equal(got.clear, false);
   });
 
   await step('作業記録から離れると保存し「保存した」と出す。書き替えるたびに履歴に積み、［履歴を見る ›］で読める。1 行目が次にやること', async () => {
@@ -270,6 +294,63 @@ try {
     assert.equal(r.every, 'month');
     assert.equal(r.of, 'day');
     assert.ok(r.mdays.includes(5) && r.mdays.includes(20), JSON.stringify(r));
+  });
+
+  await step('今日大事なこと・先に済ませる（2026-11-24）: 盤の［★］で今日の水面の上の枠に出て、泡は枠の外を漂う。さっとの泡は［↑］で先に済ませるの段に入り、区切りの時刻が出る', async () => {
+    await js(`const { store } = await import('/js/store.js'); const day = store.todayKey();
+      store.add('架空の申請書を書く'); store.add('架空の経費の提出');
+      const a = store.all().find(t => t.text === '架空の申請書を書く').id, b = store.all().find(t => t.text === '架空の経費の提出').id;
+      store.setPriority(a, { urgent: false, important: true, size: 'l' });
+      store.setPriority(b, { urgent: true, important: true, dueKind: 'ext', size: 's' });
+      store.setDay(a, day, true); store.setDay(b, day, true);`);
+    await js(`document.querySelector('#tabbar button[data-screen="today"]').click()`);
+    await until(`return document.getElementById('pane-today')?.classList.contains('is-active')`);
+    await until(`return !!document.querySelector('#pane-today .today-plate .tp-none')`);
+    assert.equal(await js(`return document.querySelector('#pane-today .tp-none-tx').textContent`), '今日大事なことは、まだ');
+    const bubIn = (t) => `[...document.querySelectorAll('#pane-today .today-stage .bub')].find(b => b.textContent.includes(${JSON.stringify(t)}))`;
+    /* 大事な泡は縁が太く、見当と外の約束が泡の中に出る */
+    await until(`return !!${bubIn('架空の経費')}`);
+    assert.deepEqual(await js(`const n = ${bubIn('架空の経費')}; return { heavy: n.classList.contains('is-heavy'), k: n.querySelector('.knote')?.textContent }`),
+      { heavy: true, k: 'さっと・外の約束' });
+    const openIn = async (t) => {
+      await js(`(await import('/js/bubble.js')).centerBubble(${bubIn(t)});`);
+      await until(`return !!document.querySelector('.bc-fields .bc-act-start')`);
+      await sleep(400);
+    };
+    const close = async () => {
+      await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await until(`return !document.querySelector('.bc-fields .bc-act-start')`);
+      await sleep(300);
+    };
+    await openIn('架空の申請書');
+    await js(`document.querySelector('.bc-fields .bc-key').click()`);
+    assert.equal(await js(`return document.querySelector('.bc-fields .bc-key').textContent`), '今日大事なことから外す');
+    await close();
+    await until(`return !!document.querySelector('#pane-today .today-plate .tp-key')`);
+    const k = await js(`${VIS} return { nm: document.querySelector('#pane-today .tp-key-bub').textContent, none: vis(document.querySelector('#pane-today .tp-none')) }`);
+    assert.equal(k.nm, '架空の申請書を書く');
+    assert.equal(k.none, false);
+    await sleep(500);
+    assert.equal(await js(`return !!${bubIn('架空の申請書')}`), false, '今日大事なことの泡は漂う面に出さない');
+    /* 先に済ませる */
+    await openIn('架空の経費');
+    await js(`document.querySelector('.bc-fields .bc-first').click()`);
+    assert.equal(await js(`return document.querySelector('.bc-fields .bc-pick-note').textContent`), '先に済ませるに入れた');
+    await close();
+    await until(`return !!document.querySelector('#pane-today .today-plate .tp-first')`);
+    const f = await js(`return { t: document.querySelector('#pane-today .tp-first-t').textContent,
+      seats: [...document.querySelectorAll('#pane-today .tp-seat')].map(b => b.textContent) }`);
+    assert.match(f.t, /^〜 \d{1,2}:\d{2}$/);
+    assert.deepEqual(f.seats, ['架空の経費の提出外の約束', '＋']);
+    /* 漂う泡は枠に入らない（drift の keepOut） */
+    await sleep(1500);
+    const overlap = await js(`const p = document.querySelector('#pane-today .today-plate').getBoundingClientRect();
+      return [...document.querySelectorAll('#pane-today .today-stage .bub-field > .bub, #pane-today .today-stage .bub')].filter(n => n.offsetParent).some(n => {
+        const r = n.getBoundingClientRect(); const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, rad = r.width / 2;
+        const qx = Math.max(p.left, Math.min(cx, p.right)), qy = Math.max(p.top, Math.min(cy, p.bottom));
+        return Math.hypot(cx - qx, cy - qy) < rad - 4; })`);
+    assert.equal(overlap, false, '泡が枠に入っている');
+    await js(`document.querySelector('#tabbar button[data-screen="sea"]').click()`);
   });
 
   await step('前の版で置いた「名前だけ」の設定は、新しい既定に替わる（始めるが見える）', async () => {

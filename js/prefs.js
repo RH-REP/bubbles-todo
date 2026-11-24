@@ -36,7 +36,8 @@ export const BOARD_PARTS = [
   /* 下のボタン（Issue #49 の返事）。畳むと「その他」を開いたときに出る。完了した泡の「海にもどす」は done と同じ扱い */
   ['start', '始める'], ['ended', '今日はここまで'], ['done', '完了にする'],
   ['notes', 'コメント'], ['detail', '作業記録'], ['days', 'やる日'], ['span', '期間'], ['repeat', 'くりかえし'], ['tags', 'タグ'],
-  ['fav', 'お気に入り'], ['prio', '優先度'], ['url', 'リンク'],
+  /* 優先度（大事・見当・急ぐ）は 2026-11-24 から名前のすぐ下にいつも出す（選ぶものから外した。選ぶ瞬間に見えることが基準） */
+  ['fav', 'お気に入り'], ['url', 'リンク'],
   ['del', '削除'],
 ];
 /* 「少なめにする」で選ぶ欄（取りかかるのに要るものだけ） */
@@ -127,6 +128,13 @@ export const ITEMS = [
   {
     id: 'showSuggest', type: 'bool', def: false, pages: ['today'],
     label: '今日の画面に「おすすめ」を出す（今日に置くとよさそうな泡を選んで出す）',
+  },
+  {
+    /* 先に済ませるの区切りの時間（2026-11-24 ユーザーの決定。app_spec の minutes/261124_選ぶときの基準.md）。
+       その日に初めて先に済ませるへ入れた時刻から、この分だけたつと段を畳む（残った泡は今日の水面に戻る） */
+    id: 'firstMin', type: 'choice', def: '30', pages: ['today'],
+    label: '先に済ませるの区切りの時間（初めて入れた時刻から）',
+    choices: [['15', '15 分'], ['30', '30 分'], ['45', '45 分'], ['60', '60 分'], ['90', '90 分']],
   },
   {
     id: 'showQuad', type: 'bool', def: false, pages: ['today'],
@@ -390,4 +398,38 @@ export function proposalTitle(p) {
   if (!ids.length) return '';
   const first = byId[ids[0]].label.replace(/（.*$/, '');
   return '既定の提案: ' + (first.length > 24 ? first.slice(0, 24) + '…' : first) + (ids.length > 1 ? ' ほか' + (ids.length - 1) + '件' : '');
+}
+
+/* ---- 先に済ませるを始めた時刻（2026-11-24）----
+   その日に初めて先に済ませるへ入れた時刻を、この端末にだけ覚える（区切りの時間＝この時刻＋firstMin 分）。
+   記録（同期・引っ越し）には乗らない。ほかの端末で入れた泡は、この端末で初めて見た時刻から数える。
+   日は 7 日ぶんだけ残す（古いものは落とす） */
+export const FIRST_AT_KEY = 'bubble_todo_first_at_v1';
+function readFirstAt(s) {
+  try {
+    const o = JSON.parse((s && s.getItem(FIRST_AT_KEY)) || 'null');
+    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  } catch (e) { return {}; }
+}
+/* その日に始めた時刻（ms）。無ければ null */
+export function firstStartedAt(day, storage) {
+  const v = Number(readFirstAt(ls(storage))[day]);
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+/* まだ覚えていなければ、その日に始めた時刻として at を覚える。-> 覚えている時刻 */
+export function markFirstStarted(day, at, storage) {
+  const s = ls(storage);
+  const o = readFirstAt(s);
+  const cur = Number(o[day]);
+  if (Number.isFinite(cur) && cur > 0) return cur;
+  o[day] = at;
+  const keep = Object.keys(o).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort().slice(-7);
+  const out = {};
+  keep.forEach(k => { out[k] = o[k]; });
+  try { if (s) s.setItem(FIRST_AT_KEY, JSON.stringify(out)); } catch (e) { /* 置けなくても段は出る（この開いている間だけ） */ }
+  return at;
+}
+/* 区切りの時間の分（設定の firstMin） */
+export function firstMinutes(storage) {
+  return Number(loadPrefs(storage).firstMin) || 30;
 }

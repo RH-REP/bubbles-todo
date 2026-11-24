@@ -844,6 +844,19 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 }
 .bub .snote[hidden] { display: none; }
 
+/* ---------- 見当・外の約束の添え字と、大事な泡の縁（2026-11-24。今日の水面だけ）----------
+   添え字は期間の外の添え字（.snote）と同じ作法（今日の水面には .snote は出ない）。赤は使わない。
+   大事な泡（important）は縁を太く。担当の is-mine と同じ持ち方で、少しだけ太い */
+.bub .knote {
+  position: absolute; left: 50%; bottom: 4%; transform: translateX(-50%);
+  max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; line-height: 1.5; letter-spacing: .02em; padding: 0 6px; border-radius: 999px;
+  color: var(--text-2); background: color-mix(in srgb, var(--surface) 82%, transparent);
+  pointer-events: none;
+}
+.bub .knote[hidden] { display: none; }
+.bub.is-heavy .skin { box-shadow: 0 0 0 3px var(--bub-edge); }
+
 /* ---------- 盤の優先度（急ぐ・大事）----------
    お気に入りと同じ札の作法。下に今の区分を言葉で1行。区分の色は小さな帯で添えるだけ */
 .bub-center .bc-prio { margin-bottom: 6px; }
@@ -864,6 +877,30 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub-center .bc-prio[data-q="grow"]  .bc-prio-where { border-left-color: var(--q-grow-e); }
 .bub-center .bc-prio[data-q="quick"] .bc-prio-where { border-left-color: var(--q-quick-e); }
 .bub-center .bc-prio[data-q="drift"] .bc-prio-where { border-left-color: var(--q-drift-e); }
+
+/* 印の 3 つの段（大事・見当・急ぐ。2026-11-24 モック mock/choose-1124.html の 3）。名前のすぐ下。
+   段の名前を左に、札を右に並べる。押している札は縁と地が立つ（お気に入りと同じ作法）。「まだ」は薄く */
+.bub-center .bc-mk { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 6px; }
+.bub-center .bc-mk-h { flex: 0 0 2.6em; font-size: 12px; color: var(--text-2); }
+.bub-center .bc-mk-chips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
+.bub-center .bc-mk-hint { flex: 1 0 100%; margin: 0 0 0 calc(2.6em + 8px); font-size: 11.5px; color: var(--text-2); }
+.bub-center .bc-mk-hint[hidden] { display: none; }
+.bub-center .bc-chip {
+  appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
+  min-height: 30px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--bg); color: var(--text-2); font-size: 12.5px;
+  transition: border-color .12s, background-color .12s;
+}
+.bub-center .bc-chip.is-dim { color: var(--text-2); opacity: .8; }
+.bub-center .bc-chip[aria-pressed="true"] { border-color: var(--line-strong); background: var(--surface-2); color: var(--text); opacity: 1; }
+.bub-center .bc-chip:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.bub-center .bc-chip:disabled { cursor: default; opacity: .55; }
+/* ［↑ 先に済ませるに入れる］［★ 今日大事なことにする］の行 */
+.bub-center .bc-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.bub-center .bc-pick .bc-key { margin-bottom: 0; }
+.bub-center .bc-pick .bc-first[hidden] { display: none; }
+.bub-center .bc-pick-note { flex: 1 0 100%; margin: 0; font-size: 11.5px; color: var(--text-2); min-height: 0; }
+.bub-center .bc-pick-note:empty { display: none; }
 
 /* ---------- お気に入りの印（F7）----------
    札の列の上に1つ。見た目は札と同じ作法（押した側は縁と地が立つ）。

@@ -1059,6 +1059,8 @@ export function createField(host, opts = {}) {
     onDragStart: id => { if (opts.onDragStart) opts.onDragStart(id); },
     /* 位置の主導権。持ち出されている間は tick が触らない */
     onHold: (id, on) => {
+      /* 画面にも知らせる（2026-11-24。今日の画面は、盤を開いている泡を今日大事なことの枠へ移すのを、盤を閉じるまで待つ） */
+      if (opts.onHold) { try { opts.onHold(id, on); } catch (e) { /* 画面の都合で物理を止めない */ } }
       const b = bubbles.get(id);
       if (!b) return;
       b.held = on;

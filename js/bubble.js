@@ -18,7 +18,7 @@
 
 import { el, clamp, fromFeedback, toast } from './ui.js';
 import { playSfx } from './sound.js';
-import { QUADRANTS, quadrantFor } from './priority.js';
+import { QUADRANTS, quadrantFor, SIZE_CHIP, DUE_KINDS } from './priority.js';
 import { askFull, askWithSearchFull, hasKey } from './ai.js';
 import { aiOn } from './edition.js';
 import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, applyName, cleanText, appendSection, lostUrls, failLine,
@@ -534,6 +534,19 @@ export function updateBubble(node, item, opts = {}) {
     if (wob) wob.appendChild(snote);
   }
   if (snote) { snote.textContent = spanNote; snote.hidden = !spanNote; }
+  /* ---- 見当と外の約束の添え字・大事な泡の太い縁（2026-11-24。今日の水面だけ。モック mock/choose-1124.html の 2）----
+     item.knote（「さっと・外の約束」など）を泡の下端に小さく。item.heavy なら縁を太く（is-heavy）。
+     渡さない画面（海など）では何も変わらない（海は今までどおり区分の色の点だけ） */
+  const kNote = (item && typeof item.knote === 'string') ? item.knote : '';
+  let knote = node.querySelector(':scope > .wob > .knote');
+  if (kNote && !knote) {
+    knote = el('span', 'knote');
+    knote.setAttribute('aria-hidden', 'true');
+    const wob = node.querySelector(':scope > .wob');
+    if (wob) wob.appendChild(knote);
+  }
+  if (knote) { knote.textContent = kNote; knote.hidden = !kNote; }
+  node.classList.toggle('is-heavy', !!(item && item.heavy));
   /* ---- 担当（共有の記録 v1.2。2026-11-18）----
      共有の海の泡に、担当の人の名前の頭 1 字を右下の小さな丸に。自分が担当なら縁を太くする（is-mine）。
      終えた泡には、終えた人の頭 1 字に ✓。預け先に whoMark が無い版・共有でない海では出ない */
@@ -551,6 +564,7 @@ export function updateBubble(node, item, opts = {}) {
   let label = ariaFor(item, names, marks, started, done);
   if (who && who.label) label += '、' + who.label;
   if (spanNote) label += '、' + spanNote;
+  if (kNote) label += '、' + kNote;
   if (fresh) label += '、新しいひとことあり';
   node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
   node.dataset.id = item.id;
@@ -1181,55 +1195,76 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     };
   }
 
-  /* ---- 優先度（Eisenhower・利用者の指示 2026-10-25）----
-     「急ぐ」「大事」の2つの切り替えと、いまの区分の名前。書くのは閉じるとき（お気に入りと同じ理由）。
-     どちらも触っていない泡は「まだ」のまま。片方を触ったら、押していない側は「いいえ」として書く
-     （片方だけ「まだ」で残すと区分が出ず、押したのに何も起きないように見えるため）。
-     [印を外す] で両方「まだ」へ戻す。区分の名前は命令形にしない。数は出さない。
-     ◷ と ◆ は文字（絵文字にしない。契約 §15）。預け先に setPriority が無い版では出さない。 */
+  /* ---- 印の段（大事・見当・急ぐ）と、今日大事なこと・先に済ませる ----
+     2026-10-25 の優先度（急ぐ・大事の 2 つの切り替え）を、2026-11-24 ユーザーの決定（app_spec の minutes/261124_選ぶときの基準.md、
+     モック mock/choose-1124.html の 3）で 3 つの段にした。「その他」から出し、名前のすぐ下に置く（選ぶ瞬間に見えることが基準）。
+       大事 … ◆ 大事・大事でない・まだ
+       見当 … さっと（30 分まで）・半日まで・何回も・まだ（何回もなら 1 回分の案内）
+       急ぐ … 外の約束・自分の目安・急がない・まだ
+     どれも「まだ」のままでよい。大事か急ぐの片方を決めたとき、もう片方が「まだ」なら「いいえ」として書く
+     （片方だけ「まだ」で残すと区分が出ず、押したのに何も起きないように見えるため。前の版と同じ）。
+     書くのは閉じるとき（お気に入りと同じ理由）。区分の名前は命令形にしない。数は出さない。
+     ◆ は文字（絵文字にしない。契約 §15）。預け先に setPriority が無い版では出さない。 */
+  let prioNow = null;           /* 先に済ませるへ入れる前に、見当をその場で書く（↑ はさっとの泡だけ） */
+  let syncPick = null;          /* 見当を変えたら ↑ の出し入れを合わせる */
+  let wantSize = () => null;
   if (fields && typeof (a || {}).setPriority === 'function') {
-    const p0 = ask(a, 'priorityOf', id) || { urgent: null, important: null };
-    let want = { urgent: p0.urgent, important: p0.important };
+    const c0 = ask(a, 'choiceOf', id) || ask(a, 'priorityOf', id) || {};
+    const tri = v => (v === true ? true : v === false ? false : null);
+    let p0 = { urgent: tri(c0.urgent), important: tri(c0.important),
+      dueKind: c0.urgent === true ? (c0.dueKind === 'ext' ? 'ext' : 'self') : null,
+      size: (c0.size === 's' || c0.size === 'm' || c0.size === 'l') ? c0.size : null };
+    const want = Object.assign({}, p0);
+    wantSize = () => want.size;
     const box = el('div', 'bc-prio');
     box.setAttribute('role', 'group');
-    box.setAttribute('aria-label', '優先度');
-    const row = el('div', 'bc-prio-row');
-    const mk = (key, ic, name) => {
-      const b = el('button', 'bc-fav bc-prio-b');
-      b.type = 'button';
-      b.dataset.key = key;
-      const i = el('span', 'bc-fav-ic', ic);
-      i.setAttribute('aria-hidden', 'true');
-      b.appendChild(i);
-      b.appendChild(el('span', 'bc-fav-tx', name));
-      b.addEventListener('click', ev => {
-        ev.preventDefault();
-        const other = key === 'urgent' ? 'important' : 'urgent';
-        want[key] = want[key] !== true;
-        if (want[other] === null) want[other] = false;
-        /* 2026-11-18: ［印を外す］を外した。どちらも押していない形に戻ったら、印そのものを外す（まだ分けていない） */
-        if (want.urgent !== true && want.important !== true) want = { urgent: null, important: null };
-        sync();
+    box.setAttribute('aria-label', '大事・見当・急ぐ');
+    const segs = [];
+    const seg = (name, part, opts, get, set) => {
+      const row = el('div', 'bc-mk');
+      row.dataset.name = name;
+      row.dataset.seg = part;
+      const h = el('span', 'bc-mk-h', name);
+      h.id = 'bc-mk-' + part + '-' + Math.random().toString(36).slice(2, 7);
+      row.appendChild(h);
+      const chips = el('div', 'bc-mk-chips');
+      chips.setAttribute('role', 'group');
+      chips.setAttribute('aria-labelledby', h.id);
+      const btns = opts.map(([val, text, cls]) => {
+        const b = el('button', 'bc-chip' + (cls ? ' ' + cls : ''), text);
+        b.type = 'button';
+        b.addEventListener('click', ev => { ev.preventDefault(); set(val); sync(); });
+        chips.appendChild(b);
+        return [val, b];
       });
-      row.appendChild(b);
-      return b;
+      row.appendChild(chips);
+      box.appendChild(row);
+      segs.push(() => btns.forEach(([val, b]) => b.setAttribute('aria-pressed', get() === val ? 'true' : 'false')));
+      return row;
     };
-    const bU = mk('urgent', '◷', '急ぐ');
-    const bI = mk('important', '◆', '大事');
-    const clear = el('button', 'bc-prio-clear', '印を外す');
-    clear.type = 'button';
-    clear.addEventListener('click', ev => { ev.preventDefault(); want = { urgent: null, important: null }; sync(); });
-    clear.hidden = true;   /* 2026-11-18 外した（押している札をもう一度押すと外れる）。作りは残す */
-    row.appendChild(clear);
+    seg('大事', 'imp', [[true, '◆ 大事'], [false, '大事でない'], [null, 'まだ', 'is-dim']],
+      () => want.important,
+      v => { want.important = v; if (v !== null && want.urgent === null) want.urgent = false; });
+    const sizeRow = seg('見当', 'size', [['s', SIZE_CHIP.s], ['m', SIZE_CHIP.m], ['l', SIZE_CHIP.l], [null, 'まだ', 'is-dim']],
+      () => want.size,
+      v => { want.size = v; });
+    const hint = el('p', 'bc-mk-hint', '何回もの泡は、次にやることが書いてあると「1 回分（半日まで）」として選ばれる');
+    hint.dataset.name = '1 回分の案内';
+    sizeRow.appendChild(hint);
+    seg('急ぐ', 'due', [['ext', DUE_KINDS.ext], ['self', DUE_KINDS.self], ['no', '急がない'], [null, 'まだ', 'is-dim']],
+      () => (want.urgent === true ? (want.dueKind === 'ext' ? 'ext' : 'self') : want.urgent === false ? 'no' : null),
+      v => {
+        if (v === 'ext' || v === 'self') { want.urgent = true; want.dueKind = v; }
+        else { want.urgent = v === 'no' ? false : null; want.dueKind = null; }
+        if (v !== null && want.important === null) want.important = false;
+      });
     const where = el('div', 'bc-prio-where');
     where.setAttribute('aria-live', 'polite');
-    box.appendChild(row);
     box.appendChild(where);
     function sync() {
-      bU.setAttribute('aria-pressed', want.urgent === true ? 'true' : 'false');
-      bI.setAttribute('aria-pressed', want.important === true ? 'true' : 'false');
+      segs.forEach(f => f());
+      hint.hidden = want.size !== 'l';
       const q = quadrantFor(want.urgent, want.important);
-      clear.hidden = true;
       where.textContent = '';
       if (q) {
         box.dataset.q = q;
@@ -1237,17 +1272,71 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         { const qb = el('b'); qb.textContent = QUADRANTS[q].name; where.appendChild(qb); }
         where.appendChild(document.createTextNode('（' + QUADRANTS[q].sub + '）'));
       } else {
-        delete box.dataset.q;   /* 2026-11-18「まだ分けていない（分けなくても使える）」の 1 行は外した */
+        delete box.dataset.q;
       }
       where.hidden = !q;
+      if (syncPick) syncPick();
     }
     sync();
-    /* まだ分けていない泡では「その他」に畳む（Issue #40）。印があれば、いつも出す */
-    foldPart(box, 'prio', !(p0.urgent == null && p0.important == null));
+    box.dataset.part = 'prio';
+    box.dataset.name = '大事・見当・急ぐ';
     fields.appendChild(box);
+    const differs = () => want.urgent !== p0.urgent || want.important !== p0.important
+      || want.dueKind !== p0.dueKind || want.size !== p0.size;
     savePrio = () => {
-      if (want.urgent !== p0.urgent || want.important !== p0.important) ask(a, 'setPriority', id, want);
+      if (differs()) ask(a, 'setPriority', id, Object.assign({}, want));
     };
+    prioNow = () => { if (differs()) { ask(a, 'setPriority', id, Object.assign({}, want)); p0 = Object.assign({}, want); } };
+  }
+
+  /* ---- ［★ 今日大事なことにする］と［↑ 先に済ませるに入れる］（2026-11-24。モック mock/choose-1124.html の 3）----
+     どちらも押したその場で書く（ほかの泡から今日大事なことを外す・席の数を見るので、閉じるまで待たない）。
+     今日大事なことは今日（この端末の今日）に 1 つ。先に済ませるはさっとの泡だけ・3 つまで・区切りの時間の前だけ。
+     言い方は命令形にしない。預け先に setKey が無い版では出さない */
+  if (fields && typeof (a || {}).setKey === 'function') {
+    const pick = el('div', 'bc-pick');
+    pick.dataset.part = 'pick';
+    pick.dataset.name = '今日大事なこと・先に済ませる';
+    const firstBtn = el('button', 'bc-chip bc-first');
+    firstBtn.type = 'button';
+    firstBtn.dataset.name = '先に済ませるに入れる';
+    const keyBtn = el('button', 'bc-fav bc-key');
+    keyBtn.type = 'button';
+    keyBtn.dataset.name = '今日大事なことにする';
+    const said = el('p', 'bc-pick-note');
+    said.setAttribute('aria-live', 'polite');
+    pick.appendChild(firstBtn);
+    pick.appendChild(keyBtn);
+    pick.appendChild(said);
+    syncPick = () => {
+      const isKey = ask(a, 'isKey', id) === true;
+      keyBtn.textContent = isKey ? '今日大事なことから外す' : '★ 今日大事なことにする';
+      keyBtn.setAttribute('aria-pressed', isKey ? 'true' : 'false');
+      const fi = ask(a, 'firstInfo', id) || { has: false, canAdd: false, why: '' };
+      firstBtn.hidden = !fi.has && wantSize() !== 's';
+      firstBtn.textContent = fi.has ? '↑ 先に済ませるから外す' : '↑ 先に済ませるに入れる';
+      firstBtn.setAttribute('aria-pressed', fi.has ? 'true' : 'false');
+      firstBtn.disabled = !fi.has && !fi.canAdd;
+      firstBtn.title = firstBtn.disabled ? (fi.why || '') : '';
+    };
+    keyBtn.addEventListener('click', ev => {
+      ev.preventDefault();
+      const on = ask(a, 'isKey', id) !== true;
+      if (ask(a, 'setKey', id, on)) said.textContent = on ? '今日大事なことにした。今日の水面の上の枠に出る' : '今日大事なことから外した';
+      syncPick();
+    });
+    firstBtn.addEventListener('click', ev => {
+      ev.preventDefault();
+      const fi = ask(a, 'firstInfo', id) || {};
+      if (!fi.has && prioNow) prioNow();     /* 見当をさっとにしたばかりなら、先に書く */
+      const r = ask(a, 'setFirst', id, !fi.has);
+      said.textContent = r === 'ok' ? (fi.has ? '先に済ませるから外した（今日の水面に残る）' : '先に済ませるに入れた')
+        : r === 'full' ? '先に済ませるの席は 3 つまで' : r === 'closed' ? '先に済ませるは、今日はもう畳んだ'
+        : r === 'size' ? '先に済ませるは、さっとの泡だけ' : '';
+      syncPick();
+    });
+    syncPick();
+    fields.appendChild(pick);
   }
 
   /* 期間の外なので長期保留の海にいるか（共有の記録 v1.5 §11。'before'|'after'|null）。
@@ -2101,21 +2190,20 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      上から: 名前 → 次にやること → ［始める］［今日はここまで］［完了にする］ → 担当・コメント（共有の海） → メモ → 日付（やる日・期間・海に戻す日） → タグ
      → 中身のあるリンク・書きかけの作業の記録 → 「その他」 → まれなもの（お気に入り・優先度・リンク・作業の記録・飛び先・削除）。
      欄そのものは上で組んだまま。ここでは置く順と、畳むかどうかだけを決める */
-  const ORDER = ['name', 'step', 'acts', 'who', 'notes', 'detail', 'dates', 'tags', 'fav', 'prio', 'url', 'memo', 'hist', 'jump', 'del'];
+  /* 2026-11-24: 今日大事なこと・先に済ませる（pick）と印の段（prio）は名前のすぐ下（モック mock/choose-1124.html の 3）。畳まない */
+  const ORDER = ['name', 'pick', 'prio', 'step', 'acts', 'who', 'notes', 'detail', 'dates', 'tags', 'fav', 'url', 'memo', 'hist', 'jump', 'del'];
   if (fields) {
-    /* お気に入り・優先度は、印が付いていても「その他」へ（付いていれば名前の横に印を出す）。設定で選んだときは外に */
-    ['fav', 'prio'].forEach(p => fields.querySelectorAll(':scope > [data-part="' + p + '"]')
+    /* お気に入りは、印が付いていても「その他」へ（付いていれば名前の横に印を出す）。設定で選んだときは外に */
+    ['fav'].forEach(p => fields.querySelectorAll(':scope > [data-part="' + p + '"]')
       .forEach(n => { if (!boardShow.has(p)) n.classList.add('is-extra'); }));
     if (nameIn) {
+      /* 2026-11-24: 急ぐ・大事は名前のすぐ下の印の段に見えるので、ここはお気に入りの ☆ だけ */
       const marks = [];
       if (ask(a, 'isFav', id) === true) marks.push('☆');
-      const pr = ask(a, 'priorityOf', id) || {};
-      if (pr.urgent === true) marks.push('◷');
-      if (pr.important === true) marks.push('◆');
       if (marks.length) {
         const mk = el('span', 'bc-marks', marks.join(' '));
-        mk.setAttribute('aria-label', [marks.includes('☆') ? 'お気に入り' : '', pr.urgent === true ? '急ぐ' : '', pr.important === true ? '大事' : ''].filter(Boolean).join('・'));
-        mk.dataset.name = 'お気に入り・優先度の印';
+        mk.setAttribute('aria-label', 'お気に入り');
+        mk.dataset.name = 'お気に入りの印';
         nameIn.parentElement.appendChild(mk);
       }
       /* プロジェクトの名前（記録の形の版 2。2026-11-24 ユーザーの決定）。読むだけ。作る・直すのは gantt。

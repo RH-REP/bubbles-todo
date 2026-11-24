@@ -19,7 +19,15 @@
    きっかけにぶら下げたもの（きっかけが来たら出る計画なので、ここで今日へ引かない）。
 
    ■ 言い方
-   件数・割合・「◯日放置」のような文は出さない。理由は命令形にしない（〜しよう・〜すべき を使わない）。 */
+   件数・割合・「◯日放置」のような文は出さない。理由は命令形にしない（〜しよう・〜すべき を使わない）。
+
+   ■ 点（2026-11-24 ユーザーの決定「OK、推奨で実施」。app_spec の minutes/261124_選ぶときの基準.md）
+   点＝大事さ ÷ 見当。大事さは 大事 3・まだ／大事でない 1、外の約束の急ぐは ＋1。
+   見当は さっと 1・半日まで 2・何回も 4（1 回分＝次にやることが書いてあれば 2）・まだ 2。
+   最近はじめた・お気に入り・次にやることありは、同点のときの並べ替えにだけ使う。点は画面に出さない。
+   前の点（急ぐ 3 ＞ 大事 2）は、急ぎに見えるものへ流れる偏りをそのまま点にしていたので改めた。 */
+
+import { SIZES, effectiveSize } from './priority.js';
 
 export const CAND_MAX = 30;    /* AI へ送る候補の上限 */
 export const PICK_MAX = 5;     /* 板に出す数の上限 */
@@ -48,6 +56,10 @@ export function describe(t, info) {
     text: String(t.text || ''),
     urgent: t.urgent === true,
     important: t.important === true,
+    /* 外の約束の急ぐか（urgent:true で dueKind が 'ext'）。無ければ自分の目安 */
+    ext: t.urgent === true && t.dueKind === 'ext',
+    /* 見当（'s'・'m'・'l'・null） */
+    size: (t.size === 's' || t.size === 'm' || t.size === 'l') ? t.size : null,
     fav: !!t.fav,
     tags: Array.isArray(i.tags) ? i.tags.filter(Boolean).map(String) : [],
     firstStep: !!i.firstStep,
@@ -64,36 +76,62 @@ export function eligible(t, day) {
   return !!String(t.text || '').trim();
 }
 
-/* 決まった規則の点と理由。now = 時刻（ms） */
+/* 大事さ（分子）と見当（分母）。点そのものは value ÷ time。割り算の誤差を避けるため、比べるときは掛け合わせる */
+const TIME = { s: 1, m: 2, l: 4 };
+export function valueOf(c) { return (c.important ? 3 : 1) + (c.urgent && c.ext ? 1 : 0); }
+export function timeOf(c) { const z = effectiveSize(c.size, !!c.firstStep); return z ? TIME[z] : 2; }
+/* 1 回分か（何回もで、次にやることが書いてある） */
+export function oneShot(c) { return c.size === 'l' && !!c.firstStep; }
+
+/* 見当の言葉（理由・送る印に使う） */
+function sizeWord(c) {
+  if (!c.size) return '';
+  return oneShot(c) ? '1 回分' : SIZES[c.size];
+}
+
+/* 決まった規則の点と理由。now = 時刻（ms）。
+   score は大事さ ÷ 見当（画面には出さない）。tie は同点のときだけ見る並べ替えの印（最近はじめた・お気に入り・次にやることあり）。
+   理由は 大事・見当・外の約束・次にやることあり・最近はじめた・お気に入り の順に 3 つまで */
 export function scoreOf(c, now) {
+  const value = valueOf(c), time = timeOf(c);
+  const recent = !!(c.lastStarted && now - c.lastStarted <= RECENT_DAYS * DAY);
   const why = [];
-  let s = 0;
-  if (c.urgent && c.important) { s += 5; why.push('急ぐ・大事'); }
-  else if (c.urgent) { s += 3; why.push('急ぐ'); }
-  else if (c.important) { s += 2; why.push('大事'); }
-  if (c.lastStarted && now - c.lastStarted <= RECENT_DAYS * DAY) { s += 2; why.push('最近はじめた'); }
-  if (c.firstStep) { s += 1; why.push('次の一手が書いてある'); }
-  if (c.fav) { s += 1; why.push('お気に入り'); }
-  return { score: s, reason: why.slice(0, 2).join('・') };
+  if (c.important) why.push('大事');
+  const sw = sizeWord(c);
+  if (sw) why.push(sw);
+  if (c.urgent && c.ext) why.push('外の約束');
+  if (c.firstStep) why.push('次にやることあり');
+  if (recent) why.push('最近はじめた');
+  if (c.fav) why.push('お気に入り');
+  let reason = why.slice(0, 3).join('・');
+  if (Array.from(reason).length > REASON_MAX) reason = why.slice(0, 2).join('・');
+  return { score: value / time, value, time, tie: [recent ? 1 : 0, c.fav ? 1 : 0, c.firstStep ? 1 : 0], reason };
 }
 
-/* 規則で並べた候補。-> [{ ...c, score, reason }]（点の高い順、同点は新しく書いた順） */
+function byRule(a, b) {
+  const d = b.value * a.time - a.value * b.time;     /* b の点 − a の点（分母を払った形） */
+  if (d) return d;
+  for (let i = 0; i < 3; i++) { const t = b.tie[i] - a.tie[i]; if (t) return t; }
+  return (b.lastStarted - a.lastStarted) || (b.createdAt - a.createdAt);
+}
+
+/* 規則で並べた候補。-> [{ ...c, score, value, time, tie, reason }]（点の高い順、同点は最近はじめた・お気に入り・次にやることあり、
+   それでも同じなら最後にはじめた順・新しく書いた順） */
 export function rank(list, now) {
-  return list.map(c => Object.assign({}, c, scoreOf(c, now)))
-    .sort((a, b) => (b.score - a.score) || (b.lastStarted - a.lastStarted) || (b.createdAt - a.createdAt));
+  return list.map(c => Object.assign({}, c, scoreOf(c, now))).sort(byRule);
 }
 
-/* 端末だけのおすすめ。点が付いたものから PICK_MAX 件。点の付いたものが PICK_MIN に満たなければ、
-   新しく書いたもので PICK_MIN まで埋める（理由は「最近書いた」）。 */
+/* 端末だけのおすすめ。並べた上から PICK_MAX 件（どの泡にも点が付く）。
+   理由の言葉が 1 つも無い泡で、最近（7 日のうちに）書いたものは「最近書いた」と添える */
 export function localPicks(list, now) {
-  const r = rank(list, now);
-  const out = r.filter(c => c.score > 0).slice(0, PICK_MAX);
-  if (out.length < PICK_MIN) {
-    const rest = r.filter(c => c.score <= 0).sort((a, b) => b.createdAt - a.createdAt);
-    rest.slice(0, PICK_MIN - out.length).forEach(c => out.push(Object.assign({}, c, { reason: '最近書いた' })));
-  }
-  return out;
+  return rank(list, now).slice(0, PICK_MAX).map(c => (c.reason || now - c.createdAt > RECENT_DAYS * DAY)
+    ? c : Object.assign({}, c, { reason: '最近書いた' }));
 }
+
+/* 今日大事なことの候補にしてよいか（さっとの泡は候補にしない） */
+export function keyable(c) { return !!c && c.size !== 's'; }
+/* 先に済ませるの候補か（外の約束の急ぐで、さっとの泡） */
+export function firstable(c) { return !!c && c.size === 's' && c.urgent && c.ext; }
 
 /* AI へ送る候補。規則の上位から CAND_MAX 件 */
 export function sendList(list, now) {
@@ -103,8 +141,9 @@ export function sendList(list, now) {
 /* 候補 1 件を、送る 1 行にする。名前と印だけ */
 export function lineOf(c, n) {
   const marks = [];
-  if (c.urgent) marks.push('急ぐ');
+  if (c.urgent) marks.push(c.ext ? '急ぐ（外の約束）' : '急ぐ');
   if (c.important) marks.push('大事');
+  if (c.size) marks.push('見当:' + SIZES[c.size] + (oneShot(c) ? '（1 回分）' : ''));
   if (c.fav) marks.push('お気に入り');
   if (c.firstStep) marks.push('次の一手あり');
   if (c.tags.length) marks.push('タグ:' + c.tags.slice(0, 5).join('/'));
@@ -123,7 +162,8 @@ export function buildSuggestPrompt(cands, day) {
   const system = [
     'あなたは todo の一覧から、その日に取りかかるとよさそうなものを選ぶ係。',
     'その日は ' + day + (dow ? '（' + dow + '）' : '') + '。',
-    '考えに入れること: 急ぐ・大事の印、最近はじめたか、次の一手が書いてあるか、名前の意味（季節・時期・曜日に合うか、期限がありそうか）。',
+    '考えに入れること: 大事の印と見当（さっと・半日まで・何回も。1 回分は次の 1 回が半日まで）の比、急ぐのうち外の約束（自分では動かせない日）か、最近はじめたか、次の一手が書いてあるか、名前の意味（季節・時期・曜日に合うか、期限がありそうか）。',
+    '急ぐの印が付いていても外の約束でなければ自分の目安なので、大事なものより上に置かなくてよい。',
     PICK_MIN + '〜' + PICK_MAX + ' 件を選ぶ。候補が少なければ少なくてよい。',
     '理由は ' + REASON_MAX + ' 字以内の短い言葉。命令形（〜しよう・〜すべき・〜しなさい）や、責める言い方（放置・遅れ・溜まっている）は使わない。',
     '件数や割合は書かない。',
