@@ -117,41 +117,55 @@ try {
     const open = await js(`${VIS} const f = document.querySelector('.bc-fields');
       const after = [...f.children].slice([...f.children].indexOf(f.querySelector('.bc-more')) + 1).filter(vis).map(n => n.dataset.part).filter(Boolean);
       return { after, chat: vis(f.querySelector('.bc-chat')), del: f.querySelector('[data-part="del"]')?.textContent }`);
-    assert.deepEqual(open.after, ['fav', 'url', 'del'], '「その他」の中の並び（優先度は 2026-11-24 から名前の下）');
+    assert.deepEqual(open.after, ['fav', 'url', 'del'], '「その他」の中の並び（優先度は 2026-11-24 からタグの下）');
     assert.equal(open.chat, false, '「その他」を開いてもコメントは出ない（個人の海）');
     assert.equal(open.del, '削除');
   });
 
-  await step('印の 3 つの段（2026-11-24）: 名前のすぐ下に 今日大事なこと・大事・見当・急ぐ。何回もで 1 回分の案内。片方を決めるともう片方は「いいえ」', async () => {
+  await step('印の段（2026-11-24。同じ日に タグの下へ移し、1 行ずつに）: 大事・見当・急ぐ・今日。押した札をもう一度押すと外れる。片方を決めるともう片方は「いいえ」', async () => {
     const got = await js(`${VIS} const f = document.querySelector('.bc-fields');
-      const parts = [...f.children].filter(vis).map(n => n.dataset.part).filter(Boolean).slice(0, 3);
+      const parts = [...f.children].filter(vis).map(n => n.dataset.part).filter(Boolean);
       const box = f.querySelector('[data-part="prio"]');
-      const rows = [...box.querySelectorAll('.bc-mk')].map(r => r.querySelector('.bc-mk-h').textContent);
+      const rows = [...f.querySelectorAll('.bc-mk')].map(r => r.querySelector('.bc-mk-h').textContent);
       const chip = (seg, t) => [...box.querySelectorAll('.bc-mk[data-seg="' + seg + '"] .bc-chip')].find(b => b.textContent === t);
       const pressed = seg => [...box.querySelectorAll('.bc-mk[data-seg="' + seg + '"] .bc-chip')].filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent);
+      const labels = seg => [...box.querySelectorAll('.bc-mk[data-seg="' + seg + '"] .bc-chip')].map(b => b.textContent);
+      const oneLine = [...f.querySelectorAll('.bc-mk')].every(r => { const c = r.querySelectorAll('.bc-chip:not([hidden])'); return !c.length || new Set([...c].map(b => Math.round(b.getBoundingClientRect().top))).size === 1; });
       const hint0 = vis(box.querySelector('.bc-mk-hint'));
       chip('imp', '◆ 大事').click();
-      const due1 = pressed('due');
+      const imp1 = pressed('imp'), due1 = pressed('due');
       chip('size', '何回も').click();
       const hint1 = vis(box.querySelector('.bc-mk-hint'));
       const first1 = vis(f.querySelector('.bc-first'));
-      chip('size', 'さっと（30 分まで）').click();
+      chip('size', 'さっと').click();
       const first2 = vis(f.querySelector('.bc-first'));
       chip('due', '外の約束').click();
-      const where = box.querySelector('.bc-prio-where').textContent;
-      chip('imp', 'まだ').click(); chip('due', 'まだ').click(); chip('size', 'まだ').click();
-      return { parts, rows, hint0, due1, hint1, first1, first2, where, key: f.querySelector('.bc-key')?.textContent,
-        clear: !!box.querySelector('.bc-prio-clear') }`);
-    assert.deepEqual(got.parts, ['name', 'pick', 'prio']);
-    assert.deepEqual(got.rows, ['大事', '見当', '急ぐ']);
+      const q = box.dataset.q;
+      chip('imp', '◆ 大事').click();
+      const imp2 = pressed('imp'), due2 = pressed('due');
+      chip('due', '外の約束').click(); chip('size', 'さっと').click();
+      const none = [...box.querySelectorAll('.bc-chip[aria-pressed="true"]')].length;
+      return { parts, rows, labels: [labels('imp'), labels('size'), labels('due')], oneLine, hint0, imp1, due1, hint1, first1, first2, q, imp2, due2, none,
+        key: f.querySelector('.bc-key')?.textContent, keyPressed: f.querySelector('.bc-key')?.getAttribute('aria-pressed'),
+        where: !!box.querySelector('.bc-prio-where') }`);
+    const at = got.parts.indexOf('tags');
+    assert.deepEqual(got.parts.slice(at, at + 3), ['tags', 'prio', 'pick'], 'タグのすぐ下に 大事・見当・急ぐ と 今日');
+    assert.deepEqual(got.rows, ['大事', '見当', '急ぐ', '今日']);
+    assert.deepEqual(got.labels, [['◆ 大事'], ['さっと', '半日まで', '何回も'], ['外の約束', '自分の目安']], '「まだ」「大事でない」「急がない」の札は無い');
+    assert.equal(got.oneLine, true, 'どの段も札が 1 行に収まる');
     assert.equal(got.hint0, false, '何回もでないときは 1 回分の案内を出さない');
-    assert.deepEqual(got.due1, ['急がない'], '大事を決めると、急ぐの「まだ」は「急がない」になる');
+    assert.deepEqual(got.imp1, ['◆ 大事']);
+    assert.deepEqual(got.due1, [], '急ぐは「いいえ」（札は押されない）');
     assert.equal(got.hint1, true);
-    assert.equal(got.first1, false, '［↑ 先に済ませるに入れる］はさっとのときだけ');
+    assert.equal(got.first1, false, '［↑ 先に済ませる］はさっとのときだけ');
     assert.equal(got.first2, true);
-    assert.equal(got.where, 'いまの区分: いま（急ぐ・大事）');
-    assert.equal(got.key, '★ 今日大事なことにする');
-    assert.equal(got.clear, false);
+    assert.equal(got.q, 'now', '急ぐ・大事');
+    assert.deepEqual(got.imp2, [], '押した札をもう一度押すと外れる');
+    assert.deepEqual(got.due2, ['外の約束'], '大事を外しても急ぐは残る（大事は「いいえ」）');
+    assert.equal(got.none, 0);
+    assert.equal(got.key, '★ 今日大事なこと');
+    assert.equal(got.keyPressed, 'false');
+    assert.equal(got.where, false, '区分の一言は出さない');
   });
 
   await step('作業記録から離れると保存し「保存した」と出す。書き替えるたびに履歴に積み、［履歴を見る ›］で読める。1 行目が次にやること', async () => {
@@ -325,7 +339,7 @@ try {
     };
     await openIn('架空の申請書');
     await js(`document.querySelector('.bc-fields .bc-key').click()`);
-    assert.equal(await js(`return document.querySelector('.bc-fields .bc-key').textContent`), '今日大事なことから外す');
+    assert.equal(await js(`return document.querySelector('.bc-fields .bc-key').getAttribute('aria-pressed')`), 'true');
     await close();
     await until(`const n = ${bubIn('架空の申請書')}; return !!n && n.classList.contains('is-pin-key')`);
     assert.equal(await js(`return ${bubIn('架空の経費')}.classList.contains('is-pin-key')`), false);

@@ -18,7 +18,7 @@
 
 import { el, clamp, fromFeedback, toast } from './ui.js';
 import { playSfx } from './sound.js';
-import { QUADRANTS, quadrantFor, SIZE_CHIP, DUE_KINDS } from './priority.js';
+import { QUADRANTS, quadrantFor, SIZES, DUE_KINDS } from './priority.js';
 import { askFull, askWithSearchFull, hasKey } from './ai.js';
 import { aiOn } from './edition.js';
 import { buildResearchPrompt, buildTidyPrompt, buildNamePrompt, cleanName, applyName, cleanText, appendSection, lostUrls, failLine,
@@ -1237,6 +1237,10 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     box.setAttribute('role', 'group');
     box.setAttribute('aria-label', '大事・見当・急ぐ');
     const segs = [];
+    /* 2026-11-24 利用者の指示「大事・検討・急ぐあたりのUIが綺麗になっていない 幅や必要な機能を洗練して タグより下でいいと思う」:
+       どの段も 1 行に収める。「まだ」「大事でない」「急がない」の札は外し、押してある札をもう一度押すと外れる（＝まだ）。
+       片方を外したとき、もう片方が「はい」なら「いいえ」として残し、そうでなければ両方「まだ」に戻す（区分が中途半端に残らない）。
+       段の並びは タグの下（ORDER）。区分の一言（いまの区分）は四つに分けた見え方が受け持つので出さない */
     const seg = (name, part, opts, get, set) => {
       const row = el('div', 'bc-mk');
       row.dataset.name = name;
@@ -1247,10 +1251,11 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const chips = el('div', 'bc-mk-chips');
       chips.setAttribute('role', 'group');
       chips.setAttribute('aria-labelledby', h.id);
-      const btns = opts.map(([val, text, cls]) => {
-        const b = el('button', 'bc-chip' + (cls ? ' ' + cls : ''), text);
+      const btns = opts.map(([val, text, title]) => {
+        const b = el('button', 'bc-chip', text);
         b.type = 'button';
-        b.addEventListener('click', ev => { ev.preventDefault(); set(val); sync(); });
+        if (title) b.title = title;
+        b.addEventListener('click', ev => { ev.preventDefault(); set(get() === val ? null : val); sync(); });
         chips.appendChild(b);
         return [val, b];
       });
@@ -1259,39 +1264,32 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       segs.push(() => btns.forEach(([val, b]) => b.setAttribute('aria-pressed', get() === val ? 'true' : 'false')));
       return row;
     };
-    seg('大事', 'imp', [[true, '◆ 大事'], [false, '大事でない'], [null, 'まだ', 'is-dim']],
-      () => want.important,
-      v => { want.important = v; if (v !== null && want.urgent === null) want.urgent = false; });
-    const sizeRow = seg('見当', 'size', [['s', SIZE_CHIP.s], ['m', SIZE_CHIP.m], ['l', SIZE_CHIP.l], [null, 'まだ', 'is-dim']],
+    /* 片方を「はい」にしたら、もう片方の「まだ」を「いいえ」に。外したら、もう片方が「はい」のときだけ「いいえ」で残す */
+    const setImp = v => {
+      if (v === true) { want.important = true; if (want.urgent === null) want.urgent = false; return; }
+      if (want.urgent === true) want.important = false;
+      else { want.important = null; want.urgent = null; want.dueKind = null; }
+    };
+    const setDue = v => {
+      if (v === 'ext' || v === 'self') { want.urgent = true; want.dueKind = v; if (want.important === null) want.important = false; return; }
+      want.dueKind = null;
+      if (want.important === true) want.urgent = false;
+      else { want.urgent = null; want.important = null; }
+    };
+    seg('大事', 'imp', [[true, '◆ 大事']], () => (want.important === true ? true : null), setImp);
+    const sizeRow = seg('見当', 'size', [['s', SIZES.s, '30 分まで'], ['m', SIZES.m], ['l', SIZES.l, '何回かに分けてやる']],
       () => want.size,
       v => { want.size = v; });
-    const hint = el('p', 'bc-mk-hint', '何回もの泡は、次にやることが書いてあると「1 回分（半日まで）」として選ばれる');
+    const hint = el('p', 'bc-mk-hint', '次にやることがあれば、1 回分（半日まで）として選ばれる');
     hint.dataset.name = '1 回分の案内';
     sizeRow.appendChild(hint);
-    seg('急ぐ', 'due', [['ext', DUE_KINDS.ext], ['self', DUE_KINDS.self], ['no', '急がない'], [null, 'まだ', 'is-dim']],
-      () => (want.urgent === true ? (want.dueKind === 'ext' ? 'ext' : 'self') : want.urgent === false ? 'no' : null),
-      v => {
-        if (v === 'ext' || v === 'self') { want.urgent = true; want.dueKind = v; }
-        else { want.urgent = v === 'no' ? false : null; want.dueKind = null; }
-        if (v !== null && want.important === null) want.important = false;
-      });
-    const where = el('div', 'bc-prio-where');
-    where.setAttribute('aria-live', 'polite');
-    box.appendChild(where);
+    seg('急ぐ', 'due', [['ext', DUE_KINDS.ext], ['self', DUE_KINDS.self]],
+      () => (want.urgent === true ? (want.dueKind === 'ext' ? 'ext' : 'self') : null), setDue);
     function sync() {
       segs.forEach(f => f());
       hint.hidden = want.size !== 'l';
       const q = quadrantFor(want.urgent, want.important);
-      where.textContent = '';
-      if (q) {
-        box.dataset.q = q;
-        where.appendChild(document.createTextNode('いまの区分: '));
-        { const qb = el('b'); qb.textContent = QUADRANTS[q].name; where.appendChild(qb); }
-        where.appendChild(document.createTextNode('（' + QUADRANTS[q].sub + '）'));
-      } else {
-        delete box.dataset.q;
-      }
-      where.hidden = !q;
+      if (q) box.dataset.q = q; else delete box.dataset.q;
       if (syncPick) syncPick();
     }
     sync();
@@ -1311,35 +1309,44 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      今日大事なことは今日（この端末の今日）に 1 つ。先に済ませるはさっとの泡だけ・3 つまで・区切りの時間の前だけ。
      言い方は命令形にしない。預け先に setKey が無い版では出さない */
   if (fields && typeof (a || {}).setKey === 'function') {
-    const pick = el('div', 'bc-pick');
+    /* 2026-11-24（タグの下へ移したとき）: 大事・見当・急ぐと同じ形の 1 行「今日」に、入っているかどうかの札 2 つ。押すと入れる・外す */
+    const pick = el('div', 'bc-mk bc-pick');
     pick.dataset.part = 'pick';
     pick.dataset.name = '今日大事なこと・先に済ませる';
-    const firstBtn = el('button', 'bc-chip bc-first');
-    firstBtn.type = 'button';
-    firstBtn.dataset.name = '先に済ませるに入れる';
-    const keyBtn = el('button', 'bc-fav bc-key');
+    const ph = el('span', 'bc-mk-h', '今日');
+    ph.id = 'bc-mk-pick-' + Math.random().toString(36).slice(2, 7);
+    pick.appendChild(ph);
+    const pchips = el('div', 'bc-mk-chips');
+    pchips.setAttribute('role', 'group');
+    pchips.setAttribute('aria-labelledby', ph.id);
+    const keyBtn = el('button', 'bc-chip bc-key', '★ 今日大事なこと');
     keyBtn.type = 'button';
     keyBtn.dataset.name = '今日大事なことにする';
+    const firstBtn = el('button', 'bc-chip bc-first', '↑ 先に済ませる');
+    firstBtn.type = 'button';
+    firstBtn.dataset.name = '先に済ませるに入れる';
+    pchips.appendChild(keyBtn);
+    pchips.appendChild(firstBtn);
+    pick.appendChild(pchips);
     const said = el('p', 'bc-pick-note');
     said.setAttribute('aria-live', 'polite');
-    pick.appendChild(firstBtn);
-    pick.appendChild(keyBtn);
     pick.appendChild(said);
     syncPick = () => {
       const isKey = ask(a, 'isKey', id) === true;
-      keyBtn.textContent = isKey ? '今日大事なことから外す' : '★ 今日大事なことにする';
       keyBtn.setAttribute('aria-pressed', isKey ? 'true' : 'false');
+      keyBtn.setAttribute('aria-label', isKey ? '今日大事なことから外す' : '今日大事なことにする');
       const fi = ask(a, 'firstInfo', id) || { has: false, canAdd: false, why: '' };
+      /* 先に済ませるは、さっとの泡だけ。さっとでなければ札を出さない（入っているものは外せるよう出す） */
       firstBtn.hidden = !fi.has && wantSize() !== 's';
-      firstBtn.textContent = fi.has ? '↑ 先に済ませるから外す' : '↑ 先に済ませるに入れる';
       firstBtn.setAttribute('aria-pressed', fi.has ? 'true' : 'false');
+      firstBtn.setAttribute('aria-label', fi.has ? '先に済ませるから外す' : '先に済ませるに入れる');
       firstBtn.disabled = !fi.has && !fi.canAdd;
       firstBtn.title = firstBtn.disabled ? (fi.why || '') : '';
     };
     keyBtn.addEventListener('click', ev => {
       ev.preventDefault();
       const on = ask(a, 'isKey', id) !== true;
-      if (ask(a, 'setKey', id, on)) said.textContent = on ? '今日大事なことにした。今日の水面で紫みの泡になる' : '今日大事なことから外した';
+      if (ask(a, 'setKey', id, on)) said.textContent = on ? '今日大事なことにした' : '今日大事なことから外した';
       syncPick();
     });
     firstBtn.addEventListener('click', ev => {
@@ -2208,7 +2215,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
      → 中身のあるリンク・書きかけの作業の記録 → 「その他」 → まれなもの（お気に入り・優先度・リンク・作業の記録・飛び先・削除）。
      欄そのものは上で組んだまま。ここでは置く順と、畳むかどうかだけを決める */
   /* 2026-11-24: 今日大事なこと・先に済ませる（pick）と印の段（prio）は名前のすぐ下（モック mock/choose-1124.html の 3）。畳まない */
-  const ORDER = ['name', 'pick', 'prio', 'step', 'acts', 'who', 'notes', 'detail', 'dates', 'tags', 'fav', 'url', 'memo', 'hist', 'jump', 'del'];
+  const ORDER = ['name', 'step', 'acts', 'who', 'notes', 'detail', 'dates', 'tags', 'prio', 'pick', 'fav', 'url', 'memo', 'hist', 'jump', 'del'];
   if (fields) {
     /* お気に入りは、印が付いていても「その他」へ（付いていれば名前の横に印を出す）。設定で選んだときは外に */
     ['fav'].forEach(p => fields.querySelectorAll(':scope > [data-part="' + p + '"]')
