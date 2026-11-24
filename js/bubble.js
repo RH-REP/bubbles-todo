@@ -551,7 +551,7 @@ export function updateBubble(node, item, opts = {}) {
   const pin = item && (item.pin === 'key' || item.pin === 'first') ? item.pin : '';
   node.classList.toggle('is-pin-key', pin === 'key');
   node.classList.toggle('is-pin-first', pin === 'first');
-  /* 上の端に小さく「★ 大事」「↑ 先に」（Issue #96 の 3 回目の返事「大事文字表示の追加と滝の色に変わる」）。
+  /* 上の端に小さく「★ 大事」「↑ 先に」（Issue #96 の 3 回目の返事「大事文字表示の追加と…色に変わる」。色は今日の画面の灯台・浮きと同じ）。
      読み上げは aria-label のほうに足す（下の ariaFor のあと） */
   const pinText = pin === 'key' ? '★ 大事' : pin === 'first' ? '↑ 先に' : '';
   let pinlb = node.querySelector(':scope > .wob > .pinlb');

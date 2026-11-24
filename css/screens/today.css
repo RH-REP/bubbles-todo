@@ -667,62 +667,76 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
    drift の keepOut（泡を入れない壁）にしているので、同じ名前で面いっぱい（inset: 0）にすると面ぜんぶが壁になり、泡が消える。
    前の JS の .today-plate は、ここでは出さない（display: none なら keepOut も数えない。drift は offsetParent の無いものを外す） */
 .today-plate { display: none !important; }
-/* 下の角の滝（Issue #96 の 3 回目の返事。2026-11-24。js/screens/today.js の renderCorners）。
-   左下＝今日大事なこと（紫み）、右下＝先に済ませる（青み）。いつも出す細い滝で、場所が見える。
-   入れ物は z-index を付けず、泡（field）より先に面へ入れてあるので、泡は滝の上に描かれる。指も透かす（pointer-events: none）。
-   泡を掴んでいる間（.is-drag）だけ、日を移す帯（z-index 9）より上に出し、太くして「離すとどうなるか」を添える */
+/* 下の角の海の目印：灯台と浮き（Issue #96 の 4 回目の返事。2026-11-24。js/screens/today.js の renderCorners）。
+   左下＝灯台＝今日大事なこと（紫み）、右下＝浮き＝先に済ませる（青み）。いつも出す。
+   前の滝は幅 26px・薄い縞（不透明度 .45）で、海の色の上ではほとんど見えなかったので、絵は塗りつぶしと濃い縁ではっきり描く。
+   入れ物は z-index を付けず、泡（field）より先に面へ入れてあるので、泡は目印の上に描かれる。指も透かす（pointer-events: none）。
+   泡を掴んでいる間（.is-drag）だけ、日を移す帯（z-index 9）より上に出し、少し大きくして「離すとどうなるか」を添える */
 .today-corners { position: absolute; inset: 0; pointer-events: none; }
 .today-corners.is-drag { z-index: 10; }
 .today-corners[hidden] { display: none; }
 .today-stage.is-list .today-corners, .today-stage.is-quad .today-corners { display: none; }
-.today-corners .tp-fall {
-  --fall: var(--accent-a);
-  position: absolute; bottom: 0; box-sizing: border-box;
-  width: 26px; height: 36%; min-height: 120px; max-height: 260px;
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-  padding-bottom: calc(8px + var(--safe-b, 0px));
-  transition: width .18s ease-out;
+.today-corners .tp-mark {
+  --mark: var(--accent-a);
+  position: absolute; bottom: calc(6px + var(--safe-b, 0px)); box-sizing: border-box;
+  width: 72px; padding: 6px 4px 4px; border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transition: transform .18s ease-out, background-color .18s;
 }
-.today-corners .tp-fall-key   { --fall: var(--accent-b); left: 0; }
-.today-corners .tp-fall-first { right: 0; }
-/* 流れ：縞を下へ送る。上はぼかして、どこからともなく落ちてくる見え方に */
-.today-corners .tp-fall-w {
-  position: absolute; inset: 0;
-  background:
-    repeating-linear-gradient(180deg,
-      color-mix(in srgb, var(--fall) 55%, transparent) 0 10px,
-      color-mix(in srgb, var(--fall) 25%, transparent) 10px 22px);
-  background-size: 100% 44px;
-  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 35%);
-  mask-image: linear-gradient(180deg, transparent 0%, #000 35%);
-  opacity: .45;
-  animation: tp-fall-flow 1.8s linear infinite;
-  transition: opacity .18s;
+.today-corners .tp-mark-key   { --mark: var(--accent-b); left: 6px;  transform-origin: left bottom; }
+.today-corners .tp-mark-first { right: 6px; transform-origin: right bottom; }
+.today-corners .tp-mark-ic { width: 46px; height: 58px; display: block; overflow: visible; }
+.today-corners .tp-mark-ic .body { fill: var(--surface); stroke: var(--mark); stroke-width: 2; stroke-linejoin: round; }
+.today-corners .tp-mark-ic .band,
+.today-corners .tp-mark-ic .roof { fill: var(--mark); }
+.today-corners .tp-mark-ic .lamp { fill: color-mix(in srgb, var(--mark) 35%, #fff); stroke: var(--mark); stroke-width: 1.5; }
+.today-corners .tp-mark-ic .wave { fill: none; stroke: var(--mark); stroke-width: 2.2; stroke-linecap: round; opacity: .8; }
+/* 灯台の光：ゆっくり明滅（灯台が回る見え方）。動きを減らす設定では止めて、薄く点けたまま */
+.today-corners .tp-mark-ic .beam {
+  fill: color-mix(in srgb, var(--mark) 45%, transparent);
+  animation: tp-beam 3.2s ease-in-out infinite;
 }
-.today-corners .tp-fall-key .tp-fall-w   { border-radius: 0 10px 0 0; }
-.today-corners .tp-fall-first .tp-fall-w { border-radius: 10px 0 0 0; }
-@keyframes tp-fall-flow { from { background-position: 0 0; } to { background-position: 0 44px; } }
-@media (prefers-reduced-motion: reduce) { .today-corners .tp-fall-w { animation: none; } }
-/* 名前：縦書きで細い滝に収める */
-.today-corners .tp-fall-h {
-  position: relative; writing-mode: vertical-rl; text-orientation: upright;
-  font-size: 11px; font-weight: 700; letter-spacing: .08em; line-height: 1;
-  color: color-mix(in srgb, var(--fall) 70%, var(--text));
+@keyframes tp-beam { 0%, 100% { opacity: .25; } 50% { opacity: .95; } }
+@media (prefers-reduced-motion: reduce) { .today-corners .tp-mark-ic .beam { animation: none; opacity: .6; } }
+/* 名前：短く「大事」「先に」。白い字に目印の色 */
+.today-corners .tp-mark-h {
+  padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; line-height: 1.5;
+  color: #fff; background: color-mix(in srgb, var(--mark) 88%, #000);
 }
-/* 掴んでいる間：太く・濃く。上に「離すとどうなるか」 */
-.today-corners.is-drag .tp-fall { width: 60px; }
-.today-corners.is-drag .tp-fall-w { opacity: .7; }
-.today-corners .tp-fall-s {
-  position: absolute; bottom: calc(100% + 6px);
+/* 掴んでいる間：少し大きく。上に「離すとどうなるか」 */
+.today-corners.is-drag .tp-mark {
+  transform: scale(1.18);
+  background: color-mix(in srgb, var(--mark) 14%, color-mix(in srgb, var(--surface) 70%, transparent));
+}
+.today-corners .tp-mark-s {
+  position: absolute; bottom: calc(100% + 6px); width: max-content;
   max-width: 168px; padding: 4px 8px; border-radius: 10px;
   font-size: 11px; line-height: 1.35; color: var(--text);
-  background: color-mix(in srgb, var(--fall) 18%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--fall) 55%, transparent);
+  background: color-mix(in srgb, var(--mark) 18%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--mark) 55%, transparent);
   overflow-wrap: anywhere;
 }
-.today-corners .tp-fall-key .tp-fall-s   { left: 4px; }
-.today-corners .tp-fall-first .tp-fall-s { right: 4px; text-align: right; }
+.today-corners .tp-mark-key .tp-mark-s   { left: 0; }
+.today-corners .tp-mark-first .tp-mark-s { right: 0; text-align: right; }
 /* 指がその上に来たら、離せば入る合図。色だけに頼らず、縁の線も出す（日を移す帯と同じ考え） */
-.today-corners .tp-fall.is-drop .tp-fall-w { opacity: .95; box-shadow: inset 0 0 0 2px var(--fall); }
+.today-corners .tp-mark.is-drop {
+  background: color-mix(in srgb, var(--mark) 30%, var(--surface));
+  box-shadow: inset 0 0 0 2px var(--mark);
+}
+
+/* 今日の一覧の行：今日大事なこと・先に済ませる（Issue #96 の 4 回目の返事「今日のリスト表示でも、色かアイコンつけてわかるように」）。
+   左に目印の色の帯と、名前の前に「★ 大事」「↑ 先に」の札。泡と同じ色（紫み・青み） */
+.today-list .tl-row.is-pin-key   { --mark: var(--accent-b); }
+.today-list .tl-row.is-pin-first { --mark: var(--accent-a); }
+.today-list .tl-row.is-pin-key, .today-list .tl-row.is-pin-first {
+  box-shadow: inset 4px 0 0 var(--mark);
+  background: color-mix(in srgb, var(--mark) 12%, color-mix(in srgb, var(--surface) 86%, transparent));
+}
+.today-list .tl-pin {
+  flex: none; padding: 1px 7px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; line-height: 1.5; letter-spacing: .02em;
+  color: #fff; background: color-mix(in srgb, var(--mark, var(--accent-a)) 88%, #000);
+}
 /* おすすめの板の［★ 大事なことに］［↑ 先に］ */
 .today-suggestbox .tsg-put.is-key, .today-suggestbox .tsg-put.is-first { white-space: nowrap; }

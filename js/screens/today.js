@@ -323,14 +323,14 @@ function kNoteOf(t) {
    > 右下が右上か左下か左上にバブルを持って行ったら、設定できて、バブルの形は同じで色で区別できるようにできる？
    ・入れた泡も、ほかの泡と同じ形のまま漂う面に出す。色で見分ける（今日大事なこと＝紫み .is-pin-key、先に済ませる＝青み .is-pin-first）。
      面に壁は置かない（前の枠は drift の keepOut で、その上下で泡が詰まっていた）
-   ・入れる場所は下の角の細い滝（左下＝今日大事なこと、右下＝先に済ませる。3 回目の返事で、掴んでいる間だけの角から
-     いつも見える滝に替えた。renderCorners の説明）。そこで離すと入る。上の角は日付の行・さいころ・日を移す帯の札と重なるので使わない
-   ・入れた泡を同じ滝で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方の滝で離すとそちらへ移す
+   ・入れる場所は下の角の海の目印（左下＝灯台＝今日大事なこと、右下＝浮き＝先に済ませる。3 回目の返事で、掴んでいる間だけの角から
+     いつも見える滝に、4 回目の返事で灯台と浮きに替えた。renderCorners の説明）。そこで離すと入る。上の角は日付の行・さいころ・日を移す帯の札と重なるので使わない
+   ・入れた泡を同じ目印で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方の目印で離すとそちらへ移す
    ・盤の［★ 今日大事なことにする］［↑ 先に済ませるに入れる］・おすすめの板からも、今までどおり入れられる・外せる
    ・先に済ませるは今日だけ。区切りの時間が過ぎるか、入れた泡が全部済むと畳み、色が戻る（次の日へは移さない）
-   ・今日大事なことは過ぎた日には入れない（滝を出さない）。一覧・四つに分けて見ている間も滝は出さない
+   ・今日大事なことは過ぎた日には入れない（灯台を出さない）。一覧・四つに分けて見ている間も目印は出さない（一覧では行に色と字を付ける）
    言い方は命令形にしない。件数・割合は出さない。赤は使わない */
-let plate = null;          /* 滝の入れ物（.today-corners）。泡の後ろに描く */
+let plate = null;          /* 灯台と浮きの入れ物（.today-corners）。泡の後ろに描く */
 let plateTimer = 0;
 let lastPlate = { key: null, rows: [], st: { open: false }, showFirst: false };
 
@@ -374,15 +374,16 @@ function renderPlate(ps) {
   renderCorners(ps);
 }
 
-/* 下の角の滝（Issue #96 の 3 回目の返事。2026-11-24）：
-   > 「今日大事なこと」「先に済ませる」の設定がわかりにくくなった。現在のUIと重ならず、TODOの泡の動きや表示領域を減らさず
-   > 設定と区別できるようなUI検討して。例：左下に大事の滝みたいなのを作ってそこを潜らせたら、大事文字表示の追加と滝の色に変わるなど。右下は先に
-   ・左下に紫みの細い滝（今日大事なこと）、右下に青みの細い滝（先に済ませる）を、いつも出しておく（どこで入れるかが見える）。
-     幅は 30px ほどで、泡の後ろに描き、指も透かす（壁にしない・泡を掴むのを妨げない・泡はその上も漂う）
-   ・泡を掴むと滝が少し太くなり、上に「離すとどうなるか」（入る・入れ替える・外す）を出す。滝の上で離すと入る
+/* 下の角の海の目印：灯台と浮き（Issue #96 の 4 回目の返事。2026-11-24）：
+   > 滝が見えない バグ？ 滝じゃなくて海関連のUIにして
+   前の滝（3 回目の返事）は幅 26px・薄い縞で、海の色の上ではほとんど見えなかった。いまは：
+   ・左下に灯台（今日大事なこと。紫みの光）、右下に浮き（先に済ませる。青み）。どちらも絵（SVG）と短い名前「大事」「先に」を
+     はっきりした色で、いつも出す（どこで入れるかが見える）。泡の後ろに描き、指も透かす（壁にしない・泡を掴むのを妨げない・泡はその上も漂う）
+   ・泡を掴むと目印が少し大きくなり、上に「離すとどうなるか」（入る・入れ替える・外す）を出す。目印の上で離すと入る
      （通り抜けただけでは入れない。泡を動かすたびに、うっかり入ってしまうため）
-   ・入った泡は滝と同じ色になり、上に小さく「★ 大事」「↑ 先に」の字が付く（css/bubble.css の .is-pin-*、js/bubble.js の .pinlb）
-   ・今日大事なことの滝は過ぎた日には出さない。先に済ませるの滝は、今日で区切りの時間の前だけ。一覧・四つに分けて見ている間は出さない */
+   ・入った泡は目印と同じ色になり、上に小さく「★ 大事」「↑ 先に」の字が付く（css/bubble.css の .is-pin-*、js/bubble.js の .pinlb）。
+     今日の一覧でも、行に同じ色と字を付ける（listRow）
+   ・灯台は過ぎた日には出さない。浮きは、今日で区切りの時間の前だけ。一覧・四つに分けて見ている間は出さない */
 function renderCorners(ps) {
   if (!plate) return;
   plate.textContent = '';
@@ -393,30 +394,69 @@ function renderCorners(ps) {
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
   if (!isPast()) {
     const sub = !id ? '' : pin === 'key' ? '離すと外す'
-      : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える'   /* ユーザーの文字。el は textContent で入れる */
+      : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える'   /* ユーザーの文字。markBox が textContent で入れる */
       : '離すと' + (isToday() ? '今日' : word + 'の') + '大事なことに';
-    plate.appendChild(fallBox('key', '★ 大事', sub, isToday() ? '今日大事なこと' : word + 'の大事なこと'));
+    plate.appendChild(markBox('key', '大事', sub, isToday() ? '今日大事なこと' : word + 'の大事なこと'));
   }
   if (ps.showFirst) {
     const sub = !id ? '' : pin === 'first' ? '離すと外す'
       : '離すと先に済ませるに' + (ps.st.endAt ? '（〜 ' + hhmm(ps.st.endAt) + '）' : '');
-    plate.appendChild(fallBox('first', '↑ 先に', sub, '先に済ませる'));
+    plate.appendChild(markBox('first', '先に', sub, '先に済ませる'));
   }
   plate.classList.toggle('is-drag', !!id);
   plate.hidden = !plate.children.length;
 }
-function fallBox(kind, head, sub, name) {
-  const box = el('div', 'tp-fall tp-fall-' + kind);
+/* 目印 1 つ。el の第 3 引数は innerHTML に入るので、文字はすべて textContent で入れる（泡の名前が混ざるため） */
+function markBox(kind, head, sub, name) {
+  const box = el('div', 'tp-mark tp-mark-' + kind);
   box.dataset.drop = kind;
-  box.dataset.name = name + 'の滝';
+  box.dataset.name = name + (kind === 'key' ? 'の灯台' : 'の浮き');
   box.title = name + '：泡を掴んでここで離すと入る';
-  box.appendChild(el('span', 'tp-fall-w'));                 /* 流れ（飾り） */
-  box.appendChild(el('span', 'tp-fall-h', head));
-  if (sub) box.appendChild(el('span', 'tp-fall-s', sub));
+  box.appendChild(kind === 'key' ? lighthouseSvg() : buoySvg());
+  const h = el('span', 'tp-mark-h');
+  h.textContent = head;
+  box.appendChild(h);
+  if (sub) {
+    const s = el('span', 'tp-mark-s');
+    s.textContent = sub;
+    box.appendChild(s);
+  }
   return box;
 }
+/* 灯台と浮きの絵。形だけを組み、色は CSS（--mark・--mark-2）で塗る。赤は使わない */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs) {
+  const n = document.createElementNS(SVG_NS, tag);
+  Object.keys(attrs).forEach(k => n.setAttribute(k, attrs[k]));
+  return n;
+}
+function markSvg(parts) {
+  const svg = svgEl('svg', { viewBox: '0 0 48 60', class: 'tp-mark-ic', 'aria-hidden': 'true', focusable: 'false' });
+  parts.forEach(([tag, attrs]) => svg.appendChild(svgEl(tag, attrs)));
+  return svg;
+}
+function lighthouseSvg() {
+  return markSvg([
+    ['path', { class: 'beam', d: 'M24 13 L2 5 L2 21 Z M24 13 L46 5 L46 21 Z' }],           /* 光 */
+    ['path', { class: 'body', d: 'M18 22 L30 22 L33 50 L15 50 Z' }],                           /* 塔 */
+    ['path', { class: 'band', d: 'M17.2 30 L30.8 30 L31.5 36 L16.5 36 Z M15.9 42 L32.1 42 L32.6 46 L15.4 46 Z' }],
+    ['rect', { class: 'lamp', x: '19', y: '9', width: '10', height: '9', rx: '2' }],         /* 灯 */
+    ['path', { class: 'roof', d: 'M17 9 L24 3 L31 9 Z' }],
+    ['rect', { class: 'body', x: '16.5', y: '18', width: '15', height: '4', rx: '1' }],
+    ['path', { class: 'wave', d: 'M2 54 Q8 50 14 54 T26 54 T38 54 T50 54' }],
+  ]);
+}
+function buoySvg() {
+  return markSvg([
+    ['circle', { class: 'lamp', cx: '24', cy: '8', r: '4' }],                                  /* 灯 */
+    ['path', { class: 'body', d: 'M21 12 L27 12 L29 24 L19 24 Z' }],                           /* 柱 */
+    ['path', { class: 'body', d: 'M10 26 L38 26 Q38 46 24 46 Q10 46 10 26 Z' }],               /* 胴 */
+    ['path', { class: 'band', d: 'M11 32 L37 32 L36 38 L12 38 Z' }],
+    ['path', { class: 'wave', d: 'M2 50 Q8 46 14 50 T26 50 T38 50 T50 50' }],
+  ]);
+}
 
-/* 外す（入れた泡を同じ滝で離したとき）。今日には残す。［元に戻す］で入れ直す */
+/* 外す（入れた泡を同じ目印で離したとき）。今日には残す。［元に戻す］で入れ直す */
 function takeOutSeat(id, kind, day) {
   const t = store.get(id);
   if (!t) return;
@@ -919,10 +959,13 @@ function onDayUp(ev) {
 function render() {
   if (!field) return;
   pruneFilter();                 /* 消えたタグで絞ったまま全部が隠れないように、集める前に */
-  const items = itemsForField();
   crowded = false;               /* 漂う面に出すときだけ fitItems が決め直す */
   lastPlate = plateState();
   renderPlate(lastPlate);
+  /* 今日大事なこと・先に済ませるの印（item.pin）。泡・四つ・一覧のどれでも同じ色と字で見分ける（Issue #96。
+     bubble.js が .is-pin-key / .is-pin-first と .pinlb、一覧は listRow） */
+  const pins = pinsOf(lastPlate);
+  const items = itemsForField().map(it => pins.has(it.id) ? Object.assign({}, it, { pin: pins.get(it.id) }) : it);
   if (listOn && listBox) {
     /* 一覧で見ている間も漂う面に渡さない（同じものが泡と行の2つ出る。Issue #86） */
     renderList(items);
@@ -930,9 +973,8 @@ function render() {
     /* 分けている間は漂う面に渡さない（同じ泡が2つ出る） */
     quad.render(items.map(it => ({ id: it.id, item: it, opts: { size: QUAD_BUB, colors: it.colors, tagNames: it.tagNames, marks: [] } })));
   } else {
-    /* 今日大事なこと・先に済ませるの泡も同じ形で漂わせ、色で見分ける（Issue #96。bubble.js が item.pin で .is-pin-key / .is-pin-first） */
-    const pins = pinsOf(lastPlate);
-    field.setItems(fitItems(pins.size ? items.map(it => pins.has(it.id) ? Object.assign({}, it, { pin: pins.get(it.id) }) : it) : items));
+    /* 今日大事なこと・先に済ませるの泡も同じ形で漂わせ、色で見分ける（上の item.pin） */
+    field.setItems(fitItems(items));
   }
   syncListBtn();                 /* 入りきらないかどうかで札の言い方が変わる（Issue #87） */
   syncFilterBtn();               /* タグが増減していることがある（Issue #89） */
@@ -1563,9 +1605,9 @@ function onBubPointer(ev) {
   markPlateDrop(plateHitAt(bubPt.x, bubPt.y));
 }
 
-/* ---- 今日大事なこと・先に済ませるの滝へ落とす（2026-11-24。Issue #96 で枠 → 角 → 下の角の滝）----
-   滝（data-drop="key"|"first"）の上で泡を離すと、そこへ入れる。入れた泡を同じ滝で離すと外し、もう片方の滝なら移す。
-   掴んでいる間は、指の下の滝を濃くする（is-drop） */
+/* ---- 今日大事なこと・先に済ませるの目印へ落とす（2026-11-24。Issue #96 で枠 → 角 → 滝 → 灯台と浮き）----
+   目印（data-drop="key"|"first"）の上で泡を離すと、そこへ入れる。入れた泡を同じ目印で離すと外し、もう片方の目印なら移す。
+   掴んでいる間は、指の下の目印を濃くする（is-drop） */
 function plateHitAt(x, y) {
   if (!plate || !(x >= 0)) return null;
   const nodes = plate.querySelectorAll('[data-drop]');
@@ -1981,7 +2023,10 @@ function renderList(items) {
   const keep = box.scrollTop;            /* 完了にしたたびに先頭へ飛ばない */
   box.textContent = '';
   if (!items.length) return;             /* 何も無いときのことば（emptyNote）に任せる */
-  const todo = items.filter(it => !it.done);
+  /* まだのものは、今日大事なこと → 先に済ませる → ほか の順（Issue #96 の 4 回目の返事。印の付いた行を上に） */
+  const rank = it => it.pin === 'key' ? 0 : it.pin === 'first' ? 1 : 2;
+  const todo = items.filter(it => !it.done).map((it, i) => [it, i])
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(p => p[0]);
   const done = items.filter(it => it.done);
   box.appendChild(listSection('まだ', todo, 'まだのものは無い'));
   if (done.length) box.appendChild(listSection('済んだ', done, ''));
@@ -2006,6 +2051,8 @@ function listRow(it) {
   const li = el('li', 'tl-row');
   if (it.done) li.classList.add('is-done');
   if (it.started) li.classList.add('is-started');
+  /* 今日大事なこと・先に済ませるの行は、泡と同じ色（左の帯）と字「★ 大事」「↑ 先に」（Issue #96 の 4 回目の返事） */
+  if (it.pin === 'key' || it.pin === 'first') li.classList.add('is-pin-' + it.pin);
 
   const ck = el('button', 'tl-check', it.done ? '✓' : '');
   ck.type = 'button';
@@ -2027,12 +2074,20 @@ function listRow(it) {
     dots.appendChild(d);
   });
   b.appendChild(dots);
+  const pinName = it.pin === 'key' ? '今日大事なこと' : it.pin === 'first' ? '先に済ませる' : '';
+  if (pinName) {
+    const pb = el('span', 'tl-pin');
+    pb.setAttribute('aria-hidden', 'true');
+    pb.textContent = it.pin === 'key' ? '★ 大事' : '↑ 先に';
+    b.appendChild(pb);
+  }
   const nm = el('span', 'tl-nm');
   nm.textContent = it.text;              /* ユーザーの文字。innerHTML には入れない */
   b.appendChild(nm);
   if (it.started && !it.done) b.appendChild(el('span', 'tl-st', DONE_LB));
   const names = it.tagNames || [];
   b.setAttribute('aria-label', it.text + (names.length ? '（' + names.join('、') + '）' : '')
+    + (pinName ? '。' + pinName : '')
     + (it.started && !it.done ? '。' + DONE_LB : '') + '。詳細を開く');
   b.addEventListener('click', ev => { ev.preventDefault(); openBoardFor(it.id, b); });
   /* 前からの5項目のメニューは、右クリック・メニューキーに残す（海の一覧と同じ） */
@@ -2194,9 +2249,9 @@ export default {
 
     /* drift は opts の直下から handlers を読む。将来 opts.handlers を見る作りに
        変わっても落ちないよう、まとめたものも一緒に渡しておく（余分なキーは無視される） */
-    /* 今日大事なこと・先に済ませるの滝（Issue #96。2026-11-24）。いつも見える細い滝。
-       前の枠は drift の keepOut（壁）だったが、滝は泡の動きを妨げないよう壁にしない。
-       field（泡）より先に面へ入れるので、泡は滝の上に描かれる（z-index を付けない。css/screens/today.css） */
+    /* 今日大事なこと・先に済ませるの目印（灯台と浮き。Issue #96。2026-11-24）。いつも見える。
+       前の枠は drift の keepOut（壁）だったが、目印は泡の動きを妨げないよう壁にしない。
+       field（泡）より先に面へ入れるので、泡は目印の上に描かれる（z-index を付けない。css/screens/today.css） */
     /* 名前は .today-corners（前の版の枠 .today-plate と分ける。css/screens/today.css の説明。Issue #96） */
     plate = el('div', 'today-corners');
     plate.dataset.screen = 'today.corners'; plate.dataset.screenLayer = '2';

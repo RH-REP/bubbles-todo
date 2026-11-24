@@ -319,7 +319,7 @@ try {
     assert.ok(r.mdays.includes(5) && r.mdays.includes(20), JSON.stringify(r));
   });
 
-  await step('今日大事なこと・先に済ませる（2026-11-24。Issue #96 で枠から色と下の角の滝に）: 盤の［★］で今日の水面の泡が紫み（is-pin-key）と「★ 大事」、さっとの泡は［↑］で青み（is-pin-first）になり、どちらも漂う面に残る。上の枠は無い', async () => {
+  await step('今日大事なこと・先に済ませる（2026-11-24。Issue #96 で枠から色と下の角の灯台・浮きに）: 盤の［★］で今日の水面の泡が紫み（is-pin-key）と「★ 大事」、さっとの泡は［↑］で青み（is-pin-first）になり、どちらも漂う面に残る。上の枠は無い', async () => {
     await js(`const { store } = await import('/js/store.js'); const day = store.todayKey();
       store.add('架空の申請書を書く'); store.add('架空の経費の提出');
       const a = store.all().find(t => t.text === '架空の申請書を書く').id, b = store.all().find(t => t.text === '架空の経費の提出').id;
@@ -328,11 +328,13 @@ try {
       store.setDay(a, day, true); store.setDay(b, day, true);`);
     await js(`document.querySelector('#tabbar button[data-screen="today"]').click()`);
     await until(`return document.getElementById('pane-today')?.classList.contains('is-active')`);
-    /* 下の角の滝はいつも見える（Issue #96 の 3 回目の返事）。指は透かし、泡の後ろ（入れ物に z-index が無い） */
-    await until(`return document.querySelectorAll('#pane-today .today-corners .tp-fall').length === 2`);
+    /* 下の角の灯台と浮きはいつも見える（Issue #96 の 4 回目の返事）。指は透かし、泡の後ろ（入れ物に z-index が無い）。
+       絵（SVG）があって、幅も高さもある（前の滝は見えなかった） */
+    await until(`return document.querySelectorAll('#pane-today .today-corners .tp-mark').length === 2`);
     assert.deepEqual(await js(`const c = document.querySelector('#pane-today .today-corners'); const s = getComputedStyle(c);
-      return { pe: s.pointerEvents, z: s.zIndex, kinds: [...c.querySelectorAll('.tp-fall')].map(n => n.dataset.drop) }`),
-      { pe: 'none', z: 'auto', kinds: ['key', 'first'] });
+      return { pe: s.pointerEvents, z: s.zIndex, kinds: [...c.querySelectorAll('.tp-mark')].map(n => n.dataset.drop),
+        big: [...c.querySelectorAll('.tp-mark-ic')].every(n => { const r = n.getBoundingClientRect(); return r.width >= 40 && r.height >= 50; }) }`),
+      { pe: 'none', z: 'auto', kinds: ['key', 'first'], big: true });
     /* 前の版の枠の名前（.today-plate）が混ざって出ても、見せず壁にもしない（Issue #96 の 2 回目の返事） */
     assert.equal(await js(`const p = document.createElement('div'); p.className = 'today-plate'; p.textContent = 'x';
       document.querySelector('#pane-today .today-stage').appendChild(p); const r = p.offsetParent; p.remove(); return r === null`), true);
@@ -368,6 +370,13 @@ try {
     const pinCss = await js(`const n = ${bubIn('架空の経費')}; return getComputedStyle(n.querySelector('.wob'), '::after').content`);
     assert.notEqual(pinCss, 'none');
     assert.equal(await js(`return document.querySelectorAll('#pane-today .tp-key, #pane-today .tp-first, #pane-today .tp-none').length`), 0, '前の枠は無い');
+    /* 今日の一覧でも、行に色と字（Issue #96 の 4 回目の返事）。今日大事なこと → 先に済ませる の順に先頭へ */
+    await js(`document.querySelector('#pane-today .today-listbtn').click()`);
+    await until(`return document.querySelectorAll('#pane-today .today-list .tl-row').length >= 2`);
+    assert.deepEqual(await js(`const rows = [...document.querySelectorAll('#pane-today .today-list .tl-sec:first-child .tl-row')].slice(0, 2);
+      return rows.map(r => ({ key: r.classList.contains('is-pin-key'), first: r.classList.contains('is-pin-first'), pin: r.querySelector('.tl-pin')?.textContent }))`),
+      [{ key: true, first: false, pin: '★ 大事' }, { key: false, first: true, pin: '↑ 先に' }]);
+    await js(`document.querySelector('#pane-today .today-listbtn').click()`);
     await js(`document.querySelector('#tabbar button[data-screen="sea"]').click()`);
   });
 
