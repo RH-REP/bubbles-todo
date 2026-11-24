@@ -329,7 +329,8 @@ function kNoteOf(t) {
      - 大きい画面（720px 以上）… いちばん最初の形：面の上の枠（先に済ませるの細い段＋今日大事なことの大きな枠）。renderWide の説明
    ・入れた泡を同じ所で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方で離すとそちらへ移す
    ・盤の［★ 今日大事なことにする］［↑ 先に済ませるに入れる］・おすすめの板からも、今までどおり入れられる・外せる
-   ・先に済ませるは今日だけ。区切りの時間が過ぎるか、入れた泡が全部済むと畳み、色が戻る（次の日へは移さない）
+   ・どちらも日付ごとに記録する。今日と先の日に入れられる（Issue #98。過ぎた日は記録として色だけ）。
+     先に済ませるは、今日になってから区切りの時間を数え、過ぎるか、入れた泡が全部済むと畳み、色が戻る（次の日へは移さない）
    ・今日大事なことは過ぎた日には入れない。一覧・四つに分けて見ている間は魚も枠も出さない（一覧では行に色と字を付ける）
    言い方は命令形にしない。件数・割合は出さない。赤は使わない */
 let plate = null;          /* 魚の入れ物（.today-corners）。泡の後ろに描く。小さい画面だけ */
@@ -340,23 +341,33 @@ const WIDE_MIN = 720;      /* 面の幅がこれ以上なら大きい画面の�
 let plateTimer = 0;
 let lastPlate = { key: null, rows: [], st: { open: false }, showFirst: false };
 
-/* 映している日の枠の中身。-> { key, rows, st }（st は firstState。先に済ませるは今日だけ） */
+/* 映している日の枠の中身。-> { key, rows, st }（st は firstState。区切りの時間を数えるのは今日だけ） */
 function plateState() {
   const day = curDay();
   const key = (typeof store.keyItem === 'function') ? store.keyItem(day) : null;
   let rows = [], st = { open: false, endAt: null, canAdd: false, passed: false };
-  if (isToday() && typeof store.firstItems === 'function') {
+  /* 先に済ませるも、今日大事なことと同じく日付ごとに記録している（記録の鍵 first に日付）。
+     Issue #98「大事、先には日付とセットで記録して／今日の海だけではなく別の日も対称的に／明日先にやること、大事なことを前日に入力したい」：
+     ・先の日 … 入れられる（席 3 つ・さっとの泡だけは同じ）。区切りの時間はまだ数えない（その日が今日になって初めて見た時刻から数える）
+     ・今日   … 今までどおり（区切りの時間が過ぎるか、全部済んだら畳む）
+     ・過ぎた日 … 入れない・外さない。記録として色と字だけ出す */
+  if (typeof store.firstItems === 'function') {
     rows = store.firstItems(day);
-    let at = firstStartedAt(day);
-    /* ほかの端末で入れた泡は、この端末で初めて見た時刻から数える */
-    if (rows.length && at === null) at = markFirstStarted(day, Date.now());
-    st = firstState(rows.map(t => ({ done: isDoneItem(t) })), at, firstMinutes(), Date.now());
+    if (isToday()) {
+      let at = firstStartedAt(day);
+      /* 前の日やほかの端末で入れた泡は、この端末で今日初めて見た時刻から数える */
+      if (rows.length && at === null) at = markFirstStarted(day, Date.now());
+      st = firstState(rows.map(t => ({ done: isDoneItem(t) })), at, firstMinutes(), Date.now());
+    } else if (!isPast()) {
+      st = firstState(rows.map(t => ({ done: isDoneItem(t) })), null, firstMinutes(), Date.now());
+    }
   }
   /* 段を出すか（2026-11-24 ユーザーの指示「先にやるの枠がない」）。前は入れた泡があるときだけ出していたので、
      まだ 1 つも入れていない朝は段そのものが無く、入れる場所が見えなかった。
-     今日で、区切りの時間が過ぎておらず、入れた泡がまだ済んでいない（open）か、1 つも入れていないときに出す。
-     全部済んだ・区切りの時間が過ぎたときは今までどおり畳む */
-  const showFirst = isToday() && typeof store.setFirst === 'function' && showFirstRow(st, rows.length);
+     今日・先の日で、区切りの時間が過ぎておらず、入れた泡がまだ済んでいない（open）か、1 つも入れていないときに出す。
+     全部済んだ・区切りの時間が過ぎたときは今までどおり畳む。過ぎた日は、入れた泡があるときだけ記録として出す */
+  const canFirst = typeof store.setFirst === 'function';
+  const showFirst = canFirst && (isPast() ? rows.length > 0 : showFirstRow(st, rows.length));
   return { key, rows, st, showFirst };
 }
 
@@ -365,10 +376,11 @@ function hhmm(ms) {
   return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-/* 色を付ける泡。id -> 'key'|'first'（先に済ませるは開いている間だけ。両方なら今日大事なことを先に） */
+/* 色を付ける泡。id -> 'key'|'first'（先に済ませるは開いている間だけ。過ぎた日はその日の記録として全部。
+   両方なら今日大事なことを先に） */
 function pinsOf(ps) {
   const out = new Map();
-  if (ps.st.open) ps.rows.forEach(t => out.set(t.id, 'first'));
+  if (ps.st.open || isPast()) ps.rows.forEach(t => out.set(t.id, 'first'));
   if (ps.key) out.set(ps.key.id, 'key');
   return out;
 }
@@ -387,7 +399,7 @@ function renderPlate(ps) {
 function plateIds(ps) {
   const out = new Set();
   if (ps.key) out.add(ps.key.id);
-  if (ps.st.open) ps.rows.forEach(t => out.add(t.id));
+  if (ps.st.open || (isPast() && ps.showFirst)) ps.rows.forEach(t => out.add(t.id));
   return out;
 }
 
@@ -406,11 +418,15 @@ function renderWide(ps) {
 
   if (ps.showFirst) {
     const row = el('div', 'tp-first');
+    const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
     row.dataset.name = '先に済ませる';
-    row.dataset.drop = 'first';
+    if (!isPast()) row.dataset.drop = 'first';   /* 過ぎた日は記録として出すだけ（落としても入れない） */
     row.setAttribute('role', 'group');
-    row.setAttribute('aria-label', ps.st.endAt ? '先に済ませる（区切りの時間 ' + hhmm(ps.st.endAt) + '）' : '先に済ませる（まだ入れていない。泡をここへ落とすと入る）');
-    row.appendChild(el('span', 'tp-first-h', '先に済ませる'));
+    row.setAttribute('aria-label', ps.st.endAt ? firstName + '（区切りの時間 ' + hhmm(ps.st.endAt) + '）'
+      : isPast() ? firstName + '（その日の記録）'
+      : ps.rows.length ? firstName + '（区切りの時間は、その日に初めて開いたときから数える）'
+      : firstName + '（まだ入れていない。泡をここへ落とすと入る）');
+    row.appendChild(el('span', 'tp-first-h', firstName));
     if (ps.st.endAt) {
       const tm = el('span', 'tp-first-t', '〜 ' + hhmm(ps.st.endAt));
       tm.dataset.name = '区切りの時間';
@@ -427,7 +443,7 @@ function renderWide(ps) {
       if (t.urgent === true && t.dueKind === 'ext') b.appendChild(el('span', 'tp-seat-k', '外の約束'));
       b.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
       b.addEventListener('click', ev => { ev.preventDefault(); if (seatDragged(b)) return; openBoardFor(t.id, b); });
-      seatDrag(b, t, 'first', day);
+      if (!isPast()) seatDrag(b, t, 'first', day);
       seats.appendChild(b);
     });
     if (ps.st.canAdd || !ps.rows.length) {
@@ -567,7 +583,7 @@ function seatDrag(node, t, kind, day) {
      「先に」の魚は今日ならいつも出し、畳んだあとは薄くして、掴んでいる間に「今日はもう畳んだ」と言う
    ・入った泡は魚と同じ色になり、上に小さく「★ 大事」「↑ 先に」の字が付く（css/bubble.css の .is-pin-*、js/bubble.js の .pinlb）。
      今日の一覧でも、行に同じ色と字を付ける（listRow）
-   ・「大事」の魚は過ぎた日には出さない。「先に」の魚は今日だけ。一覧・四つに分けて見ている間・大きい画面では出さない */
+   ・「大事」の魚は過ぎた日には出さない。「先に」の魚も今日と先の日（Issue #98）。一覧・四つに分けて見ている間・大きい画面では出さない */
 const fish = { key: null, first: null };   /* 魚は 1 度だけ作って使い回す（作り直すと泳ぎが最初の位置へ跳ぶ） */
 function renderCorners(ps) {
   if (!plate) return;
@@ -582,11 +598,14 @@ function renderCorners(ps) {
     : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える'   /* ユーザーの文字。syncFish が textContent で入れる */
     : '離すと' + (isToday() ? '今日' : word + 'の') + '大事なことに';
   syncFish('key', showKey, '大事', keySub, keyName, false);
-  const showFirst = isToday() && typeof store.setFirst === 'function';
-  const closed = !ps.showFirst;
+  /* 「先に」の魚も、今日だけでなく先の日にも出す（Issue #98。前の日に明日の先に済ませるを入れられる） */
+  const showFirst = !isPast() && typeof store.setFirst === 'function';
+  const closed = isToday() && !ps.showFirst;   /* 畳むのは今日だけ（先の日はまだ区切りの時間を数えていない） */
+  const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
   const firstSub = !id ? '' : closed ? '先に済ませるは、今日はもう畳んだ' : pin === 'first' ? '離すと外す'
-    : '離すと先に済ませるに' + (ps.st.endAt ? '（〜 ' + hhmm(ps.st.endAt) + '）' : '');
-  syncFish('first', showFirst, '先に', firstSub, '先に済ませる', closed);
+    : !ps.st.canAdd ? '先に済ませるの席は 3 つまで'
+    : '離すと' + firstName + 'に' + (ps.st.endAt ? '（〜 ' + hhmm(ps.st.endAt) + '）' : '');
+  syncFish('first', showFirst, '先に', firstSub, firstName, closed);
   plate.classList.toggle('is-drag', !!id);
   plate.hidden = !showKey && !showFirst;
   /* 掴んでいる間は、面の右半分にいる魚の説明を右に寄せる（面の外へはみ出さないように） */
@@ -670,7 +689,7 @@ function moveSeat(id, from, to, day) {
     return;
   }
   /* 今日大事なこと → 先に済ませる。先に入れてみて、入ったときだけ大事なことから外す */
-  placeFirst(id, true);
+  placeFirst(id, true, day);
   if (store.isFirst(id, day)) store.setKey(id, day, false);
 }
 
@@ -1837,12 +1856,13 @@ function markPlateDrop(hit) {
   if (hit) hit.node.classList.add('is-drop');
 }
 function dropToPlate(id, kind) {
+  if (isPast()) return;                 /* 過ぎた日は記録。入れない・外さない */
   const day = curDay();
   const pin = pinsOf(plateState()).get(id) || null;
   if (pin === kind) { takeOutSeat(id, kind, day); return; }
   if (pin) { moveSeat(id, pin, kind, day); return; }
   if (kind === 'key') placeKey(id, day);
-  else if (kind === 'first') placeFirst(id, true);
+  else if (kind === 'first') placeFirst(id, true, day);
 }
 
 function beginBubDrag(id) {
@@ -2008,7 +2028,8 @@ function renderSuggest() {
   const noKey = typeof store.keyItem === 'function' && !store.keyItem(s.day);
   const top = noKey ? live.find(c => keyable(c)) : null;
   const keyPick = top ? top.id : null;
-  const firstOk = s.day === todayKey() && plateState().st.canAdd;
+  /* 先の日のおすすめにも［↑ 先に］を出す（Issue #98）。s.day は過ぎた日にはならない（おすすめは過ぎた日には開かない） */
+  const firstOk = s.day >= todayKey() && s.day === curDay() && plateState().st.canAdd;
   live.forEach(c => {
     const li = el('li', 'tsg-row');
     const tx = el('span', 'tsg-tx');
@@ -2026,7 +2047,7 @@ function renderSuggest() {
       put.addEventListener('click', ev => { ev.preventDefault(); placeSuggestKey(c.id); });
     } else if (firstOk && firstable(c)) {
       put = el('button', 'tsg-put is-first', '↑ 先に');
-      put.setAttribute('aria-label', '「' + trim(c.text) + '」を今日の先に済ませるに入れる');
+      put.setAttribute('aria-label', '「' + trim(c.text) + '」を' + word + 'の先に済ませるに入れる');
       put.addEventListener('click', ev => { ev.preventDefault(); placeSuggestFirst(c.id); });
     } else {
       put = el('button', 'tsg-put', '置く');
@@ -2082,15 +2103,16 @@ function placeKey(id, day) {
   });
 }
 
-/* ［↑ 先に］: 今日の先に済ませるに入れる（今日に置くのも一緒）。取り消せる */
-function placeSuggestFirst(id) { placeFirst(id, false); }
+/* ［↑ 先に］: その日の先に済ませるに入れる（その日に置くのも一緒）。取り消せる */
+function placeSuggestFirst(id) { if (suggest) placeFirst(id, false, suggest.day); }
 /* 先に済ませるに入れる。dropped は枠へ落としたとき：見当がまだの泡は、落とした＝さっとと決めたとみなして
-   さっとにしてから入れる（取り消すと見当も戻す）。半日まで・何回もの泡は入れない（さっとの泡だけの席） */
-function placeFirst(id, dropped) {
+   さっとにしてから入れる（取り消すと見当も戻す）。半日まで・何回もの泡は入れない（さっとの泡だけの席）。
+   day は入れる日（Issue #98。今日か先の日。過ぎた日には入れない）。区切りの時間を数え始めるのは今日に入れたときだけ */
+function placeFirst(id, dropped, day) {
   const t = store.get(id);
-  const day = todayKey();
-  if (!t || typeof store.setFirst !== 'function') return;
-  if (plateState().st.passed) { toast('先に済ませるは、今日はもう畳んだ'); return; }
+  if (!day) day = todayKey();
+  if (!t || typeof store.setFirst !== 'function' || day < todayKey()) return;
+  if (day === todayKey() && plateState().st.passed) { toast('先に済ませるは、今日はもう畳んだ'); return; }
   const had = store.daysOf ? (store.daysOf(id) || []).indexOf(day) >= 0 : false;
   let sized = false;
   if (dropped && !t.size && typeof store.setSize === 'function') sized = store.setSize(id, 's');
@@ -2102,9 +2124,10 @@ function placeFirst(id, dropped) {
     render();
     return;
   }
-  markFirstStarted(day, Date.now());
+  if (day === todayKey()) markFirstStarted(day, Date.now());   /* 先の日は、その日に初めて開いたときから数える（plateState） */
   playSfx('place');
-  toast('「' + trim(t.text) + '」を先に済ませるに入れた' + (sized ? '（さっとにした）' : ''), {
+  const where = day === todayKey() ? '' : (dayToDate(day).getMonth() + 1) + '/' + dayToDate(day).getDate() + ' の';
+  toast('「' + trim(t.text) + '」を' + where + '先に済ませるに入れた' + (sized ? '（さっとにした）' : ''), {
     label: '取り消す',
     on: () => {
       store.setFirst(id, day, false);
