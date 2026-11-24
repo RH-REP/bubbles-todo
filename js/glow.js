@@ -8,6 +8,7 @@
      ＋ 輝いたこと（litAt）。輝いた時点で触れたとみなすので、開かなくても次の日はちがう泡に回る（催促にしない）。
    - 記録の印 stamps は使わない（日の切り替え・同期・gantt の書き換えでも新しくなり、本人が触れたかと合わない）。
    - 数・連続・達成は出さない。輝きは完了でなく、開いたことに付く（README「このアプリが引き受けないこと」）。
+   - bubble は報酬で動かす app ではない。輝きは**非常に弱い報酬**（気づいたら少しうれしい程度。狙って集めたくなる強さにしない）。
 
    この file の上半分は DOM を知らない（tests/glow.test.mjs が確かめる）。下半分の光の演出だけが document を使う。 */
 
@@ -101,7 +102,7 @@ export function markOpened(ls, day, id) {
 }
 
 /* ---------------- 光がほどける（DOM） ----------------
-   輪が広がり、粒が 8 つ散る。node は開いた泡。動きを減らす設定では何もしない（音も sound.js が止める）。
+   輪が少しだけ広がり（0.45 秒・1.3 倍）、粒が 4 つ近くに散る（0.55 秒）。非常に弱い報酬なので控えめに。node は開いた泡。動きを減らす設定では何もしない（音も sound.js が止める）。
    描く場所は document.body の上の固定の層（泡は盤の層へ移るので、泡の中には描かない）。 */
 export function unravel(node) {
   try {
@@ -117,17 +118,17 @@ export function unravel(node) {
     ring.className = 'glow-burst';
     Object.assign(ring.style, { left: (cx - rad) + 'px', top: (cy - rad) + 'px', width: 2 * rad + 'px', height: 2 * rad + 'px' });
     layer.appendChild(ring);
-    for (let i = 0; i < 8; i++) {
-      const a = i / 8 * Math.PI * 2 + Math.random() * 0.4;
-      const dist = rad + 30 + Math.random() * 26;
+    for (let i = 0; i < 4; i++) {
+      const a = i / 4 * Math.PI * 2 + Math.PI / 4 + Math.random() * 0.3;
+      const dist = rad + 10 + Math.random() * 10;   /* 泡の縁のすぐ外（10〜20px） */
       const s = document.createElement('span');
       s.className = 'glow-spark';
       s.style.left = cx + 'px'; s.style.top = cy + 'px';
       s.style.setProperty('--sx', (Math.cos(a) * dist).toFixed(1) + 'px');
-      s.style.setProperty('--sy', (Math.sin(a) * dist - 18).toFixed(1) + 'px');
+      s.style.setProperty('--sy', (Math.sin(a) * dist - 6).toFixed(1) + 'px');
       layer.appendChild(s);
     }
     document.body.appendChild(layer);
-    setTimeout(() => layer.remove(), 1300);
+    setTimeout(() => layer.remove(), 700);
   } catch (e) { /* 光のために画面を壊さない */ }
 }

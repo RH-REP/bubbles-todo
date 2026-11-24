@@ -2630,4 +2630,4 @@ VM で上げるのは `tools/server-setup.sh min-schema-set <版>`（控え `.se
 - 輝きの席は `capForSea` の最後（`giveSeat`）。気孔の入れ替え（swaps）の列には入れない。開いたあとも、その日は席を持たせる。
 - 漂う海（drift）は `onActions` を bubble.js へ渡さず、盤は長押しメニューの中身（`menuFor` → `harvestActions`）を借りて組む。だから `thanks`・`onOpened` は `actionsFor` と `menuFor` の両方に足した（`glowExtras`）。onOpened は盤を置いたあとに 1 回だけ呼ぶ。
 - 開いたかは端末だけ（`bubble_todo_glow_opened_v1` = {day, id}）。ほかの端末ではまだ光る。
-
+- 同日、ユーザーの追加の指示「報酬駆動ではないので、非常に弱い報酬で実施することを明記」で演出を弱めた（版 2026-11-24i）。光の輪 inset -34%→-16%・明るさ .55→.26・呼吸 4.2s 0.92〜1.06 倍→6s 0.98〜1.02 倍、粒 3→1（3px・20px）、開いたときの輪 0.9s・2.1 倍→0.45s・1.3 倍、散る粒 8→4（0.55s・10〜20px）、音 lit のピーク .42/.32/.06→.14/.09・全長 0.44→0.22 秒、感謝の一言 13→11.5px で 2.4 秒で外す、札の点 7→5px で動かさない。tests/sound.test.mjs が「最大は完了音の 1/5 以下・全長 0.3 秒未満」を見る。

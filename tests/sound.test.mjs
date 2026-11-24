@@ -77,14 +77,16 @@ test('完了音は効果音のスイッチに左右されない', () => {
   s.setSfxOn(true);
 });
 
-test('輝く泡の lit は完了音より静か（相対ピークの和と最大が完了音より小さい）', () => {
+test('輝く泡の lit は非常に弱い：最大は完了音の 1/5 以下、和も小さく、全長 0.3 秒未満', () => {
   const src = readFileSync(new URL('../js/sound.js', import.meta.url), 'utf8');
   const peaks = name => {
     const m = new RegExp(name + ':\\s*(\\[\\[[^\\n]*\\]\\]),').exec(src);
-    return JSON.parse(m[1]).map(v => v[4]);
+    return JSON.parse(m[1]);
   };
   const lit = peaks('lit');
   const done = [0.80, 0.18, 0.68, 0.13];
-  assert.ok(lit.reduce((a, b) => a + b, 0) < done.reduce((a, b) => a + b, 0));
-  assert.ok(Math.max(...lit) < Math.max(...done));
+  const p = lit.map(v => v[4]);
+  assert.ok(Math.max(...p) <= Math.max(...done) / 5, '最大');
+  assert.ok(p.reduce((a, b) => a + b, 0) < done.reduce((a, b) => a + b, 0) / 4, '和');
+  assert.ok(Math.max(...lit.map(v => v[1] + v[2] + v[3])) < 0.3, '全長');
 });

@@ -554,7 +554,7 @@ export function updateBubble(node, item, opts = {}) {
   if (lit && !glow) {
     glow = el('span', 'glow');
     glow.setAttribute('aria-hidden', 'true');
-    for (let i = 0; i < 3; i++) glow.appendChild(el('span', 'glow-mote'));
+    glow.appendChild(el('span', 'glow-mote'));   /* 粒は 1 つだけ（非常に弱い報酬） */
     node.insertBefore(glow, node.firstChild);
   }
   if (glow) glow.hidden = !lit;
@@ -3494,6 +3494,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     /* 盤の札（fields）の中のいちばん上。root の直下に置くと札の外（画面の左上）に出る */
     const box = fields || root;
     box.insertBefore(th, box.firstChild);
+    /* 小さな字で、すぐ消える（非常に弱い報酬。2.4 秒。動きを減らす設定でも同じ時刻に外す） */
+    setTimeout(() => { if (th.isConnected) th.remove(); }, 2400);
   }
 
   return {
