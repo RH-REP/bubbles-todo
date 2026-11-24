@@ -865,13 +865,24 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 .bub.is-pin-key .wob::after, .bub.is-pin-first .wob::after {
   content: ''; position: absolute; inset: 0; z-index: 2;
   border-radius: 50%; pointer-events: none;
-  --pin: var(--accent-a);
   box-shadow:
     inset 0 0 0 2px color-mix(in srgb, var(--pin) 80%, transparent),
     inset 0 0 calc(var(--d, 100px) * .22) calc(var(--d, 100px) * .04) color-mix(in srgb, var(--pin) 42%, transparent),
     0 0 0 3px color-mix(in srgb, var(--pin) 42%, transparent);
+  /* 滝をくぐった色（Issue #96 の 3 回目の返事）。字が読めるよう、ごく薄く */
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
 }
-.bub.is-pin-key .wob::after { --pin: var(--accent-b); }
+.bub.is-pin-first { --pin: var(--accent-a); }
+.bub.is-pin-key   { --pin: var(--accent-b); }
+/* 上の端の小さな字「★ 大事」「↑ 先に」（js/bubble.js の .pinlb）。見当の添え字（.knote）と同じ作法で、色は滝と同じ */
+.bub .pinlb {
+  position: absolute; left: 50%; top: 5%; transform: translateX(-50%); z-index: 3;
+  max-width: 92%; overflow: hidden; white-space: nowrap;
+  font-size: 10px; font-weight: 700; line-height: 1.5; letter-spacing: .02em; padding: 0 6px; border-radius: 999px;
+  color: #fff; background: color-mix(in srgb, var(--pin, var(--accent-a)) 88%, #000);
+  pointer-events: none;
+}
+.bub .pinlb[hidden] { display: none; }
 
 /* ---------- 盤の優先度（急ぐ・大事）----------
    お気に入りと同じ札の作法。下に今の区分を言葉で1行。区分の色は小さな帯で添えるだけ */

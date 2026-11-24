@@ -319,7 +319,7 @@ try {
     assert.ok(r.mdays.includes(5) && r.mdays.includes(20), JSON.stringify(r));
   });
 
-  await step('今日大事なこと・先に済ませる（2026-11-24。Issue #96 で枠から色と角に）: 盤の［★］で今日の水面の泡が紫み（is-pin-key）、さっとの泡は［↑］で青み（is-pin-first）になり、どちらも漂う面に残る。上の枠は無い', async () => {
+  await step('今日大事なこと・先に済ませる（2026-11-24。Issue #96 で枠から色と下の角の滝に）: 盤の［★］で今日の水面の泡が紫み（is-pin-key）と「★ 大事」、さっとの泡は［↑］で青み（is-pin-first）になり、どちらも漂う面に残る。上の枠は無い', async () => {
     await js(`const { store } = await import('/js/store.js'); const day = store.todayKey();
       store.add('架空の申請書を書く'); store.add('架空の経費の提出');
       const a = store.all().find(t => t.text === '架空の申請書を書く').id, b = store.all().find(t => t.text === '架空の経費の提出').id;
@@ -328,9 +328,11 @@ try {
       store.setDay(a, day, true); store.setDay(b, day, true);`);
     await js(`document.querySelector('#tabbar button[data-screen="today"]').click()`);
     await until(`return document.getElementById('pane-today')?.classList.contains('is-active')`);
-    /* 掴んでいないときは角も枠も見えない（泡の動きを妨げない） */
-    await until(`return !!document.querySelector('#pane-today .today-corners')`);
-    assert.equal(await js(`${VIS} return vis(document.querySelector('#pane-today .today-corners'))`), false);
+    /* 下の角の滝はいつも見える（Issue #96 の 3 回目の返事）。指は透かし、泡の後ろ（入れ物に z-index が無い） */
+    await until(`return document.querySelectorAll('#pane-today .today-corners .tp-fall').length === 2`);
+    assert.deepEqual(await js(`const c = document.querySelector('#pane-today .today-corners'); const s = getComputedStyle(c);
+      return { pe: s.pointerEvents, z: s.zIndex, kinds: [...c.querySelectorAll('.tp-fall')].map(n => n.dataset.drop) }`),
+      { pe: 'none', z: 'auto', kinds: ['key', 'first'] });
     /* 前の版の枠の名前（.today-plate）が混ざって出ても、見せず壁にもしない（Issue #96 の 2 回目の返事） */
     assert.equal(await js(`const p = document.createElement('div'); p.className = 'today-plate'; p.textContent = 'x';
       document.querySelector('#pane-today .today-stage').appendChild(p); const r = p.offsetParent; p.remove(); return r === null`), true);
@@ -354,6 +356,7 @@ try {
     assert.equal(await js(`return document.querySelector('.bc-fields .bc-key').getAttribute('aria-pressed')`), 'true');
     await close();
     await until(`const n = ${bubIn('架空の申請書')}; return !!n && n.classList.contains('is-pin-key')`);
+    assert.equal(await js(`return ${bubIn('架空の申請書')}.querySelector('.pinlb').textContent`), '★ 大事');
     assert.equal(await js(`return ${bubIn('架空の経費')}.classList.contains('is-pin-key')`), false);
     /* 先に済ませる */
     await openIn('架空の経費');

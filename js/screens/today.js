@@ -323,14 +323,14 @@ function kNoteOf(t) {
    > 右下が右上か左下か左上にバブルを持って行ったら、設定できて、バブルの形は同じで色で区別できるようにできる？
    ・入れた泡も、ほかの泡と同じ形のまま漂う面に出す。色で見分ける（今日大事なこと＝紫み .is-pin-key、先に済ませる＝青み .is-pin-first）。
      面に壁は置かない（前の枠は drift の keepOut で、その上下で泡が詰まっていた）
-   ・入れる場所は、泡を掴んでいる間だけ下の角に出る（左下＝今日大事なこと、右下＝先に済ませる）。そこで離すと入る。
-     上の角は日付の行・さいころ・日を移す帯の札と重なるので使わない
-   ・入れた泡を同じ角で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方の角で離すとそちらへ移す
+   ・入れる場所は下の角の細い滝（左下＝今日大事なこと、右下＝先に済ませる。3 回目の返事で、掴んでいる間だけの角から
+     いつも見える滝に替えた。renderCorners の説明）。そこで離すと入る。上の角は日付の行・さいころ・日を移す帯の札と重なるので使わない
+   ・入れた泡を同じ滝で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方の滝で離すとそちらへ移す
    ・盤の［★ 今日大事なことにする］［↑ 先に済ませるに入れる］・おすすめの板からも、今までどおり入れられる・外せる
    ・先に済ませるは今日だけ。区切りの時間が過ぎるか、入れた泡が全部済むと畳み、色が戻る（次の日へは移さない）
-   ・今日大事なことは過ぎた日には入れない（角を出さない）。一覧・四つに分けて見ている間も角は出さない
+   ・今日大事なことは過ぎた日には入れない（滝を出さない）。一覧・四つに分けて見ている間も滝は出さない
    言い方は命令形にしない。件数・割合は出さない。赤は使わない */
-let plate = null;          /* 角の入れ物（.today-corners）。泡を掴んでいる間だけ見える */
+let plate = null;          /* 滝の入れ物（.today-corners）。泡の後ろに描く */
 let plateTimer = 0;
 let lastPlate = { key: null, rows: [], st: { open: false }, showFirst: false };
 
@@ -374,39 +374,49 @@ function renderPlate(ps) {
   renderCorners(ps);
 }
 
-/* 下の角の入れ場所。泡を掴んでいる間（bubDrag）だけ作って見せる。
-   角の中の字は、掴んでいる泡にとってどうなるか（入る・入れ替える・外す）を短く言う */
+/* 下の角の滝（Issue #96 の 3 回目の返事。2026-11-24）：
+   > 「今日大事なこと」「先に済ませる」の設定がわかりにくくなった。現在のUIと重ならず、TODOの泡の動きや表示領域を減らさず
+   > 設定と区別できるようなUI検討して。例：左下に大事の滝みたいなのを作ってそこを潜らせたら、大事文字表示の追加と滝の色に変わるなど。右下は先に
+   ・左下に紫みの細い滝（今日大事なこと）、右下に青みの細い滝（先に済ませる）を、いつも出しておく（どこで入れるかが見える）。
+     幅は 30px ほどで、泡の後ろに描き、指も透かす（壁にしない・泡を掴むのを妨げない・泡はその上も漂う）
+   ・泡を掴むと滝が少し太くなり、上に「離すとどうなるか」（入る・入れ替える・外す）を出す。滝の上で離すと入る
+     （通り抜けただけでは入れない。泡を動かすたびに、うっかり入ってしまうため）
+   ・入った泡は滝と同じ色になり、上に小さく「★ 大事」「↑ 先に」の字が付く（css/bubble.css の .is-pin-*、js/bubble.js の .pinlb）
+   ・今日大事なことの滝は過ぎた日には出さない。先に済ませるの滝は、今日で区切りの時間の前だけ。一覧・四つに分けて見ている間は出さない */
 function renderCorners(ps) {
   if (!plate) return;
   plate.textContent = '';
+  if (listOn || quadOn) { plate.hidden = true; return; }
   const id = bubDrag ? bubDrag.id : null;
-  if (!id || listOn || quadOn) { plate.hidden = true; return; }
+  const pin = id ? (pinsOf(ps).get(id) || null) : null;
   const day = curDay();
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
-  const pin = pinsOf(ps).get(id) || null;
   if (!isPast()) {
-    const sub = pin === 'key' ? 'ここで離すと外す'
-      : ps.key ? 'いまは「' + trim(ps.key.text, 10) + '」。離すと入れ替える'   /* ユーザーの文字。el は textContent で入れる */
-      : 'ここで離すと入る';
-    plate.appendChild(cornerBox('key', '★ ' + (isToday() ? '今日大事なこと' : word + 'の大事なこと'), sub));
+    const sub = !id ? '' : pin === 'key' ? '離すと外す'
+      : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える'   /* ユーザーの文字。el は textContent で入れる */
+      : '離すと' + (isToday() ? '今日' : word + 'の') + '大事なことに';
+    plate.appendChild(fallBox('key', '★ 大事', sub, isToday() ? '今日大事なこと' : word + 'の大事なこと'));
   }
   if (ps.showFirst) {
-    const sub = pin === 'first' ? 'ここで離すと外す'
-      : (ps.st.endAt ? '〜 ' + hhmm(ps.st.endAt) + '・' : '') + 'さっとの泡を 3 つまで';
-    plate.appendChild(cornerBox('first', '↑ 先に済ませる', sub));
+    const sub = !id ? '' : pin === 'first' ? '離すと外す'
+      : '離すと先に済ませるに' + (ps.st.endAt ? '（〜 ' + hhmm(ps.st.endAt) + '）' : '');
+    plate.appendChild(fallBox('first', '↑ 先に', sub, '先に済ませる'));
   }
+  plate.classList.toggle('is-drag', !!id);
   plate.hidden = !plate.children.length;
 }
-function cornerBox(kind, head, sub) {
-  const box = el('div', 'tp-corner tp-corner-' + kind);
+function fallBox(kind, head, sub, name) {
+  const box = el('div', 'tp-fall tp-fall-' + kind);
   box.dataset.drop = kind;
-  box.dataset.name = kind === 'key' ? '今日大事なことの角' : '先に済ませるの角';
-  box.appendChild(el('span', 'tp-corner-h', head));
-  box.appendChild(el('span', 'tp-corner-s', sub));
+  box.dataset.name = name + 'の滝';
+  box.title = name + '：泡を掴んでここで離すと入る';
+  box.appendChild(el('span', 'tp-fall-w'));                 /* 流れ（飾り） */
+  box.appendChild(el('span', 'tp-fall-h', head));
+  if (sub) box.appendChild(el('span', 'tp-fall-s', sub));
   return box;
 }
 
-/* 外す（入れた泡を同じ角で離したとき）。今日には残す。［元に戻す］で入れ直す */
+/* 外す（入れた泡を同じ滝で離したとき）。今日には残す。［元に戻す］で入れ直す */
 function takeOutSeat(id, kind, day) {
   const t = store.get(id);
   if (!t) return;
@@ -1553,9 +1563,9 @@ function onBubPointer(ev) {
   markPlateDrop(plateHitAt(bubPt.x, bubPt.y));
 }
 
-/* ---- 今日大事なこと・先に済ませるの角へ落とす（2026-11-24。Issue #96 で枠から下の角に替えた）----
-   角（data-drop="key"|"first"）の上で泡を離すと、そこへ入れる。入れた泡を同じ角で離すと外し、もう片方の角なら移す。
-   掴んでいる間は、指の下の角を濃くする（is-drop） */
+/* ---- 今日大事なこと・先に済ませるの滝へ落とす（2026-11-24。Issue #96 で枠 → 角 → 下の角の滝）----
+   滝（data-drop="key"|"first"）の上で泡を離すと、そこへ入れる。入れた泡を同じ滝で離すと外し、もう片方の滝なら移す。
+   掴んでいる間は、指の下の滝を濃くする（is-drop） */
 function plateHitAt(x, y) {
   if (!plate || !(x >= 0)) return null;
   const nodes = plate.querySelectorAll('[data-drop]');
@@ -2184,8 +2194,9 @@ export default {
 
     /* drift は opts の直下から handlers を読む。将来 opts.handlers を見る作りに
        変わっても落ちないよう、まとめたものも一緒に渡しておく（余分なキーは無視される） */
-    /* 今日大事なこと・先に済ませるの角（Issue #96。2026-11-24）。掴んでいる間だけ見える。
-       前の枠は drift の keepOut（壁）だったが、角は泡の動きを妨げないよう壁にしない */
+    /* 今日大事なこと・先に済ませるの滝（Issue #96。2026-11-24）。いつも見える細い滝。
+       前の枠は drift の keepOut（壁）だったが、滝は泡の動きを妨げないよう壁にしない。
+       field（泡）より先に面へ入れるので、泡は滝の上に描かれる（z-index を付けない。css/screens/today.css） */
     /* 名前は .today-corners（前の版の枠 .today-plate と分ける。css/screens/today.css の説明。Issue #96） */
     plate = el('div', 'today-corners');
     plate.dataset.screen = 'today.corners'; plate.dataset.screenLayer = '2';

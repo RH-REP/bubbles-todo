@@ -658,40 +658,71 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
 .today-suggestbox .tsg-note { margin: 6px 0 0; font-size: 11px; color: var(--text-2); }
 /* 前の版（2026-11-21）の「週・月」の板は、いまは海のリスト表示の形「週」「月」（css/screens/period.css。Issue #80 の返事） */
 
-/* ---------- 今日大事なこと・先に済ませる（2026-11-24 ユーザーの決定。Issue #96 の返事で枠から角と色に替えた）----------
-   入れる場所は、泡を掴んでいる間だけ出る下の角（左下＝今日大事なこと、右下＝先に済ませる）。壁にはしない（drift の keepOut に入れない）。
-   入れた泡は形を変えず、色で見分ける（css/bubble.css の .is-pin-key・.is-pin-first）。
+/* ---------- 今日大事なこと・先に済ませる（2026-11-24 ユーザーの決定。Issue #96 の返事で枠 → 角 → 滝に替えた）----------
+   入れる場所は下の角の細い滝（左下＝今日大事なこと、右下＝先に済ませる）。壁にはしない（drift の keepOut に入れない）。
+   入れた泡は形を変えず、滝の色と小さな字で見分ける（css/bubble.css の .is-pin-key・.is-pin-first・.pinlb）。
    赤は使わない。件数・割合は出さない。一覧・四つに分けて見ている間は出さない */
 /* 入れ物の名前は .today-corners（前の版の枠 .today-plate とは別の名前。Issue #96 の 2 回目の返事、2026-11-24）。
    前の版の JS と今の CSS が混ざって届くと（端末の版の入れ替えの途中・配信の古い写し）、前の JS は .today-plate を
    drift の keepOut（泡を入れない壁）にしているので、同じ名前で面いっぱい（inset: 0）にすると面ぜんぶが壁になり、泡が消える。
    前の JS の .today-plate は、ここでは出さない（display: none なら keepOut も数えない。drift は offsetParent の無いものを外す） */
 .today-plate { display: none !important; }
-.today-corners { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+/* 下の角の滝（Issue #96 の 3 回目の返事。2026-11-24。js/screens/today.js の renderCorners）。
+   左下＝今日大事なこと（紫み）、右下＝先に済ませる（青み）。いつも出す細い滝で、場所が見える。
+   入れ物は z-index を付けず、泡（field）より先に面へ入れてあるので、泡は滝の上に描かれる。指も透かす（pointer-events: none）。
+   泡を掴んでいる間（.is-drag）だけ、日を移す帯（z-index 9）より上に出し、太くして「離すとどうなるか」を添える */
+.today-corners { position: absolute; inset: 0; pointer-events: none; }
+.today-corners.is-drag { z-index: 10; }
 .today-corners[hidden] { display: none; }
 .today-stage.is-list .today-corners, .today-stage.is-quad .today-corners { display: none; }
-.today-corners .tp-corner {
-  position: absolute; bottom: 0; width: 148px; height: 104px; box-sizing: border-box;
-  display: flex; flex-direction: column; justify-content: flex-end; gap: 2px;
-  padding: 10px 12px calc(10px + var(--safe-b, 0px));
-  font-size: 12.5px; font-weight: 600; color: var(--text);
-  border: 1.5px dashed var(--line-strong);
-  transition: background-color .12s, border-color .12s;
+.today-corners .tp-fall {
+  --fall: var(--accent-a);
+  position: absolute; bottom: 0; box-sizing: border-box;
+  width: 26px; height: 36%; min-height: 120px; max-height: 260px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  padding-bottom: calc(8px + var(--safe-b, 0px));
+  transition: width .18s ease-out;
 }
-.today-corners .tp-corner-key {
-  left: 0; border-left: 0; border-bottom: 0; border-radius: 0 64px 0 0; align-items: flex-start; text-align: left;
-  border-color: color-mix(in srgb, var(--accent-b) 70%, transparent);
-  background: color-mix(in srgb, var(--accent-b) 16%, color-mix(in srgb, var(--surface) 80%, transparent));
+.today-corners .tp-fall-key   { --fall: var(--accent-b); left: 0; }
+.today-corners .tp-fall-first { right: 0; }
+/* 流れ：縞を下へ送る。上はぼかして、どこからともなく落ちてくる見え方に */
+.today-corners .tp-fall-w {
+  position: absolute; inset: 0;
+  background:
+    repeating-linear-gradient(180deg,
+      color-mix(in srgb, var(--fall) 55%, transparent) 0 10px,
+      color-mix(in srgb, var(--fall) 25%, transparent) 10px 22px);
+  background-size: 100% 44px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 35%);
+  mask-image: linear-gradient(180deg, transparent 0%, #000 35%);
+  opacity: .45;
+  animation: tp-fall-flow 1.8s linear infinite;
+  transition: opacity .18s;
 }
-.today-corners .tp-corner-first {
-  right: 0; border-right: 0; border-bottom: 0; border-radius: 64px 0 0 0; align-items: flex-end; text-align: right;
-  border-color: color-mix(in srgb, var(--accent-a) 70%, transparent);
-  background: color-mix(in srgb, var(--accent-a) 16%, color-mix(in srgb, var(--surface) 80%, transparent));
+.today-corners .tp-fall-key .tp-fall-w   { border-radius: 0 10px 0 0; }
+.today-corners .tp-fall-first .tp-fall-w { border-radius: 10px 0 0 0; }
+@keyframes tp-fall-flow { from { background-position: 0 0; } to { background-position: 0 44px; } }
+@media (prefers-reduced-motion: reduce) { .today-corners .tp-fall-w { animation: none; } }
+/* 名前：縦書きで細い滝に収める */
+.today-corners .tp-fall-h {
+  position: relative; writing-mode: vertical-rl; text-orientation: upright;
+  font-size: 11px; font-weight: 700; letter-spacing: .08em; line-height: 1;
+  color: color-mix(in srgb, var(--fall) 70%, var(--text));
 }
-.today-corners .tp-corner-s { font-size: 11px; font-weight: 400; color: var(--text-2); max-width: 100%; overflow-wrap: anywhere; }
-/* 指がその上に来たら、離せば入る合図。色だけに頼らず、線も実線に変える（日を移す帯と同じ） */
-.today-corners .tp-corner.is-drop { border-style: solid; }
-.today-corners .tp-corner-key.is-drop   { background: color-mix(in srgb, var(--accent-b) 32%, var(--surface)); }
-.today-corners .tp-corner-first.is-drop { background: color-mix(in srgb, var(--accent-a) 32%, var(--surface)); }
+/* 掴んでいる間：太く・濃く。上に「離すとどうなるか」 */
+.today-corners.is-drag .tp-fall { width: 60px; }
+.today-corners.is-drag .tp-fall-w { opacity: .7; }
+.today-corners .tp-fall-s {
+  position: absolute; bottom: calc(100% + 6px);
+  max-width: 168px; padding: 4px 8px; border-radius: 10px;
+  font-size: 11px; line-height: 1.35; color: var(--text);
+  background: color-mix(in srgb, var(--fall) 18%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--fall) 55%, transparent);
+  overflow-wrap: anywhere;
+}
+.today-corners .tp-fall-key .tp-fall-s   { left: 4px; }
+.today-corners .tp-fall-first .tp-fall-s { right: 4px; text-align: right; }
+/* 指がその上に来たら、離せば入る合図。色だけに頼らず、縁の線も出す（日を移す帯と同じ考え） */
+.today-corners .tp-fall.is-drop .tp-fall-w { opacity: .95; box-shadow: inset 0 0 0 2px var(--fall); }
 /* おすすめの板の［★ 大事なことに］［↑ 先に］ */
 .today-suggestbox .tsg-put.is-key, .today-suggestbox .tsg-put.is-first { white-space: nowrap; }

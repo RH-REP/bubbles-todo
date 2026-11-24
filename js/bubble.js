@@ -551,6 +551,17 @@ export function updateBubble(node, item, opts = {}) {
   const pin = item && (item.pin === 'key' || item.pin === 'first') ? item.pin : '';
   node.classList.toggle('is-pin-key', pin === 'key');
   node.classList.toggle('is-pin-first', pin === 'first');
+  /* 上の端に小さく「★ 大事」「↑ 先に」（Issue #96 の 3 回目の返事「大事文字表示の追加と滝の色に変わる」）。
+     読み上げは aria-label のほうに足す（下の ariaFor のあと） */
+  const pinText = pin === 'key' ? '★ 大事' : pin === 'first' ? '↑ 先に' : '';
+  let pinlb = node.querySelector(':scope > .wob > .pinlb');
+  if (pinText && !pinlb) {
+    pinlb = el('span', 'pinlb');
+    pinlb.setAttribute('aria-hidden', 'true');
+    const wob = node.querySelector(':scope > .wob');
+    if (wob) wob.appendChild(pinlb);
+  }
+  if (pinlb) { pinlb.textContent = pinText; pinlb.hidden = !pinText; }
   /* ---- 輝く泡（2026-11-24。js/glow.js）----
      item.lit なら光の輪と光の粒（.glow。泡の後ろ）。渡さない画面では何も変わらない */
   const lit = !!(item && item.lit);
@@ -583,6 +594,7 @@ export function updateBubble(node, item, opts = {}) {
   if (kNote) label += '、' + kNote;
   if (fresh) label += '、新しいひとことあり';
   if (lit) label += '、輝いている';
+  if (pin) label += pin === 'key' ? '、今日大事なこと' : '、先に済ませる';
   node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
   node.dataset.id = item.id;
   return node;
