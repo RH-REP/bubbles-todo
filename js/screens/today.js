@@ -1737,24 +1737,26 @@ function closeDetail() {
    なぞりは「面を動かす」、こちらは「バブルを置く」で、動かす対象が違うため
    ——‹ › が同じところに出ているので、目で見える手がかりのほうに合わせた。
 
-   出さない場面が2つある：
-     ・過去を映しているとき … 過去はその日の記録。あとから書き換えない（is-readonly と同じ理由）
-     ・行き先が今日より前になるとき … カレンダーで過去の枡を押させないのと同じ規則
+   2026-11-24 Issue #97「日付の海でバブルをつまんで横に置けば翌日（左は前日）に移動し、ホールドで翌日にもコピー
+   （明日も頑張る）。昨日以前のデータも対称的な挙動にして」:
+     ・前は、過去を映しているときと、行き先が今日より前になるときは帯を出さなかった。どの日でも左右とも出す（対称）
+     ・帯の上で止めて EDGE_COPY_MS 待つと「＋コピー」に変わり、離すと**今の日に残したまま**隣の日にも置く。
+       待たずに離せば今までどおり移す。帯から指を外すと「移す」に戻る
 
    海の端の帯（.sea-edge）と同じ作り方にしてある：帯は指を透かし、
    判定は指先の座標でやる（バブルの外形は広すぎる。契約 §14）。 */
-let dayEdges = null;        /* { left: {el, lb}, right: {...} } */
+let dayEdges = null;        /* { left: {el, md, dw, mo}, right: {...} } */
 let bubDrag = null;
 let bubPt = { x: -1, y: -1 };
 let overEdge = null;
 let tabDropped = false;
+const EDGE_COPY_MS = 700;   /* 帯の上でこれだけ止めると「コピー」になる */
+let edgeCopy = false;
+let edgeHoldTimer = 0;
 
-/* その向きの行き先。動かしてよくなければ null */
+/* その向きの行き先。どの日からでも、左＝前の日・右＝次の日（Issue #97 で過去も対称にした） */
 function edgeDayFor(dir) {
-  if (isPast()) return null;
-  const k = shiftDay(curDay(), dir === 'left' ? -1 : 1);
-  if (!k || k < todayKey()) return null;
-  return k;
+  return shiftDay(curDay(), dir === 'left' ? -1 : 1) || null;
 }
 
 function renderDayEdges() {
@@ -1765,7 +1767,10 @@ function renderDayEdges() {
     const k = on ? edgeDayFor(dir) : null;
     e.el.hidden = !k;
     e.el.classList.toggle('is-over', overEdge === dir);
+    const copy = overEdge === dir && edgeCopy;
+    e.el.classList.toggle('is-copy', copy);
     if (!k) return;
+    e.mo.textContent = copy ? '＋コピー' : '移す';
     const d = dayToDate(k);
     /* 帯は細いので、日と曜日を2行に分ける（横書きのまま読める）。
        縦書きにすると、掴んでいるバブルが真ん中を隠したときに読めなくなる */
@@ -1790,6 +1795,17 @@ function dayEdgeAt(x, y) {
 function markDayEdge(dir) {
   if (overEdge === dir) return;
   overEdge = dir;
+  edgeCopy = false;
+  if (edgeHoldTimer) { clearTimeout(edgeHoldTimer); edgeHoldTimer = 0; }
+  if (dir) {
+    edgeHoldTimer = setTimeout(() => {
+      edgeHoldTimer = 0;
+      if (!bubDrag || overEdge !== dir) return;
+      edgeCopy = true;
+      try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) { /* 震えなくてよい */ }
+      renderDayEdges();
+    }, EDGE_COPY_MS);
+  }
   renderDayEdges();
 }
 
@@ -1849,8 +1865,11 @@ function endBubDrag() {
   markPlateDrop(null);
   const dir = (d && !tabDropped && !hit) ? dayEdgeAt(pt.x, pt.y) : null;
   const to = dir ? edgeDayFor(dir) : null;
+  const copy = !!(dir && edgeCopy && overEdge === dir);
   bubDrag = null;
   overEdge = null;
+  edgeCopy = false;
+  if (edgeHoldTimer) { clearTimeout(edgeHoldTimer); edgeHoldTimer = 0; }
   window.removeEventListener('pointermove', onBubPointer, true);
   window.removeEventListener('pointerup', onBubPointer, true);
   if (stage) stage.classList.remove('is-bubdrag');
@@ -1872,21 +1891,24 @@ function endBubDrag() {
      マイクロタスク1つぶん待ってから見る（海・きっかけと同じ間合い） */
   Promise.resolve().then(() => {
     if (tabDropped) return;
-    moveDay(d.id, curDay(), to);
+    moveDay(d.id, curDay(), to, copy);
   });
 }
 
-/* いま映している日から外して、行き先の日に置く。取り消せる */
-function moveDay(id, from, to) {
+/* いま映している日から外して、行き先の日に置く。copy なら今の日に残したまま行き先にも置く（Issue #97）。取り消せる */
+function moveDay(id, from, to, copy) {
   const t = store.get(id);
   if (!t || typeof store.setDay !== 'function') return;
   const had = (typeof store.daysOf === 'function' ? store.daysOf(id) : []) || [];
   const added = store.setDay(id, to, true);
-  const removed = (from && from !== to) ? store.setDay(id, from, false) : false;
-  if (!added && !removed) return;
+  const removed = (!copy && from && from !== to) ? store.setDay(id, from, false) : false;
   const d = dayToDate(to);
   const md = (d.getMonth() + 1) + '/' + d.getDate();
-  toast('「' + trim(t.text) + '」を ' + md + ' へ', {
+  if (!added && !removed) {
+    if (copy) toast('「' + trim(t.text) + '」は ' + md + ' にもう置いてある');
+    return;
+  }
+  toast('「' + trim(t.text) + '」を ' + md + (copy ? ' にも' : ' へ'), {
     label: '元に戻す',
     on: () => {
       /* 掴む前の日をそのまま書き戻す。足し引きを逆にたどるより確か */
@@ -2346,6 +2368,27 @@ const handlers = {
   getHost: () => stage,
 };
 
+/* ---------------- 日付と ‹ › の置き場（2026-11-24 Issue #97） ----------------
+   「アンドロイドから今日の海のうえのボタン類が………で読めない。レイアウト見直して」。
+   1段目の並び（.today-top）は ≡・利用者のアイコンと歯車・「!」の間にしか無く、幅 411 の Android では
+   約 180px。そこへフィルター（4割まで）と ‹ 日付 › （‹ › だけで 92px）を入れていたので、
+   フィルターの名前も日付も「…」に縮んでいた（前の狭い画面の詰め方は幅 400 以下だけ）。
+   1段目に DAYROW_NEED より狭いときは、日付と ‹ › を 2段目の並び（.today-tools）の左へ下ろし、
+   1段目はフィルターだけにする（.today-top.is-solo）。広い画面は今までどおり 1段目の右（Issue #92 の返事）。
+   1段目の幅は左右の端で決まり、中身では変わらないので、行き来して揺れない */
+const DAYROW_NEED = 330;    /* フィルター（約 95）＋間 8＋‹ ›（88＋間 4）＋「一昨日 12/31（水）」の日付（約 130） */
+let topRowEl = null, toolsEl = null, dayRowEl = null;
+function placeDayRow() {
+  if (!topRowEl || !toolsEl || !dayRowEl) return;
+  const w = topRowEl.clientWidth;
+  if (!w) return;                            /* まだ寸法が無い（隠れている）。出たときにもう一度 */
+  const low = w < DAYROW_NEED;
+  if (low && dayRowEl.parentNode !== toolsEl) toolsEl.insertBefore(dayRowEl, toolsEl.firstChild);
+  else if (!low && dayRowEl.parentNode !== topRowEl) topRowEl.appendChild(dayRowEl);
+  topRowEl.classList.toggle('is-solo', low);
+  stage.classList.toggle('is-dayrow-low', low);
+}
+
 /* ---------------- 画面モジュール ---------------- */
 
 export default {
@@ -2375,12 +2418,14 @@ export default {
       const lb = el('span', 'lb');
       const md = el('span', 'md');
       const dw = el('span', 'dw');
+      const mo = el('span', 'mo', '移す');    /* 止めて待つと「＋コピー」（Issue #97） */
       lb.appendChild(md);
       lb.appendChild(dw);
+      lb.appendChild(mo);
       box.appendChild(ar);
       box.appendChild(lb);
       stage.appendChild(box);
-      dayEdges[dir] = { el: box, md, dw };
+      dayEdges[dir] = { el: box, md, dw, mo };
     });
 
     emptyNote = el('p', 'today-empty');
@@ -2501,6 +2546,8 @@ export default {
     listBtn.addEventListener('click', ev => { ev.preventDefault(); setList(!listOn); });
     tools.appendChild(listBtn);
     stage.appendChild(tools);
+    topRowEl = topRow; toolsEl = tools; dayRowEl = dayRow;
+    placeDayRow();
     document.addEventListener('pointerdown', onFilterOutside, true);
     syncFilterBtn();
     /* 前に一覧で見ていたら、一覧で始める。入力欄がまだ無いので setList（render を呼ぶ）は使わず、
@@ -2557,6 +2604,7 @@ export default {
       ro = new ResizeObserver(() => {
         if (!shown || !field) return;
         if (!stage.clientWidth || !stage.clientHeight) return;
+        placeDayRow();
         field.relayout();
         /* 幅が変わったら（回転・窓の大きさ）泡の大きさを決め直す（Issue #87）。
            高さだけの変化（キーボードの出入り）では決め直さない——打つたびに泡が縮み広がりするため */
@@ -2580,6 +2628,7 @@ export default {
        しかもタブの落とし先がそこになる——という置き去りを防ぐ。
        自分で過去へなぞって見に行くぶんは、この後いつでもできる */
     if (viewDay && viewDay < todayKey()) { viewDay = null; announceDay(); }
+    placeDayRow();
     /* ここで初めてペインが display:flex になる。寸法が取れるのはこの時点から */
     if (field && !quadOn && !listOn) { field.relayout(); field.start(); }
     render();

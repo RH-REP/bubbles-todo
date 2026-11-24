@@ -384,8 +384,8 @@ html.has-userbtn .today-top { left: 114px; }
 }
 
 /* ---------- 左右の帯（バブルを運ぶと日が変わる。利用者の指示） ----------
-   掴んでいる間だけ出る。過去を映しているときと、行き先が今日より前になるときは
-   出さない（JS 側で hidden にする）。
+   掴んでいる間だけ出る。どの日でも左右とも出す（2026-11-24 Issue #97 で過去も対称にした。
+   前は過去を映しているときと、行き先が今日より前になるときは出さなかった）。
 
    指は透かす。判定は指先の座標でやるので当たり判定は要らず、持たせると
    帯の下に居るバブルを掴めなくなる（海の .sea-edge と同じ理由）。 */
@@ -409,6 +409,13 @@ html.has-userbtn .today-top { left: 114px; }
 /* 細い帯でも読めるよう、日と曜日を2行に分けて横書きのまま出す */
 .today-edge .lb { display: grid; justify-items: center; line-height: 1.25; }
 .today-edge .dw { font-size: 11px; font-weight: 400; }
+/* 「移す」⇄「＋コピー」（Issue #97。帯の上で止めて待つとコピー） */
+.today-edge .mo { margin-top: 4px; font-size: 11px; font-weight: 600; }
+.today-edge.is-copy {
+  background: color-mix(in srgb, var(--bub-edge) 40%, transparent);
+  color: var(--text);
+}
+.today-edge.is-copy .mo { padding: 1px 4px; border-radius: 6px; background: var(--surface); }
 /* 指がその上に来たら、離せば動く合図。色だけに頼らず、線も実線に変える（1.4.1） */
 .today-edge.is-over {
   background: color-mix(in srgb, var(--bub-edge) 26%, transparent);
@@ -507,6 +514,14 @@ body:not(.pref-dice) .today-tools { right: 10px; }
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
 }
 .today-stage.is-bubdrag .today-filterbtn { opacity: 0; pointer-events: none; }
+/* 掴んでいる間は、上の札をすべて消す（2026-11-24 Issue #97「バブルを掴むと一部のボタンが隠れない、全て隠して」）。
+   前は日付と ‹ ›・おすすめの札が残っていた（おすすめは上で消している） */
+.today-stage.is-bubdrag .today-dayrow { opacity: 0; pointer-events: none; }
+/* 狭い画面（1段目が 330px 未満。js/screens/today.js placeDayRow）では、日付と ‹ › を 2段目の左へ下ろし、
+   1段目はフィルターだけ（Issue #97「アンドロイドから今日の海のうえのボタン類が………で読めない」）。
+   フィルターは 1段目を広く使え、日付は 2段目の右の ⇅ の手前まで伸びる */
+.today-top.is-solo > .today-filterbtn { max-width: 100%; }
+.today-tools > .today-dayrow { margin-left: 0; margin-right: auto; flex: 0 1 auto; }
 /* 1段目に置いたとき（Issue #92 の返事）。海の 1段目の「タグ無し ▽」と同じく字を濃く。
    日付に場所を残すため、長いタグの名前でも並びの 4割までで「…」に縮める */
 .today-top > .today-filterbtn { color: var(--text); max-width: 40%; }

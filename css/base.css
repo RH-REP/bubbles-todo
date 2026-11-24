@@ -213,8 +213,9 @@ html.kb-open .tabbar { display: none; }
 .gearbtn:active { transform: scale(.95); }
 .gearbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .gearbtn.is-open { color: var(--text); border-color: var(--bub-edge); background: var(--surface); }
-/* バブルを掴んでいる間は薄くする。落とし先ではないので、狙わせない */
-body.is-dragging .gearbtn { opacity: .25; pointer-events: none; }
+/* バブルを掴んでいる間は消す。落とし先ではないので、狙わせない
+   （2026-11-24 Issue #97「バブルを掴むと一部のボタンが隠れない、全て隠して」。前は .25 で薄く残していた。≡・利用者・「!」も同じ） */
+body.is-dragging .gearbtn { opacity: 0; pointer-events: none; }
 
 /* ---------- 画面の !（改善のコメント。js/feedback.js が置く）----------
    **歯車が居た右上の隅（top:10px right:10px）に、歯車と同じ 44px の丸で置く**
@@ -232,7 +233,7 @@ body.is-dragging .gearbtn { opacity: .25; pointer-events: none; }
   box-shadow: 0 2px 10px rgba(0,0,0,.08);
   opacity: 1;
 }
-body.is-dragging #fbBtn { opacity: .15; pointer-events: none; }   /* 掴んでいる間は落とし先の邪魔をしない */
+body.is-dragging #fbBtn { opacity: 0; pointer-events: none; }   /* 掴んでいる間は落とし先の邪魔をしない。Issue #97 で薄く（.15）から消すへ */
 
 /* 「!」は既定で隠す（2026-11-21 Issue #84「github に書き込む機能は設定の中に移したら」）。
    書くのは設定の「改善のコメントを書く」から（隠した #fbBtn を押す。js/screens/settings.js）。
@@ -263,7 +264,7 @@ body:not(.pref-fb) .gearbtn { right: 10px; }
 .menubtn:active { transform: scale(.95); }
 .menubtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .menubtn[aria-expanded="true"] { color: var(--text); border-color: var(--bub-edge); background: var(--surface); }
-body.is-dragging .menubtn { opacity: .25; pointer-events: none; }
+body.is-dragging .menubtn { opacity: 0; pointer-events: none; }   /* Issue #97 で薄く（.25）から消すへ */
 /* 集中画面の間は隠す（覆いの下に居るが、読み上げの順からも外す） */
 body:has(.focus) .menubtn { visibility: hidden; }
 
@@ -560,7 +561,7 @@ body:not(.pref-show-quad) .opt-quad { display: none !important; }
 .userbtn:active { transform: scale(.95); }
 .userbtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 .userbtn.is-open { box-shadow: 0 0 0 3px var(--bub-edge); }
-body.is-dragging .userbtn { opacity: .25; pointer-events: none; }
+body.is-dragging .userbtn { opacity: 0; pointer-events: none; }   /* Issue #97 で薄く（.25）から消すへ */
 body:has(.focus) .userbtn { visibility: hidden; }
 html.has-userbtn .menubtn { left: 62px; }
 

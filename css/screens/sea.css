@@ -755,6 +755,13 @@ body:not(.pref-dice) .sea-gather { right: 10px; }
 }
 /* 掴んでいる間は引っ込める（下の真ん中は「タグを外す枠」の場所） */
 .sea-stage.is-bubdrag .sea-vent { opacity: 0; pointer-events: none; }
+/* 掴んでいる間は、海の上のボタンをすべて消す（2026-11-24 Issue #97「基本の海でバブルを掴むと一部のボタンが隠れない、全て隠して」）。
+   前はフィルター・⇅・さいころ・カレンダー（薄く残すだけ）が残っていた。落とし先（端の帯・置き場・外す枠・下タブ）は消さない */
+.sea-stage.is-bubdrag > .sea-narrow,
+.sea-stage.is-bubdrag > .sea-gather,
+.sea-stage.is-bubdrag > .sea-random,
+.sea-stage.is-bubdrag > .sea-cal,
+.sea-stage.is-bubdrag > .sea-tools { opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .sea-vent .mini { animation: none !important; opacity: 0; }
   .sea-vent.is-puff .rock { animation: none; }
