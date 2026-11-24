@@ -5783,14 +5783,13 @@ function personalBackupBox(owner) {
   const paint = async () => {
     const my = ++seq;
     w.textContent = '';
-    const h = document.createElement('p');
-    h.className = 'prefs-pages-lb';
-    h.textContent = 'バックアップ';
-    w.appendChild(h);
+    /* 2026-11-23 点検の直し（利用者の指示「残りの3つも直して」）: 前はここに見出しでない字「バックアップ」を置き、
+       その下に太字の「サーバー」が来て、見出しの大小が逆に見えた。浮いた字を外し、小見出しを「サーバーに預けたバックアップ」
+       「この端末の控え」の 2 つにそろえる */
     /* --- サーバー --- */
     const sh = document.createElement('p');
     sh.className = 'pbk-sub';
-    sh.textContent = 'サーバー';
+    sh.textContent = 'サーバーに預けたバックアップ';
     w.appendChild(sh);
     if (!canServerBackup()) {
       const p = document.createElement('p');

@@ -1498,6 +1498,18 @@ body.is-dragging .tabbar button { transition: background .12s, color .12s; }
 }
 .bub-center .bc-tag-btn:hover { border-color: var(--line-strong); }
 .bub-center .bc-tag-btn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* 期間の外で長期保留の海にいる泡の［長期保留（期間で）］（2026-11-23 点検の直し）。手で付けた長期保留と見分ける点線。
+   色は長期保留のタグの色（--tcd）。赤や「期限切れ」の札にはしない */
+.bub-center .bc-tag-btn.is-span { border-style: dashed; border-color: var(--tcd, var(--line-strong)); }
+.bub-center .bc-tag-btn.is-span .bc-tag-tx { color: var(--text); }
+/* 期間の外の案内（日付の段の下）。読むだけの 1 行と、海へ出す 2 つの札 */
+.bub-center .bc-span-why {
+  grid-column: 1 / -1; margin-top: 8px; padding: 8px 10px; border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent); border: 1px dashed var(--line-strong);
+}
+.bub-center .bc-span-why-tx { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+.bub-center .bc-span-why-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.bub-center .bc-span-why-acts[hidden] { display: none; }
 /* この端末の表示の「タグ類を隠す」（Issue #36）。自分で作ったタグの札だけ隠す。
    今日・きっかけ・すきま・長期保留（data-special）は、置き場を変える札なので残す */
 body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: none; }

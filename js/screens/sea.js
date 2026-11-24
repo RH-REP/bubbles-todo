@@ -1988,7 +1988,8 @@ function ensureField(face) {
   /* handlers は createField の opts で渡す。drift が自分でノードを作って
      attachGestures まで張るので、画面側では張らない（張ると二重になり、
      離したときにバブルがドラッグ層に残って海の外に出る）。 */
-  f.field = createField(f.el, Object.assign({ size: 'text', handlers: handlers }, handlers));
+  /* keepOut: 海の端の札（.sea-sign）の上に泡を止めない（2026-11-23 点検の直し。js/drift.js） */
+  f.field = createField(f.el, Object.assign({ size: 'text', handlers: handlers, keepOut: '.sea-sign' }, handlers));
   if (shown && f.el.clientWidth && f.el.clientHeight && f.field.relayout) {
     try { f.field.relayout(); } catch (err) { /* 測れないだけ */ }
   }

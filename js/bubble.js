@@ -854,6 +854,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let saveDays = null;
   let moveRepDay = null;        /* くりかえしの下書きで、やる日の回の日を入れ替える（2026-11-19） */
   let saveRepeat = null;        /* くりかえしも閉じるときに書く（2026-11-19） */
+  let clearSpan = null;         /* 期間を未定にする（期間の外の案内の［期間を未定にする］から。2026-11-23） */
   let saveSpan = null;          /* 期間も閉じるときに書く（2026-11-19。暦で開始日・終了日を続けて選ぶため） */          /* 日の入り切りも閉じるときにまとめて書く */
   let syncTodayChip = null;     /* カレンダーが「今日」の札の見た目を合わせる */
   const root = el('div', 'bub-center');
@@ -1249,6 +1250,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     };
   }
 
+  /* 期間の外なので長期保留の海にいるか（共有の記録 v1.5 §11。'before'|'after'|null）。
+     記録の hold は無いので、タグの［長期保留］は点線の「長期保留（期間で）」、日付の段に期間の外の案内を出す（2026-11-23 点検の直し） */
+  const spanWhy = ask(a, 'spanHeld', id) || null;
   const allTags = ask(a, 'tags');
   const canEdit = Array.isArray(allTags) && allTags.length
     && typeof (a || {}).setTag === 'function';
@@ -1273,6 +1277,13 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       tx.textContent = String(t.name || '');   /* ユーザーの文字。innerHTML には入れない */
       chip.appendChild(dot);
       chip.appendChild(tx);
+      /* 期間の外で長期保留の海にいる泡は、点線の「長期保留（期間で）」。押すと手で付ける長期保留になる */
+      const spanLook = () => {
+        const sp = t.id === 'hold' && !!spanWhy && !want.has('hold');
+        chip.classList.toggle('is-span', sp);
+        tx.textContent = String(t.name || '') + (sp ? '（期間で）' : '');
+      };
+      if (t.id === 'hold') spanLook();
       chip.addEventListener('click', ev => {
         ev.preventDefault();
         /* 「今日」はカレンダーの今日の枡と同じもの。書き込みはあちらが持つ */
@@ -1280,6 +1291,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         const on = !want.has(t.id);
         if (on) want.add(t.id); else want.delete(t.id);
         chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+        if (t.id === 'hold') spanLook();
         if (t.id === 'hold' && syncHoldRow) syncHoldRow(true);
       });
       if (t.id === 'today') syncTodayChip = on => chip.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -1551,6 +1563,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       clear.type = 'button';
       clear.dataset.name = '未定にする';
       clear.addEventListener('click', ev => { ev.preventDefault(); mode = 'start'; write('', ''); });
+      clearSpan = () => { mode = 'start'; write('', ''); };
       picks.appendChild(clear);
       body.appendChild(picks);
       body.appendChild(el('p', 'bc-span-note', '開始日か終了日を押してから、暦の日を押す。1 日だけなら同じ日を 2 回'));
@@ -2122,6 +2135,44 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         grid.querySelectorAll('.bc-cal-head[aria-expanded="true"]').forEach(o => { if (o !== h) o.click(); });
       });
       dates.appendChild(grid);
+      /* 期間の外の案内（2026-11-23 点検の直し。利用者の指示「残りの3つも直して」）。
+         期間の外なので長期保留の海にいる泡に、理由と、海へ出す道（今日に置く・期間を未定にする）を出す。
+         どちらも盤の中の札と同じ処理（閉じたときにまとめて書く） */
+      if (spanWhy) {
+        const sp = ask(a, 'span', id) || {};
+        const md = v => { const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(v || '')); return m ? Number(m[1]) + '/' + Number(m[2]) : ''; };
+        const range = [md(sp.start), md(sp.due)].filter(Boolean).join('–');
+        const why = el('div', 'bc-span-why');
+        why.dataset.name = '期間の外の案内';
+        const msg = el('p', 'bc-span-why-tx');
+        msg.textContent = spanWhy === 'before'
+          ? '期間（' + range + '）の外なので、長期保留の海にいる。' + md(sp.start || sp.due) + ' に海へ出る。'
+          : '期間（' + range + '）を過ぎたので、長期保留の海にいる。';
+        const wacts = el('div', 'bc-span-why-acts');
+        const done = text => { msg.textContent = text; wacts.hidden = true; };
+        if (todayCell) {
+          const b1 = el('button', 'bc-hold-pick', '今日に置く');
+          b1.type = 'button';
+          b1.dataset.name = '今日に置く';
+          b1.addEventListener('click', ev => {
+            ev.preventDefault();
+            if (!todayCell.has()) todayCell.toggle();
+            if (syncTodayChip) syncTodayChip(true);
+            done('今日に置いた。盤を閉じると今日の海に出る。');
+          });
+          wacts.appendChild(b1);
+        }
+        if (clearSpan) {
+          const b2 = el('button', 'bc-hold-pick', '期間を未定にする');
+          b2.type = 'button';
+          b2.dataset.name = '期間を未定にする';
+          b2.addEventListener('click', ev => { ev.preventDefault(); clearSpan(); done('期間を未定にした。盤を閉じると海に出る。'); });
+          wacts.appendChild(b2);
+        }
+        why.appendChild(msg);
+        if (wacts.children.length) why.appendChild(wacts);
+        dates.appendChild(why);
+      }
       if (dboxes.every(n => n.classList.contains('is-extra'))) dates.classList.add('is-extra');
       fields.appendChild(dates);
     }

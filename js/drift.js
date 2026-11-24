@@ -66,6 +66,11 @@ const REST_DRAG = 1.0;  /* 止まったあとの横滑りを収める強さ 1/s�
                            実際、7個・14個を 1800/3600 秒 溜めた散らばりは
                            下げる前と同じか少し広い（種を5本変えて実測。下の検証3） */
 const REST_PAD = 10;    /* 着地の高さのばらつき px */
+/* 札の周り（2026-11-23 点検の直し）。海の端の札の上に泡を止めない。
+   KEEP_V は押し出す速さ px/s（漂う速さ SPEED と同じくらい。目に見えてゆっくり出ていく）、
+   KEEP_GAP は泡の縁と札のあいだに空ける隙間 px */
+const KEEP_V = 14;
+const KEEP_GAP = 4;
 
 /* バブルどうしのぶつかり（利用者の指示）。
 
@@ -297,6 +302,51 @@ export function createField(host, opts = {}) {
   let dead = false;
   let ro = null;
   let booted = false;
+
+  /* 札の周り（2026-11-23 点検の直し。利用者の指示「残りの3つも直して」）。
+     opts.keepOut は、泡を止めない部品の選び方（海の面では '.sea-sign'＝海の端の札）。
+     札は泡の後ろに描く（DEV_NOTES A-8: 重なった泡を掴めるように）。そのため泡が札の上に止まると、
+     そのあいだ札を押せない。札の四角を泡の半径ぶん広げた範囲に泡の中心があれば、近い出口へゆっくり押し出す。
+     通り抜けるのは止めない（重なっている間は今までどおり泡を掴める）。
+     四角は面の座標（倍率を割り戻したもの）で、0.4 秒ごとに測り直す */
+  const keepSel = typeof opts.keepOut === 'string' ? opts.keepOut : '';
+  let keepCache = [], keepAt = -1e9;
+  function keepZones(w) {
+    if (!keepSel) return [];
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (now - keepAt < 400) return keepCache;
+    keepAt = now;
+    const hr = host.getBoundingClientRect();
+    const z = zoomOf();
+    keepCache = [...host.querySelectorAll(keepSel)].filter(e => !e.hidden && e.offsetParent !== null).map(e => {
+      const r = e.getBoundingClientRect();
+      const x = (r.left - hr.left) / z, y = (r.top - hr.top) / z, ww = r.width / z, hh = r.height / z;
+      /* 左右の壁ぎわの札は縦へ、それ以外（上下の札）は横へ出す */
+      return { x, y, w: ww, h: hh, side: x < 30 || x + ww > w - 30 };
+    }).filter(k => k.w > 0 && k.h > 0);
+    return keepCache;
+  }
+  function keepOut(list, w) {
+    const zones = keepZones(w);
+    if (!zones.length) return;
+    list.forEach(b => {
+      if (b.held || b.pin || b.snap || b.well) return;
+      const r = b.d / 2 + KEEP_GAP;
+      for (const k of zones) {
+        const x0 = k.x - r, x1 = k.x + k.w + r, y0 = k.y - r, y1 = k.y + k.h + r;
+        if (b.cx <= x0 || b.cx >= x1 || b.cy <= y0 || b.cy >= y1) continue;
+        if (k.side) {
+          const up = (b.cy - y0) < (y1 - b.cy);
+          b.vy = up ? Math.min(b.vy, -KEEP_V) : Math.max(b.vy, KEEP_V);
+          b.rest = false;
+        } else {
+          const left = (b.cx - x0) < (x1 - b.cx);
+          b.vx = left ? Math.min(b.vx, -KEEP_V) : Math.max(b.vx, KEEP_V);
+        }
+        break;
+      }
+    });
+  }
 
   host.classList.add('bub-field');
   /* 「リスト表示」で縦にあふれたぶんをスクロールさせるための高さ持ち */
@@ -877,6 +927,9 @@ export function createField(host, opts = {}) {
         b.cy = h - r; if (b.vy > 0) b.vy = 0; b.vx *= 0.90;
       }
     });
+
+    /* 札の周りに居る泡を、近い出口へ押し出す（上の keepOut） */
+    keepOut(list, w);
 
     /* ぶつかり。数が少ない前提の総当たり。
        中心を結ぶ線に沿った撃力で弾き合い（作用・反作用）、
