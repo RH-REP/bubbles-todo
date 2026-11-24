@@ -66,10 +66,8 @@ const REST_DRAG = 1.0;  /* 止まったあとの横滑りを収める強さ 1/s�
                            実際、7個・14個を 1800/3600 秒 溜めた散らばりは
                            下げる前と同じか少し広い（種を5本変えて実測。下の検証3） */
 const REST_PAD = 10;    /* 着地の高さのばらつき px */
-/* 札の周り（2026-11-23 点検の直し）。海の端の札の上に泡を止めない。
-   KEEP_V は押し出す速さ px/s（漂う速さ SPEED と同じくらい。目に見えてゆっくり出ていく）、
-   KEEP_GAP は泡の縁と札のあいだに空ける隙間 px */
-const KEEP_V = 14;
+/* 札の範囲（2026-11-24 利用者の指示「ふだのエリアを切って、バブルが侵入できない様に」）。
+   海の端の札の四角は、泡にとって壁と同じ。KEEP_GAP は泡の縁と札のあいだに空ける隙間 px */
 const KEEP_GAP = 4;
 
 /* バブルどうしのぶつかり（利用者の指示）。
@@ -303,15 +301,16 @@ export function createField(host, opts = {}) {
   let ro = null;
   let booted = false;
 
-  /* 札の周り（2026-11-23 点検の直し。利用者の指示「残りの3つも直して」）。
-     opts.keepOut は、泡を止めない部品の選び方（海の面では '.sea-sign'＝海の端の札）。
-     札は泡の後ろに描く（DEV_NOTES A-8: 重なった泡を掴めるように）。そのため泡が札の上に止まると、
-     そのあいだ札を押せない。札の四角を泡の半径ぶん広げた範囲に泡の中心があれば、近い出口へゆっくり押し出す。
-     通り抜けるのは止めない（重なっている間は今までどおり泡を掴める）。
+  /* 札の範囲（2026-11-24 利用者の指示「ふだのエリアを切って、バブルが侵入できない様に」。
+     前の版（2026-11-23）は札の周りから泡をゆっくり押し出すだけで、通り抜けはできた）。
+     opts.keepOut は、泡を入れない部品の選び方（海の面では '.sea-sign'＝海の端の札）。
+     札の四角に KEEP_GAP を足した範囲は、泡にとって壁と同じ：円が触れたら外へ押し戻し、札へ向かう速さを捨てる。
+     泡が札の上に来ないので、札は泡の後ろに描いたまま（DEV_NOTES A-8）でも、いつも見えて押せる。
+     指で持っている泡（held）は指が位置を持つので締め出さない。離せば次のコマで外へ出る。
      四角は面の座標（倍率を割り戻したもの）で、0.4 秒ごとに測り直す */
   const keepSel = typeof opts.keepOut === 'string' ? opts.keepOut : '';
   let keepCache = [], keepAt = -1e9;
-  function keepZones(w) {
+  function keepZones() {
     if (!keepSel) return [];
     const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     if (now - keepAt < 400) return keepCache;
@@ -320,33 +319,40 @@ export function createField(host, opts = {}) {
     const z = zoomOf();
     keepCache = [...host.querySelectorAll(keepSel)].filter(e => !e.hidden && e.offsetParent !== null).map(e => {
       const r = e.getBoundingClientRect();
-      const x = (r.left - hr.left) / z, y = (r.top - hr.top) / z, ww = r.width / z, hh = r.height / z;
-      /* 左右の壁ぎわの札は縦へ、それ以外（上下の札）は横へ出す */
-      return { x, y, w: ww, h: hh, side: x < 30 || x + ww > w - 30 };
-    }).filter(k => k.w > 0 && k.h > 0);
+      return { x0: (r.left - hr.left) / z - KEEP_GAP, y0: (r.top - hr.top) / z - KEEP_GAP,
+        x1: (r.right - hr.left) / z + KEEP_GAP, y1: (r.bottom - hr.top) / z + KEEP_GAP };
+    }).filter(k => k.x1 > k.x0 && k.y1 > k.y0);
     return keepCache;
   }
-  function keepOut(list, w) {
-    const zones = keepZones(w);
-    if (!zones.length) return;
-    list.forEach(b => {
-      if (b.held || b.pin || b.snap || b.well) return;
-      const r = b.d / 2 + KEEP_GAP;
-      for (const k of zones) {
-        const x0 = k.x - r, x1 = k.x + k.w + r, y0 = k.y - r, y1 = k.y + k.h + r;
-        if (b.cx <= x0 || b.cx >= x1 || b.cy <= y0 || b.cy >= y1) continue;
-        if (k.side) {
-          const up = (b.cy - y0) < (y1 - b.cy);
-          b.vy = up ? Math.min(b.vy, -KEEP_V) : Math.max(b.vy, KEEP_V);
-          b.rest = false;
-        } else {
-          const left = (b.cx - x0) < (x1 - b.cx);
-          b.vx = left ? Math.min(b.vx, -KEEP_V) : Math.max(b.vx, KEEP_V);
-        }
-        break;
+  /* 円（泡）を四角（札の範囲）の外へ出す。円が四角に触れていれば、いちばん近い点から半径ぶん離し、
+     四角へ向かう速さの成分を捨てる。中心が四角の中に入りこんでいたら、いちばん近い辺から外へ出す */
+  function solidOut(b, zones) {
+    const r = b.d / 2;
+    for (const k of zones) {
+      const qx = Math.max(k.x0, Math.min(b.cx, k.x1));
+      const qy = Math.max(k.y0, Math.min(b.cy, k.y1));
+      let dx = b.cx - qx, dy = b.cy - qy;
+      let dist = Math.hypot(dx, dy);
+      if (dist >= r) continue;
+      if (dist < 1e-6) {
+        /* 中心が中に居る: 4 辺のうち近いほうへ */
+        const opts4 = [[b.cx - k.x0, -1, 0], [k.x1 - b.cx, 1, 0], [b.cy - k.y0, 0, -1], [k.y1 - b.cy, 0, 1]];
+        opts4.sort((p, q) => p[0] - q[0]);
+        const [, nx, ny] = opts4[0];
+        if (nx) b.cx = nx < 0 ? k.x0 - r : k.x1 + r;
+        else b.cy = ny < 0 ? k.y0 - r : k.y1 + r;
+        dx = nx; dy = ny; dist = 1;
+      } else {
+        b.cx = qx + dx / dist * r;
+        b.cy = qy + dy / dist * r;
       }
-    });
+      const nx = dx / dist, ny = dy / dist;
+      const vn = b.vx * nx + b.vy * ny;
+      if (vn < 0) { b.vx -= vn * nx; b.vy -= vn * ny; }
+      b.rest = false;
+    }
   }
+
 
   host.classList.add('bub-field');
   /* 「リスト表示」で縦にあふれたぶんをスクロールさせるための高さ持ち */
@@ -771,6 +777,7 @@ export function createField(host, opts = {}) {
     const w = host.clientWidth, h = host.clientHeight;
     if (!w || !h) { raf = requestAnimationFrame(tick); return; }   /* 非表示中は動かさない */
     const list = [...bubbles.values()];
+    const zones = keepZones();          /* 札の範囲（泡を入れない。下の solidOut） */
 
     /* 並べている間は漂わせず、並べた位置へなめらかに寄せる */
     if (gathering) {
@@ -928,9 +935,6 @@ export function createField(host, opts = {}) {
       }
     });
 
-    /* 札の周りに居る泡を、近い出口へ押し出す（上の keepOut） */
-    keepOut(list, w);
-
     /* ぶつかり。数が少ない前提の総当たり。
        中心を結ぶ線に沿った撃力で弾き合い（作用・反作用）、
        そのあとで、めり込んでいるぶんの位置を質量の逆比で分けて押し戻す。
@@ -1001,6 +1005,8 @@ export function createField(host, opts = {}) {
         const r = b.d / 2;
         b.cx = clamp(b.cx, r, Math.max(r, w - r));
         b.cy = clamp(b.cy, r, Math.max(r, h - r));
+        /* 札の範囲には入れない（上の solidOut）。枠に収めたあと、描く前に */
+        if (zones.length) solidOut(b, zones);
       }
       place(b);
     });
@@ -1028,10 +1034,13 @@ export function createField(host, opts = {}) {
         }
       }
     }
+    /* 札の範囲には、演出を減らす設定のときも置かない（2026-11-24） */
+    const zones = keepZones();
     list.forEach(b => {
       const r = b.d / 2;
       b.cx = clamp(b.cx, r, Math.max(r, w - r));
       b.cy = clamp(b.cy, r, Math.max(r, h - r));
+      if (zones.length) solidOut(b, zones);
       place(b);
     });
   }
