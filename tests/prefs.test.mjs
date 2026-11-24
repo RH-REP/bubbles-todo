@@ -17,7 +17,8 @@ test('どの項目も、どの画面を変えるか（PAGES）のどれかに入
 });
 
 test('盤の既定と、前の版で置いた値（2026-11-18 ユーザーの決定「5 つとも案どおりで実装して」）', () => {
-  const def = ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'repeat', 'tags'];
+  /* 2026-11-24 ユーザーの指示「作業記録より下はその他で畳んでみて」: 日付・タグを既定から外した（版 5） */
+  const def = ['name', 'start', 'ended', 'done', 'notes', 'detail'];
   /* 毎回・ときどき使うものは畳まない。［書き留める］（ok）は選ぶものから外した */
   assert.deepEqual(defaults().boardShow, def);
   assert.equal(checkValue('boardShow', ['ok', 'name']).includes('ok'), false);
@@ -36,7 +37,14 @@ test('盤の既定と、前の版で置いた値（2026-11-18 ユーザーの決
   /* 2026-11-19: 版 3 の値はそのまま読み、期間を出すと選んでいればくりかえしも出す */
   const m4 = mem();
   m4.setItem(PREFS_KEY, JSON.stringify({ boardShow: ['name', 'span', 'start'], boardShowV: 3 }));
-  assert.deepEqual(loadPrefs(m4).boardShow, ['name', 'start', 'span', 'repeat']);
+  assert.deepEqual(loadPrefs(m4).boardShow, ['name', 'start'], '版 3 の値も、作業記録より下（期間・くりかえし）は外す（版 5）');
+  /* 2026-11-24 版 5: 版 4 の既定（日付・タグも出す）は、作業記録より下を外した値になる */
+  const m5 = mem();
+  m5.setItem(PREFS_KEY, JSON.stringify({ boardShow: ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'repeat', 'tags'], boardShowV: 4 }));
+  assert.deepEqual(loadPrefs(m5).boardShow, def);
+  const m6 = mem();
+  m6.setItem(PREFS_KEY, JSON.stringify({ boardShow: ['name', 'detail', 'url', 'tags'], boardShowV: 4 }));
+  assert.deepEqual(loadPrefs(m6).boardShow, ['name', 'detail', 'url'], '版 4 で選んでいたほかの欄（リンク）は残す');
   const m3 = mem();
   m3.setItem(PREFS_KEY, JSON.stringify({ boardShow: ['name', 'step', 'start', 'done'], boardShowV: 3 }));
   assert.deepEqual(loadPrefs(m3).boardShow, ['name', 'start', 'done', 'detail']);
@@ -45,7 +53,7 @@ test('盤の既定と、前の版で置いた値（2026-11-18 ユーザーの決
 test('盤にはじめから出す欄（Issue #49。set の項目）', () => {
   const d = defaults().boardShow;
   /* 既定（2026-11-18 ユーザーの決定。前は 2026-11-17 Issue #78 の返事で名前だけ） */
-  assert.deepEqual(d, ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'repeat', 'tags']);
+  assert.deepEqual(d, ['name', 'start', 'ended', 'done', 'notes', 'detail']);
   /* 知らない値は落とし、並びは選ぶものの順にそろえる。空でもよい */
   assert.deepEqual(checkValue('boardShow', ['url', 'name', 'xx', 'name']), ['name', 'url']);   /* 並びは BOARD_PARTS の順 */
   assert.deepEqual(checkValue('boardShow', []), []);

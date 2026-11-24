@@ -92,20 +92,26 @@ try {
   await openApp();
   await js(`const { store } = await import('/js/store.js'); store.add('歯医者の予約をする');`);
 
-  await step('開いた時点で、始める・今日はここまで・完了にする・作業記録・日付・タグが見え、［書き留める］・次にやること・作業の記録の欄は無い', async () => {
+  await step('開いた時点で、始める・今日はここまで・完了にする・作業記録が見え、作業記録より下（日付・タグ・印の段）は「その他」に畳む（2026-11-24）。［書き留める］・次にやること・作業の記録の欄は無い', async () => {
     await openBoard('歯医者');
     const got = await js(`${VIS} const f = document.querySelector('.bc-fields');
       const txt = s => [...f.querySelectorAll(s)].filter(vis).map(n => n.textContent.trim());
       return { lbs: txt('.bc-lb'), acts: txt('.bc-act'), more: txt('.bc-more'), name: vis(f.querySelector('.bc-name-in')),
         ok: !!f.querySelector('.bc-act-ok') || /書き留め/.test(f.textContent), start: vis(f.querySelector('.bc-act-start')) }`);
     assert.equal(got.name, true, '名前（題）');
-    for (const l of ['作業記録', '日付', 'タグ']) assert.ok(got.lbs.includes(l), l + ' が見える: ' + got.lbs);
+    assert.ok(got.lbs.includes('作業記録'), '作業記録が見える: ' + got.lbs);
+    for (const l of ['日付', 'タグ']) assert.ok(!got.lbs.includes(l), l + ' は「その他」に畳む: ' + got.lbs);
     for (const l of ['次にやること', 'メモ', '作業の記録']) assert.ok(!got.lbs.includes(l), l + ' の欄は無い: ' + got.lbs);
     assert.deepEqual(got.acts, ['始める5 分のタイマー', '今日はここまで', '✓ 完了にする']);
     assert.equal(got.ok, false, '［書き留める］は無い');
     assert.deepEqual(got.more, ['その他 ▾']);
-    const heads = await js(`return [...document.querySelectorAll('.bc-dates .bc-cal-head')].filter(n => n.offsetParent).map(n => n.textContent.replace(/\\s+/g, ''))`);
-    assert.deepEqual(heads, ['やる日未定', '期間未定', 'くりかえしなし']);
+    const heads = () => js(`return [...document.querySelectorAll('.bc-dates .bc-cal-head')].filter(n => n.offsetParent).map(n => n.textContent.replace(/\\s+/g, ''))`);
+    assert.deepEqual(await heads(), [], '日付は畳んである');
+    await js(`document.querySelector('.bc-more').click();`);
+    await sleep(300);
+    assert.deepEqual(await heads(), ['やる日未定', '期間未定', 'くりかえしなし'], '「その他」を開くと日付の 3 つの札');
+    await js(`document.querySelector('.bc-more').click();`);
+    await sleep(300);
   });
 
   await step('個人の海ではコメントを出さない。まれなものは「その他」の中で、開くと出る', async () => {
@@ -117,7 +123,7 @@ try {
     const open = await js(`${VIS} const f = document.querySelector('.bc-fields');
       const after = [...f.children].slice([...f.children].indexOf(f.querySelector('.bc-more')) + 1).filter(vis).map(n => n.dataset.part).filter(Boolean);
       return { after, chat: vis(f.querySelector('.bc-chat')), del: f.querySelector('[data-part="del"]')?.textContent }`);
-    assert.deepEqual(open.after, ['fav', 'url', 'del'], '「その他」の中の並び（優先度は 2026-11-24 からタグの下）');
+    assert.deepEqual(open.after, ['dates', 'tags', 'prio', 'pick', 'fav', 'url', 'del'], '「その他」の中の並び（2026-11-24 から作業記録より下は全部ここ）');
     assert.equal(open.chat, false, '「その他」を開いてもコメントは出ない（個人の海）');
     assert.equal(open.del, '削除');
   });
@@ -285,6 +291,9 @@ try {
   await step('くりかえし（2026-11-19）: 期間のある泡でも、毎週なら曜日を出し、押すとやる日を曜日でくりかえす。毎月は日にちをいくつでも選べる', async () => {
     await openApp();
     await openBoard('架空の請求書');
+    /* 期間のある泡では日付の段は出ているが、中身の無いくりかえしは「その他」に畳む（2026-11-24） */
+    await js(`document.querySelector('.bc-more').click();`);
+    await sleep(300);
     await js(`document.querySelectorAll('.bc-dates .bc-cal-head')[2].click()`);
     const seg = (t) => `[...document.querySelectorAll('.bc-rep .bc-seg-b')].find(b => b.textContent === ${JSON.stringify(t)})`;
     await js(`${seg('毎週')}.click()`);

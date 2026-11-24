@@ -36,15 +36,19 @@ export const BOARD_PARTS = [
   /* 下のボタン（Issue #49 の返事）。畳むと「その他」を開いたときに出る。完了した泡の「海にもどす」は done と同じ扱い */
   ['start', '始める'], ['ended', '今日はここまで'], ['done', '完了にする'],
   ['notes', 'コメント'], ['detail', '作業記録'], ['days', 'やる日'], ['span', '期間'], ['repeat', 'くりかえし'], ['tags', 'タグ'],
-  /* 優先度（大事・見当・急ぐ）は 2026-11-24 から名前のすぐ下にいつも出す（選ぶものから外した。選ぶ瞬間に見えることが基準） */
+  /* 印の段（大事・見当・急ぐ）と今日（今日大事なこと・先に済ませる）。2026-11-24 にタグの下へ移し、同じ日に選べる欄に戻した */
+  ['prio', '大事・見当・急ぐ'], ['pick', '今日大事なこと・先に済ませる'],
   ['fav', 'お気に入り'], ['url', 'リンク'],
   ['del', '削除'],
 ];
 /* 「少なめにする」で選ぶ欄（取りかかるのに要るものだけ） */
 export const BOARD_SHOW_FEW = ['name', 'start', 'done', 'detail'];
 /* 3 … 2026-11-18 の作り直し。前の版で置いた値（名前だけ、など）は新しい既定に替える（決めてほしいこと 1 の答え）
-   4 … 2026-11-19 くりかえしの札を足した。3 の値はそのまま読み、期間を出すと選んでいればくりかえしも出す */
-const BOARD_SHOW_V = 4;
+   4 … 2026-11-19 くりかえしの札を足した。3 の値はそのまま読み、期間を出すと選んでいればくりかえしも出す
+   5 … 2026-11-24 ユーザーの指示「作業記録より下はその他で畳んでみて」。日付（やる日・期間・くりかえし）・タグを既定から外した。
+       3・4 の値は読み、その 4 つを外す（中身の入っている期間・くりかえしは、選ばなくても今までどおり出る） */
+const BOARD_SHOW_V = 5;
+const BOARD_FOLD_1124 = ['days', 'span', 'repeat', 'tags'];
 /* 隠している機能を 4 つのスイッチに分けた版の印（2026-11-22 Issue #80 の返事。savePrefs が置き、normalize が見る） */
 const OPT_V = 1;
 export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
@@ -59,7 +63,8 @@ export const BOARD_PART_LABEL = Object.fromEntries(BOARD_PARTS);
    毎回使うもの（次にやること・始める・今日はここまで・完了にする）と、ときどき使うもの（メモ・日付・タグ）は畳まない。
    コメントは共有の海でだけ出る（個人の海では、書いたものが無ければ出さない。js/bubble.js）。まれなものは「その他」 */
 /* 2026-11-19 ユーザーの決定「7 つとも案どおり」（モック docs/spec/mock/dates.html）: くりかえしを日付の段の 3 つ目の札に（既定で出す） */
-const BOARD_SHOW_DEF = ['name', 'start', 'ended', 'done', 'notes', 'detail', 'days', 'span', 'repeat', 'tags'];
+/* 2026-11-24 ユーザーの指示「作業記録より下はその他で畳んでみて」: 作業記録より下（日付・タグ・大事・見当・急ぐ・今日）は既定で「その他」に */
+const BOARD_SHOW_DEF = ['name', 'start', 'ended', 'done', 'notes', 'detail'];
 
 /* 設定の「音と表示を変える」で、先に選ぶ「どの画面を変えるか」（Issue #49 の返事）。
    各項目の pages に、その項目が効く画面を書く（2つ以上の画面に効くものは両方に出る）。
@@ -240,8 +245,12 @@ export function normalize(raw) {
   if (Array.isArray(raw.boardShow) && raw.boardShowV === 3 && Array.isArray(out.boardShow)) {
     if (out.boardShow.includes('span') && !out.boardShow.includes('repeat')) out.boardShow = checkValue('boardShow', out.boardShow.concat('repeat'));
   }
-  if (Array.isArray(raw.boardShow) && raw.boardShowV !== BOARD_SHOW_V && raw.boardShowV !== 3) {
+  if (Array.isArray(raw.boardShow) && raw.boardShowV !== BOARD_SHOW_V && raw.boardShowV !== 3 && raw.boardShowV !== 4) {
     out.boardShow = BOARD_SHOW_DEF.slice();
+  } else if (Array.isArray(raw.boardShow) && (raw.boardShowV === 3 || raw.boardShowV === 4) && Array.isArray(out.boardShow)) {
+    /* 版 5（2026-11-24）: 前の値から、作業記録より下の 4 つを外す */
+    out.boardShow = out.boardShow.filter(p => BOARD_FOLD_1124.indexOf(p) < 0);
+    if (raw.boardShow.some(p => p === 'step' || p === 'memo') && !out.boardShow.includes('detail')) out.boardShow = checkValue('boardShow', out.boardShow.concat('detail'));
   } else if (Array.isArray(raw.boardShow) && Array.isArray(out.boardShow)
     && raw.boardShow.some(p => p === 'step' || p === 'memo') && !out.boardShow.includes('detail')) {
     /* 2026-11-19: 次にやること・作業の記録を出すと選んでいた値は、まとめた先の作業記録を出す */

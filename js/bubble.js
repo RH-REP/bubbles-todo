@@ -1293,8 +1293,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       if (syncPick) syncPick();
     }
     sync();
-    box.dataset.part = 'prio';
     box.dataset.name = '大事・見当・急ぐ';
+    foldPart(box, 'prio', false);          /* 2026-11-24「作業記録より下はその他で畳んでみて」: 既定で畳む（決めた印は泡の縁・添え字に出ている） */
     fields.appendChild(box);
     const differs = () => want.urgent !== p0.urgent || want.important !== p0.important
       || want.dueKind !== p0.dueKind || want.size !== p0.size;
@@ -1360,6 +1360,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       syncPick();
     });
     syncPick();
+    /* 今日大事なこと・先に済ませるに入っていれば畳まない（外す道が見えるように） */
+    foldPart(pick, 'pick', ask(a, 'isKey', id) === true || !!(ask(a, 'firstInfo', id) || {}).has);
     fields.appendChild(pick);
   }
 
@@ -2305,7 +2307,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         if (wacts.children.length) why.appendChild(wacts);
         dates.appendChild(why);
       }
-      if (dboxes.every(n => n.classList.contains('is-extra'))) dates.classList.add('is-extra');
+      /* 長期保留の日の箱は、長期保留でない間は隠れている（hidden）。隠れた箱は数えない（全部畳んだのに「日付」の見出しだけ残らないように。2026-11-24） */
+      if (dboxes.every(n => n.classList.contains('is-extra') || n.hidden)) dates.classList.add('is-extra');
       fields.appendChild(dates);
     }
     const tagsBox = fields.querySelector(':scope > [data-part="tags"]');
