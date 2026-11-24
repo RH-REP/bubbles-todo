@@ -71,8 +71,10 @@ import { myRole } from './me.js';
 const PUSH_DELAY = 1500;      /* 保存してから送るまで。続けて打っている間はまとめる */
 const POLL_MS = 20000;        /* 開いている間、ほかの端末の書き換えを見に行く間隔 */
 const RETRY_MAX = 60000;      /* 届かないとき、見に行く間隔をここまで延ばす */
-/* この版が分かる記録の形の版。互換性の無い変更を入れたら1つ上げる（DEV_NOTES.md「記録の形の版」） */
-export const SCHEMA = 1;
+/* この版が分かる記録の形の版。互換性の無い変更を入れたら1つ上げる（DEV_NOTES.md「記録の形の版」）。
+   版 2（2026-11-24）: doc.projects（プロジェクトの記録。印 project:<id>・order:project）と、todo の project にプロジェクトの id（p_）。
+   版 1 の端末はプロジェクトの記録を記録ごとに合わせず、todo の project の p_ を読み込みで落とす */
+export const SCHEMA = 2;
 /* 古い版だと断られている間、見に行く間隔（新しい版が配られる・サーバーが戻すのを待つ） */
 const OUTDATED_POLL = 5 * 60000;
 

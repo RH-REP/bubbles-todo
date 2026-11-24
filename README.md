@@ -545,6 +545,7 @@ node tests/span-sea.test.mjs
 node tests/folderbackup.test.mjs
 node tests/localbackup.test.mjs
 node tests/regions.test.mjs
+node tests/projects.test.mjs
 node tests/schema.test.mjs
 node tests/space.test.mjs
 node tests/spacelist.test.mjs
@@ -888,7 +889,7 @@ bash tests/server-setup.test.sh
   - 日の切り替え（はじめた記録が消える）は「その日の0時」の時刻で付ける。あとから開いた端末の切り替えが、今日ほかの端末で付けたはじめたを消さないため
   - 印を持たない前の版の記録は、最初に開いたときに「前からの記録」の印（1）を付けて引き継ぐ。新しい端末の空の既定値（0）には負けない
 - **ほかの app と共有する欄（共有の記録 v1.1。2026-11-10）**: サーバーの記録は gantt_todo・diary も読む（gantt は書く）。
-  todo の `start`・`due`（`YYYY-MM-DD`。**期間の正本**）・`project`（ふつうのタグの id。特別なタグは入れない）・`ext`（app ごとの持ち物。中は見ない）
+  todo の `start`・`due`（`YYYY-MM-DD`。**期間の正本**）・`project`（プロジェクトの id `p_…`。版 2 から。指す先が無くても残す。ほかに、ふつうのタグの id。特別なタグは入れない）・`ext`（app ごとの持ち物。中は見ない）
   を形を確かめて残す（`js/store.js` の `sharedFields`。形の違う値と null・空は欄ごと省く）。
   **知らない欄は丸ごと残す**：todo の知らない欄（`normalizeTodo` の `TODO_KNOWN` に無いもの）、保存データの頂上の知らない欄（`docOf()` の `docExtra`）、
   サーバーの `data` の頂上（`doc`・`stamps` の横）の知らない欄（`js/sync.js` が PUT に載せ直す）。
@@ -896,7 +897,7 @@ bash tests/server-setup.test.sh
 - **記録の形の版（2026-11-10。共有の記録 v1.1 §6。利用者の指示「非互換性 update を通知するための機能」）**:
   古い版の端末は、新しい欄を知らずに落とし、印が変わらないまま広げてしまう
   （`tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md`）。そこで版で守る。
-  - 端末は分かる記録の形の版 `SCHEMA`（`js/sync.js`。いま `1`）を、すべての要求に頭書き `X-Bubbles-Schema` で付ける
+  - 端末は分かる記録の形の版 `SCHEMA`（`js/sync.js`。いま `2`。2026-11-24 に 1 → 2）を、すべての要求に頭書き `X-Bubbles-Schema` で付ける
   - サーバーは受け付ける最も古い版を `--min-schema`（環境変数 `BUBBLE_TODO_MIN_SCHEMA`。既定 `1`）で持ち、`GET /api/data` の応答に `minSchema` を足す。
     `PUT /api/data` で頭書きが無いか `minSchema` より小さければ、書かずに `426 {"error":"upgrade","minSchema":n}`（個人・共有・作った海のどれでも）。GET は断らない
   - 端末は GET の `minSchema` が `SCHEMA` より大きいか、PUT が 426 なら、同期を止めて（合わせない・書かない）状態を `outdated` にし、
@@ -911,6 +912,15 @@ bash tests/server-setup.test.sh
     3. Android の app（Capacitor。`www/` を中に同梱）は**自動では入れ替わらない**。`npm run android:build` で作り直して入れ直す
     4. 配り終えてから、サーバーを `--min-schema <新しい版>` で起動し直す。まだ古い端末は 426 で止まり、帯で更新を求められる（記録は消えない）
     5. 同じ記録を読み書きする gantt_todo・diary も、同じ版を送るように直す（仕様書 §6）
+  - **版 2（2026-11-24 ユーザーの決定。議事録 `261124_プロジェクトを海の中の記録にする`）**: プロジェクトを海の記録の1件にする。
+    - `doc.projects[]` = `{ id: 'p_…', name, color, start, due, goal, lead, status: 'active'|'paused'|'done', createdAt, ext, …知らない欄 }`。印は `project:<id>`・`order:project`。
+      記録ごとに新しいほうが残り、消すときは消した印（`js/merge.js` の `LIST_KEYS`）。**この欄を持たない海には、空の欄も並びの印も作らない**（版を上げただけで書き込みを起こさない）
+    - todo の `project` はプロジェクトの id（`p_`）を指す。指す先が無い・消えたプロジェクトなら「プロジェクトなし」として読み、値は消さない。タグの id を指す古い値もそのまま読む
+    - bubble は作らない・直さない。泡の盤の名前の下に「プロジェクト：〈名前〉」を小さく出すだけ（止めている・終えたなら添える）。海の帯・タグの向きには出さない。作る・直すのは gantt
+    - サーバーの既定の `--min-schema` は 1 のまま（版 2 の端末は版 1 のサーバーにそのまま書ける）。上げるのはユーザーが VM で（版 2 を配り終えてから）。
+      **gantt は `minSchema` が 2 になるまでプロジェクトを作らない・直さない**：版 1 の端末は `todo.project` の `p_` を読み込みで落とし、
+      プロジェクトの記録を知らない欄として「手元の写しが勝つ」形で合わせ、印 `project:*` を落とす（古い写しで戻す。`tests/projects.test.mjs` が版 1 の合わせ方の写し `tests/fixtures/merge-v1.mjs` で確かめる）
+    - テスト: `node tests/projects.test.mjs`
   - v1.1 より前の bubble は 426 を知らないので、同期の欄に「サーバーに書けなかった（426）」と出るだけになる（記録は消えない）
   - よそのオリジン（Android 版）から呼ぶので、`X-Bubbles-Schema` は CORS の `Access-Control-Allow-Headers` にも入れてある。
     **サーバーを先に新しくする**こと（前の版のサーバーは、この頭書きを付けた Android 版の要求を CORS で断る）

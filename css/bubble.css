@@ -1720,6 +1720,14 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
 .bub-center .bc-name-in { font-size: 17px; font-weight: 700; border-color: transparent; background: transparent; padding-left: 6px; }
 .bub-center .bc-name-in:hover, .bub-center .bc-name-in:focus { border-color: var(--line-strong); background: var(--bg); }
 .bub-center .bc-marks { font-size: 15px; color: var(--text-2); letter-spacing: .1em; padding-right: 4px; }
+/* プロジェクトの名前（記録の形の版 2。読むだけ）。名前の下に小さく 1 行 */
+.bub-center .bc-proj {
+  grid-column: 1 / -1; order: 9; display: flex; align-items: center; gap: 6px; min-width: 0;   /* 名前の行（grid）の下に 1 行 */
+  margin: 2px 2px 0; font-size: 12px; color: var(--text-2);
+}
+.bub-center .bc-proj-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.bub-center .bc-proj-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bub-center .bc-proj-st { flex: none; color: var(--text-3); }
 .bub-center .bc-stack { grid-template-columns: 1fr; gap: 4px; }
 .bub-center .bc-lb-row { display: flex; justify-content: space-between; align-items: center; }
 .bub-center .bc-link-btn { appearance: none; -webkit-appearance: none; border: 0; background: transparent; font: inherit; font-size: 12.5px;

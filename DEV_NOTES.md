@@ -2575,3 +2575,24 @@ inset box-shadow のぼかし、`.tint` のマスク。
 <scratchpad>/pal3/pick.mjs    1色を選び直す（帯ごとの最良を出す）
 <scratchpad>/pal3/pick2.mjs   2色を同時に選び直す
 ```
+
+## 記録の形の版
+
+端末（`js/sync.js` の `SCHEMA`）とサーバー（`server.py --min-schema`）の取り決め。手順は README「記録の形の版」。
+古い版の端末が新しい欄を知らずに落とし、印が変わらないまま広げる（`tech_stack/difficulty_log/20261110_old_client_strips_new_fields_lww.md`）のを、版で止める。
+
+| 版 | 入れた日 | 中身 |
+|---|---|---|
+| 1 | 2026-11-10 | 共有の記録 v1.1。todo の `start`・`due`・`project`（タグの id）・`ext`、知らない欄を残す、`X-Bubbles-Schema`・`minSchema`・426 |
+| 2 | 2026-11-24 | プロジェクトの記録 `doc.projects[]`（印 `project:<id>`・`order:project`。記録ごとに新しいほうが残る）。todo の `project` にプロジェクトの id `p_…`（指す先が無くても残す）。bubble は盤に名前を出すだけ |
+
+### 版 2 の取り決め（gantt が読む形）
+
+- `doc.projects` = `[{ id: 'p_…', name, color, start, due, goal, lead, status, createdAt, ext, …}]`。`id` は `^p_[A-Za-z0-9_-]{1,40}$`（`js/store.js` の `PROJECT_ID_RE`）。
+- 印は todo と同じ形：`stamps['project:<id>'] = [時刻, 1|0]`（0 は消した印）、`stamps['order:project'] = [時刻, 1]`。並びは `doc.projects` の順。
+- プロジェクトを1つも持たない海には `projects` の欄も `order:project` の印も無い。初めて作る端末（gantt）が欄と印を作る。
+- bubble（版 2）は `doc.projects` の中の知らない欄も残す。`todo.project` の `p_` は、指す先の記録がまだ無くても残す。
+- 消したタグを指す `todo.project` は外す（今まで）。`p_` はタグの id と重ならないので外れない。泡を別の海へ移すときは `project` を外す（プロジェクトは海をまたがない）。
+- サーバーの `minSchema` が 1 の間は、版 1 の bubble が混ざりうる。版 1 は `p_` を読み込みで落とし、プロジェクトの記録を「手元の写しが勝つ」形で合わせて印 `project:*` を落とす。
+  だから gantt は `minSchema` が 2 になるまでプロジェクトを書かない（gantt の議事録の追記）。版 2 の bubble が後から合わせると、印は戻る（`tests/projects.test.mjs`）。
+

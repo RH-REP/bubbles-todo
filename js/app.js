@@ -863,6 +863,8 @@ setCenterHandler({
   setDetail:    (id, v) => (has('setDetail') ? store.setDetail(id, v) : false),
   /* 期間（start・due。共有の記録 v1.1） */
   span:         (id) => (has('spanOf') ? store.spanOf(id) : null),
+  /* その泡のプロジェクト（記録の形の版 2。読むだけ。無ければ null） */
+  projectOf:    (id) => (has('projectOf') ? store.projectOf(id) : null),
   /* 期間の外なので長期保留の海にいるか（'before'|'after'|null。盤の期間の外の案内。2026-11-23 点検の直し） */
   spanHeld:     (id) => (has('spanHeld') ? store.spanHeld(id) : null),
   setSpan:      (id, s, e) => (has('setSpan') ? store.setSpan(id, s, e) : false),

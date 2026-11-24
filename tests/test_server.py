@@ -326,6 +326,20 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req('PUT', '/api/data', {'base': 0, 'data': {'doc': {}}}, schema='2')[0], 200)
         self.assertEqual(self.req('PUT', '/api/data', {'base': 1, 'data': {'doc': {}}}, schema='3')[0], 200)
 
+    def test_default_min_schema_1_takes_schema_2_with_projects(self):
+        """記録の形の版 2 の端末（2026-11-24）は、既定の --min-schema 1 のサーバーにそのまま書ける。
+        doc.projects・印 project:<id>・todo の project の p_ を、サーバーは中を見ずにそのまま預かって返す"""
+        doc = {'todos': [{'id': 'a', 'text': '架空', 'project': 'p_k3x9'}],
+               'projects': [{'id': 'p_k3x9', 'name': '論文A（架空）', 'future': {'x': 1}}]}
+        stamps = {'todo:a': [1, 1], 'project:p_k3x9': [2, 1], 'order:project': [2, 1]}
+        code, _ = self.req('PUT', '/api/data', {'base': 0, 'data': {'doc': doc, 'stamps': stamps}}, schema='2')
+        self.assertEqual(code, 200)
+        code, body = self.req('GET', '/api/data', schema='2')
+        got = json.loads(body)
+        self.assertEqual((code, got['minSchema']), (200, 1))
+        self.assertEqual(got['data']['doc'], doc)
+        self.assertEqual(got['data']['stamps'], stamps)
+
     def test_token_file_created(self):
         d = self.data / 'other'
         d.mkdir()

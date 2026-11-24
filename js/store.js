@@ -1092,9 +1092,14 @@ function unknownFields(o, known) {
   return out;
 }
 
+/* プロジェクトの id（記録の形の版 2。2026-11-24。gantt が作る。'p_' ＋英数字・_・-） */
+export const PROJECT_ID_RE = /^p_[A-Za-z0-9_-]{1,40}$/;
+function isProjectId(v) { return typeof v === 'string' && PROJECT_ID_RE.test(v); }
+
 /* 共有の欄の形を確かめる（共有の記録 v1 §4）。
      start・due … `YYYY-MM-DD` 以外は null
-     project    … 今あるふつうのタグの id 以外は null（特別なタグは入れない。v1.1）
+     project    … プロジェクトの id（'p_' で始まる。記録の形の版 2）なら、指す先が無くても残す（ほかの app の書いた値を守る）。
+                  それ以外は、今あるふつうのタグの id だけ残す（特別なタグは入れない。v1.1）
      ext        … app ごとの持ち物。中は見ずにそのまま残す。オブジェクト以外は {}
    null と {} は欄を置かない */
 function sharedFields(t, tagIds) {
@@ -1103,7 +1108,8 @@ function sharedFields(t, tagIds) {
   const due = dayKeyOrNull(t.due);
   if (start) out.start = start;
   if (due) out.due = due;
-  if (typeof t.project === 'string' && tagIds.has(t.project) && !isSpecialTag(t.project)) out.project = t.project;
+  if (typeof t.project === 'string'
+    && (isProjectId(t.project) || (tagIds.has(t.project) && !isSpecialTag(t.project)))) out.project = t.project;
   if (t.ext && typeof t.ext === 'object' && !Array.isArray(t.ext) && Object.keys(t.ext).length) {
     out.ext = JSON.parse(JSON.stringify(t.ext));
   }
@@ -1871,8 +1877,9 @@ export const store = {
     if (Array.isArray(t.tags)) {
       t.tags = t.tags.filter(id => !isSpecialTag(id) && findTag(id));
     }
-    /* 共有の欄の project も同じ（消えたタグを指したまま戻さない） */
-    if (t.project !== undefined && !(typeof t.project === 'string' && findTag(t.project) && !isSpecialTag(t.project))) delete t.project;
+    /* 共有の欄の project も同じ（消えたタグを指したまま戻さない）。プロジェクトの id（p_）は外さない（版 2） */
+    if (t.project !== undefined && !(typeof t.project === 'string'
+      && (isProjectId(t.project) || (findTag(t.project) && !isSpecialTag(t.project))))) delete t.project;
     /* 消している／完了している間に枠そのものが消されていることがある。
        残りかすを落とす（アンカーの下と同じ扱い。1枠1件だった頃の
        「押し出し」はもう無い——枠には何個でもぶら下がるので） */
@@ -2589,6 +2596,20 @@ export const store = {
   },
 
   /* 期間の欄。{ start, due }（どちらも 'YYYY-MM-DD' か null）。泡が無ければ null */
+  /* プロジェクト（記録の形の版 2。2026-11-24）。bubble は作らない・直さない。読むだけ。
+     doc.projects は知らない欄として残す箱（docExtra）にあり、合わせ方は merge.js が記録ごとに行う */
+  projects() {
+    const list = Array.isArray(docExtra.projects) ? docExtra.projects : [];
+    return list.filter(p => p && typeof p === 'object' && isProjectId(p.id)).map(p => JSON.parse(JSON.stringify(p)));
+  },
+  /* その泡のプロジェクト。指す先が無い・形の違う記録なら null（「プロジェクトなし」として読む。値は残す） */
+  projectOf(id) {
+    const t = store.get(id);
+    if (!t || !isProjectId(t.project)) return null;
+    const p = store.projects().find(x => x.id === t.project);
+    return p && typeof p.name === 'string' && p.name.trim() ? p : null;
+  },
+
   spanOf(id) {
     const t = store.get(id);
     return t ? { start: t.start || null, due: t.due || null } : null;
@@ -2948,7 +2969,8 @@ export const store = {
     items.forEach(t => {
       const box = tagBoxOf(t);
       if (box.indexOf(id) >= 0) t.tags = box.filter(x => x !== id);
-      /* 共有の欄の project（gantt のプロジェクトの行）も外す。読み込みでも落ちるが、ここで揃える */
+      /* 共有の欄の project が、消したこのタグを指していれば外す。読み込みでも落ちるが、ここで揃える。
+         プロジェクトの id（p_。版 2）はタグの id と重ならないので、ここでは外れない */
       if (t.project === id) delete t.project;
     });
     persist(); emit();

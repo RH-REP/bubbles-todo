@@ -2118,6 +2118,26 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         mk.dataset.name = 'お気に入り・優先度の印';
         nameIn.parentElement.appendChild(mk);
       }
+      /* プロジェクトの名前（記録の形の版 2。2026-11-24 ユーザーの決定）。読むだけ。作る・直すのは gantt。
+         指す先が無い・消えたプロジェクトなら出さない（「プロジェクトなし」として読む。値は残す） */
+      const proj = ask(a, 'projectOf', id);
+      if (proj && typeof proj.name === 'string' && proj.name.trim()) {
+        const pj = el('span', 'bc-proj');
+        pj.dataset.name = 'プロジェクトの名前';
+        const dot = el('span', 'bc-proj-dot');
+        dot.setAttribute('aria-hidden', 'true');
+        if (typeof proj.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(proj.color)) dot.style.background = proj.color;
+        pj.appendChild(dot);
+        const nm = el('span', 'bc-proj-nm');
+        nm.textContent = 'プロジェクト：' + proj.name.trim().slice(0, 60);   /* ほかの app が書いた字。innerHTML には入れない */
+        pj.appendChild(nm);
+        if (proj.status === 'paused' || proj.status === 'done') {
+          const st = el('span', 'bc-proj-st');
+          st.textContent = proj.status === 'done' ? '（終えた）' : '（止めている）';
+          pj.appendChild(st);
+        }
+        nameIn.parentElement.appendChild(pj);
+      }
     }
     /* 日付の段（決めてほしいこと 4）: やる日・期間（・長期保留なら海に戻す日）の札を 2 列に並べ、開いた暦はその下に広げる */
     /* 2026-11-19: くりかえしを 3 つ目の札に（3 列）。1 つを開くと、ほかの開いている札を閉じる（盤を長くしない） */

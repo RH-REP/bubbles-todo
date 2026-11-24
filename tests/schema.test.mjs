@@ -146,7 +146,7 @@ async function settle(sync, want) {
   await wait(30);
 }
 
-await test('すべての /api/data の要求に X-Bubbles-Schema: 1 を付け、data の頂上の知らない欄を残して PUT する', async () => {
+await test('すべての /api/data の要求に X-Bubbles-Schema: 2（記録の形の版 2）を付け、data の頂上の知らない欄を残して PUT する', async () => {
   const remote = { doc: docWith([gTodo()]), stamps: { 'todo:gmhabc12q7r2': [NOW - 100, 1] }, futureTop: { k: 1 } };
   let stored = null;
   const { store, sync, SCHEMA, calls } = await openSync({
@@ -156,10 +156,10 @@ await test('すべての /api/data の要求に X-Bubbles-Schema: 1 を付け、
   store.add('手元の泡');
   await settle(sync, 'ok');
   for (let i = 0; i < 100 && !stored; i++) await wait();
-  assert.equal(SCHEMA, 1);
+  assert.equal(SCHEMA, 2);
   const data = calls.filter(c => String(c.url).endsWith('/api/data'));
   assert.ok(data.length >= 2);
-  data.forEach(c => assert.equal(c.headers['X-Bubbles-Schema'], '1', c.method + ' に頭書きが無い'));
+  data.forEach(c => assert.equal(c.headers['X-Bubbles-Schema'], '2', c.method + ' に頭書きが無い'));
   assert.ok(stored, 'PUT していない');
   assert.deepEqual(stored.data.futureTop, { k: 1 }, 'data の頂上の知らない欄を落とした');
   assert.deepEqual(pickUnknown(stored.data.doc.todos.find(t => t.id === 'gmhabc12q7r2')), UNKNOWN);
@@ -169,14 +169,14 @@ await test('すべての /api/data の要求に X-Bubbles-Schema: 1 を付け、
 await test('GET の minSchema が SCHEMA より大きいサーバーでは、合わせず書かず、状態 outdated で帯が出る', async () => {
   const remote = { doc: docWith([gTodo({ id: 'gremote1', text: 'サーバーだけにある' })]), stamps: { 'todo:gremote1': [NOW, 1] } };
   const { store, sync, calls } = await openSync({
-    get: () => [200, { space: 'me', version: 7, data: remote, minSchema: 2 }],
+    get: () => [200, { space: 'me', version: 7, data: remote, minSchema: 3 }],
     put: () => { throw new Error('PUT してはいけない'); },
   });
   const mine = store.add('止めている間に書いた泡');
   await settle(sync, 'outdated');
   assert.equal(sync.status().state, 'outdated');
   assert.equal(sync.status().message, 'この app の版が古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる');
-  assert.deepEqual(sync.outdated(), { minSchema: 2 });
+  assert.deepEqual(sync.outdated(), { minSchema: 3 });
   assert.equal(calls.filter(c => c.method === 'PUT').length, 0, '書いてはいけない');
   assert.ok(!todosOf(store).some(t => t.id === 'gremote1'), 'サーバーの記録を古い読み方で取り込まない');
   /* 手元の変更は印つきで残る（更新したあとの同期で入る） */

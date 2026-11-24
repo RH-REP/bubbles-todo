@@ -33,7 +33,15 @@ const LIST_KEYS = [
   ['focusLog', 'flog',   r => r.at + '|' + r.id + '|' + r.ms, false],
   /* 泡ごとのひとこと（Issue #25。js/notes.js）。足すのと消した印だけで、書き換えない */
   ['notes',    'note',   r => r.id, false],
+  /* プロジェクト（記録の形の版 2。2026-11-24 ユーザーの決定。gantt が作る・直す。bubble は読むだけ）。
+     1件 = { id: 'p_…', name, color, start, due, goal, lead, status, createdAt, ext, …知らない欄 }。
+     ほかの記録と同じく記録ごとに新しいほうが残り、消すときは消した印。
+     **この欄を持たない記録には足さない**（OPTIONAL_LIST）。足すと、版を上げただけで全部の端末に
+     空の projects と order:project の印ができ、書き込みが起きるため */
+  ['projects', 'project', r => r.id, true],
 ];
+/* 記録にこの欄があるときだけ扱う種類（無い記録には空の欄も並びの印も作らない） */
+const OPTIONAL_LIST = new Set(['projects']);
 /* 1つの値として丸ごと持つ欄（中の要素ごとには合わせない） */
 const WHOLE_KEYS = ['seas', 'removedStarters'];
 
@@ -42,6 +50,7 @@ export function recordsOf(doc) {
   const out = new Map();
   const d = doc || {};
   LIST_KEYS.forEach(([field, head, keyOf, ordered]) => {
+    if (OPTIONAL_LIST.has(field) && !Array.isArray(d[field])) return;
     const arr = Array.isArray(d[field]) ? d[field] : [];
     const order = [];
     arr.forEach(r => {
@@ -152,6 +161,12 @@ export function mergeState(a, b) {
 export function buildDoc(recs, base) {
   const doc = Object.assign({}, base || {});
   LIST_KEYS.forEach(([field, head, keyOf, ordered]) => {
+    /* 記録に無い種類（プロジェクトの無い海）は欄を作らない。どちらかの端末が持っていれば、記録から組み直す
+       （手元の古い写し base[field] は使わない＝合わせた記録だけが残る） */
+    if (OPTIONAL_LIST.has(field)) {
+      const has = recs.has('order:' + head) || [...recs.keys()].some(k => k.startsWith(head + ':'));
+      if (!has) { delete doc[field]; return; }
+    }
     if (ordered) {
       doc[field] = rebuild(recs, head, recs.get('order:' + head), keyOf);
     } else {
