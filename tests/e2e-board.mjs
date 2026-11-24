@@ -57,7 +57,8 @@ async function js(expr) {
 }
 async function until(expr, ms = 8000) {
   const t0 = Date.now();
-  const body = /^\s*return\b/.test(expr) ? expr : 'return ' + expr;
+  /* 文で始まる式（const・let）には return を足さない（足すと構文の誤りになり、ずっと false のまま待ち切れなかった。2026-11-25） */
+  const body = /^\s*(return|const|let|var)\b/.test(expr) ? expr : 'return ' + expr;
   while (Date.now() - t0 < ms) { if (await js(body).catch(() => false)) return true; await sleep(100); }
   throw new Error('待っても来なかった: ' + expr);
 }
@@ -360,7 +361,7 @@ try {
     await js(`document.querySelector('.bc-fields .bc-key').click()`);
     assert.equal(await js(`return document.querySelector('.bc-fields .bc-key').getAttribute('aria-pressed')`), 'true');
     await close();
-    await until(`const n = ${bubIn('架空の申請書')}; return !!n && n.classList.contains('is-pin-key')`);
+    await until(`return ((n) => !!n && n.classList.contains('is-pin-key'))(${bubIn('架空の申請書')})`);   /* until は先頭に return を足すので、const で始めると構文の誤りになって待ち切れなかった */
     assert.equal(await js(`return ${bubIn('架空の申請書')}.querySelector('.pinlb').textContent`), '★ 大事');
     assert.equal(await js(`return ${bubIn('架空の経費')}.classList.contains('is-pin-key')`), false);
     /* 先に済ませる */
@@ -368,7 +369,7 @@ try {
     await js(`document.querySelector('.bc-fields .bc-first').click()`);
     assert.equal(await js(`return document.querySelector('.bc-fields .bc-pick-note').textContent`), '先に済ませるに入れた');
     await close();
-    await until(`const n = ${bubIn('架空の経費')}; return !!n && n.classList.contains('is-pin-first')`);
+    await until(`return ((n) => !!n && n.classList.contains('is-pin-first'))(${bubIn('架空の経費')})`);   /* until は先頭に return を足すので、const で始めると構文の誤りになって待ち切れなかった */
     /* 色の 1 枚（.wob::after）が出ていて、泡の大きさはふつうの泡と同じ作り（形は変えない） */
     const pinCss = await js(`const n = ${bubIn('架空の経費')}; return getComputedStyle(n.querySelector('.wob'), '::after').content`);
     assert.notEqual(pinCss, 'none');

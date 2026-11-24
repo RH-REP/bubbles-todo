@@ -201,6 +201,9 @@ function announceDay() {
   } catch (_) { /* 古い環境。札が出ないだけ */ }
 }
 
+/* いま映している日（今日の画面を出していなくても、最後に映した日）。盤の「今日」の段が、どの日に入れるかを決めるのに使う（js/app.js） */
+export function shownDay() { return curDay(); }
+
 export function dropDay() {
   const k = curDay();
   return (k < todayKey()) ? null : k;
@@ -358,7 +361,9 @@ function plateState() {
       /* 前の日やほかの端末で入れた泡は、この端末で今日初めて見た時刻から数える */
       if (rows.length && at === null) at = markFirstStarted(day, Date.now());
       st = firstState(rows.map(t => ({ done: isDoneItem(t) })), at, firstMinutes(), Date.now());
-    } else if (!isPast()) {
+    } else {
+      /* 先の日も過ぎた日も同じ（2026-11-25 利用者の指示「今日以外の日付の海での操作が今日の海と対称的ではない（基本動作は同じにして）」）。
+         区切りの時間を数えるのは今日だけ */
       st = firstState(rows.map(t => ({ done: isDoneItem(t) })), null, firstMinutes(), Date.now());
     }
   }
@@ -367,7 +372,7 @@ function plateState() {
      今日・先の日で、区切りの時間が過ぎておらず、入れた泡がまだ済んでいない（open）か、1 つも入れていないときに出す。
      全部済んだ・区切りの時間が過ぎたときは今までどおり畳む。過ぎた日は、入れた泡があるときだけ記録として出す */
   const canFirst = typeof store.setFirst === 'function';
-  const showFirst = canFirst && (isPast() ? rows.length > 0 : showFirstRow(st, rows.length));
+  const showFirst = canFirst && (showFirstRow(st, rows.length) || (isPast() && rows.length > 0));
   return { key, rows, st, showFirst };
 }
 
@@ -420,10 +425,9 @@ function renderWide(ps) {
     const row = el('div', 'tp-first');
     const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
     row.dataset.name = '先に済ませる';
-    if (!isPast()) row.dataset.drop = 'first';   /* 過ぎた日は記録として出すだけ（落としても入れない） */
+    row.dataset.drop = 'first';   /* 過ぎた日も入れられる（2026-11-25。前は記録として出すだけだった） */
     row.setAttribute('role', 'group');
     row.setAttribute('aria-label', ps.st.endAt ? firstName + '（区切りの時間 ' + hhmm(ps.st.endAt) + '）'
-      : isPast() ? firstName + '（その日の記録）'
       : ps.rows.length ? firstName + '（区切りの時間は、その日に初めて開いたときから数える）'
       : firstName + '（まだ入れていない。泡をここへ落とすと入る）');
     row.appendChild(el('span', 'tp-first-h', firstName));
@@ -443,7 +447,7 @@ function renderWide(ps) {
       if (t.urgent === true && t.dueKind === 'ext') b.appendChild(el('span', 'tp-seat-k', '外の約束'));
       b.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
       b.addEventListener('click', ev => { ev.preventDefault(); if (seatDragged(b)) return; openBoardFor(t.id, b); });
-      if (!isPast()) seatDrag(b, t, 'first', day);
+      seatDrag(b, t, 'first', day);
       seats.appendChild(b);
     });
     if (ps.st.canAdd || !ps.rows.length) {
@@ -479,7 +483,7 @@ function renderWide(ps) {
     if (t.important === true) bub.classList.add('is-heavy');
     bub.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
     bub.addEventListener('click', ev => { ev.preventDefault(); if (seatDragged(bub)) return; openBoardFor(t.id, bub); });
-    if (!isPast()) seatDrag(bub, t, 'key', day);
+    seatDrag(bub, t, 'key', day);
     body.appendChild(bub);
     const tx = el('div', 'tp-key-tx');
     const next = detailOf('firstStepOf', t.id);
@@ -495,7 +499,7 @@ function renderWide(ps) {
     body.appendChild(tx);
     box.appendChild(body);
     wideBox.appendChild(box);
-  } else if (!isPast()) {
+  } else {
     const none = el('div', 'tp-none');
     none.dataset.name = '今日大事なことは、まだ';
     none.dataset.drop = 'key';
@@ -593,13 +597,13 @@ function renderCorners(ps) {
   const day = curDay();
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
   const keyName = isToday() ? '今日大事なこと' : word + 'の大事なこと';
-  const showKey = !isPast();
+  const showKey = true;          /* 過ぎた日も出す（2026-11-25「基本動作は同じにして」） */
   const keySub = !id ? '' : pin === 'key' ? '離すと外す'
     : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える'   /* ユーザーの文字。syncFish が textContent で入れる */
     : '離すと' + (isToday() ? '今日' : word + 'の') + '大事なことに';
   syncFish('key', showKey, '大事', keySub, keyName, false);
   /* 「先に」の魚も、今日だけでなく先の日にも出す（Issue #98。前の日に明日の先に済ませるを入れられる） */
-  const showFirst = !isPast() && typeof store.setFirst === 'function';
+  const showFirst = typeof store.setFirst === 'function';
   const closed = isToday() && !ps.showFirst;   /* 畳むのは今日だけ（先の日はまだ区切りの時間を数えていない） */
   const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
   const firstSub = !id ? '' : closed ? '先に済ませるは、今日はもう畳んだ' : pin === 'first' ? '離すと外す'
@@ -934,7 +938,7 @@ function renderComposerTags() {
 
 function syncComposer() {
   if (!composer) return;
-  composer.hidden = isPast();          /* 過ぎた日には出さない */
+  composer.hidden = false;             /* 過ぎた日も出す（2026-11-25「基本動作は同じにして」。前は過ぎた日には出さなかった） */
   if (composer.hidden) return;
   const v = cInput ? cInput.value.trim() : '';
   if (cSend) cSend.disabled = !v;
@@ -1200,8 +1204,10 @@ function render() {
   renderComposerTags();          /* 設定でタグが増減していることがある */
   syncRandomBtn();
   syncSuggest();
-  /* 過去は記録なので触らせない（足すと、その日の記録が後から変わる） */
-  if (stage) stage.classList.toggle('is-readonly', isPast());
+  /* 前は「過去は記録なので触らせない」として is-readonly でさいころ・おすすめを消していた。
+     2026-11-25 利用者の指示「今日以外の日付の海での操作が今日の海と対称的ではない（基本動作は同じにして）」で外した
+     （Issue #97 で左右の帯も過去で動くようにしてあり、過去だけ足せない・選べないのは食い違うため） */
+  if (stage) stage.classList.remove('is-readonly');
 
   /* 外で状態が変わったら、開いている詳細を同期し直す（契約 §14） */
   if (detail) {
@@ -1770,6 +1776,7 @@ let bubPt = { x: -1, y: -1 };
 let overEdge = null;
 let tabDropped = false;
 const EDGE_COPY_MS = 700;   /* 帯の上でこれだけ止めると「コピー」になる */
+const EDGE_SLOP = 28;      /* 乗っている帯から出たとみなすまでの、内側へのゆとり（px） */
 let edgeCopy = false;
 let edgeHoldTimer = 0;
 
@@ -1806,7 +1813,14 @@ function dayEdgeAt(x, y) {
     if (e.el.hidden) continue;
     const r = e.el.getBoundingClientRect();
     if (!r.width) continue;
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return dir;
+    if (y < r.top || y > r.bottom) continue;
+    /* いま乗っている帯は、内側へ EDGE_SLOP だけ広く見る（いちど乗ったら、指の震えで外れない）。
+       2026-11-25 利用者の指示「今日の海でホールドがすぐ解除される」: 帯の内側の縁あたりで止めた指が
+       数 px 揺れて出入りすると、そのたびに markDayEdge が「＋コピー」を取り消して待ち直していた。
+       外側（画面の端の向き）は、帯より外でも同じ帯とみなす（海の .sea-edge の半平面と同じ） */
+    const slop = (overEdge === dir) ? EDGE_SLOP : 0;
+    if (dir === 'left' && x <= r.right + slop) return dir;
+    if (dir === 'right' && x >= r.left - slop) return dir;
   }
   return null;
 }
@@ -1856,7 +1870,6 @@ function markPlateDrop(hit) {
   if (hit) hit.node.classList.add('is-drop');
 }
 function dropToPlate(id, kind) {
-  if (isPast()) return;                 /* 過ぎた日は記録。入れない・外さない */
   const day = curDay();
   const pin = pinsOf(plateState()).get(id) || null;
   if (pin === kind) { takeOutSeat(id, kind, day); return; }
@@ -1960,10 +1973,9 @@ function suggestPool(day) {
 
 function syncSuggest() {
   if (!suggestBtn) return;
-  const past = isPast();
-  suggestBtn.disabled = past;
+  suggestBtn.disabled = false;   /* 過ぎた日も選べる（2026-11-25「基本動作は同じにして」） */
   const word = isToday() ? '今日' : dayLabel(curDay());
-  suggestBtn.title = past ? '過ぎた日には置けない' : word + 'に置くとよさそうなものを出す';
+  suggestBtn.title = word + 'に置くとよさそうなものを出す';
   suggestBtn.setAttribute('aria-label', suggestBtn.title);
   suggestBtn.setAttribute('aria-expanded', suggest ? 'true' : 'false');
   if (suggest) renderSuggest();
@@ -1971,7 +1983,7 @@ function syncSuggest() {
 
 function toggleSuggest() {
   if (suggest) { closeSuggest(); return; }
-  if (isPast() || !stage) return;
+  if (!stage) return;
   closeMenu();
   const day = curDay();
   const box = el('div', 'today-suggestbox');
@@ -2111,7 +2123,7 @@ function placeSuggestFirst(id) { if (suggest) placeFirst(id, false, suggest.day)
 function placeFirst(id, dropped, day) {
   const t = store.get(id);
   if (!day) day = todayKey();
-  if (!t || typeof store.setFirst !== 'function' || day < todayKey()) return;
+  if (!t || typeof store.setFirst !== 'function') return;
   if (day === todayKey() && plateState().st.passed) { toast('先に済ませるは、今日はもう畳んだ'); return; }
   const had = store.daysOf ? (store.daysOf(id) || []).indexOf(day) >= 0 : false;
   let sized = false;

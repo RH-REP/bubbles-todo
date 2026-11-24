@@ -66,7 +66,7 @@ if (INVITE_LINK) {
   setTimeout(() => window.dispatchEvent(new CustomEvent('bubbles:goto', { detail: { screen: 'settings' } })), 0);
 }
 import sea from './screens/sea.js';
-import today, { openDayPicker, dayBadge } from './screens/today.js';
+import today, { openDayPicker, dayBadge, shownDay } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
@@ -141,6 +141,12 @@ const panesRoot = document.getElementById('panes');
 const tabbar = document.getElementById('tabbar');
 const mounted = new Set();
 let current = null;
+/* 盤の「今日」の段が入れる日。今日の画面を出していて、別の日を映しているならその日 */
+function pickDay() {
+  const td = store.todayKey();
+  if (!current || current.id !== 'today') return td;
+  try { const d = shownDay(); return (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d : td; } catch (_) { return td; }
+}
 
 function paneOf(screen) {
   let pane = document.getElementById('pane-' + screen.id);
@@ -955,26 +961,30 @@ setCenterHandler({
   /* 選ぶときの基準（2026-11-24）: 大事・見当・急ぐの段と、［★ 今日大事なことにする］［↑ 先に済ませるに入れる］。
      日はこの端末の今日。先に済ませるの区切りの時間は端末に覚えた始めた時刻＋設定の分（js/prefs.js） */
   choiceOf:     (id) => (has('choiceOf') ? store.choiceOf(id) : null),
-  isKey:        (id) => (has('isKey') ? store.isKey(id, store.todayKey()) : false),
-  setKey:       (id, on) => (has('setKey') ? store.setKey(id, store.todayKey(), on) : false),
+  /* 日は、今日の画面で別の日を映しているときはその日、ほかは今日（2026-11-25 利用者の指示「今日以外の日付の海での操作が
+     今日の海と対称的ではない（基本動作は同じにして）」。前は盤からはいつも今日に入れていた）。pickWord はその日の呼び名（今日なら null） */
+  pickWord:     () => { const d = pickDay(); if (d === store.todayKey()) return null; const [, m, dd] = d.split('-'); return Number(m) + '/' + Number(dd); },
+  isKey:        (id) => (has('isKey') ? store.isKey(id, pickDay()) : false),
+  setKey:       (id, on) => (has('setKey') ? store.setKey(id, pickDay(), on) : false),
   firstInfo:    (id) => {
     if (!has('firstItems')) return null;
-    const day = store.todayKey();
+    const day = pickDay();
     const rows = store.firstItems(day);
-    const st = firstState(rows.map(t => ({ done: !!t.done })), firstStartedAt(day), firstMinutes(), Date.now());
+    const st = firstState(rows.map(t => ({ done: !!t.done })), day === store.todayKey() ? firstStartedAt(day) : null, firstMinutes(), Date.now());
     return { has: store.isFirst(id, day), canAdd: st.canAdd,
       why: st.passed ? '先に済ませるは、今日はもう畳んだ' : rows.length >= FIRST_MAX ? '先に済ませるの席は 3 つまで' : '' };
   },
   setFirst:     (id, on) => {
     if (!has('setFirst')) return '';
-    const day = store.todayKey();
-    if (on) {
+    const day = pickDay();
+    const isTd = day === store.todayKey();
+    if (on && isTd) {
       const rows = store.firstItems(day);
       const st = firstState(rows.map(t => ({ done: !!t.done })), firstStartedAt(day), firstMinutes(), Date.now());
       if (st.passed) return 'closed';
     }
     const r = store.setFirst(id, day, on);
-    if (r === 'ok' && on) markFirstStarted(day, Date.now());
+    if (r === 'ok' && on && isTd) markFirstStarted(day, Date.now());   /* 先の日・過ぎた日は、今日になって初めて開いたときから数える（今日の画面と同じ） */
     return r;
   },
   todayKey:     () => (has('todayKey') ? store.todayKey() : null),

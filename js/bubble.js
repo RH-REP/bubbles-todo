@@ -1325,13 +1325,16 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const pick = el('div', 'bc-mk bc-pick');
     pick.dataset.part = 'pick';
     pick.dataset.name = '今日大事なこと・先に済ませる';
-    const ph = el('span', 'bc-mk-h', '今日');
+    /* 今日の画面で別の日を映しているときは、その日に入れる（2026-11-25「基本動作は同じにして」）。段の見出しと札をその日の名前にする */
+    const pw = ask(a, 'pickWord') || null;
+    const ph = el('span', 'bc-mk-h', pw || '今日');
     ph.id = 'bc-mk-pick-' + Math.random().toString(36).slice(2, 7);
     pick.appendChild(ph);
     const pchips = el('div', 'bc-mk-chips');
     pchips.setAttribute('role', 'group');
     pchips.setAttribute('aria-labelledby', ph.id);
-    const keyBtn = el('button', 'bc-chip bc-key', '★ 今日大事なこと');
+    const keyName = pw ? pw + ' の大事なこと' : '今日大事なこと';
+    const keyBtn = el('button', 'bc-chip bc-key', pw ? '★ 大事なこと' : '★ 今日大事なこと');
     keyBtn.type = 'button';
     keyBtn.dataset.name = '今日大事なことにする';
     const firstBtn = el('button', 'bc-chip bc-first', '↑ 先に済ませる');
@@ -1346,7 +1349,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     syncPick = () => {
       const isKey = ask(a, 'isKey', id) === true;
       keyBtn.setAttribute('aria-pressed', isKey ? 'true' : 'false');
-      keyBtn.setAttribute('aria-label', isKey ? '今日大事なことから外す' : '今日大事なことにする');
+      keyBtn.setAttribute('aria-label', isKey ? keyName + 'から外す' : keyName + 'にする');
       const fi = ask(a, 'firstInfo', id) || { has: false, canAdd: false, why: '' };
       /* 先に済ませるは、さっとの泡だけ。さっとでなければ札を出さない（入っているものは外せるよう出す） */
       firstBtn.hidden = !fi.has && wantSize() !== 's';
@@ -1358,7 +1361,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     keyBtn.addEventListener('click', ev => {
       ev.preventDefault();
       const on = ask(a, 'isKey', id) !== true;
-      if (ask(a, 'setKey', id, on)) said.textContent = on ? '今日大事なことにした' : '今日大事なことから外した';
+      if (ask(a, 'setKey', id, on)) said.textContent = on ? keyName + 'にした' : keyName + 'から外した';
       syncPick();
     });
     firstBtn.addEventListener('click', ev => {
@@ -1366,7 +1369,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const fi = ask(a, 'firstInfo', id) || {};
       if (!fi.has && prioNow) prioNow();     /* 見当をさっとにしたばかりなら、先に書く */
       const r = ask(a, 'setFirst', id, !fi.has);
-      said.textContent = r === 'ok' ? (fi.has ? '先に済ませるから外した（今日の水面に残る）' : '先に済ませるに入れた')
+      const fName = pw ? pw + ' の先に済ませる' : '先に済ませる';
+      said.textContent = r === 'ok' ? (fi.has ? fName + 'から外した（' + (pw ? pw + ' ' : '今日') + 'の水面に残る）' : fName + 'に入れた')
         : r === 'full' ? '先に済ませるの席は 3 つまで' : r === 'closed' ? '先に済ませるは、今日はもう畳んだ'
         : r === 'size' ? '先に済ませるは、さっとの泡だけ' : '';
       syncPick();
