@@ -869,12 +869,12 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
     inset 0 0 0 2px color-mix(in srgb, var(--pin) 80%, transparent),
     inset 0 0 calc(var(--d, 100px) * .22) calc(var(--d, 100px) * .04) color-mix(in srgb, var(--pin) 42%, transparent),
     0 0 0 3px color-mix(in srgb, var(--pin) 42%, transparent);
-  /* 入れた目印（灯台・浮き）と同じ色（Issue #96 の返事）。字が読めるよう、ごく薄く */
+  /* 入れた所（今日の画面の魚）と同じ色（Issue #96 の返事）。字が読めるよう、ごく薄く */
   background: color-mix(in srgb, var(--pin) 12%, transparent);
 }
 .bub.is-pin-first { --pin: var(--accent-a); }
 .bub.is-pin-key   { --pin: var(--accent-b); }
-/* 上の端の小さな字「★ 大事」「↑ 先に」（js/bubble.js の .pinlb）。見当の添え字（.knote）と同じ作法で、色は今日の画面の灯台・浮きと同じ */
+/* 上の端の小さな字「★ 大事」「↑ 先に」（js/bubble.js の .pinlb）。見当の添え字（.knote）と同じ作法で、色は今日の画面の魚と同じ */
 .bub .pinlb {
   position: absolute; left: 50%; top: 5%; transform: translateX(-50%); z-index: 3;
   max-width: 92%; overflow: hidden; white-space: nowrap;

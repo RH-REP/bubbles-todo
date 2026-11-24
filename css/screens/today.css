@@ -667,65 +667,173 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
    drift の keepOut（泡を入れない壁）にしているので、同じ名前で面いっぱい（inset: 0）にすると面ぜんぶが壁になり、泡が消える。
    前の JS の .today-plate は、ここでは出さない（display: none なら keepOut も数えない。drift は offsetParent の無いものを外す） */
 .today-plate { display: none !important; }
-/* 下の角の海の目印：灯台と浮き（Issue #96 の 4 回目の返事。2026-11-24。js/screens/today.js の renderCorners）。
-   左下＝灯台＝今日大事なこと（紫み）、右下＝浮き＝先に済ませる（青み）。いつも出す。
-   前の滝は幅 26px・薄い縞（不透明度 .45）で、海の色の上ではほとんど見えなかったので、絵は塗りつぶしと濃い縁ではっきり描く。
-   入れ物は z-index を付けず、泡（field）より先に面へ入れてあるので、泡は目印の上に描かれる。指も透かす（pointer-events: none）。
-   泡を掴んでいる間（.is-drag）だけ、日を移す帯（z-index 9）より上に出し、少し大きくして「離すとどうなるか」を添える */
+/* 小さい画面：海の奥を泳ぐ魚（Issue #96 の 6 回目の返事。2026-11-24。js/screens/today.js の renderCorners）。
+   紫みの魚「大事」＝今日大事なこと、青みの魚「先に」＝先に済ませる。面のいちばん奥（泡の後ろ）を左右にゆっくり泳ぐ。
+   入れ物は z-index を付けず、泡（field）より先に面へ入れてあるので、泡は魚の上に描かれる。指も透かす（pointer-events: none）。
+   泡を掴んでいる間（.is-drag）だけ、日を移す帯（z-index 9）より上に出し、魚を止めて少し大きくし「離すとどうなるか」を添える。
+   前の灯台・浮き（5 回目まで）と滝（3 回目）の部品は、前の版の JS が混ざって届いても出さない（左上に字が並んだため） */
 .today-corners { position: absolute; inset: 0; pointer-events: none; }
-/* 前の版（滝）の JS が混ざって届いたときの滝の部品は出さない（飾りの無い字が左上に並び、上のボタンと重なったため。Issue #96 の 5 回目の返事） */
-.today-corners .tp-fall { display: none !important; }
+.today-corners .tp-fall, .today-corners .tp-mark { display: none !important; }
 .today-corners.is-drag { z-index: 10; }
 .today-corners[hidden] { display: none; }
 .today-stage.is-list .today-corners, .today-stage.is-quad .today-corners { display: none; }
-.today-corners .tp-mark {
+.today-corners .tp-fish {
   --mark: var(--accent-a);
-  position: absolute; bottom: calc(6px + var(--safe-b, 0px)); box-sizing: border-box;
-  width: 72px; padding: 6px 4px 4px; border-radius: 16px;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  transition: transform .18s ease-out, background-color .18s;
+  --dur: 40s; --dur-y: 13s; --dl: -27s;
+  position: absolute; left: 2%; top: 46%; box-sizing: border-box;
+  width: 84px; padding: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  animation: tp-fish-x var(--dur) ease-in-out var(--dl) infinite alternate,
+             tp-fish-y-first var(--dur-y) ease-in-out var(--dl) infinite alternate;
 }
-.today-corners .tp-mark-key   { --mark: var(--accent-b); left: 6px;  transform-origin: left bottom; }
-.today-corners .tp-mark-first { right: 6px; transform-origin: right bottom; }
-.today-corners .tp-mark-ic { width: 46px; height: 58px; display: block; overflow: visible; }
-.today-corners .tp-mark-ic .body { fill: var(--surface); stroke: var(--mark); stroke-width: 2; stroke-linejoin: round; }
-.today-corners .tp-mark-ic .band,
-.today-corners .tp-mark-ic .roof { fill: var(--mark); }
-.today-corners .tp-mark-ic .lamp { fill: color-mix(in srgb, var(--mark) 35%, #fff); stroke: var(--mark); stroke-width: 1.5; }
-.today-corners .tp-mark-ic .wave { fill: none; stroke: var(--mark); stroke-width: 2.2; stroke-linecap: round; opacity: .8; }
-/* 灯台の光：ゆっくり明滅（灯台が回る見え方）。動きを減らす設定では止めて、薄く点けたまま */
-.today-corners .tp-mark-ic .beam {
-  fill: color-mix(in srgb, var(--mark) 45%, transparent);
-  animation: tp-beam 3.2s ease-in-out infinite;
+.today-corners .tp-fish[hidden], .today-corners .tp-fish-s[hidden] { display: none; }
+.today-corners .tp-fish-key {
+  --mark: var(--accent-b); --dur: 52s; --dur-y: 17s; --dl: -8s;
+  animation-name: tp-fish-x, tp-fish-y-key;
 }
-@keyframes tp-beam { 0%, 100% { opacity: .25; } 50% { opacity: .95; } }
-@media (prefers-reduced-motion: reduce) { .today-corners .tp-mark-ic .beam { animation: none; opacity: .6; } }
-/* 名前：短く「大事」「先に」。白い字に目印の色 */
-.today-corners .tp-mark-h {
+@keyframes tp-fish-x { from { left: 2%; } to { left: calc(98% - 84px); } }
+@keyframes tp-fish-y-key   { from { top: 58%; } to { top: calc(100% - 82px); } }
+@keyframes tp-fish-y-first { from { top: 38%; } to { top: 60%; } }
+/* 向き：絵は左向き。右へ泳ぐ前半は裏返す（横の動きと同じ長さ×2・同じ遅れで、折り返しにそろえる） */
+.today-corners .tp-fish-swim {
+  display: block; line-height: 0;
+  animation: tp-fish-face calc(var(--dur) * 2) step-end var(--dl) infinite;
+}
+@keyframes tp-fish-face { 0% { transform: scaleX(-1); } 50% { transform: scaleX(1); } }
+.today-corners .tp-fish-ic { width: 64px; height: 40px; display: block; overflow: visible; transition: transform .18s ease-out; }
+.today-corners .tp-fish-ic .body { fill: color-mix(in srgb, var(--mark) 45%, #fff); stroke: var(--mark); stroke-width: 2; }
+.today-corners .tp-fish-ic .tail,
+.today-corners .tp-fish-ic .fin  { fill: var(--mark); }
+.today-corners .tp-fish-ic .band { fill: color-mix(in srgb, var(--mark) 75%, #fff); }
+.today-corners .tp-fish-ic .eye  { fill: #1d1d24; stroke: #fff; stroke-width: 1.2; }
+.today-corners .tp-fish-ic .gill { fill: none; stroke: var(--mark); stroke-width: 1.6; stroke-linecap: round; }
+/* 動きを減らす設定：泳がせず、下の左右に置く */
+@media (prefers-reduced-motion: reduce) {
+  .today-corners .tp-fish, .today-corners .tp-fish-swim { animation: none; }
+  .today-corners .tp-fish-key   { left: 8px; top: calc(100% - 82px); }
+  .today-corners .tp-fish-first { left: calc(100% - 92px); top: calc(100% - 82px); }
+}
+/* 名前：短く「大事」「先に」。白い字に魚の色 */
+.today-corners .tp-fish-h {
   padding: 1px 8px; border-radius: 999px;
   font-size: 11px; font-weight: 700; letter-spacing: .06em; line-height: 1.5;
   color: #fff; background: color-mix(in srgb, var(--mark) 88%, #000);
 }
-/* 掴んでいる間：少し大きく。上に「離すとどうなるか」 */
-.today-corners.is-drag .tp-mark {
-  transform: scale(1.18);
-  background: color-mix(in srgb, var(--mark) 14%, color-mix(in srgb, var(--surface) 70%, transparent));
-}
-.today-corners .tp-mark-s {
-  position: absolute; bottom: calc(100% + 6px); width: max-content;
+/* 先に済ませるを畳んだあとの「先に」の魚は薄く（掴んでいる間は「今日はもう畳んだ」と言う） */
+.today-corners .tp-fish.is-closed { opacity: .45; }
+/* 掴んでいる間：魚を止めて少し大きく。上に「離すとどうなるか」 */
+.today-corners.is-drag .tp-fish, .today-corners.is-drag .tp-fish-swim { animation-play-state: paused; }
+.today-corners.is-drag .tp-fish-ic { transform: scale(1.2); }
+.today-corners .tp-fish-s {
+  position: absolute; bottom: calc(100% + 6px); left: 0; width: max-content;
   max-width: 168px; padding: 4px 8px; border-radius: 10px;
   font-size: 11px; line-height: 1.35; color: var(--text);
   background: color-mix(in srgb, var(--mark) 18%, var(--surface));
   border: 1px solid color-mix(in srgb, var(--mark) 55%, transparent);
   overflow-wrap: anywhere;
 }
-.today-corners .tp-mark-key .tp-mark-s   { left: 0; }
-.today-corners .tp-mark-first .tp-mark-s { right: 0; text-align: right; }
+/* 面の右半分にいる魚は、説明を右に寄せる（面の外へはみ出さないように。js の renderCorners が .is-right を付ける） */
+.today-corners .tp-fish.is-right .tp-fish-s { left: auto; right: 0; text-align: right; }
 /* 指がその上に来たら、離せば入る合図。色だけに頼らず、縁の線も出す（日を移す帯と同じ考え） */
-.today-corners .tp-mark.is-drop {
-  background: color-mix(in srgb, var(--mark) 30%, var(--surface));
+.today-corners .tp-fish.is-drop {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--mark) 26%, color-mix(in srgb, var(--surface) 70%, transparent));
   box-shadow: inset 0 0 0 2px var(--mark);
 }
+
+/* 大きい画面：いちばん最初の形（Issue #96 の 6 回目の返事「画面が大きいのは1番最初の表示」。js/screens/today.js の renderWide）。
+   面の上の枠。泡にとっては壁（js/drift.js の keepOut。海の端の札と同じ）。上から 先に済ませる（細い 1 段）→ 今日大事なこと（大きな枠）。
+   決めていない日は点線の 1 行。名前は .today-wide（前の版の .today-plate とは分ける。上の説明）。
+   面の幅が 720px 以上のときだけ JS が出す */
+.today-wide {
+  position: absolute; z-index: 7; top: 112px; left: 12px; right: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  pointer-events: none;
+}
+.today-wide > * { pointer-events: auto; }
+.today-wide[hidden] { display: none; }
+body.pref-show-suggest .today-wide { right: 72px; }
+.today-stage.is-list .today-wide, .today-stage.is-quad .today-wide { display: none; }
+.today-stage.is-bubdrag .today-wide { opacity: .5; }
+
+.today-wide .tp-first {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+  padding: 4px 8px 4px 10px; border: 1px solid var(--line); border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  font-size: 12px;
+}
+.today-wide .tp-first-h { color: var(--text-2); }
+.today-wide .tp-first-t { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.today-wide .tp-seats { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.today-wide .tp-seat, .tp-ghost.tp-seat {
+  appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  min-height: 32px; padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font-size: 12.5px;
+}
+/* 先に済ませるの席は、小さい画面の魚・泡と同じ青みで見分ける */
+.today-wide .tp-seat:not(.is-empty), .tp-ghost.tp-seat {
+  border-color: color-mix(in srgb, var(--accent-a) 60%, transparent);
+  background: color-mix(in srgb, var(--accent-a) 14%, var(--surface));
+}
+.today-wide .tp-seat-nm, .tp-ghost .tp-seat-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-wide .tp-seat.is-done { color: var(--text-2); }
+.today-wide .tp-seat.is-empty { border-style: dashed; color: var(--text-2); min-width: 44px; justify-content: center; }
+.today-wide .tp-seat-k, .tp-ghost .tp-seat-k { font-size: 10.5px; color: var(--text-2); }
+
+.today-wide .tp-key {
+  padding: 8px 12px 10px; border: 1px solid var(--line-strong); border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  transition: box-shadow .4s;
+}
+/* 先に済ませるを畳んだあと、縁が光る */
+.today-wide .tp-key.is-lit { box-shadow: 0 0 0 2px var(--bub-edge), 0 0 14px var(--bub-edge); }
+.today-wide .tp-key-h { font-size: 12px; color: var(--text-2); }
+.today-wide .tp-key-body { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+/* 今日大事なことの泡は、小さい画面の魚・泡と同じ紫みで */
+.today-wide .tp-key-bub, .tp-ghost.tp-key-bub {
+  appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
+  flex: 0 0 auto; width: 88px; height: 88px; padding: 8px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  overflow: hidden; overflow-wrap: anywhere; font-size: 13px; line-height: 1.3;
+  border: 1.5px solid color-mix(in srgb, var(--accent-b) 75%, transparent); color: var(--text);
+  background: radial-gradient(circle at 35% 30%, var(--surface), color-mix(in srgb, var(--accent-b) 22%, var(--surface-2)));
+}
+.today-wide .tp-key-bub.is-heavy { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-b) 45%, transparent); }
+.today-wide .tp-key.is-done .tp-key-bub { opacity: .75; }
+.today-wide .tp-key-tx { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
+.today-wide .tp-key-tx p { margin: 0 0 3px; overflow-wrap: anywhere; }
+.today-wide .tp-key-lb { font-size: 11.5px; color: var(--text-2); }
+.today-wide .tp-key-k, .today-wide .tp-key-after { font-size: 11.5px; color: var(--text-2); }
+
+.today-wide .tp-none {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px 4px 12px; border: 1px dashed var(--line-strong); border-radius: 12px;
+  font-size: 12.5px; color: var(--text-2);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.today-wide .tp-none-tx { flex: 1; min-width: 0; }
+.today-wide .tp-none-pick {
+  appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
+  min-height: 36px; padding: 0 14px; border-radius: 18px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font-size: 12.5px;
+}
+.today-wide button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+/* 泡を掴んでいる間は、落とせる枠の縁を点線で見せ、指の下の枠は縁を濃く（is-drop） */
+.is-bubdrag .today-wide [data-drop] { outline: 1.5px dashed var(--line-strong, var(--line)); outline-offset: 2px; }
+.today-wide [data-drop].is-drop {
+  outline: 2px solid var(--accent-a); outline-offset: 2px;
+  background: color-mix(in srgb, var(--accent-a) 10%, var(--surface, #fff));
+}
+/* 枠から出す：掴んでいる間、指に付く写しと、元の席の薄い跡。枠の外にいる間は写しの縁を点線に（離すと外れる合図） */
+.tp-ghost {
+  position: fixed; left: 0; top: 0; z-index: 60;
+  margin: 0; pointer-events: none;
+  box-shadow: 0 8px 22px rgba(0,0,0,.18);
+  opacity: .95;
+}
+.tp-ghost.is-out { border-style: dashed; opacity: .8; }
+.tp-seat.is-lifted, .tp-key-bub.is-lifted { opacity: .35; }
 
 /* 今日の一覧の行：今日大事なこと・先に済ませる（Issue #96 の 4 回目の返事「今日のリスト表示でも、色かアイコンつけてわかるように」）。
    左に目印の色の帯と、名前の前に「★ 大事」「↑ 先に」の札。泡と同じ色（紫み・青み） */
