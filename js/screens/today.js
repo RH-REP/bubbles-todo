@@ -15,7 +15,7 @@ import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from
 import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete, playSfx } from '../sound.js';
 import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest, keyable, firstable } from '../suggest.js';
-import { SIZES, FIRST_MAX, firstState, showFirstRow } from '../priority.js';
+import { SIZES, firstState, showFirstRow } from '../priority.js';
 import { firstStartedAt, markFirstStarted, firstMinutes } from '../prefs.js';
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
@@ -318,19 +318,21 @@ function kNoteOf(t) {
 }
 
 /* ---------------- 今日大事なこと・先に済ませる（2026-11-24 ユーザーの決定「OK、推奨で実施」） ----------------
-   app_spec の minutes/261124_選ぶときの基準.md、モック mock/choose-1124.html の 2・2a。
-   ・面の上に枠（.today-plate）を置く。泡にとっては海の端の札と同じく壁（drift の keepOut）。枠の下を泡が漂う
-   ・先に済ませる … 一番上の細い 1 段。さっとの泡の席が 3 つと、区切りの時間（〜 9:30）。今日を映しているときだけ。
-     区切りの時間が過ぎるか、入れた泡が全部済むと畳む。残った泡は今日の水面に戻る（次の日へは移さない）
-   ・今日大事なこと … その下の細い 1 段（Issue #96 で大きな枠から細くした。2026-11-24）。特別な色の泡（押すと詳細）と、
-     次にやることを 1 行で（はみ出すと…）。先に済ませるを畳んだあとは縁が光る
-   ・決めていない日は点線の 1 行「今日大事なことは、まだ」と［選ぶ］（おすすめの板を開く）。押さなくても使える。過ぎた日には出さない
-   ・一覧・四つに分けて見ている間は枠を出さない（同じ泡が 2 か所に出ないように、そちらには全部を並べる）
+   app_spec の minutes/261124_選ぶときの基準.md。Issue #96 の返事で、面の上の枠をやめて角と色にした（2026-11-24）：
+   > 先にすませる、今日大事なことを設定する場所が画面の中央少し上で横全体を使ってる。また、その上下でバブルの移動が妨げられてる。
+   > 右下が右上か左下か左上にバブルを持って行ったら、設定できて、バブルの形は同じで色で区別できるようにできる？
+   ・入れた泡も、ほかの泡と同じ形のまま漂う面に出す。色で見分ける（今日大事なこと＝紫み .is-pin-key、先に済ませる＝青み .is-pin-first）。
+     面に壁は置かない（前の枠は drift の keepOut で、その上下で泡が詰まっていた）
+   ・入れる場所は、泡を掴んでいる間だけ下の角に出る（左下＝今日大事なこと、右下＝先に済ませる）。そこで離すと入る。
+     上の角は日付の行・さいころ・日を移す帯の札と重なるので使わない
+   ・入れた泡を同じ角で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方の角で離すとそちらへ移す
+   ・盤の［★ 今日大事なことにする］［↑ 先に済ませるに入れる］・おすすめの板からも、今までどおり入れられる・外せる
+   ・先に済ませるは今日だけ。区切りの時間が過ぎるか、入れた泡が全部済むと畳み、色が戻る（次の日へは移さない）
+   ・今日大事なことは過ぎた日には入れない（角を出さない）。一覧・四つに分けて見ている間も角は出さない
    言い方は命令形にしない。件数・割合は出さない。赤は使わない */
-let plate = null;
+let plate = null;          /* 角の入れ物（.today-plate）。泡を掴んでいる間だけ見える */
 let plateTimer = 0;
-let lastPlate = { key: null, rows: [], st: { open: false } };
-let heldId = null;        /* 盤を開いている（中央に持っている）泡の id。drift の onHold から */
+let lastPlate = { key: null, rows: [], st: { open: false }, showFirst: false };
 
 /* 映している日の枠の中身。-> { key, rows, st }（st は firstState。先に済ませるは今日だけ） */
 function plateState() {
@@ -357,181 +359,54 @@ function hhmm(ms) {
   return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-/* 枠に出している泡の id（漂う面には渡さない） */
-function plateIds(ps) {
-  const out = new Set();
-  if (ps.key) out.add(ps.key.id);
-  if (ps.st.open) ps.rows.forEach(t => out.add(t.id));
+/* 色を付ける泡。id -> 'key'|'first'（先に済ませるは開いている間だけ。両方なら今日大事なことを先に） */
+function pinsOf(ps) {
+  const out = new Map();
+  if (ps.st.open) ps.rows.forEach(t => out.set(t.id, 'first'));
+  if (ps.key) out.set(ps.key.id, 'key');
   return out;
 }
 
 function renderPlate(ps) {
-  if (!plate) return;
   if (plateTimer) { clearTimeout(plateTimer); plateTimer = 0; }
+  /* 区切りの時間が来たら畳む（先に済ませるの泡の色を戻す） */
+  if (ps.st.open && ps.st.endAt) plateTimer = setTimeout(() => { plateTimer = 0; render(); }, Math.max(1000, ps.st.endAt - Date.now() + 500));
+  renderCorners(ps);
+}
+
+/* 下の角の入れ場所。泡を掴んでいる間（bubDrag）だけ作って見せる。
+   角の中の字は、掴んでいる泡にとってどうなるか（入る・入れ替える・外す）を短く言う */
+function renderCorners(ps) {
+  if (!plate) return;
   plate.textContent = '';
+  const id = bubDrag ? bubDrag.id : null;
+  if (!id || listOn || quadOn) { plate.hidden = true; return; }
   const day = curDay();
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
-
-  if (ps.showFirst) {
-    const row = el('div', 'tp-first');
-    row.dataset.name = '先に済ませる';
-    row.dataset.drop = 'first';
-    row.setAttribute('role', 'group');
-    row.setAttribute('aria-label', ps.st.endAt ? '先に済ませる（区切りの時間 ' + hhmm(ps.st.endAt) + '）' : '先に済ませる（まだ入れていない。泡をここへ落とすと入る）');
-    row.appendChild(el('span', 'tp-first-h', '先に済ませる'));
-    if (ps.st.endAt) {
-      const tm = el('span', 'tp-first-t', '〜 ' + hhmm(ps.st.endAt));
-      tm.dataset.name = '区切りの時間';
-      row.appendChild(tm);
-    }
-    const seats = el('div', 'tp-seats');
-    ps.rows.forEach(t => {
-      const done = isDoneItem(t);
-      const b = el('button', 'tp-seat' + (done ? ' is-done' : ''));
-      b.type = 'button';
-      const nm = el('span', 'tp-seat-nm');
-      nm.textContent = (done ? '✓ ' : '') + trim(t.text, 12);   /* ユーザーの文字。innerHTML には入れない */
-      b.appendChild(nm);
-      if (t.urgent === true && t.dueKind === 'ext') b.appendChild(el('span', 'tp-seat-k', '外の約束'));
-      b.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
-      b.addEventListener('click', ev => { ev.preventDefault(); if (seatDragged(b)) return; openBoardFor(t.id, b); });
-      seatDrag(b, t, 'first', day);
-      seats.appendChild(b);
-    });
-    /* 空いた席（2026-11-24）：空いている数だけ点線の席を出す。押すとおすすめ、泡を落としても入る */
-    if (ps.st.canAdd || !ps.rows.length) {
-      for (let i = ps.rows.length; i < FIRST_MAX; i++) {
-        const add = el('button', 'tp-seat is-empty', '＋');
-        add.type = 'button';
-        add.dataset.name = '先に済ませるの空いた席';
-        add.setAttribute('aria-label', '先に済ませるに入れる泡を、おすすめから選ぶ（泡を落としても入る）');
-        add.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
-        seats.appendChild(add);
-      }
-    }
-    row.appendChild(seats);
-    plate.appendChild(row);
-    /* 区切りの時間が来たら畳む */
-    if (ps.st.endAt) plateTimer = setTimeout(() => { plateTimer = 0; render(); }, Math.max(1000, ps.st.endAt - Date.now() + 500));
+  const pin = pinsOf(ps).get(id) || null;
+  if (!isPast()) {
+    const sub = pin === 'key' ? 'ここで離すと外す'
+      : ps.key ? 'いまは「' + trim(ps.key.text, 10) + '」。離すと入れ替える'   /* ユーザーの文字。el は textContent で入れる */
+      : 'ここで離すと入る';
+    plate.appendChild(cornerBox('key', '★ ' + (isToday() ? '今日大事なこと' : word + 'の大事なこと'), sub));
   }
-
-  if (ps.key) {
-    const t = ps.key;
-    const done = isDoneItem(t);
-    const box = el('div', 'tp-key');
-    box.dataset.name = '今日大事なこと';
-    box.dataset.drop = 'key';
-    /* 先に済ませるを畳んだあと（今日、入れた泡があって、段が閉じた）は縁が光る */
-    if (isToday() && ps.rows.length && !ps.st.open) box.classList.add('is-lit');
-    if (done) box.classList.add('is-done');
-    box.appendChild(el('span', 'tp-key-h', isToday() ? '今日大事なこと' : word + 'の大事なこと'));
-    const body = el('div', 'tp-key-body');
-    const bub = el('button', 'tp-key-bub');
-    bub.type = 'button';
-    bub.dataset.name = '今日大事なことの泡';
-    const btx = el('span', 'tp-key-bub-tx');
-    btx.textContent = (done ? '✓ ' : '') + trim(t.text, 24);   /* ユーザーの文字。innerHTML には入れない */
-    bub.appendChild(btx);
-    if (t.important === true) bub.classList.add('is-heavy');
-    bub.setAttribute('aria-label', t.text + (done ? '（済んだ）' : '') + '。詳細を開く');
-    bub.addEventListener('click', ev => { ev.preventDefault(); if (seatDragged(bub)) return; openBoardFor(t.id, bub); });
-    if (!isPast()) seatDrag(bub, t, 'key', day);
-    body.appendChild(bub);
-    const tx = el('div', 'tp-key-tx');
-    const next = detailOf('firstStepOf', t.id);
-    if (next) {
-      const p = el('p', 'tp-key-next');
-      p.appendChild(el('span', 'tp-key-lb', '次にやること'));
-      p.appendChild(document.createTextNode(' ' + next.split('\n')[0]));
-      tx.appendChild(p);
-    }
-    const k = kNoteOf(t);
-    if (k) tx.appendChild(el('p', 'tp-key-k', k));
-    if (ps.st.open) tx.appendChild(el('p', 'tp-key-after', '先に済ませるのあと'));
-    /* 1 行に収めて…で切るので、全文は title で読めるようにする（Issue #96） */
-    if (tx.textContent) tx.title = tx.textContent.trim();
-    body.appendChild(tx);
-    box.appendChild(body);
-    plate.appendChild(box);
-  } else if (!isPast()) {
-    const none = el('div', 'tp-none');
-    none.dataset.name = '今日大事なことは、まだ';
-    none.dataset.drop = 'key';
-    none.appendChild(el('span', 'tp-none-tx', (isToday() ? '今日大事なこと' : word + 'の大事なこと') + 'は、まだ'));
-    const pick = el('button', 'tp-none-pick', '選ぶ');
-    pick.type = 'button';
-    pick.setAttribute('aria-label', (isToday() ? '今日大事なこと' : word + 'の大事なこと') + 'を、おすすめから選ぶ');
-    pick.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
-    none.appendChild(pick);
-    plate.appendChild(none);
+  if (ps.showFirst) {
+    const sub = pin === 'first' ? 'ここで離すと外す'
+      : (ps.st.endAt ? '〜 ' + hhmm(ps.st.endAt) + '・' : '') + 'さっとの泡を 3 つまで';
+    plate.appendChild(cornerBox('first', '↑ 先に済ませる', sub));
   }
   plate.hidden = !plate.children.length;
 }
+function cornerBox(kind, head, sub) {
+  const box = el('div', 'tp-corner tp-corner-' + kind);
+  box.dataset.drop = kind;
+  box.dataset.name = kind === 'key' ? '今日大事なことの角' : '先に済ませるの角';
+  box.appendChild(el('span', 'tp-corner-h', head));
+  box.appendChild(el('span', 'tp-corner-s', sub));
+  return box;
+}
 
-/* ---- 枠から出す（2026-11-24 利用者の指示「きっかけのところを参考に、入れた枠から出せる様にして」）----
-   きっかけの画面の泡と同じ考え方：枠の中の泡（先に済ませるの席・今日大事なことの泡）を掴んで動かすと写しが指に付き、
-     ・枠の外で離す   … その枠から外す（今日には残る）。トーストで言い、［元に戻す］で入れ直せる（きっかけの「未分類へもどした」と同じ）
-     ・もう片方の枠で離す … そちらへ移す（入れ方・断り方は泡を枠へ落としたときと同じ）
-     ・同じ枠で離す・動かさない … 何もしない（押しただけなら、これまでどおり盤を開く）
-   下のタブの上で離したときも何もしない。動かしたかどうかは 8px で決め、動かしたあとの click は捨てる */
-const SEAT_MOVE = 8;
-function seatDragged(node) {
-  if (node.dataset.dragged !== '1') return false;
-  delete node.dataset.dragged;
-  return true;
-}
-function seatDrag(node, t, kind, day) {
-  node.style.touchAction = 'none';
-  node.addEventListener('pointerdown', ev => {
-    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
-    const x0 = ev.clientX, y0 = ev.clientY;
-    let ghost = null, ox = 0, oy = 0, pt = { x: x0, y: y0 };
-    const move = e => {
-      pt = { x: e.clientX, y: e.clientY };
-      if (!ghost) {
-        if (Math.hypot(pt.x - x0, pt.y - y0) < SEAT_MOVE) return;
-        const r = node.getBoundingClientRect();
-        ox = x0 - r.left; oy = y0 - r.top;
-        ghost = node.cloneNode(true);
-        ghost.classList.add('tp-ghost');
-        ghost.style.width = r.width + 'px';
-        ghost.style.height = r.height + 'px';
-        (document.getElementById('drag-layer') || document.body).appendChild(ghost);
-        node.classList.add('is-lifted');
-        node.dataset.dragged = '1';
-      }
-      e.preventDefault();
-      ghost.style.transform = 'translate(' + (pt.x - ox) + 'px,' + (pt.y - oy) + 'px)';
-      const hit = plateHitAt(pt.x, pt.y);
-      markPlateDrop(hit && hit.kind !== kind ? hit : null);
-      ghost.classList.toggle('is-out', !hit);
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move, true);
-      window.removeEventListener('pointerup', up, true);
-      window.removeEventListener('pointercancel', up, true);
-      if (!ghost) return;
-      ghost.remove();
-      node.classList.remove('is-lifted');
-      markPlateDrop(null);
-      /* 押したあとに来る click を捨てる（来ないこともあるので、少しして印を消す） */
-      setTimeout(() => { delete node.dataset.dragged; }, 400);
-      const bar = document.getElementById('tabbar');
-      if (bar) {
-        const r = bar.getBoundingClientRect();
-        if (pt.x >= r.left && pt.x <= r.right && pt.y >= r.top && pt.y <= r.bottom) return;
-      }
-      const hit = plateHitAt(pt.x, pt.y);
-      if (hit && hit.kind === kind) return;
-      if (hit) { moveSeat(t.id, kind, hit.kind, day); return; }
-      takeOutSeat(t.id, kind, day);
-    };
-    window.addEventListener('pointermove', move, true);
-    window.addEventListener('pointerup', up, true);
-    window.addEventListener('pointercancel', up, true);
-  });
-}
-/* 枠から外す。今日には残す。［元に戻す］で同じ枠へ入れ直す */
+/* 外す（入れた泡を同じ角で離したとき）。今日には残す。［元に戻す］で入れ直す */
 function takeOutSeat(id, kind, day) {
   const t = store.get(id);
   if (!t) return;
@@ -1045,11 +920,9 @@ function render() {
     /* 分けている間は漂う面に渡さない（同じ泡が2つ出る） */
     quad.render(items.map(it => ({ id: it.id, item: it, opts: { size: QUAD_BUB, colors: it.colors, tagNames: it.tagNames, marks: [] } })));
   } else {
-    /* 今日大事なこと・先に済ませるの枠に出している泡は、漂う面には渡さない（2026-11-24） */
-    const hide = plateIds(lastPlate);
-    /* 盤を開いている泡は、閉じるまで漂う面に残す（消すと盤ごと閉じる。閉じたら onHold が描き直す） */
-    if (heldId) hide.delete(heldId);
-    field.setItems(fitItems(hide.size ? items.filter(it => !hide.has(it.id)) : items));
+    /* 今日大事なこと・先に済ませるの泡も同じ形で漂わせ、色で見分ける（Issue #96。bubble.js が item.pin で .is-pin-key / .is-pin-first） */
+    const pins = pinsOf(lastPlate);
+    field.setItems(fitItems(pins.size ? items.map(it => pins.has(it.id) ? Object.assign({}, it, { pin: pins.get(it.id) }) : it) : items));
   }
   syncListBtn();                 /* 入りきらないかどうかで札の言い方が変わる（Issue #87） */
   syncFilterBtn();               /* タグが増減していることがある（Issue #89） */
@@ -1680,8 +1553,9 @@ function onBubPointer(ev) {
   markPlateDrop(plateHitAt(bubPt.x, bubPt.y));
 }
 
-/* ---- 今日大事なこと・先に済ませるの枠へ落とす（2026-11-24 ユーザーの指示「今日優先の枠にドロップできるように（先にも同じ）」）----
-   枠（data-drop="key"|"first"）の上で泡を離すと、そこへ入れる。掴んでいる間は、指の下の枠の縁を明るくする（is-drop） */
+/* ---- 今日大事なこと・先に済ませるの角へ落とす（2026-11-24。Issue #96 で枠から下の角に替えた）----
+   角（data-drop="key"|"first"）の上で泡を離すと、そこへ入れる。入れた泡を同じ角で離すと外し、もう片方の角なら移す。
+   掴んでいる間は、指の下の角を濃くする（is-drop） */
 function plateHitAt(x, y) {
   if (!plate || !(x >= 0)) return null;
   const nodes = plate.querySelectorAll('[data-drop]');
@@ -1697,7 +1571,11 @@ function markPlateDrop(hit) {
   if (hit) hit.node.classList.add('is-drop');
 }
 function dropToPlate(id, kind) {
-  if (kind === 'key') placeKey(id, curDay());
+  const day = curDay();
+  const pin = pinsOf(plateState()).get(id) || null;
+  if (pin === kind) { takeOutSeat(id, kind, day); return; }
+  if (pin) { moveSeat(id, pin, kind, day); return; }
+  if (kind === 'key') placeKey(id, day);
   else if (kind === 'first') placeFirst(id, true);
 }
 
@@ -1711,6 +1589,7 @@ function beginBubDrag(id) {
   window.addEventListener('pointerup', onBubPointer, true);
   if (stage) stage.classList.add('is-bubdrag');
   renderDayEdges();
+  renderCorners(lastPlate);
 }
 
 function endBubDrag() {
@@ -1726,7 +1605,8 @@ function endBubDrag() {
   window.removeEventListener('pointerup', onBubPointer, true);
   if (stage) stage.classList.remove('is-bubdrag');
   renderDayEdges();
-  /* 枠へ落とした（今日大事なこと・先に済ませる）。下タブへの落としと競るので、マイクロタスク 1 つぶん待つ */
+  renderCorners(lastPlate);
+  /* 角へ落とした（今日大事なこと・先に済ませる）。下タブへの落としと競るので、マイクロタスク 1 つぶん待つ */
   if (d && hit) {
     Promise.resolve().then(() => { if (!tabDropped) dropToPlate(d.id, hit.kind); });
     return;
@@ -2187,12 +2067,6 @@ function openBoardFor(id, row) {
 }
 
 const handlers = {
-  /* 盤を開いた・閉じた（drift が知らせる。2026-11-24）。閉じた泡が枠に移るものなら描き直す */
-  onHold: (id, on) => {
-    if (on) { heldId = id; return; }
-    if (heldId === id) heldId = null;
-    if (plateIds(lastPlate).has(id)) setTimeout(() => { if (!heldId) render(); }, 0);
-  },
   onFocusRequest: id => openFive(id),
   onMenu: (id, node) => onMenu(id, node),
   /* 中央の盤に出す操作。これを渡すと bubble.js は onMenu を横取りしない */
@@ -2310,12 +2184,13 @@ export default {
 
     /* drift は opts の直下から handlers を読む。将来 opts.handlers を見る作りに
        変わっても落ちないよう、まとめたものも一緒に渡しておく（余分なキーは無視される） */
-    /* 今日大事なこと・先に済ませるの枠（2026-11-24）。面の子にして、泡を入れない（drift の keepOut。海の端の札と同じ作り） */
+    /* 今日大事なこと・先に済ませるの角（Issue #96。2026-11-24）。掴んでいる間だけ見える。
+       前の枠は drift の keepOut（壁）だったが、角は泡の動きを妨げないよう壁にしない */
     plate = el('div', 'today-plate');
     plate.dataset.screen = 'today.plate'; plate.dataset.screenLayer = '2';
     plate.hidden = true;
     stage.appendChild(plate);
-    field = createField(stage, Object.assign({ size: 'text', handlers, keepOut: '.today-plate' }, handlers));
+    field = createField(stage, Object.assign({ size: 'text', handlers }, handlers));
     quad = createQuadView(stage, { className: 'today-quad', bind: (node) => attachGestures(node, handlers) });
     quad.el.dataset.screen = 'today.quad';
 

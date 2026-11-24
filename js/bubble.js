@@ -547,6 +547,10 @@ export function updateBubble(node, item, opts = {}) {
   }
   if (knote) { knote.textContent = kNote; knote.hidden = !kNote; }
   node.classList.toggle('is-heavy', !!(item && item.heavy));
+  /* 今日大事なこと・先に済ませるの泡（Issue #96。2026-11-24）。形はそのまま、色で見分ける。今日の水面だけが渡す */
+  const pin = item && (item.pin === 'key' || item.pin === 'first') ? item.pin : '';
+  node.classList.toggle('is-pin-key', pin === 'key');
+  node.classList.toggle('is-pin-first', pin === 'first');
   /* ---- 輝く泡（2026-11-24。js/glow.js）----
      item.lit なら光の輪と光の粒（.glow。泡の後ろ）。渡さない画面では何も変わらない */
   const lit = !!(item && item.lit);
@@ -1335,7 +1339,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     keyBtn.addEventListener('click', ev => {
       ev.preventDefault();
       const on = ask(a, 'isKey', id) !== true;
-      if (ask(a, 'setKey', id, on)) said.textContent = on ? '今日大事なことにした。今日の水面の上の枠に出る' : '今日大事なことから外した';
+      if (ask(a, 'setKey', id, on)) said.textContent = on ? '今日大事なことにした。今日の水面で紫みの泡になる' : '今日大事なことから外した';
       syncPick();
     });
     firstBtn.addEventListener('click', ev => {

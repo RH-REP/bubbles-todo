@@ -856,6 +856,22 @@ body.is-focusing .bub:not(.is-centered) { opacity: .3; }
 }
 .bub .knote[hidden] { display: none; }
 .bub.is-heavy .skin { box-shadow: 0 0 0 3px var(--bub-edge); }
+/* 今日大事なこと・先に済ませるの泡（Issue #96。2026-11-24。今日の水面だけ。js/bubble.js の item.pin）。
+   形と大きさは変えず、色だけで見分ける：今日大事なこと＝紫み（--accent-b）、先に済ませる＝青み（--accent-a）。
+   タグの色の膜があっても分かるよう、膜の内側の縁と外の輪の両方に色を置く。
+   色は .wob::after（誰も使っていない）の 1 枚に置く。.skin の box-shadow は、はじめた泡の輪（.is-started.is-mark）・
+   担当・大事な泡の太い縁が使うので、そこに重ねると片方が消える。呼吸（.wob の揺らぎ）には一緒に乗る。
+   赤と金は使わない（赤は使わない決まり、金は輝く泡） */
+.bub.is-pin-key .wob::after, .bub.is-pin-first .wob::after {
+  content: ''; position: absolute; inset: 0; z-index: 2;
+  border-radius: 50%; pointer-events: none;
+  --pin: var(--accent-a);
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--pin) 80%, transparent),
+    inset 0 0 calc(var(--d, 100px) * .22) calc(var(--d, 100px) * .04) color-mix(in srgb, var(--pin) 42%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--pin) 42%, transparent);
+}
+.bub.is-pin-key .wob::after { --pin: var(--accent-b); }
 
 /* ---------- 盤の優先度（急ぐ・大事）----------
    お気に入りと同じ札の作法。下に今の区分を言葉で1行。区分の色は小さな帯で添えるだけ */

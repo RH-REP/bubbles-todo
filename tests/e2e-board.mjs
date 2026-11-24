@@ -296,7 +296,7 @@ try {
     assert.ok(r.mdays.includes(5) && r.mdays.includes(20), JSON.stringify(r));
   });
 
-  await step('今日大事なこと・先に済ませる（2026-11-24）: 盤の［★］で今日の水面の上の枠に出て、泡は枠の外を漂う。さっとの泡は［↑］で先に済ませるの段に入り、区切りの時刻が出る', async () => {
+  await step('今日大事なこと・先に済ませる（2026-11-24。Issue #96 で枠から色と角に）: 盤の［★］で今日の水面の泡が紫み（is-pin-key）、さっとの泡は［↑］で青み（is-pin-first）になり、どちらも漂う面に残る。上の枠は無い', async () => {
     await js(`const { store } = await import('/js/store.js'); const day = store.todayKey();
       store.add('架空の申請書を書く'); store.add('架空の経費の提出');
       const a = store.all().find(t => t.text === '架空の申請書を書く').id, b = store.all().find(t => t.text === '架空の経費の提出').id;
@@ -305,8 +305,9 @@ try {
       store.setDay(a, day, true); store.setDay(b, day, true);`);
     await js(`document.querySelector('#tabbar button[data-screen="today"]').click()`);
     await until(`return document.getElementById('pane-today')?.classList.contains('is-active')`);
-    await until(`return !!document.querySelector('#pane-today .today-plate .tp-none')`);
-    assert.equal(await js(`return document.querySelector('#pane-today .tp-none-tx').textContent`), '今日大事なことは、まだ');
+    /* 掴んでいないときは角も枠も見えない（泡の動きを妨げない） */
+    await until(`return !!document.querySelector('#pane-today .today-plate')`);
+    assert.equal(await js(`${VIS} return vis(document.querySelector('#pane-today .today-plate'))`), false);
     const bubIn = (t) => `[...document.querySelectorAll('#pane-today .today-stage .bub')].find(b => b.textContent.includes(${JSON.stringify(t)}))`;
     /* 大事な泡は縁が太く、見当と外の約束が泡の中に出る */
     await until(`return !!${bubIn('架空の経費')}`);
@@ -326,30 +327,18 @@ try {
     await js(`document.querySelector('.bc-fields .bc-key').click()`);
     assert.equal(await js(`return document.querySelector('.bc-fields .bc-key').textContent`), '今日大事なことから外す');
     await close();
-    await until(`return !!document.querySelector('#pane-today .today-plate .tp-key')`);
-    const k = await js(`${VIS} return { nm: document.querySelector('#pane-today .tp-key-bub').textContent, none: vis(document.querySelector('#pane-today .tp-none')) }`);
-    assert.equal(k.nm, '架空の申請書を書く');
-    assert.equal(k.none, false);
-    await sleep(500);
-    assert.equal(await js(`return !!${bubIn('架空の申請書')}`), false, '今日大事なことの泡は漂う面に出さない');
+    await until(`const n = ${bubIn('架空の申請書')}; return !!n && n.classList.contains('is-pin-key')`);
+    assert.equal(await js(`return ${bubIn('架空の経費')}.classList.contains('is-pin-key')`), false);
     /* 先に済ませる */
     await openIn('架空の経費');
     await js(`document.querySelector('.bc-fields .bc-first').click()`);
     assert.equal(await js(`return document.querySelector('.bc-fields .bc-pick-note').textContent`), '先に済ませるに入れた');
     await close();
-    await until(`return !!document.querySelector('#pane-today .today-plate .tp-first')`);
-    const f = await js(`return { t: document.querySelector('#pane-today .tp-first-t').textContent,
-      seats: [...document.querySelectorAll('#pane-today .tp-seat')].map(b => b.textContent) }`);
-    assert.match(f.t, /^〜 \d{1,2}:\d{2}$/);
-    assert.deepEqual(f.seats, ['架空の経費の提出外の約束', '＋']);
-    /* 漂う泡は枠に入らない（drift の keepOut） */
-    await sleep(1500);
-    const overlap = await js(`const p = document.querySelector('#pane-today .today-plate').getBoundingClientRect();
-      return [...document.querySelectorAll('#pane-today .today-stage .bub-field > .bub, #pane-today .today-stage .bub')].filter(n => n.offsetParent).some(n => {
-        const r = n.getBoundingClientRect(); const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, rad = r.width / 2;
-        const qx = Math.max(p.left, Math.min(cx, p.right)), qy = Math.max(p.top, Math.min(cy, p.bottom));
-        return Math.hypot(cx - qx, cy - qy) < rad - 4; })`);
-    assert.equal(overlap, false, '泡が枠に入っている');
+    await until(`const n = ${bubIn('架空の経費')}; return !!n && n.classList.contains('is-pin-first')`);
+    /* 色の 1 枚（.wob::after）が出ていて、泡の大きさはふつうの泡と同じ作り（形は変えない） */
+    const pinCss = await js(`const n = ${bubIn('架空の経費')}; return getComputedStyle(n.querySelector('.wob'), '::after').content`);
+    assert.notEqual(pinCss, 'none');
+    assert.equal(await js(`return document.querySelectorAll('#pane-today .tp-key, #pane-today .tp-first, #pane-today .tp-none').length`), 0, '前の枠は無い');
     await js(`document.querySelector('#tabbar button[data-screen="sea"]').click()`);
   });
 
