@@ -403,8 +403,11 @@ html.has-userbtn .today-top { left: 114px; }
   font-size: 12.5px; font-weight: 600; letter-spacing: .02em;
   transition: background-color .12s, color .12s;
 }
-.today-edge[data-dir="left"]  { left: 0;  border-right: 1px dashed var(--line-strong); }
-.today-edge[data-dir="right"] { right: 0; border-left: 1px dashed var(--line-strong); }
+.today-edge[data-dir="left"]  { left: 0;  border-right: 3px solid var(--bub-edge); }
+.today-edge[data-dir="right"] { right: 0; border-left: 3px solid var(--bub-edge); }
+/* 境界をはっきりさせる（2026-11-25 利用者の指示「明日に送る、昨日に送る部分と明示的な境界をつけて」）。
+   前は 1px の点線と 10% の色で、どこからが送る場所か分かりにくかった。太い実線と、帯ぜんたいの色を濃くする */
+.today-edge { background: color-mix(in srgb, var(--bub-edge) 18%, var(--surface) 30%); }
 .today-edge .ar { font-size: 17px; line-height: 1; }
 /* 細い帯でも読めるよう、日と曜日を2行に分けて横書きのまま出す */
 .today-edge .lb { display: grid; justify-items: center; line-height: 1.25; }
@@ -421,8 +424,8 @@ html.has-userbtn .today-top { left: 114px; }
   background: color-mix(in srgb, var(--bub-edge) 26%, transparent);
   color: var(--text);
 }
-.today-edge[data-dir="left"].is-over  { border-right-style: solid; border-right-color: var(--bub-edge); }
-.today-edge[data-dir="right"].is-over { border-left-style: solid; border-left-color: var(--bub-edge); }
+.today-edge[data-dir="left"].is-over  { border-right-width: 5px; }
+.today-edge[data-dir="right"].is-over { border-left-width: 5px; }
 /* 掴んでいる間は、さいころを消す。右上の 58〜106px は帯の札の場所と重なるうえ、
    さいころは落とし先ではない（狙わせない。海が掴んでいる間に看板を消すのと同じ） */
 .today-stage.is-bubdrag .today-random { opacity: 0; pointer-events: none; }
@@ -513,7 +516,8 @@ body:not(.pref-dice) .today-tools { right: 10px; }
   border-color: var(--bub-edge);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent);
 }
-.today-stage.is-bubdrag .today-filterbtn { opacity: 0; pointer-events: none; }
+.today-stage.is-bubdrag .today-filterbtn,
+body.is-pressing .today-stage .today-filterbtn, body.is-focusing .today-stage .today-filterbtn { opacity: 0; pointer-events: none; }   /* 押している間・中央に持っている間も（2026-11-25） */
 /* 掴んでいる間は、上の札をすべて消す（2026-11-24 Issue #97「バブルを掴むと一部のボタンが隠れない、全て隠して」）。
    前は日付と ‹ ›・おすすめの札が残っていた（おすすめは上で消している） */
 .today-stage.is-bubdrag .today-dayrow { opacity: 0; pointer-events: none; }

@@ -2672,3 +2672,10 @@ VM で上げるのは `tools/server-setup.sh min-schema-set <版>`（控え `.se
 - 過ぎた日の制限を外した：書き足す欄（`syncComposer`）・おすすめ（`syncSuggest`・`toggleSuggest`）・さいころ（`is-readonly` を付けない）・大事と先にの魚と枠（`renderCorners`・`renderWide`・`dropToPlate`・`placeFirst`・`seatDrag`）。先に済ませるの段の様子（`plateState`）は、今日以外は先の日と同じく区切りの時間を数えない
 - 盤の「今日」の段（`js/bubble.js` の `.bc-pick`）は、今日の画面で別の日を映しているときはその日に入れる（`js/app.js` の `pickDay`、`js/screens/today.js` の `shownDay`）。見出しと札の名前もその日（「11/26」「★ 大事なこと」）。区切りの時間を数え始めるのは今日に入れたときだけ
 - `tests/e2e-board.mjs` の `until` は先頭に `return` を足すので、`const` で始まる式が構文の誤りになり、ずっと待ち切れなかった（`is-pin-key` の段で止まっていたのはこれ）。`const`・`let` で始まる式には足さない
+
+## 先にの済んだ泡・押している間のボタン・帯の境界（2026-11-25 の 2）
+
+- `firstOver(t)`（js/screens/today.js）= 完了、または今日を映していて着手の印（［今日はここまで］・集中で目標に届いた）がある。先に済ませるの色（`pinsOf`）・段の済み（`firstState` の done）・大きい画面の席の is-done はこれで見る。前は完了だけだった
+- js/bubble.js の押した瞬間に `body.is-pressing`（離す・取り消すで外す）。海の上のボタン（.sea-narrow ほか）と今日のフィルターは、`is-bubdrag` に加えて `is-pressing`・`is-focusing`（中央に持って盤を開いている間）でも消す。中央の泡は画面の上、フィルターと同じ高さに来るため
+- 今日の魚の吹き出し（.tp-fish-s）は掴んでいる間も出さない。中身は魚の aria-label に回した
+- 帯（.today-edge）は 3px の実線（乗ると 5px）と 18% の色。札の言葉は「移す」→「送る」

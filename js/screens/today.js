@@ -360,11 +360,11 @@ function plateState() {
       let at = firstStartedAt(day);
       /* 前の日やほかの端末で入れた泡は、この端末で今日初めて見た時刻から数える */
       if (rows.length && at === null) at = markFirstStarted(day, Date.now());
-      st = firstState(rows.map(t => ({ done: isDoneItem(t) })), at, firstMinutes(), Date.now());
+      st = firstState(rows.map(t => ({ done: firstOver(t) })), at, firstMinutes(), Date.now());
     } else {
       /* 先の日も過ぎた日も同じ（2026-11-25 利用者の指示「今日以外の日付の海での操作が今日の海と対称的ではない（基本動作は同じにして）」）。
          区切りの時間を数えるのは今日だけ */
-      st = firstState(rows.map(t => ({ done: isDoneItem(t) })), null, firstMinutes(), Date.now());
+      st = firstState(rows.map(t => ({ done: firstOver(t) })), null, firstMinutes(), Date.now());
     }
   }
   /* 段を出すか（2026-11-24 ユーザーの指示「先にやるの枠がない」）。前は入れた泡があるときだけ出していたので、
@@ -385,7 +385,8 @@ function hhmm(ms) {
    両方なら今日大事なことを先に） */
 function pinsOf(ps) {
   const out = new Map();
-  if (ps.st.open || isPast()) ps.rows.forEach(t => out.set(t.id, 'first'));
+  /* 済んだ泡（完了・今日はここまで）には色を付けない（2026-11-25）。過ぎた日は記録として全部 */
+  if (ps.st.open || isPast()) ps.rows.forEach(t => { if (isPast() || !firstOver(t)) out.set(t.id, 'first'); });
   if (ps.key) out.set(ps.key.id, 'key');
   return out;
 }
@@ -438,7 +439,7 @@ function renderWide(ps) {
     }
     const seats = el('div', 'tp-seats');
     ps.rows.forEach(t => {
-      const done = isDoneItem(t);
+      const done = firstOver(t);
       const b = el('button', 'tp-seat' + (done ? ' is-done' : ''));
       b.type = 'button';
       const nm = el('span', 'tp-seat-nm');
@@ -645,9 +646,12 @@ function syncFish(kind, show, head, sub, name, closed) {
   box.classList.toggle('is-closed', !!closed);
   box.dataset.name = name + 'の魚';
   box.title = name + '：泡を掴んでこの魚の上で離すと入る';
+  /* 掴んでいる間の「離すと〜」の吹き出しは出さない（2026-11-25 利用者の指示「今日の海の泡をホールドしたときの中央左右の
+     「離すと〜」の２つの表示を消して（右下、左下の表示で十分）」）。読み上げには魚の名前に添えて渡す */
   const s = box.querySelector('.tp-fish-s');
-  s.textContent = sub;
-  s.hidden = !sub;
+  s.textContent = '';
+  s.hidden = true;
+  box.setAttribute('aria-label', name + (sub ? '。' + sub : ''));
 }
 /* 魚の絵（左向き）。形だけを組み、色は CSS（--mark）で塗る。赤は使わない */
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -1234,6 +1238,13 @@ function reduceMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 
+/* 先に済ませるの泡が、その日はもう済んだか：完了したか、今日なら［今日はここまで］（着手の印）を押したか。
+   2026-11-25 利用者の指示「先にを今日はここまでにしても同じ様に光っている。終わったのだから目立たせなくして」。
+   前は完了だけを見ていたので、今日はここまでにした泡も区切りの時間まで青みの色が付いたままだった */
+function firstOver(t) {
+  return isDoneItem(t) || (!!t && isToday() && isStarted(t.id));
+}
+
 function isDoneItem(t) {
   if (!t) return false;
   if (typeof store.isDone === 'function') {
@@ -1796,7 +1807,7 @@ function renderDayEdges() {
     const copy = overEdge === dir && edgeCopy;
     e.el.classList.toggle('is-copy', copy);
     if (!k) return;
-    e.mo.textContent = copy ? '＋コピー' : '移す';
+    e.mo.textContent = copy ? '＋コピー' : '送る';
     const d = dayToDate(k);
     /* 帯は細いので、日と曜日を2行に分ける（横書きのまま読める）。
        縦書きにすると、掴んでいるバブルが真ん中を隠したときに読めなくなる */
@@ -2453,7 +2464,7 @@ export default {
       const lb = el('span', 'lb');
       const md = el('span', 'md');
       const dw = el('span', 'dw');
-      const mo = el('span', 'mo', '移す');    /* 止めて待つと「＋コピー」（Issue #97） */
+      const mo = el('span', 'mo', '送る');    /* 止めて待つと「＋コピー」（Issue #97） */
       lb.appendChild(md);
       lb.appendChild(dw);
       lb.appendChild(mo);

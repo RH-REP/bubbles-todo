@@ -4108,6 +4108,9 @@ export function attachGestures(node, handlers = {}) {
     let track = [{ x: startX, y: startY, t: ev.timeStamp || performance.now() }];
 
     node.classList.add('is-held');          /* 押している間、膜がたわむ */
+    /* 押している間も、海・今日の上のボタンを消す（2026-11-25 利用者の指示「基本の海の泡ホールド中にフィルターボタンが未だに一番前にくる」。
+       前は動かし始めて（.is-bubdrag）から消していたので、押して止めている間と、中央に持っている間（body.is-focusing）は前に残っていた） */
+    document.body.classList.add('is-pressing');
 
     /* 長押しではメニューを開かない。操作の入口は中央の盤ひとつ（追補：統合）。
        長く押してから動かせば、いままでどおりドラッグになる。 */
@@ -4207,6 +4210,7 @@ export function attachGestures(node, handlers = {}) {
 
     function cleanup() {
       node.classList.remove('is-held');
+      document.body.classList.remove('is-pressing');
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
