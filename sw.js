@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-24s';
+const VERSION = '2026-11-24t';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -196,14 +196,28 @@ self.addEventListener('install', (ev) => {
   ev.waitUntil((async () => {
     if (await holdingNow()) throw new Error('更新を止めている（設定の「新しい版に自動で入れ替えない」）');
     const box = await caches.open(CACHE);
-    /* cache: 'reload' で HTTP キャッシュを飛ばす。
-       ここで古いものを掴むと、箱ごと古いまま固まる */
-    await box.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })));
+    /* cache: 'reload' で端末の HTTP キャッシュを飛ばす。ここで古いものを掴むと、箱ごと古いまま固まる。
+       2026-11-24（Issue #96。2 度、新しい CSS と古い JS が混ざって届いた）：配信の途中の写し（GitHub Pages の CDN など。
+       ファイルごとに数分古いことがある）は cache: 'reload' では飛ばせないので、住所に ?v=版 を付けて取る
+       （写しは住所ごとに持つので、新しい住所は元から取り直される）。箱には ?v= の無い住所で入れる
+       （取り出しは ignoreSearch で引き、入口の './index.html' もそのまま引ける）。1 つでも取れなければ入れ替えない（addAll と同じ） */
+    const bust = (u) => u + (u.indexOf('?') < 0 ? '?' : '&') + 'v=' + encodeURIComponent(VERSION);
+    const take = async (u) => {
+      const res = await fetch(new Request(bust(u), { cache: 'reload' }));
+      if (!res.ok) throw new Error('取れなかった: ' + u + ' ' + res.status);
+      return res;
+    };
+    try {
+      const got = await Promise.all(ASSETS.map(async (u) => [u, await take(u)]));
+      await Promise.all(got.map(([u, res]) => box.put(new Request(u), res)));
+    } catch (e) {
+      await caches.delete(CACHE);   /* 半端な箱を残さない（次の install でまた全部取る） */
+      throw e;
+    }
     await Promise.all(OPTIONAL.map(async (u) => {
       try {
-        const req = new Request(u, { cache: 'reload' });
-        const res = await fetch(req);
-        if (res.ok) await box.put(req, res);
+        const res = await take(u);
+        await box.put(new Request(u), res);
       } catch (e) { /* 取れなければ箱に入れないだけ（網から開く） */ }
     }));
   })());

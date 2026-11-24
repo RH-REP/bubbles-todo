@@ -673,6 +673,8 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
    入れ物は z-index を付けず、泡（field）より先に面へ入れてあるので、泡は目印の上に描かれる。指も透かす（pointer-events: none）。
    泡を掴んでいる間（.is-drag）だけ、日を移す帯（z-index 9）より上に出し、少し大きくして「離すとどうなるか」を添える */
 .today-corners { position: absolute; inset: 0; pointer-events: none; }
+/* 前の版（滝）の JS が混ざって届いたときの滝の部品は出さない（飾りの無い字が左上に並び、上のボタンと重なったため。Issue #96 の 5 回目の返事） */
+.today-corners .tp-fall { display: none !important; }
 .today-corners.is-drag { z-index: 10; }
 .today-corners[hidden] { display: none; }
 .today-stage.is-list .today-corners, .today-stage.is-quad .today-corners { display: none; }

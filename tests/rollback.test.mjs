@@ -180,6 +180,19 @@ async function upTo(version, env) {
   return sw;
 }
 
+test('sw.js: install は住所に ?v=版 を付けて取り（配信の途中の古い写しを避ける）、箱には ?v= の無い住所で入れる（Issue #96）', async () => {
+  const env = fakeCaches();
+  const asked = [];
+  const real = env.serverFetch;
+  env.serverFetch = async r => { asked.push(typeof r === 'string' ? r : r.url); return real(r); };
+  await upTo('2026-11-30a', env);
+  assert.ok(asked.length > 0);
+  assert.ok(asked.every(u => new URL(u).searchParams.get('v') === '2026-11-30a'), asked.filter(u => !u.includes('v=2026-11-30a')).join(' '));
+  const sw = loadSW('2026-11-30a', env);
+  const res = await sw.fetch('./js/app.js');
+  assert.equal(await res.text(), 'app 2026-11-30a');
+});
+
 test('sw.js: 新しい版が入っても1つ前の箱だけ残し、それより古い箱は消す', async () => {
   const env = fakeCaches();
   await upTo('2026-11-01a', env);

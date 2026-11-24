@@ -431,7 +431,8 @@ function svgEl(tag, attrs) {
   return n;
 }
 function markSvg(parts) {
-  const svg = svgEl('svg', { viewBox: '0 0 48 60', class: 'tp-mark-ic', 'aria-hidden': 'true', focusable: 'false' });
+  /* width・height も属性で持たせる（CSS が古いまま届いても、絵が面いっぱいに広がらない。Issue #96） */
+  const svg = svgEl('svg', { viewBox: '0 0 48 60', width: '46', height: '58', class: 'tp-mark-ic', 'aria-hidden': 'true', focusable: 'false' });
   parts.forEach(([tag, attrs]) => svg.appendChild(svgEl(tag, attrs)));
   return svg;
 }
