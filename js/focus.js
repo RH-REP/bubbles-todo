@@ -33,7 +33,10 @@
      { reachedGoal: false, completed: true, reason: 'done' }
      完了と「はじめた」は別のこと。両方は立てない（closeFocus が reachedGoal を落とす）。
      音も store も呼び出し側の仕事。ここでは鳴らさないし触らない。取り消しも呼び出し側。
-   どの道でも、書きかけがあれば「記録するか」を画面の中で聞く（confirm() は使わない）。
+   2026-11-24 利用者の指示「始めるの中が洗練されていない 不要なものを減らして洗練して」:
+   作業記録の欄は盤と同じ 1 つ（作業記録）にした。前の 最後になにをしてたか・開始の１手・
+   リンクの字・作業メモ・次の一手・［記録する］と、抜けるときの「記録するか」の問いは外した。
+   作業記録は盤と同じく、欄から離れたとき・閉じたときに書き、変わっていれば履歴に 1 件積む。
 
    store は一切触らない。着手の記録は呼び出し側が済ませてから開く。
    「書く」も作業ログも同じで、預け先は setCaptureHandler() /
@@ -56,15 +59,14 @@ export function setCaptureHandler(fn) {
 
 /* 作業ログ（一手の記録）の預け先。これも外から差してもらう。
    a = {
-     lastStep(id),                 // { at, did, next } または null
-     firstStep(id),                // 文字列
-     url(id),                      // 文字列
-     draft(id),                    // { did, next }
-     saveDraft(id, {did, next}),   // 下書きの自動保存（記録ではない）
-     commit(id, {did, next}),      // 「記録する」。戻り値は積んだ記録
-     amendLast(id, {did}),         // 書き損じ直し。新しい記録は増やさない
+     detail(id),                   // 作業記録（盤の欄と同じ中身）
+     setDetail(id, text),          // 作業記録を書く（履歴には積まない）
+     firstStep(id),                // 作業記録が空の前の泡で、初めの中身にする
+     url(id),                      // 文字列。題の下の［開く ›］
+     commit(id, {did, next}),      // 履歴に 1 件積む（next＝1 行目＝次にやること）
+     steps(id), editStep(id, at, v) // 作業記録の履歴（盤と共通の一覧）
    }
-   差されていなければ作業ログの欄は一切出さない（従来どおりの集中画面になる）。 */
+   差されていなければ作業記録の欄は一切出さない（従来どおりの集中画面になる）。 */
 let worklogAdapter = null;
 export function setWorklogHandler(a) {
   worklogAdapter = (a && typeof a === 'object') ? a : null;
@@ -86,10 +88,6 @@ const TICK_MS = 250;
 /* 下書き（と書き損じ直し）の自動保存の間合い。打つたびには書かない。
    plan.js の SAVE_MS と同じ値にしてある。 */
 const SAVE_MS = 400;
-
-/* 記録には「次の一手」が要る（git のように、記録は必ず「次はここから」を持つ）。
-   押せない理由を出すときの言い方。命令形にしない＝「入れてください」とは言わない。 */
-const NEXT_REQUIRED = '記録には次の一手が要る';
 
 const RING_R = 54;                          // css/focus.css の viewBox に合わせてある
 const RING_C = 2 * Math.PI * RING_R;
@@ -151,17 +149,16 @@ export function openFocus(opts) {
   /* 本文。いちばん大きく */
   head.appendChild(el('h1', 'focus-title', escapeHtml(title)));
 
-  /* 作業ログを出すときは、最初の一手とリンクは下（ログの欄）で出す。
-     出さないときだけ、従来どおり本文の下に置く。 */
-  if (!log) {
-    if (firstStep) head.appendChild(el('p', 'focus-step', escapeHtml(firstStep)));
-    if (href) {
-      const a = el('a', 'btn focus-link', '開く');
-      a.href = href;                        // 属性ではなくプロパティで入れる
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      head.appendChild(a);
-    }
+  /* 次にやることは、作業記録の欄があるときはその 1 行目が受け持つ（同じ字を 2 度出さない）。
+     リンクは字を出さず［開く ›］だけ（2026-11-24。URL の字は読まない） */
+  if (!log && firstStep) head.appendChild(el('p', 'focus-step', escapeHtml(firstStep)));
+  if (href) {
+    const a = el('a', 'focus-link', '開く ›');
+    a.href = href;                          // 属性ではなくプロパティで入れる
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.setAttribute('aria-label', 'リンクを開く');
+    head.appendChild(a);
   }
   scroll.appendChild(head);
 
@@ -230,7 +227,6 @@ export function openFocus(opts) {
     totalMs, minutes,
     onClose,
     capture, log,
-    ask: null,                              // 「記録するか」を聞いている間だけ入る
     timer: 0,
     over: false,
     prevFocus: document.activeElement,
@@ -256,9 +252,6 @@ export function openFocus(opts) {
     if (!state || fromFeedback(ev)) return;   /* 右上の ! の欄。Escape で集中を閉じない・Tab を奪わない */
     if (ev.key === 'Escape') {
       ev.preventDefault(); ev.stopPropagation();
-      /* 聞いている最中の Escape は「記録しない」にあたる。
-         Escape を二度手間にしないため。打った文字は下書きとして残るので何も捨てない。 */
-      if (state.ask) { closeFocus(state.ask.info); return; }
       const active = document.activeElement;
       if (active && state.root.contains(active) && isTextField(active)) {
         active.blur();                      // 値はそのまま。blur で保存も走る
@@ -271,11 +264,10 @@ export function openFocus(opts) {
   };
   document.addEventListener('keydown', state.onKeydown, true);
 
-  /* 背後の要素にフォーカスが抜けたら引き戻す。
-     聞いている間は、その囲みの中だけに閉じる */
+  /* 背後の要素にフォーカスが抜けたら引き戻す */
   state.onFocusin = (ev) => {
     if (!state || fromFeedback(ev)) return;   /* ! の欄へ移った焦点は引き戻さない（引き戻すと打てない） */
-    const scope = state.ask ? state.ask.node : state.root;
+    const scope = state.root;
     if (!scope.contains(ev.target)) {
       const list = focusables();
       (list[0] || scope).focus();
@@ -318,7 +310,7 @@ export function closeFocus(overrides) {
   document.removeEventListener('keydown', s.onKeydown, true);
   document.removeEventListener('focusin', s.onFocusin, true);
   document.removeEventListener('visibilitychange', s.onVisibility);
-  s.root.remove();                           // 聞いている囲みも一緒に消える
+  s.root.remove();
 
   const elapsedMs = Date.now() - s.startedAt;
   /* **既定は false。**前は `elapsedMs >= totalMs` で時計が決めていたが、
@@ -375,66 +367,10 @@ function reportSession(s, info) {
 
 /* ---------- 抜けるとき ---------- */
 
-/* 抜ける前に一度だけ「記録するか」を聞く。
-   書きかけが何も無ければ聞かずにそのまま閉じる（毎回止めない）。 */
+/* 抜ける。作業記録は閉じぎわに書く（closeFocus の flushDrafts）ので、聞かずに閉じる */
 function requestClose(info) {
   if (!state) return;
-  if (state.ask) return;                     // もう聞いている
-  if (state.log && state.log.hasText()) { openAsk(info); return; }
   closeFocus(info);
-}
-
-/* 画面の中で聞く。confirm() は使わない（集中画面の外に飛ばさないため）。
-   「記録する」「記録しない」の2択で、どちらを選んでも閉じる。
-   記録しないほうを選んでも、打った文字は下書きとして残る（closeFocus の flushDrafts）。 */
-function openAsk(info) {
-  const canCommit = !!(state.log && state.log.canCommit());
-
-  const node = el('div', 'focus-ask');
-  node.tabIndex = -1;                        // 行き場が無いときの受け皿
-  const panel = el('div', 'focus-ask-panel');
-  panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-labelledby', 'focus-ask-q');
-  panel.dataset.screen = 'focus.ask'; panel.dataset.screenLayer = '7';   /* focus の中にあるので、同じ層でも深いこちらが勝つ */
-
-  /* 淡々と。命令形にしない。件数も「何回目」も出さない */
-  const q = el('p', 'focus-ask-q', escapeHtml('書いたものを記録しますか'));
-  q.id = 'focus-ask-q';
-  panel.appendChild(q);
-
-  /* 押せない理由が分かること。叱らない言い方で */
-  if (!canCommit) {
-    const why = el('p', 'focus-ask-why', escapeHtml(NEXT_REQUIRED));
-    why.id = 'focus-ask-why';
-    panel.appendChild(why);
-  }
-  /* 捨てさせない、が伝わること */
-  panel.appendChild(el('p', 'focus-ask-why',
-    escapeHtml('記録しないときも、書いたものは下書きとして残ります')));
-
-  const row = el('div', 'focus-ask-row');
-  const no = el('button', 'btn focus-ask-no', '記録しない');
-  no.type = 'button';
-  const yes = el('button', 'focus-ask-yes', '記録する');
-  yes.type = 'button';
-  yes.disabled = !canCommit;
-  if (!canCommit) yes.setAttribute('aria-describedby', 'focus-ask-why');
-  row.appendChild(no);
-  row.appendChild(yes);
-  panel.appendChild(row);
-
-  node.appendChild(panel);
-
-  no.addEventListener('click', () => closeFocus(info));
-  yes.addEventListener('click', () => {
-    if (yes.disabled) return;
-    if (state && state.log) state.log.commit();   // 積めなくても下書きは残る
-    closeFocus(info);
-  });
-
-  state.ask = { node, info };
-  state.root.appendChild(node);
-  (canCommit ? yes : no).focus();
 }
 
 /* ---------- 中身 ---------- */
@@ -548,109 +484,45 @@ function ask(a, name, ...args) {
   return undefined;
 }
 
-function fieldLabel(text) {
-  return el('span', 'focus-label', escapeHtml(text));
+/* 作業記録の 1 行目（＝次にやること）。bubble.js の firstLineOf と同じ */
+function firstLineOf(t) {
+  return String(t == null ? '' : t).split('\n').map(x => x.trim()).find(Boolean) || '';
 }
 
-/* 一手の記録。id とアダプタが無ければ何も作らない（従来どおりの集中画面になる） */
+/* 作業記録（2026-11-24。盤の作業記録と同じ 1 つの欄）。
+   id とアダプタが無ければ何も作らない（従来どおりの集中画面になる）。
+   ・中身は盤と同じ本文（detail）。作業記録が空で次にやることだけある前の泡は、それを初めの中身にする
+   ・打っている間は本文だけ書く（SAVE_MS おき。履歴は増やさない）
+   ・欄から離れたとき・閉じたとき・裏に回ったときに、前に積んだ中身と違えば履歴に 1 件積む
+     （盤の saveDetail と同じ。空にしたときは積まない）
+   ・見出しの行に［履歴を見る ›］（記録があるときだけ）。開くと欄の下に盤と共通の一覧 */
 function buildWorklog(id, a) {
   if (id == null || id === '') return null;
   if (!a || typeof a !== 'object') return null;
+  if (typeof a.setDetail !== 'function') return null;   /* 書く口の無い版では出さない */
 
   const node = el('section', 'focus-log');
-  node.setAttribute('aria-label', '一手の記録');
-  node.tabIndex = -1;                       // 記録したあとの行き先。Tab の順には入らない
+  node.setAttribute('aria-label', '作業記録');
 
-  /* --- 最後になにをしてたか。書き損じだけ直せる（新しい記録は増やさない） --- */
-  const lastWrap = el('div', 'focus-field');
-  lastWrap.appendChild(fieldLabel('最後になにをしてたか'));
-  const lastArea = document.createElement('textarea');
-  lastArea.className = 'focus-input';
-  lastArea.rows = 2;
-  lastArea.setAttribute('aria-label', '最後になにをしてたか');
-  lastWrap.appendChild(lastArea);
-  node.appendChild(lastWrap);
-
-  /* --- 開始の１手。表示だけ（編集経路は「次の一手」の1本だけにする） --- */
-  const stepWrap = el('div', 'focus-field');
-  stepWrap.appendChild(fieldLabel('開始の１手'));
-  const stepText = el('p', 'focus-read is-step');
-  stepWrap.appendChild(stepText);
-  node.appendChild(stepWrap);
-
-  /* --- リンク。表示だけ＋「開く」。http/https 以外は「開く」を出さない --- */
-  const urlWrap = el('div', 'focus-field');
-  urlWrap.appendChild(fieldLabel('リンク'));
-  const urlRow = el('div', 'focus-read-row');
-  const urlText = el('p', 'focus-read is-url');
-  const urlOpen = el('a', 'btn focus-open', '開く');
-  urlOpen.target = '_blank';
-  urlOpen.rel = 'noopener noreferrer';
-  urlRow.appendChild(urlText);
-  urlRow.appendChild(urlOpen);
-  urlWrap.appendChild(urlRow);
-  node.appendChild(urlWrap);
-
-  /* --- 作業メモ（今回なにをしてたか）。初期は空白 --- */
-  const didWrap = el('div', 'focus-field');
-  didWrap.appendChild(fieldLabel('作業メモ'));
-  const didArea = document.createElement('textarea');
-  didArea.className = 'focus-input';
-  didArea.rows = 2;
-  didArea.setAttribute('aria-label', '作業メモ');
-  didWrap.appendChild(didArea);
-  node.appendChild(didWrap);
-
-  /* --- 次の一手。記録すると「開始の１手」になる --- */
-  const nextWrap = el('div', 'focus-field');
-  nextWrap.appendChild(fieldLabel('次の一手'));
-  const nextInput = document.createElement('input');
-  nextInput.type = 'text';
-  nextInput.className = 'focus-input is-one';
-  nextInput.autocomplete = 'off';
-  nextInput.setAttribute('aria-label', '次の一手');
-  nextWrap.appendChild(nextInput);
-
-  /* なぜ「記録する」が押せないかが、欄の近くで分かること。
-     叱らないよう、規則をそのまま置くだけにする（常に出す＝反応として出さない）。 */
-  const nextHint = el('p', 'focus-hint', escapeHtml(NEXT_REQUIRED));
-  nextHint.id = 'focus-next-hint';
-  nextWrap.appendChild(nextHint);
-  node.appendChild(nextWrap);
-
-  /* --- 記録する。押したときにだけ1件積む --- */
-  const commit = el('button', 'focus-commit', '記録する');
-  commit.type = 'button';
-  commit.setAttribute('aria-describedby', 'focus-next-hint');
-  node.appendChild(commit);
-
-  /* 積んだことだけを短く返す。件数も「何回目」も出さない */
-  const said = el('p', 'focus-said');
-  said.setAttribute('role', 'status');
-  node.appendChild(said);
-
-  /* --- 履歴（利用者の指示）---
-
-     **入れ替えではなく、その場で開く**（盤は狭いので面ごと差し替えているが、
-     こちらは縦にスクロールする囲みなので、開いて押しのけるほうが素直）。
-     タイマーには触らない（追補2 §A）。
-
-     置き場所は**「記録する」の下**。最初は「最後になにをしてたか」の隣に置いたが、
-     開いた瞬間に 次の一手 と 記録する が画面の外へ出た（実測。240px でも足りない）。
-     **この画面の仕事は書くほうで、履歴は読むための添えもの**なので、
-     添えもののほうが下がる。ここなら開いても上の欄は動かない。
-
-     記録が1件も無ければボタンごと出さない（押しても何も無い的を作らない）。
-     記録したら、その場で組み直す（開いたまま増える）。 */
-  const histBtn = el('button', 'focus-histbtn', '履歴');
+  const headRow = el('div', 'focus-lb-row');
+  headRow.appendChild(el('span', 'focus-label', '作業記録'));
+  const histBtn = el('button', 'focus-histbtn', '履歴を見る ›');
   histBtn.type = 'button';
   histBtn.setAttribute('aria-expanded', 'false');
   histBtn.hidden = true;
-  node.appendChild(histBtn);
+  headRow.appendChild(histBtn);
+  node.appendChild(headRow);
+
+  const area = document.createElement('textarea');
+  area.className = 'focus-input';
+  area.rows = 4;
+  area.placeholder = '1 行目が次にやること';
+  area.setAttribute('aria-label', '作業記録（1 行目が次にやること）');
+  node.appendChild(area);
 
   const histBox = el('div', 'focus-hist');
   histBox.setAttribute('role', 'group');
-  histBox.setAttribute('aria-label', '履歴');
+  histBox.setAttribute('aria-label', '作業記録の履歴');
   histBox.hidden = true;
   node.appendChild(histBox);
 
@@ -658,165 +530,53 @@ function buildWorklog(id, a) {
     const rows = ask(a, 'steps', id);
     return Array.isArray(rows) ? rows : [];
   }
-
-  /* 記録を直す（利用者の指示）。口が無い版では「直す」を出さない。
-     直したら組み直す——いちばん新しい記録を直すと「次の一手」も付いていくので、
-     この画面の欄も読み直す */
-  const onEditStep = (a && typeof a.editStep === 'function')
+  const onEditStep = (typeof a.editStep === 'function')
     ? ((at, entry) => {
       if (ask(a, 'editStep', id, at, entry) === false) return false;
       syncHist();
-      loadLast();
       return true;
     })
     : null;
-
-  /* 開いていれば中身を組み直す。ボタンの出し入れもここでやる */
   function syncHist() {
     const rows = stepsNow();
     histBtn.hidden = rows.length === 0;
     if (histBtn.hidden) { histBox.hidden = true; histBtn.setAttribute('aria-expanded', 'false'); }
+    histBtn.textContent = histBox.hidden ? '履歴を見る ›' : '履歴を閉じる';
     if (histBox.hidden) return;
     histBox.replaceChildren(stepList(rows, onEditStep));
   }
-
   histBtn.addEventListener('click', ev => {
     ev.preventDefault();
-    const open = histBox.hidden;
-    histBox.hidden = !open;
-    histBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (open) histBox.replaceChildren(stepList(stepsNow(), onEditStep));
+    histBox.hidden = !histBox.hidden;
+    histBtn.setAttribute('aria-expanded', histBox.hidden ? 'false' : 'true');
+    syncHist();
   });
 
-
-  /* ---- 初期値 ---- */
-  function loadLast() {
-    const last = ask(a, 'lastStep', id);
-    const has = !!(last && typeof last === 'object');
-    lastWrap.hidden = !has;                 // 記録が1件も無ければ欄ごと出さない
-    lastArea.value = has ? String(last.did == null ? '' : last.did) : '';
-  }
-
-  /* 「開始の１手」「リンク」はアダプタ側が正。記録した直後に変わるため */
-  function loadRead() {
-    const fs = String(ask(a, 'firstStep', id) || '').trim();
-    stepText.textContent = fs;
-    stepWrap.hidden = !fs;
-
-    const raw = String(ask(a, 'url', id) || '').trim();
-    urlText.textContent = raw;
-    urlWrap.hidden = !raw;
-    const href = safeUrl(raw);
-    if (href) { urlOpen.href = href; urlOpen.hidden = false; }
-    else { urlOpen.removeAttribute('href'); urlOpen.hidden = true; }
-  }
-
-  const draft = ask(a, 'draft', id) || {};
-  didArea.value = String(draft.did == null ? '' : draft.did);
-  nextInput.value = String(draft.next == null ? '' : draft.next);
-
-  loadLast();
-  loadRead();
+  /* 初めの中身。前に積んだ中身（rec0）と比べて、変わったときだけ積む */
+  let rec0 = String(ask(a, 'detail', id) || '') || String(ask(a, 'firstStep', id) || '');
+  area.value = rec0;
   syncHist();
 
-  /* ---- 下書きの自動保存（記録ではない） ---- */
-  let draftTimer = 0;
-  function saveDraft() {
-    clearTimeout(draftTimer); draftTimer = 0;
-    ask(a, 'saveDraft', id, { did: didArea.value, next: nextInput.value });
+  let timer = 0;
+  function writeDetail() {
+    clearTimeout(timer); timer = 0;
+    ask(a, 'setDetail', id, area.value);
   }
-  function queueDraft() {
-    clearTimeout(draftTimer);
-    draftTimer = setTimeout(saveDraft, SAVE_MS);
+  function save() {
+    writeDetail();
+    const v = area.value.trim();
+    if (v === rec0.trim()) return;
+    if (v) ask(a, 'commit', id, { did: v, next: firstLineOf(v) });
+    rec0 = area.value;
+    syncHist();
   }
-
-  /* 「次の一手」が空のときは記録できない。
-     記録は必ず「次はここから」を持つ（git のように）。
-     「作業メモ」は空でも押せる。 */
-  function syncCommit() {
-    commit.disabled = !nextInput.value.trim();
-    nextHint.classList.toggle('is-blocking', commit.disabled);
-  }
-  syncCommit();
-
-  [didArea, nextInput].forEach(nd => {
-    nd.addEventListener('input', () => {
-      said.textContent = '';
-      syncCommit();
-      queueDraft();
-    });
-    nd.addEventListener('blur', saveDraft);
+  area.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(writeDetail, SAVE_MS);
   });
+  area.addEventListener('blur', save);
 
-  /* ---- 書き損じ直し。打つたびには呼ばない ---- */
-  let amendTimer = 0;
-  function saveAmend() {
-    clearTimeout(amendTimer); amendTimer = 0;
-    if (lastWrap.hidden) return;            // 記録が無ければ直すものも無い
-    ask(a, 'amendLast', id, { did: lastArea.value });
-  }
-  lastArea.addEventListener('input', () => {
-    clearTimeout(amendTimer);
-    amendTimer = setTimeout(saveAmend, SAVE_MS);
-  });
-  lastArea.addEventListener('blur', saveAmend);
-
-  /* ---- 記録する ---- */
-  /* 抜けるときの「記録する」からも同じ道を通る。戻り値は積めたかどうか */
-  function doCommit() {
-    const did = didArea.value.trim();
-    const next = nextInput.value.trim();
-    if (!next) return false;                // 押せないはずだが、ここでも守る
-
-    /* 遅れて走る下書き保存が、記録したあとに書き戻さないように先に止める */
-    clearTimeout(draftTimer); draftTimer = 0;
-    clearTimeout(amendTimer); amendTimer = 0;
-
-    /* 店側は next が空なら null を返す。ここでも受け止める */
-    const rec = ask(a, 'commit', id, { did, next });
-    if (!rec || typeof rec !== 'object') {
-      saveDraft();                          // 積めなかった。打った文字は残す
-      return false;
-    }
-
-    didArea.value = '';
-    nextInput.value = '';
-    lastWrap.hidden = false;
-    lastArea.value = String(rec.did == null ? '' : rec.did);
-    loadRead();                             // 「開始の１手」が新しい値になる
-    syncHist();                             // 履歴も1件増える（開いていれば、その場で）
-    syncCommit();
-    said.textContent = '記録した';
-    return true;
-  }
-
-  commit.addEventListener('click', () => {
-    if (commit.disabled) return;
-    doCommit();
-
-    /* 押したボタンが押せなくなるので、フォーカスがページの外へ落ちないようにする。
-       入力欄に移すとキーボードが上がってしまうので、ログの囲みで受ける */
-    if (document.activeElement === commit || !node.contains(document.activeElement)) {
-      node.focus();
-    }
-  });
-
-  return {
-    node,
-    /* 抜けるときに聞くかどうかの判断。何か書いてあれば聞く */
-    hasText() {
-      return !!(didArea.value.trim() || nextInput.value.trim());
-    },
-    /* 記録できるか。次の一手が空なら記録できない */
-    canCommit() {
-      return !!nextInput.value.trim();
-    },
-    commit: doCommit,
-    flush() {
-      if (draftTimer) saveDraft();
-      if (amendTimer) saveAmend();
-    },
-  };
+  return { node, flush: save };
 }
 
 /* ---------- 割り込んだ考えを海へ ---------- */
@@ -867,10 +627,8 @@ function buildCapture(handler) {
 
 /* ---------- フォーカスの閉じ込め ---------- */
 
-/* 聞いている間は、その囲みの中だけを回す（後ろのボタンへ Tab で抜けさせない） */
 function focusScope() {
-  if (!state) return null;
-  return state.ask ? state.ask.node : state.root;
+  return state ? state.root : null;
 }
 
 function focusables() {

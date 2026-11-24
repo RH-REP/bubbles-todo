@@ -765,11 +765,13 @@ setCaptureHandler((text) => {
   if (t) playSfx('add');
 });
 
-/* 集中画面の作業ログ（最後になにをしてたか／次の一手）の出し入れ。
+/* 集中画面の作業記録（2026-11-24 から盤と同じ 1 つの欄）の出し入れ。
    これも focus.js を store から切り離すための差し込み口。
    店側の API がまだ無い版でも落ちないよう、1つずつ有無を見る。 */
 const has = (name) => typeof store[name] === 'function';
 setWorklogHandler({
+  detail:    (id) => (has('detailOf') ? store.detailOf(id) : ''),
+  setDetail: (id, v) => (has('setDetail') ? store.setDetail(id, v) : false),
   lastStep:  (id) => (has('lastStep') ? store.lastStep(id) : null),
   firstStep: (id) => (has('firstStepOf') ? store.firstStepOf(id) : ''),
   url:       (id) => (has('urlOf') ? store.urlOf(id) : ''),
