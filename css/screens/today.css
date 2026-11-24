@@ -662,10 +662,15 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
    入れる場所は、泡を掴んでいる間だけ出る下の角（左下＝今日大事なこと、右下＝先に済ませる）。壁にはしない（drift の keepOut に入れない）。
    入れた泡は形を変えず、色で見分ける（css/bubble.css の .is-pin-key・.is-pin-first）。
    赤は使わない。件数・割合は出さない。一覧・四つに分けて見ている間は出さない */
-.today-plate { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
-.today-plate[hidden] { display: none; }
-.today-stage.is-list .today-plate, .today-stage.is-quad .today-plate { display: none; }
-.today-plate .tp-corner {
+/* 入れ物の名前は .today-corners（前の版の枠 .today-plate とは別の名前。Issue #96 の 2 回目の返事、2026-11-24）。
+   前の版の JS と今の CSS が混ざって届くと（端末の版の入れ替えの途中・配信の古い写し）、前の JS は .today-plate を
+   drift の keepOut（泡を入れない壁）にしているので、同じ名前で面いっぱい（inset: 0）にすると面ぜんぶが壁になり、泡が消える。
+   前の JS の .today-plate は、ここでは出さない（display: none なら keepOut も数えない。drift は offsetParent の無いものを外す） */
+.today-plate { display: none !important; }
+.today-corners { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+.today-corners[hidden] { display: none; }
+.today-stage.is-list .today-corners, .today-stage.is-quad .today-corners { display: none; }
+.today-corners .tp-corner {
   position: absolute; bottom: 0; width: 148px; height: 104px; box-sizing: border-box;
   display: flex; flex-direction: column; justify-content: flex-end; gap: 2px;
   padding: 10px 12px calc(10px + var(--safe-b, 0px));
@@ -673,20 +678,20 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
   border: 1.5px dashed var(--line-strong);
   transition: background-color .12s, border-color .12s;
 }
-.today-plate .tp-corner-key {
+.today-corners .tp-corner-key {
   left: 0; border-left: 0; border-bottom: 0; border-radius: 0 64px 0 0; align-items: flex-start; text-align: left;
   border-color: color-mix(in srgb, var(--accent-b) 70%, transparent);
   background: color-mix(in srgb, var(--accent-b) 16%, color-mix(in srgb, var(--surface) 80%, transparent));
 }
-.today-plate .tp-corner-first {
+.today-corners .tp-corner-first {
   right: 0; border-right: 0; border-bottom: 0; border-radius: 64px 0 0 0; align-items: flex-end; text-align: right;
   border-color: color-mix(in srgb, var(--accent-a) 70%, transparent);
   background: color-mix(in srgb, var(--accent-a) 16%, color-mix(in srgb, var(--surface) 80%, transparent));
 }
-.today-plate .tp-corner-s { font-size: 11px; font-weight: 400; color: var(--text-2); max-width: 100%; overflow-wrap: anywhere; }
+.today-corners .tp-corner-s { font-size: 11px; font-weight: 400; color: var(--text-2); max-width: 100%; overflow-wrap: anywhere; }
 /* 指がその上に来たら、離せば入る合図。色だけに頼らず、線も実線に変える（日を移す帯と同じ） */
-.today-plate .tp-corner.is-drop { border-style: solid; }
-.today-plate .tp-corner-key.is-drop   { background: color-mix(in srgb, var(--accent-b) 32%, var(--surface)); }
-.today-plate .tp-corner-first.is-drop { background: color-mix(in srgb, var(--accent-a) 32%, var(--surface)); }
+.today-corners .tp-corner.is-drop { border-style: solid; }
+.today-corners .tp-corner-key.is-drop   { background: color-mix(in srgb, var(--accent-b) 32%, var(--surface)); }
+.today-corners .tp-corner-first.is-drop { background: color-mix(in srgb, var(--accent-a) 32%, var(--surface)); }
 /* おすすめの板の［★ 大事なことに］［↑ 先に］ */
 .today-suggestbox .tsg-put.is-key, .today-suggestbox .tsg-put.is-first { white-space: nowrap; }

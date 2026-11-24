@@ -320,8 +320,11 @@ try {
     await js(`document.querySelector('#tabbar button[data-screen="today"]').click()`);
     await until(`return document.getElementById('pane-today')?.classList.contains('is-active')`);
     /* 掴んでいないときは角も枠も見えない（泡の動きを妨げない） */
-    await until(`return !!document.querySelector('#pane-today .today-plate')`);
-    assert.equal(await js(`${VIS} return vis(document.querySelector('#pane-today .today-plate'))`), false);
+    await until(`return !!document.querySelector('#pane-today .today-corners')`);
+    assert.equal(await js(`${VIS} return vis(document.querySelector('#pane-today .today-corners'))`), false);
+    /* 前の版の枠の名前（.today-plate）が混ざって出ても、見せず壁にもしない（Issue #96 の 2 回目の返事） */
+    assert.equal(await js(`const p = document.createElement('div'); p.className = 'today-plate'; p.textContent = 'x';
+      document.querySelector('#pane-today .today-stage').appendChild(p); const r = p.offsetParent; p.remove(); return r === null`), true);
     const bubIn = (t) => `[...document.querySelectorAll('#pane-today .today-stage .bub')].find(b => b.textContent.includes(${JSON.stringify(t)}))`;
     /* 大事な泡は縁が太く、見当と外の約束が泡の中に出る */
     await until(`return !!${bubIn('架空の経費')}`);

@@ -330,7 +330,7 @@ function kNoteOf(t) {
    ・先に済ませるは今日だけ。区切りの時間が過ぎるか、入れた泡が全部済むと畳み、色が戻る（次の日へは移さない）
    ・今日大事なことは過ぎた日には入れない（角を出さない）。一覧・四つに分けて見ている間も角は出さない
    言い方は命令形にしない。件数・割合は出さない。赤は使わない */
-let plate = null;          /* 角の入れ物（.today-plate）。泡を掴んでいる間だけ見える */
+let plate = null;          /* 角の入れ物（.today-corners）。泡を掴んでいる間だけ見える */
 let plateTimer = 0;
 let lastPlate = { key: null, rows: [], st: { open: false }, showFirst: false };
 
@@ -2186,8 +2186,9 @@ export default {
        変わっても落ちないよう、まとめたものも一緒に渡しておく（余分なキーは無視される） */
     /* 今日大事なこと・先に済ませるの角（Issue #96。2026-11-24）。掴んでいる間だけ見える。
        前の枠は drift の keepOut（壁）だったが、角は泡の動きを妨げないよう壁にしない */
-    plate = el('div', 'today-plate');
-    plate.dataset.screen = 'today.plate'; plate.dataset.screenLayer = '2';
+    /* 名前は .today-corners（前の版の枠 .today-plate と分ける。css/screens/today.css の説明。Issue #96） */
+    plate = el('div', 'today-corners');
+    plate.dataset.screen = 'today.corners'; plate.dataset.screenLayer = '2';
     plate.hidden = true;
     stage.appendChild(plate);
     field = createField(stage, Object.assign({ size: 'text', handlers }, handlers));
