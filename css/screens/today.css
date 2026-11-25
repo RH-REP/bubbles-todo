@@ -845,12 +845,48 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
 /* 日を移す帯（.today-edge。左右の端・上から下まで）と、左下・右下のエリアの間に空白を置いて、はっきり分ける
    （同じ返事「日付を移すエリアとの間に空白を設けて」）。エリアが出ている間（小さい画面で掴んでいる間）は、
    帯の下の端をエリアの上（高さ 104px）から 28px 空けたところで止める。帯の当たりも帯の大きさで決まるので一緒に縮む */
-.today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge {
+body:not(.skin-sea) .today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge {
   bottom: calc(132px + var(--safe-b, 0px));
   border-bottom: 1px dashed var(--line-strong);
 }
-.today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge[data-dir="left"]  { border-bottom-right-radius: 14px; }
-.today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge[data-dir="right"] { border-bottom-left-radius: 14px; }
+body:not(.skin-sea) .today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge[data-dir="left"]  { border-bottom-right-radius: 14px; }
+body:not(.skin-sea) .today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge[data-dir="right"] { border-bottom-left-radius: 14px; }
+
+/* スキン「海の生き物」の魚（2026-11-25 Issue #96 の返事。js/screens/today.js の renderFish）。
+   泡の後ろ（z-index を持たない）。位置は JS が transform で決める。掴んでいる間だけ日を移す帯（9）より上（10）に出す */
+.today-fishes { position: absolute; inset: 0; pointer-events: none; }
+.today-fishes[hidden] { display: none; }
+.today-fishes.is-drag { z-index: 10; }
+.today-stage.is-list .today-fishes, .today-stage.is-quad .today-fishes { display: none; }
+.today-fishes .tp-fish {
+  --mark: var(--accent-a);
+  position: absolute; left: 0; top: 0; box-sizing: border-box;
+  width: 64px; padding: 2px; border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  will-change: transform;
+}
+.today-fishes .tp-fish[hidden] { display: none; }
+.today-fishes .tp-fish-key { --mark: var(--accent-b); }
+.today-fishes .tp-fish-swim { display: block; line-height: 0; transition: transform .35s ease-in-out; }
+.today-fishes .tp-fish-ic { width: 60px; height: 38px; display: block; overflow: visible; transition: transform .18s ease-out; }
+.today-fishes .tp-fish-ic .body { fill: color-mix(in srgb, var(--mark) 45%, #fff); stroke: var(--mark); stroke-width: 2; }
+.today-fishes .tp-fish-ic .tail,
+.today-fishes .tp-fish-ic .fin  { fill: var(--mark); }
+.today-fishes .tp-fish-ic .band { fill: color-mix(in srgb, var(--mark) 75%, #fff); }
+.today-fishes .tp-fish-ic .eye  { fill: #1d1d24; stroke: #fff; stroke-width: 1.2; }
+.today-fishes .tp-fish-ic .gill { fill: none; stroke: var(--mark); stroke-width: 1.6; stroke-linecap: round; }
+.today-fishes .tp-fish-h {
+  padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; line-height: 1.5;
+  color: #fff; background: color-mix(in srgb, var(--mark) 88%, #000);
+}
+.today-fishes .tp-fish.is-closed { opacity: .45; }
+.today-fishes.is-drag .tp-fish-ic { transform: scale(1.2); }
+.today-fishes .tp-fish.is-drop {
+  background: color-mix(in srgb, var(--mark) 26%, color-mix(in srgb, var(--surface) 70%, transparent));
+  box-shadow: inset 0 0 0 2px var(--mark);
+}
+@media (prefers-reduced-motion: reduce) { .today-fishes .tp-fish-swim { transition: none; } }
 
 /* 大きい画面：いちばん最初の形（Issue #96 の 6 回目の返事「画面が大きいのは1番最初の表示」。js/screens/today.js の renderWide）。
    面の上の枠。泡にとっては壁（js/drift.js の keepOut。海の端の札と同じ）。上から 先に済ませる（細い 1 段）→ 今日大事なこと（大きな枠）。

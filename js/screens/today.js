@@ -597,9 +597,11 @@ function seatDrag(node, t, kind, day) {
      今日で畳んだあとは薄くし「今日はもう畳んだ」と言う。一覧・四つに分けて見ている間・大きい画面では出さない */
 function renderCorners(ps) {
   if (!plate) return;
+  renderFish(ps);
   plate.textContent = '';
   const id = bubDrag ? bubDrag.id : null;
-  if (!id || wideOn || listOn || quadOn) { plate.hidden = true; return; }
+  /* スキン「海の生き物」では、左下・右下のエリアの代わりに魚（renderFish） */
+  if (!id || wideOn || listOn || quadOn || fishOn()) { plate.hidden = true; return; }
   const pin = pinsOf(ps).get(id) || null;
   const day = curDay();
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
@@ -618,6 +620,161 @@ function renderCorners(ps) {
   }
   plate.hidden = false;
 }
+/* ---- スキン「海の生き物」の魚（2026-11-25 Issue #96 の返事「大事と魚をスキンに追加して切り替えできるようにして。
+   魚は大事と先に設定した上に上がってくTODOの方にも近づいたり離れたりするようなアニメーションの移動を追加して」）----
+   ・設定のスキンが海の生き物（body.skin-sea）で、小さい画面のときだけ、左下・右下のエリアの代わりに 2 匹の魚を出す。
+     紫みの魚「大事」＝今日大事なこと、青みの魚「先に」＝先に済ませる。ふつうのボタンのスキンでは今までどおりエリア
+   ・魚は泡の後ろ（.today-fishes。z-index を持たない）をゆっくり泳ぐ。その印の泡（比重で上へ浮いていく泡）があれば、
+     その泡のまわりを回りながら、近づいたり離れたりする（半径が 30px ほど、ゆっくり伸び縮みする）。泡が無ければ面を左右にさまよう。
+     位置は毎コマ JS で決め、transform だけを動かす（滑らかに）。向きは進む向きに合わせる
+   ・泡を掴んでいる間は魚が止まって少し大きくなり、日を移す帯（z-index 9）より上に出る。魚の上で離すと入る（入れ方はエリアと同じ）
+   ・動きを減らす設定では泳がせず、下の左右に置く */
+let fishBox = null;
+let fishRaf = 0;
+const fish = { key: null, first: null };
+const fishSt = { key: null, first: null };
+const FISH_W = 64, FISH_H = 58;
+function fishOn() {
+  return !!fishBox && !wideOn && !listOn && !quadOn && !!document.body && document.body.classList.contains('skin-sea');
+}
+function renderFish(ps) {
+  if (!fishBox) return;
+  if (!fishOn()) { fishBox.hidden = true; stopFish(); return; }
+  fishBox.hidden = false;
+  const id = bubDrag ? bubDrag.id : null;
+  const pin = id ? (pinsOf(ps).get(id) || null) : null;
+  const day = curDay();
+  const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
+  const keyName = isToday() ? '今日大事なこと' : word + 'の大事なこと';
+  const keySub = !id ? '' : pin === 'key' ? '離すと外す'
+    : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える' : '離すと入る';
+  syncFish('key', true, '大事', keySub, keyName, false);
+  const showFirst = typeof store.setFirst === 'function';
+  const closed = isToday() && !ps.showFirst;
+  const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
+  const firstSub = !id ? '' : closed ? '今日はもう畳んだ' : pin === 'first' ? '離すと外す'
+    : !ps.st.canAdd ? '席は 3 つまで' : '離すと入る';
+  syncFish('first', showFirst, '先に', firstSub, firstName, closed);
+  fishBox.classList.toggle('is-drag', !!id);
+  if (reduceMotion()) { stopFish(); placeFishStatic(); }
+  else startFish();
+}
+/* 魚 1 匹を出す・隠す・名前を替える。1 度だけ作って使い回す（作り直すと位置が跳ぶ）。
+   el の第 3 引数は innerHTML に入るので、文字はすべて textContent・属性で入れる（泡の名前が混ざるため） */
+function syncFish(kind, show, head, sub, name, closed) {
+  let box = fish[kind];
+  if (!box) {
+    box = el('div', 'tp-fish tp-fish-' + kind);
+    box.dataset.drop = kind;
+    const swim = el('span', 'tp-fish-swim');
+    swim.appendChild(fishSvg());
+    box.appendChild(swim);
+    const h = el('span', 'tp-fish-h');
+    h.textContent = head;
+    box.appendChild(h);
+    fishBox.appendChild(box);
+    fish[kind] = box;
+  }
+  box.hidden = !show;
+  box.classList.toggle('is-closed', !!closed);
+  box.dataset.name = name + 'の魚';
+  box.title = name + '：泡を掴んでこの魚の上で離すと入る';
+  box.setAttribute('aria-label', name + (sub ? '。' + sub : ''));
+}
+const SVG_NS_FISH = 'http://www.w3.org/2000/svg';
+function fishSvg() {
+  const svg = document.createElementNS(SVG_NS_FISH, 'svg');
+  [['viewBox', '0 0 64 40'], ['width', '64'], ['height', '40'], ['class', 'tp-fish-ic'], ['aria-hidden', 'true'], ['focusable', 'false']]
+    .forEach(([k, v]) => svg.setAttribute(k, v));
+  [
+    ['path', { class: 'tail', d: 'M44 20 L62 7 Q58 20 62 33 Z' }],
+    ['path', { class: 'fin',  d: 'M24 9 Q30 1 38 8 Z M26 31 Q31 38 36 31 Z' }],
+    ['ellipse', { class: 'body', cx: '26', cy: '20', rx: '21', ry: '12.5' }],
+    ['path', { class: 'band', d: 'M30 8.6 Q34 20 30 31.4 L35 30.2 Q39 20 35 9.8 Z' }],
+    ['circle', { class: 'eye', cx: '14', cy: '17', r: '2.6' }],
+    ['path', { class: 'gill', d: 'M20 12 Q16 20 20 28' }],
+  ].forEach(([tag, attrs]) => {
+    const n = document.createElementNS(SVG_NS_FISH, tag);
+    Object.keys(attrs).forEach(k => n.setAttribute(k, attrs[k]));
+    svg.appendChild(n);
+  });
+  return svg;
+}
+function startFish() {
+  if (fishRaf) return;
+  let last = performance.now();
+  const step = now => {
+    fishRaf = 0;
+    if (!fishBox || fishBox.hidden || !shown) return;
+    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+    last = now;
+    if (!bubDrag) moveFish(now / 1000, dt);   /* 掴んでいる間は止める（狙って離せるように） */
+    fishRaf = requestAnimationFrame(step);
+  };
+  fishRaf = requestAnimationFrame(step);
+}
+function stopFish() {
+  if (fishRaf) cancelAnimationFrame(fishRaf);
+  fishRaf = 0;
+}
+/* その魚が寄っていく泡（漂う面の泡のノード）。大事は今日大事なことの泡、先には先に済ませるのまだの泡を 12 秒ごとに順に */
+function pinnedNode(kind, t) {
+  if (!stage) return null;
+  let id = null;
+  if (kind === 'key') id = lastPlate.key ? lastPlate.key.id : null;
+  else if (lastPlate.st && lastPlate.st.open) {
+    const rows = (lastPlate.rows || []).filter(r => !isDoneItem(r));
+    if (rows.length) id = rows[Math.floor(t / 12) % rows.length].id;
+  }
+  if (!id) return null;
+  try { return stage.querySelector('.bub[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]'); }
+  catch (e) { return null; }
+}
+function moveFish(t, dt) {
+  const sr = stage.getBoundingClientRect();
+  const w = sr.width, h = sr.height;
+  if (!w || !h) return;
+  ['key', 'first'].forEach(k => {
+    const f = fish[k];
+    if (!f || f.hidden) return;
+    const s = fishSt[k] || (fishSt[k] = { x: w * (k === 'key' ? 0.25 : 0.7), y: h * (k === 'key' ? 0.55 : 0.3), face: 1, ph: k === 'key' ? 0.7 : 3.4 });
+    let tx, ty;
+    const node = pinnedNode(k, t);
+    const r = node ? node.getBoundingClientRect() : null;
+    if (r && r.width) {
+      /* 泡のまわりを回りながら、近づいたり離れたりする */
+      const cx = r.left + r.width / 2 - sr.left, cy = r.top + r.height / 2 - sr.top;
+      const rad = r.width / 2 + 40 + 30 * Math.sin(t * 0.45 + s.ph);
+      const a = t * 0.22 + s.ph;
+      tx = cx + Math.cos(a) * rad;
+      ty = cy + Math.sin(a) * rad * 0.6;
+    } else {
+      /* 泡が無いときは、面をゆっくり左右にさまよう */
+      tx = w * (0.5 + 0.38 * Math.sin(t * 0.05 + s.ph));
+      ty = h * (k === 'key' ? 0.5 : 0.25) + 24 * Math.sin(t * 0.13 + s.ph);
+    }
+    tx = Math.max(FISH_W / 2, Math.min(w - FISH_W / 2, tx));
+    ty = Math.max(FISH_H / 2, Math.min(h - FISH_H / 2, ty));
+    const e = Math.min(1, dt * 0.9);
+    const nx = s.x + (tx - s.x) * e, ny = s.y + (ty - s.y) * e;
+    const vx = dt ? (nx - s.x) / dt : 0;
+    if (Math.abs(vx) > 4) s.face = vx > 0 ? -1 : 1;   /* 絵は左向き。右へ進むときは裏返す（小さな揺れでは向きを替えない） */
+    s.x = nx; s.y = ny;
+    placeFishNode(f, s);
+  });
+}
+function placeFishNode(f, s) {
+  f.style.transform = 'translate3d(' + (s.x - FISH_W / 2).toFixed(1) + 'px,' + (s.y - FISH_H / 2).toFixed(1) + 'px,0)';
+  const sw = f.querySelector('.tp-fish-swim');
+  if (sw) sw.style.transform = 'scaleX(' + s.face + ')';
+}
+function placeFishStatic() {
+  const w = stage ? stage.clientWidth : 0, h = stage ? stage.clientHeight : 0;
+  if (!w || !h) return;
+  if (fish.key) placeFishNode(fish.key, fishSt.key = { x: FISH_W / 2 + 8, y: h - FISH_H / 2 - 8, face: 1, ph: 0 });
+  if (fish.first) placeFishNode(fish.first, fishSt.first = { x: w - FISH_W / 2 - 8, y: h - FISH_H / 2 - 8, face: -1, ph: 0 });
+}
+
 /* エリア 1 つ。el の第 3 引数は innerHTML に入るので、文字はすべて textContent で入れる（泡の名前が混ざるため） */
 function cornerBox(kind, head, sub, closed) {
   const box = el('div', 'tp-corner tp-corner-' + kind);
@@ -1838,7 +1995,7 @@ function onBubPointer(ev) {
 /* 落とし先の入れ物：大きい画面の枠（wideBox）と、小さい画面の左下・右下のエリア（plate）。見えていないほうは幅 0 なので当たらない */
 function dropNodes() {
   const out = [];
-  [wideBox, plate].forEach(c => { if (c && !c.hidden) c.querySelectorAll('[data-drop]').forEach(n => out.push(n)); });
+  [wideBox, plate, fishBox].forEach(c => { if (c && !c.hidden) c.querySelectorAll('[data-drop]:not([hidden])').forEach(n => out.push(n)); });
   return out;
 }
 function plateHitAt(x, y) {
@@ -2570,6 +2727,11 @@ export default {
     wideBox.dataset.screen = 'today.wide'; wideBox.dataset.screenLayer = '2';
     wideBox.hidden = true;
     stage.appendChild(wideBox);
+    /* スキン「海の生き物」の魚（renderFish）。泡（field）より先に入れて z-index を持たせないので、泡の後ろを泳ぐ */
+    fishBox = el('div', 'today-fishes');
+    fishBox.dataset.screen = 'today.fishes'; fishBox.dataset.screenLayer = '2';
+    fishBox.hidden = true;
+    stage.appendChild(fishBox);
     field = createField(stage, Object.assign({ size: 'text', handlers, keepOut: '.today-wide' }, handlers));
     quad = createQuadView(stage, { className: 'today-quad', bind: (node) => attachGestures(node, handlers) });
     quad.el.dataset.screen = 'today.quad';
@@ -2621,9 +2783,9 @@ export default {
       else if (WIDE_MQ.addListener) WIDE_MQ.addListener(onWide);
     }
     /* 設定のスキンを変えたら（Issue #96 の 9 回目の返事）。body の印（skin-sea）は js/app.js の applyPrefs が付けるので、そのあとで */
-    window.addEventListener(PREFS_EVENT, () => setTimeout(() => applySwimLayout(isWideScreen()), 0));
+    window.addEventListener(PREFS_EVENT, () => setTimeout(() => { applySwimLayout(isWideScreen()); renderCorners(lastPlate); }, 0));
     /* 起動の直後に印がまだ付いていないことがあるので、1 回だけ見直す */
-    setTimeout(() => applySwimLayout(isWideScreen()), 0);
+    setTimeout(() => { applySwimLayout(isWideScreen()); renderCorners(lastPlate); }, 0);
     document.addEventListener('pointerdown', onFilterOutside, true);
     syncFilterBtn();
     /* 前に一覧で見ていたら、一覧で始める。入力欄がまだ無いので setList（render を呼ぶ）は使わず、
