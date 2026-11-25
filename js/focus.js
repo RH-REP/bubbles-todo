@@ -493,8 +493,9 @@ function firstLineOf(t) {
    id とアダプタが無ければ何も作らない（従来どおりの集中画面になる）。
    ・中身は盤と同じ本文（detail）。作業記録が空で次にやることだけある前の泡は、それを初めの中身にする
    ・打っている間は本文だけ書く（SAVE_MS おき。履歴は増やさない）
-   ・欄から離れたとき・閉じたとき・裏に回ったときに、前に積んだ中身と違えば履歴に 1 件積む
-     （盤の saveDetail と同じ。空にしたときは積まない）
+   ・欄から離れたとき・閉じたとき・裏に回ったときは本文と次にやること（1 行目）だけ書く。履歴には積まない
+   ・履歴に積むのは欄の下の［記録する］を押したときだけ（2026-11-26 ユーザーの指示。盤と同じ）。
+     最後に積んだ中身と違うときだけ押せる。空にしたときは積まない
    ・見出しの行に［履歴を見る ›］（記録があるときだけ）。開くと欄の下に盤と共通の一覧 */
 function buildWorklog(id, a) {
   if (id == null || id === '') return null;
@@ -519,6 +520,17 @@ function buildWorklog(id, a) {
   area.placeholder = '1 行目が次にやること';
   area.setAttribute('aria-label', '作業記録（1 行目が次にやること）');
   node.appendChild(area);
+
+  const recRow = el('div', 'focus-rec-row');
+  const recNote = el('span', 'focus-rec-note');
+  recNote.setAttribute('aria-live', 'polite');
+  const recBtn = el('button', 'focus-recbtn', '記録する');
+  recBtn.type = 'button';
+  recBtn.setAttribute('aria-label', '作業記録を履歴に残す');
+  recRow.appendChild(recNote);
+  recRow.appendChild(recBtn);
+  const canCommit = typeof a.commit === 'function';
+  if (canCommit) node.appendChild(recRow);
 
   const histBox = el('div', 'focus-hist');
   histBox.setAttribute('role', 'group');
@@ -552,27 +564,51 @@ function buildWorklog(id, a) {
     syncHist();
   });
 
-  /* 初めの中身。前に積んだ中身（rec0）と比べて、変わったときだけ積む */
-  let rec0 = String(ask(a, 'detail', id) || '') || String(ask(a, 'firstStep', id) || '');
-  area.value = rec0;
+  /* 初めの中身。wrote0 は最後に本文へ書いた中身、rec0 は最後に履歴へ積んだ中身（［記録する］が比べる） */
+  let wrote0 = String(ask(a, 'detail', id) || '') || String(ask(a, 'firstStep', id) || '');
+  area.value = wrote0;
+  const lastRow = stepsNow().slice(-1)[0];
+  let rec0 = lastRow ? String(lastRow.did || '') : '';
   syncHist();
 
-  let timer = 0;
+  let timer = 0, noteTimer = 0;
   function writeDetail() {
     clearTimeout(timer); timer = 0;
     ask(a, 'setDetail', id, area.value);
   }
+  function syncRec() {
+    const v = area.value.trim();
+    const can = !!v && v !== rec0.trim();
+    recBtn.disabled = !can;
+    recBtn.title = can ? '今の作業記録を履歴に残す' : (v ? '最後に記録したときから変わっていない' : '作業記録が空');
+  }
+  /* 離れる・閉じる: 本文と次にやること（1 行目）だけ。履歴には積まない */
   function save() {
     writeDetail();
     const v = area.value.trim();
-    if (v === rec0.trim()) return;
-    if (v) ask(a, 'commit', id, { did: v, next: firstLineOf(v) });
+    if (v === wrote0.trim()) return;
+    if (v) ask(a, 'setFirstStep', id, firstLineOf(v));
+    wrote0 = area.value;
+  }
+  function record() {
+    save();
+    const v = area.value.trim();
+    if (!v || v === rec0.trim()) { syncRec(); return; }
+    if (!ask(a, 'commit', id, { did: v, next: firstLineOf(v) })) return;
     rec0 = area.value;
     syncHist();
+    syncRec();
+    recNote.textContent = '記録した';
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => { recNote.textContent = ''; }, 1600);
   }
+  recBtn.addEventListener('pointerdown', ev => ev.preventDefault());   /* 押しても欄の焦点を外さない */
+  recBtn.addEventListener('click', ev => { ev.preventDefault(); record(); });
+  syncRec();
   area.addEventListener('input', () => {
     clearTimeout(timer);
     timer = setTimeout(writeDetail, SAVE_MS);
+    syncRec();
   });
   area.addEventListener('blur', save);
 

@@ -1798,6 +1798,13 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
 .bub-center .bc-link-btn[hidden] { display: none; }
 .bub-center .bc-link-btn:hover { color: var(--text); }
 .bub-center .bc-memo-in { resize: vertical; min-height: 58px; line-height: 1.45; font-family: inherit; }
+/* ［記録する］（2026-11-26）。作業記録の欄の右下。履歴に残す明示のボタン。押せないときは薄く */
+.bub-center .bc-rec-row { display: flex; justify-content: flex-end; }
+.bub-center .bc-rec-btn { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px; font-weight: 600;
+  min-height: 36px; padding: 4px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line-strong); background: var(--surface, transparent); color: var(--text); }
+.bub-center .bc-rec-btn:disabled { opacity: .4; cursor: default; }
+.bub-center .bc-rec-btn:not(:disabled):hover { border-color: var(--text-2); }
 .bub-center .bc-hint { margin: 2px 2px 0; font-size: 11.5px; color: var(--text-2); }
 .bub-center .bc-chat[hidden] { display: none; }
 

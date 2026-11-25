@@ -199,6 +199,14 @@
 .focus-histbtn:hover { color: var(--text); }
 .focus-histbtn:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
 .focus-histbtn[hidden] { display: none; }
+/* ［記録する］（2026-11-26）。作業記録の欄の右下。履歴に残す明示のボタン */
+.focus-rec-row { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 6px; }
+.focus-rec-note { font-size: 12.5px; color: var(--text-2); }
+.focus-recbtn { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px; font-weight: 600;
+  min-height: 44px; padding: 4px 16px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--text-2); background: transparent; color: var(--text); }
+.focus-recbtn:disabled { opacity: .4; cursor: default; }
+.focus-recbtn:focus-visible { outline: 2px solid var(--focus-accent); outline-offset: 2px; }
 
 /* 中身（.bh-*）は css/bubble.css が持つ。あれは全画面で読み込まれるので、
    ここでは囲みの余白と、伸びすぎない高さだけを決める。

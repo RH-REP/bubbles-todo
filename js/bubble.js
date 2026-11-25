@@ -924,7 +924,10 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   let detailDraft = '';
   let detailInline = null;      /* 盤のその場の作業記録の欄（2026-11-18。11-19 にメモ → 作業記録） */
   let dhead = null;             /* 作業記録の見出しの行（［履歴を見る ›］［全体を開く ›］を置く） */
-  let rec0 = '';                /* 最後に書いた作業記録（変わったときだけ書き、記録に積む） */
+  let rec0 = '';                /* 最後に履歴へ積んだ作業記録（［記録する］が比べる。2026-11-26） */
+  let wrote0 = '';              /* 最後に本文へ書いた作業記録（閉じる・離れるときは本文だけ書く） */
+  let recBtn = null;            /* ［記録する］（2026-11-26 ユーザーの指示「履歴をのこすのだから、明示的なボタンが合ったほうが良い」） */
+  let recTimer = 0;
   /* 2026-11-19: 次の一手・作業の記録（作業メモ）の欄は盤に出さない（作業記録 1 つにまとめた）。
      欄は組むが置かない。置かない間は、次の一手・書きかけを盤から書かない（作業記録の側が書く） */
   const stepOnBoard = false;
@@ -1029,7 +1032,9 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
        欄は 1 つ（作業記録）。中身は本文（detail）に持ち、書き替えるたびに記録（steps）へ 1 件積む（saveDetail）。
        本文が空で次の一手だけある前の泡は、次の一手を初めの中身として出す（触らなければ書かない） */
     detailDraft = String(ask(a, 'detail', id) || '') || String(ask(a, 'firstStep', id) || '');
-    rec0 = detailDraft;
+    wrote0 = detailDraft;
+    /* 2026-11-26: 履歴に積むのは［記録する］を押したときだけ。比べる相手は最後に積んだ記録の中身 */
+    rec0 = lastRecorded();
     /* 2026-11-18（モック task-start.html）: 別の面を開かず、その場の欄で書く。
        長い中身・リンクの読み・AI は、今までの面（［全体を開く ›］）で */
     const drow = el('div', 'bc-row bc-stack');
@@ -1045,11 +1050,24 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailInline.placeholder = '例 予約の電話をかける。保険証を持っていく';
     detailInline.setAttribute('aria-label', '作業記録');
     detailInline.value = detailDraft;
-    detailInline.addEventListener('input', () => { detailDraft = detailInline.value; if (syncSpanRow) syncSpanRow(); });
+    detailInline.addEventListener('input', () => { detailDraft = detailInline.value; syncRecBtn(); if (syncSpanRow) syncSpanRow(); });
     drow.appendChild(detailInline);
+    /* ［記録する］（2026-11-26）。欄の右下。最後に積んだ中身と違うときだけ押せる。
+       押すと本文を書き、履歴へ 1 件積む。閉じる・欄から離れるときは本文だけ書き、履歴には積まない */
+    if (typeof a.commitStep === 'function') {
+      const rrow = el('div', 'bc-rec-row');
+      recBtn = el('button', 'bc-rec-btn', '記録する');
+      recBtn.type = 'button';
+      recBtn.setAttribute('aria-label', '作業記録を履歴に残す');
+      recBtn.addEventListener('pointerdown', ev => ev.preventDefault());   /* 押しても欄の焦点を外さない（キーボードを閉じない） */
+      recBtn.addEventListener('click', ev => { ev.preventDefault(); recordDetail(); });
+      rrow.appendChild(recBtn);
+      drow.appendChild(rrow);
+    }
     foldPart(drow, 'detail', !!detailDraft.trim());
     fields.appendChild(drow);
     syncDetailBtn();
+    syncRecBtn();
   }
 
   /* ---- ひとこと（Issue #25）----
@@ -2461,16 +2479,51 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
   function saveDetail() {
     if (!detailBtn) return false;
     if (detailPane && !detailPane.hidden && detailArea) detailDraft = detailArea.value;
-    /* 2026-11-19 作業記録: 変わったときだけ書き、記録（steps）へ 1 件積む＝履歴になる。
-       記録の next には 1 行目を入れる（集中画面・一覧の「次にやること」に出る）。空にしたときは積まない */
+    /* 2026-11-26 ユーザーの指示（［記録する］の案）: 閉じる・欄から離れる・全体の面の［保存］では本文だけ書く。履歴には積まない。
+       1 行目は「次にやること」（集中画面・一覧に出る）なので、本文と一緒に書く。空にしたときは次にやることを残す */
     const v = detailDraft.trim();
-    if (v === rec0.trim()) return false;
+    if (v === wrote0.trim()) { syncRecBtn(); return false; }
     ask(a, 'setDetail', id, v);
-    if (v && canCommit) ask(a, 'commitStep', id, { did: v, next: firstLineOf(v) });
-    rec0 = detailDraft;
+    if (v) ask(a, 'setFirstStep', id, firstLineOf(v));
+    wrote0 = detailDraft;
     syncDetailBtn();                              /* ［全体を開く ›］は中身があるときだけ */
-    syncHistBtn();
+    syncRecBtn();
     return true;
+  }
+
+  /* 最後に積んだ記録の中身（作業記録の欄から積んだ形のものだけ）。無ければ '' */
+  function lastRecorded() {
+    const rows = stepsNow();
+    const s = rows[rows.length - 1];
+    return s ? String(s.did || '') : '';
+  }
+
+  /* ［記録する］（2026-11-26）。本文を書いてから、履歴（steps）へ 1 件積む。
+     記録の next には 1 行目（次にやること）。空・最後に積んだ中身と同じなら積まない */
+  function recordDetail() {
+    if (detailPane && !detailPane.hidden && detailArea) detailDraft = detailArea.value;
+    saveDetail();
+    const v = detailDraft.trim();
+    if (!v || v === rec0.trim()) { syncRecBtn(); return false; }
+    if (!ask(a, 'commitStep', id, { did: v, next: firstLineOf(v) })) return false;
+    rec0 = detailDraft;
+    syncHistBtn();
+    syncRecBtn();
+    const tag = fields && fields.querySelector(':scope > .bc-saved');
+    if (tag) {
+      tag.textContent = '記録した';
+      clearTimeout(recTimer);
+      recTimer = setTimeout(() => { if (tag.textContent === '記録した') tag.textContent = ''; }, 1600);
+    }
+    return true;
+  }
+
+  function syncRecBtn() {
+    if (!recBtn) return;
+    const v = detailDraft.trim();
+    const can = !!v && v !== rec0.trim();
+    recBtn.disabled = !can;
+    recBtn.title = can ? '今の作業記録を履歴に残す' : (v ? '最後に記録したときから変わっていない' : '作業記録が空');
   }
 
   function saveUrl() {
@@ -2769,7 +2822,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     detailSave.hidden = !editing;
     detailCancel.hidden = !editing;
     if (editing) detailBase = detailDraft;
-    detailNote.textContent = editing ? '[保存] で残る。[キャンセル] で書く前に戻す。書いている間は外を触っても閉じない。履歴には積まない' : '';
+    detailNote.textContent = editing ? '[保存] で残る。[キャンセル] で書く前に戻す。書いている間は外を触っても閉じない。履歴に残すのは欄の下の［記録する］' : '';
     detailNote.hidden = !editing;
     if (!editing) detailView.textContent = detailDraft;   /* 改行は CSS の pre-wrap で出す */
   }

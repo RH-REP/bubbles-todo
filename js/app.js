@@ -782,6 +782,8 @@ setWorklogHandler({
   setDetail: (id, v) => (has('setDetail') ? store.setDetail(id, v) : false),
   lastStep:  (id) => (has('lastStep') ? store.lastStep(id) : null),
   firstStep: (id) => (has('firstStepOf') ? store.firstStepOf(id) : ''),
+  /* 2026-11-26: 欄から離れたときは本文の 1 行目を次にやることへ（履歴は［記録する］だけが積む） */
+  setFirstStep: (id, v) => (has('setFirstStep') ? store.setFirstStep(id, v) : false),
   url:       (id) => (has('urlOf') ? store.urlOf(id) : ''),
   draft:     (id) => (has('draftOf') ? store.draftOf(id) : { did: '', next: '' }),
   saveDraft: (id, v) => { if (has('setDraft')) store.setDraft(id, v); },

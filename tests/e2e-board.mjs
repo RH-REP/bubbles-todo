@@ -7,7 +7,8 @@
       （2026-11-19 ユーザーの指示: 次の一手・メモ・作業記録を、メモの位置の作業記録 1 つに）
    2. 個人の海ではコメント（前のひとこと）を出さない
    3. まれなもの（お気に入り・優先度・リンク・作業の記録・削除）は「その他」の中。開くと出る
-   4. 作業記録から離れると保存し、「保存した」と出す。書き替えるたびに履歴に積み、［履歴を見る ›］で古い順に読める。1 行目が次にやること
+   4. 作業記録から離れると本文を保存し、「保存した」と出す（履歴には積まない）。履歴に積むのは［記録する］を押したときだけ（2026-11-26）。
+      ［履歴を見る ›］で古い順に読める。1 行目が次にやること
    4b. 本文が無く次の一手だけある前の泡は、次の一手を作業記録の初めの中身として出す
    5. 前の版で置いた「名前だけ」の設定は、新しい既定に替わる
    6. 優先度は、押した札をもう一度押すと印が外れる（［印を外す］は無い）
@@ -175,21 +176,29 @@ try {
     assert.equal(got.where, false, '区分の一言は出さない');
   });
 
-  await step('作業記録から離れると保存し「保存した」と出す。書き替えるたびに履歴に積み、［履歴を見る ›］で読める。1 行目が次にやること', async () => {
+  await step('作業記録から離れると本文を保存し「保存した」と出す（履歴には積まない）。［記録する］で履歴に積み、［履歴を見る ›］で読める。1 行目が次にやること', async () => {
     const write = (t) => js(`const m = document.querySelector('.bc-fields .bc-memo-in'); m.focus(); m.value = ${JSON.stringify(t)};
       m.dispatchEvent(new Event('input', { bubbles: true })); m.blur();`);
     const of = (fn) => js(`const { store } = await import('/js/store.js'); const id = store.all().find(t => t.text === '歯医者の予約をする').id; return store.${fn}(id);`);
+    const rec = () => js(`return document.querySelector('.bc-fields .bc-rec-btn').disabled`);
     assert.equal(await js(`${VIS} return vis(document.querySelector('.bc-fields .bc-hist-open'))`), false, '記録が無い間は［履歴を見る ›］を出さない');
+    assert.equal(await rec(), true, '空の間は［記録する］を押せない');
     await write('予約の電話をかける\n保険証を持っていく');
     await until(`return document.querySelector('.bc-saved')?.textContent === '保存した'`);
     assert.equal(await of('detailOf'), '予約の電話をかける\n保険証を持っていく');
     assert.equal(await of('firstStepOf'), '予約の電話をかける', '1 行目が次にやること');
+    assert.equal((await of('stepsOf')).length, 0, '離れただけでは履歴に積まない');
+    assert.equal(await rec(), false, '書いたら［記録する］を押せる');
+    await js(`document.querySelector('.bc-fields .bc-rec-btn').click();`);
+    await until(`return document.querySelector('.bc-saved')?.textContent === '記録した'`);
+    assert.equal((await of('stepsOf')).length, 1, '［記録する］で 1 件積む');
+    assert.equal(await rec(), true, '積んだ直後は押せない');
     await write('電話した。木曜 10 時\n保険証を持っていく');
-    await until(`return (async () => { const { store } = await import('/js/store.js'); return store.stepsOf(store.all().find(t => t.text === '歯医者の予約をする').id).length === 2; })()`);
-    assert.equal(await of('firstStepOf'), '電話した。木曜 10 時');
-    await write('電話した。木曜 10 時\n保険証を持っていく');   /* 同じ中身では積まない */
     await sleep(300);
-    assert.equal((await of('stepsOf')).length, 2, '変わっていなければ積まない');
+    assert.equal(await of('firstStepOf'), '電話した。木曜 10 時');
+    assert.equal((await of('stepsOf')).length, 1, '書き替えても押すまで積まない');
+    await js(`document.querySelector('.bc-fields .bc-rec-btn').click();`);
+    await until(`return (async () => { const { store } = await import('/js/store.js'); return store.stepsOf(store.all().find(t => t.text === '歯医者の予約をする').id).length === 2; })()`);
     /* 見出しの行の［履歴を見る ›］ */
     const head = await js(`${VIS} const h = document.querySelector('.bc-fields .bc-memo-in').parentElement.querySelector('.bc-lb-row');
       return [...h.children].filter(vis).map(n => n.textContent.trim())`);
