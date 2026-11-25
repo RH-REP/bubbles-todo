@@ -56,6 +56,9 @@ const GRAV_MAX = 1.1;   /* 終端速度 px/s。利用者の指示で 11 → 1.1�
    ・止まる間合いを押し離し（4px）より狭くしてある。載ったものには必ず押し離しが
      届くので、既存の当たり判定だけで横へ広がる。積み上がらず、底に薄く散る
    ・着地の高さを 1バブルごとに少しずらす。底の線が定規で引いた棚にならない */
+const PUSH_GAP = 12;    /* 上のボタンの帯：ボタンの下端からこれだけ下までを帯にする px */
+const PUSH_V = 140;     /* 帯の中で下へ向かわせる速さ px/s（漂う速さの約 5 倍。強く） */
+const PUSH_A = 900;     /* その速さへ寄せる加速 px/s² */
 const REST_UP = 8;      /* これより速く上へ動いているものは止めない（投げ上げを殺さない） */
 /* 目に見えない比重（2026-11-25 Issue #96「海に、目に見えない 3 段階の比重を設ける」）。
    item.pin が 'first'（先に済ませる）の泡は面の上 1/3、'key'（今日大事なこと）の泡は上から 1/3〜2/3 に浮く。
@@ -336,6 +339,33 @@ export function createField(host, opts = {}) {
     }).filter(k => k.x1 > k.x0 && k.y1 > k.y0);
     return keepCache;
   }
+  /* 上のボタンの帯（2026-11-25 利用者の指示「上部にあるボタンがあるところには強い下向きの力をかけて（そこに行くと見えない）」）。
+     opts.pushDown は、上に並ぶボタンの選び方（文書全体から探す。面の外にあるものも数える）。
+     見えているもののうち、面の上半分にあるものの下端のいちばん低いところ＋PUSH_GAP までを「上の帯」とし、
+     泡（円）の上端がそこへ入ったら、強く下へ押す（壁にはしない。投げ上げれば一瞬は入るが、すぐ下りる）。
+     帯は面の横いっぱい（ボタンは左右に散らばって並ぶので、間を抜けて上へ溜まらないように）。0.4 秒ごとに測り直す */
+  const pushSel = typeof opts.pushDown === 'string' ? opts.pushDown : '';
+  let pushCache = 0, pushAt = -1e9;
+  function pushLine() {
+    if (!pushSel) return 0;
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (now - pushAt < 400) return pushCache;
+    pushAt = now;
+    const hr = host.getBoundingClientRect();
+    const z = zoomOf();
+    let y = 0;
+    document.querySelectorAll(pushSel).forEach(e => {
+      if (e.hidden || e.offsetParent === null) return;
+      const r = e.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      if (r.right <= hr.left || r.left >= hr.right) return;
+      if (r.top - hr.top > hr.height / 2) return;            /* 面の下のほうのものは数えない */
+      y = Math.max(y, (r.bottom - hr.top) / z);
+    });
+    pushCache = y > 0 ? y + PUSH_GAP : 0;
+    return pushCache;
+  }
+
   /* 円（泡）を四角（札の範囲）の外へ出す。円が四角に触れていれば、いちばん近い点から半径ぶん離し、
      四角へ向かう速さの成分を捨てる。中心が四角の中に入りこんでいたら、いちばん近い辺から外へ出す */
   function solidOut(b, zones) {
@@ -791,6 +821,7 @@ export function createField(host, opts = {}) {
     if (!w || !h) { raf = requestAnimationFrame(tick); return; }   /* 非表示中は動かさない */
     const list = [...bubbles.values()];
     const zones = keepZones();          /* 札の範囲（泡を入れない。下の solidOut） */
+    const topLine = pushLine();         /* 上のボタンの帯の下端（強く下へ押す。0 なら無し） */
 
     /* 並べている間は漂わせず、並べた位置へなめらかに寄せる */
     if (gathering) {
@@ -903,6 +934,29 @@ export function createField(host, opts = {}) {
           b.pin = true; b.vx = 0; b.vy = 0;
           place(b);
           return;
+        }
+      }
+
+      /* 上のボタンの帯に入ったら、強く下へ（上の pushLine）。入りが深いほど強い。上向きの速さは先に打ち消す */
+      if (topLine > 0) {
+        const r0 = b.d / 2;
+        const depth = topLine - (b.cy - r0);
+        if (depth > 0) {
+          if (b.vy < 0) b.vy *= Math.max(0, 1 - dt * 12);
+          const want = PUSH_V * Math.min(1, 0.4 + depth / 60);
+          if (b.vy < want) b.vy = Math.min(want, b.vy + PUSH_A * dt);
+          b.rest = false;
+          /* すぐ下に札の範囲（壁。solidOut）があると、下へ押しても壁に止められて動けない（海の上の端の札「長期保留」の上で挟まった）。
+             そのときは、札の真ん中から遠いほうへ横に滑らせて、札の脇から下りる */
+          for (const k of zones) {
+            if (k.y0 < topLine) continue;          /* 帯の中の札は、押されている泡には壁にしない（下の solidOut）。通り抜けて下りる */
+            if (b.cx + r0 <= k.x0 || b.cx - r0 >= k.x1) continue;
+            if (b.cy > k.y0 || k.y0 - (b.cy + r0) > 24) continue;
+            const side = (b.cx < (k.x0 + k.x1) / 2) ? -1 : 1;
+            const sv = side * PUSH_V * 0.6;
+            b.vx = side < 0 ? Math.max(sv, b.vx - PUSH_A * dt) : Math.min(sv, b.vx + PUSH_A * dt);
+            break;
+          }
         }
       }
 
@@ -1028,8 +1082,13 @@ export function createField(host, opts = {}) {
         const r = b.d / 2;
         b.cx = clamp(b.cx, r, Math.max(r, w - r));
         b.cy = clamp(b.cy, r, Math.max(r, h - r));
-        /* 札の範囲には入れない（上の solidOut）。枠に収めたあと、描く前に */
-        if (zones.length) solidOut(b, zones);
+        /* 札の範囲には入れない（上の solidOut）。枠に収めたあと、描く前に。
+           ただし上のボタンの帯に入っている泡には、帯の中にある札（海の上の端の「長期保留」）を壁にしない。
+           壁にすると、下へ押す力と札に挟まれて動けなくなる（2026-11-25。実測で、札の上の泡と隣の札の上の泡が横へ押し合って止まった） */
+        if (zones.length) {
+          const inBand = topLine > 0 && (b.cy - b.d / 2) < topLine;
+          solidOut(b, inBand ? zones.filter(k => k.y0 >= topLine) : zones);
+        }
       }
       place(b);
     });

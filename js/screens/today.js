@@ -2709,7 +2709,10 @@ export default {
     fishBox.dataset.screen = 'today.fishes'; fishBox.dataset.screenLayer = '2';
     fishBox.hidden = true;
     stage.appendChild(fishBox);
-    field = createField(stage, Object.assign({ size: 'text', handlers, keepOut: '.today-wide' }, handlers));
+    /* pushDown: 上に並ぶボタン（利用者・≡・歯車・フィルター・日付と ‹ ›・一覧）の下端までは、泡を強く下へ押す
+       （2026-11-25 利用者の指示「上部にあるボタンがあるところには強い下向きの力をかけて（そこに行くと見えない）」。js/drift.js の pushLine） */
+    field = createField(stage, Object.assign({ size: 'text', handlers, keepOut: '.today-wide',
+      pushDown: '.app > .userbtn, .app > .menubtn, .app > .gearbtn, #pane-today .today-top button, #pane-today .today-dayrow button, #pane-today .today-tools button, #pane-today .today-swim button' }, handlers));
     quad = createQuadView(stage, { className: 'today-quad', bind: (node) => attachGestures(node, handlers) });
     quad.el.dataset.screen = 'today.quad';
 
