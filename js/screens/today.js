@@ -739,9 +739,9 @@ function placeFishStatic() {
 
 /* エリア 1 つ。el の第 3 引数は innerHTML に入るので、文字はすべて textContent で入れる（泡の名前が混ざるため） */
 /* 2026-11-25 利用者の決定「A、ただし、L字ではなくI字のエリアのみで実施」（モック app_spec の mock/corners-1125.html の案 A）：
-   見える形は、下の縁に沿った細い帯（.tp-corner-rail。ふだん 6px）だけ。縞が角へ向かって流れ、掴んだ泡が近づくほど
+   見える形は、外側の縦の縁に沿った細い帯（.tp-corner-rail。ふだん 6px。「右・左下のバーは横ではなく縦にして」で縦に）だけ。縞が角へ向かって流れ、掴んだ泡が近づくほど
    太く濃くなり（--near。onBubPointer の nearCorners）、指が乗ると塗りつぶす（.is-drop）。字は帯の上に短く「★ 大事」「↑ 先に」。
-   落とす当たりは、帯を含む下の角の箱（幅 150・高さ 72。見えない）。説明（離すと入れ替える など）は読み上げにだけ渡す */
+   落とす当たりは、帯を含む下の角の箱（幅 96・高さ 130。見えない）。説明（離すと入れ替える など）は読み上げにだけ渡す */
 function cornerBox(kind, head, sub, closed) {
   const box = el('div', 'tp-corner tp-corner-' + kind);
   if (closed) box.classList.add('is-closed');

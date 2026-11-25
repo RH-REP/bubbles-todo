@@ -828,52 +828,52 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
 .today-corners .tp-fall, .today-corners .tp-mark, .today-corners .tp-fish { display: none !important; }
 .today-corners[hidden] { display: none; }
 .today-stage.is-list .today-corners, .today-stage.is-quad .today-corners { display: none; }
-/* 2026-11-25 利用者の決定「A、ただし、L字ではなくI字のエリアのみで実施」（mock/corners-1125.html の案 A を I 字に）。
-   前の 148×104 の札の箱（息をする地の色）をやめ、見える形は下の縁に沿った細い帯だけにした。
-   ・帯（.tp-corner-rail）：ふだん 6px。縞が角へ向かって流れる。掴んだ泡が近づくほど 16px まで太り濃くなる（--near は JS の nearCorners）
-   ・指が乗ったら（.is-drop）帯を塗りつぶし、流れを止める。字（.tp-corner-h）は帯の上に短く
-   ・落とす当たりは箱（幅 150・高さ 72。地は透明）。泡はほとんど隠さない
+/* 2026-11-25 利用者の決定「A、ただし、L字ではなくI字のエリアのみで実施」（mock/corners-1125.html の案 A を I 字に）、
+   続けて「右・左下のバーは横ではなく縦にして」：見える形は、左下・右下の外側の縦の縁に沿った細い帯だけ。
+   ・帯（.tp-corner-rail）：ふだん幅 6px。縞が下（角）へ向かって流れる。掴んだ泡が近づくほど 16px まで太り濃くなる（--near は JS の nearCorners）
+   ・指が乗ったら（.is-drop）帯を塗りつぶし、流れを止める。字（.tp-corner-h）は帯の内側の下に短く
+   ・落とす当たりは箱（幅 96・高さ 130。地は透明）。泡はほとんど隠さない
    ・動きを減らす設定では流さない */
 .today-corners .tp-corner {
   --mark: var(--accent-a); --near: 0;
-  position: absolute; bottom: 0; width: 150px; height: calc(72px + var(--safe-b, 0px)); box-sizing: border-box;
+  position: absolute; bottom: 0; width: 96px; height: calc(130px + var(--safe-b, 0px)); box-sizing: border-box;
   display: flex; flex-direction: column; justify-content: flex-end;
-  padding: 0 14px calc(12px + 10px * var(--near) + var(--safe-b, 0px));
+  padding-bottom: calc(10px + var(--safe-b, 0px));
   font-size: 12px; font-weight: 700; color: var(--mark);
   background: none; border: 0;
   animation: tp-corner-in .2s ease-out backwards;
-  transition: padding-bottom .12s;
+  transition: padding .12s;
 }
-.today-corners .tp-corner-key   { --mark: var(--accent-b); left: 0;  align-items: flex-start; text-align: left; }
-.today-corners .tp-corner-first { right: 0; align-items: flex-end; text-align: right; }
+.today-corners .tp-corner-key   { --mark: var(--accent-b); left: 0;  align-items: flex-start; text-align: left;  padding-left:  calc(12px + 10px * var(--near)); }
+.today-corners .tp-corner-first { right: 0; align-items: flex-end; text-align: right; padding-right: calc(12px + 10px * var(--near)); }
 .today-corners .tp-corner-h { white-space: nowrap; transition: font-size .12s; }
 .today-corners .tp-corner.is-drop .tp-corner-h { font-size: 13.5px; }
 .today-corners .tp-corner-rail {
-  position: absolute; left: 0; right: 0; bottom: var(--safe-b, 0px);
-  height: calc(6px + 10px * var(--near));
-  background: repeating-linear-gradient(90deg,
+  position: absolute; top: 0; bottom: var(--safe-b, 0px);
+  width: calc(6px + 10px * var(--near));
+  background: repeating-linear-gradient(180deg,
     color-mix(in srgb, var(--mark) 60%, transparent) 0 14px,
     color-mix(in srgb, var(--mark) 26%, transparent) 14px 28px);
-  background-size: 28px 100%;
+  background-size: 100% 28px;
   animation: tp-rail-flow 1.1s linear infinite;
-  transition: height .12s;
+  transition: width .12s;
 }
-.today-corners .tp-corner-key .tp-corner-rail   { border-top-right-radius: 6px; }
-.today-corners .tp-corner-first .tp-corner-rail { border-top-left-radius: 6px; animation-direction: reverse; }
+.today-corners .tp-corner-key .tp-corner-rail   { left: 0;  border-top-right-radius: 6px; }
+.today-corners .tp-corner-first .tp-corner-rail { right: 0; border-top-left-radius: 6px; }
 .today-corners .tp-corner.is-drop .tp-corner-rail { background: var(--mark); animation: none; }
-/* 先に済ませるを畳んだあとは薄く（「今日はもう畳んだ」は読み上げ） */
+/* 先に済ませるを畳んだあとは薄く（2026-11-25 に畳むのはやめた。is-closed は付かない） */
 .today-corners .tp-corner.is-closed { opacity: .5; }
 .today-corners .tp-corner.is-closed .tp-corner-rail { animation: none; }
 @keyframes tp-corner-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes tp-rail-flow { to { background-position: -28px 0; } }   /* 左下は左（角）へ流れる。右下は reverse で右（角）へ */
+@keyframes tp-rail-flow { to { background-position: 0 28px; } }   /* 下（角）へ流れる */
 @media (prefers-reduced-motion: reduce) {
   .today-corners .tp-corner, .today-corners .tp-corner-rail { animation: none !important; transition: none; }
 }
 /* 日を移す帯（.today-edge。左右の端・上から下まで）と、左下・右下のエリアの間に空白を置いて、はっきり分ける
    （同じ返事「日付を移すエリアとの間に空白を設けて」）。エリアが出ている間（小さい画面で掴んでいる間）は、
-   帯の下の端をエリアの上（高さ 72px。2026-11-25 に 104px から細くした）から 28px 空けたところで止める。帯の当たりも帯の大きさで決まるので一緒に縮む */
+   帯の下の端をエリアの上（高さ 130px。2026-11-25 に縦の帯にした）から 28px 空けたところで止める。帯の当たりも帯の大きさで決まるので一緒に縮む */
 body:not(.skin-sea) .today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge {
-  bottom: calc(100px + var(--safe-b, 0px));
+  bottom: calc(158px + var(--safe-b, 0px));
   border-bottom: 1px dashed var(--line-strong);
 }
 body:not(.skin-sea) .today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge[data-dir="left"]  { border-bottom-right-radius: 14px; }
