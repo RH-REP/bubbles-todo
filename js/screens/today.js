@@ -19,6 +19,7 @@ import { SIZES, FIRST_MAX, firstState, showFirstRow } from '../priority.js';
 import { firstStartedAt, markFirstStarted, firstMinutes } from '../prefs.js';
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
+import { dressJelly, dressTurtle } from '../swim.js';
 
 /* 詳細の入力を書き終わりまで待たずに保存する間隔（plan.js と同じ） */
 const SAVE_MS = 400;
@@ -327,7 +328,7 @@ function kNoteOf(t) {
    ・小さい画面では、入れた泡も、ほかの泡と同じ形のまま漂う面に出す。色で見分ける（今日大事なこと＝紫み .is-pin-key、先に済ませる＝青み .is-pin-first）。
      面に壁は置かない（前の枠は drift の keepOut で、その上下で泡が詰まっていた）
    ・入れる場所（Issue #96 の 6 回目の返事で、画面の大きさで分けた）：
-     - 小さい画面（面の幅 720px 未満。スマホ）… 海の奥をゆっくり泳ぐ 2 匹の魚（紫み＝大事、青み＝先に）。泡を掴んで魚の上で離すと入る。
+     - 小さい画面（画面の幅 720px 未満。スマホ。isWideScreen）… 海の奥をゆっくり泳ぐ 2 匹の魚（紫み＝大事、青み＝先に）。泡を掴んで魚の上で離すと入る。
        （掴んでいる間だけの角 → いつも見える滝 → 下の角の灯台と浮き → 魚、と替えてきた。renderCorners の説明）
      - 大きい画面（720px 以上）… いちばん最初の形：面の上の枠（先に済ませるの細い段＋今日大事なことの大きな枠）。renderWide の説明
    ・入れた泡を同じ所で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方で離すとそちらへ移す
@@ -340,7 +341,12 @@ let plate = null;          /* 魚の入れ物（.today-corners）。泡の後ろ
 let wideBox = null;        /* 大きい画面の枠（.today-wide）。泡にとっては壁（drift の keepOut）。大きい画面だけ */
 let wideOn = false;        /* いま大きい画面の形か */
 let heldId = null;         /* 盤を開いている（中央に持っている）泡の id。drift の onHold から（大きい画面で、枠へ移る泡を閉じるまで残す） */
-const WIDE_MIN = 720;      /* 面の幅がこれ以上なら大きい画面の形 */
+/* 大きい画面か（画面＝窓の幅が 720px 以上）。2026-11-25 Issue #96 の 8 回目の返事で直した：前は面（.today-stage）の幅で見ていたが、
+   アプリの枠（.app）は最大 430px なので、大きい画面でも 720 に届かず、いつも小さい画面の形になっていた。
+   大きい画面では、今日大事なこと・先に済ませるは上の枠（renderWide）、タグのフィルターと一覧は前のボタン（applySwimLayout）。
+   海の画面も同じ境目（css/screens/sea.css の @media (min-width: 720px)） */
+const WIDE_MQ = (typeof window !== 'undefined' && window.matchMedia) ? window.matchMedia('(min-width: 720px)') : null;
+function isWideScreen() { return !!(WIDE_MQ && WIDE_MQ.matches); }
 let plateTimer = 0;
 let lastPlate = { key: null, rows: [], st: { open: false }, showFirst: false };
 
@@ -395,8 +401,9 @@ function renderPlate(ps) {
   if (plateTimer) { clearTimeout(plateTimer); plateTimer = 0; }
   /* 区切りの時間が来たら畳む（先に済ませるの泡の色を戻す・段を畳む） */
   if (ps.st.open && ps.st.endAt) plateTimer = setTimeout(() => { plateTimer = 0; render(); }, Math.max(1000, ps.st.endAt - Date.now() + 500));
-  wideOn = !!stage && stage.clientWidth >= WIDE_MIN;
+  wideOn = isWideScreen();
   if (stage) stage.classList.toggle('is-wide', wideOn);
+  applySwimLayout(wideOn);
   renderWide(ps);
   renderCorners(ps);
 }
@@ -2435,76 +2442,38 @@ const handlers = {
    1段目はフィルターだけにする（.today-top.is-solo）。広い画面は今までどおり 1段目の右（Issue #92 の返事）。
    1段目の幅は左右の端で決まり、中身では変わらないので、行き来して揺れない。
    2026-11-25（Issue #96 の 7 回目の返事「今日タブのタグの選択ボタンがあくから、日付選択ボタンが一段下なってるから上に上げて」）：
-   タグのフィルターは 1段目から外れて泳ぐ生き物になった（mountSwimmers）ので、日付と ‹ › はいつも 1段目に置く。
-   1段目が DAYROW_TIGHT より狭いときだけ ‹ › を畳む（.today-top.is-tight。日付を押して選ぶ・面を左右になぞるで移れる） */
-const DAYROW_TIGHT = 230;   /* ‹ ›（88＋間 4）＋「一昨日 12/31（水）」の日付（約 130） */
+   タグのフィルターは 1段目から外れて泳ぐ生き物になった（applySwimLayout）ので、日付と ‹ › はいつも 1段目に置く。
+   2026-11-25（8 回目の返事「日付け切り替えは中央に置いて、前の日次の日ボタン(前の表示)を出しても他のUIに被らないと思う」）：
+   小さい画面では日付と ‹ › を 1段目の真ん中に置き、‹ › はいつも出す（.today-top.is-center。前の 230px 未満で畳む決まりはやめた）。
+   大きい画面では前の形（左にタグのフィルター、右に日付と ‹ ›。applySwimLayout） */
 let topRowEl = null, toolsEl = null, dayRowEl = null;
 function placeDayRow() {
   if (!topRowEl || !dayRowEl) return;
   if (dayRowEl.parentNode !== topRowEl) topRowEl.appendChild(dayRowEl);
-  const w = topRowEl.clientWidth;
-  if (!w) return;                            /* まだ寸法が無い（隠れている）。出たときにもう一度 */
-  topRowEl.classList.toggle('is-tight', w < DAYROW_TIGHT);
 }
 
-/* ---------------- 泳ぐ生き物：タグのフィルターと一覧の切り替え（2026-11-25 Issue #96 の 7 回目の返事） ----------------
+/* ---------------- 泳ぐ生き物：タグのフィルターと一覧の切り替え（2026-11-25 Issue #96 の 7・8 回目の返事） ----------------
    > タグの選択ボタンとリストボタンもイメージにあう海の生き物に置き換えて、1番前のレイヤーで上の方でゆっくり動かすことできる？
+   > クラゲとカメの位置を離して、海のタブも同じUIにして。スクリーン画面が大きい場合はいままでのUIにして。
    ・タグのフィルター … クラゲ。傘の下にいま選んでいるタグの名前（「ぜんぶ ▽」）。押すと今までどおりタグを選ぶ板が開く
    ・一覧の切り替え … カメ。甲羅に ⇅（一覧の間は ✕）。押すと今までどおり一覧と泡の眺めを切り替える
-   ・面の上のほう（2段目の帯。.today-swim）を、泡より前（いちばん前の層）でゆっくり左右に泳ぐ（クラゲは 70 秒・カメは 90 秒で横切る）。
-     指を乗せている間・焦点がある間・一覧の間は止まる（押しやすいように）。動きを減らす設定では、左右の端で止まっている
-   ・中身（filterLabel・listIc・aria-label・title）は前のボタンのまま（syncFilterBtn・syncListBtn が今までどおり書く）
+   ・小さい画面では、面の上のほう（2段目の帯。.today-swim）を、泡より前（いちばん前の層）でゆっくり左右に泳ぐ。
+     クラゲは帯の左半分、カメは右半分だけを泳ぎ、重ならない（8 回目の返事）。
+     指を乗せている間・焦点がある間・一覧の間は止まる。動きを減らす設定では、左右の端で止まっている
+   ・大きい画面（isWideScreen）では、前のボタンに戻す：フィルターは 1段目の左、⇅ は 2段目の右（絵は CSS が隠す）
+   ・絵と包みは js/swim.js（海の画面と同じもの）。中身（filterLabel・listIc・aria-label・title）は前のボタンのまま
    ・泡を掴んでいる間・押している間は、前と同じく消す（css の .is-bubdrag など） */
-const SVG_NS_SWIM = 'http://www.w3.org/2000/svg';
-function swimSvg(viewBox, w, h, parts) {
-  const svg = document.createElementNS(SVG_NS_SWIM, 'svg');
-  svg.setAttribute('viewBox', viewBox);
-  svg.setAttribute('width', String(w));
-  svg.setAttribute('height', String(h));
-  svg.setAttribute('class', 'sw-ic');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  parts.forEach(([tag, attrs]) => {
-    const n = document.createElementNS(SVG_NS_SWIM, tag);
-    Object.keys(attrs).forEach(k => n.setAttribute(k, attrs[k]));
-    svg.appendChild(n);
-  });
-  return svg;
-}
-function jellySvg() {
-  return swimSvg('0 0 48 44', 40, 37, [
-    ['path', { class: 'tent', d: 'M12 22 Q9 31 13 40 M20 23 Q18 33 21 43 M28 23 Q30 33 27 43 M36 22 Q39 31 35 40' }],
-    ['path', { class: 'bell', d: 'M4 23 Q4 3 24 3 Q44 3 44 23 Q38 26 34 22 Q29 26 24 22 Q19 26 14 22 Q10 26 4 23 Z' }],
-    ['path', { class: 'shine', d: 'M12 13 Q15 7 22 6' }],
-  ]);
-}
-function turtleSvg() {
-  return swimSvg('0 0 60 40', 52, 35, [
-    ['path', { class: 'flip', d: 'M14 10 L6 3 Q4 9 11 15 Z M14 30 L6 37 Q4 31 11 25 Z M44 11 L50 5 Q53 10 47 15 Z M44 29 L50 35 Q53 30 47 25 Z' }],
-    ['path', { class: 'flip', d: 'M50 20 L58 17 L58 23 Z' }],                                  /* 尾（右） */
-    ['circle', { class: 'head', cx: '8', cy: '20', r: '6' }],                                   /* 頭（左） */
-    ['ellipse', { class: 'shell', cx: '30', cy: '20', rx: '19', ry: '14' }],
-    ['path', { class: 'plate', d: 'M30 9 L38 14 L38 26 L30 31 L22 26 L22 14 Z' }],
-    ['circle', { class: 'eye', cx: '6', cy: '18', r: '1.4' }],
-  ]);
-}
-function mountSwimmers(filterBtnEl, listBtnEl) {
-  const band = el('div', 'today-swim');
-  band.dataset.screen = 'today.swim'; band.dataset.screenLayer = '2';
-  /* クラゲ：絵を前に差し込み、名前と ▽ は傘の下 */
-  filterBtnEl.classList.add('sw', 'sw-jelly');
-  filterBtnEl.insertBefore(jellySvg(), filterBtnEl.firstChild);
-  const fwrap = el('span', 'sw-lb');
-  while (filterBtnEl.childNodes.length > 1) fwrap.appendChild(filterBtnEl.childNodes[1]);
-  filterBtnEl.appendChild(fwrap);
-  /* カメ：向きを変える（右へ泳ぐ間は裏返す）のは絵だけ。⇅ / ✕ は甲羅の上に重ねて裏返さない */
-  listBtnEl.classList.add('sw', 'sw-turtle');
-  const face = el('span', 'sw-face');
-  face.appendChild(turtleSvg());
-  listBtnEl.insertBefore(face, listBtnEl.firstChild);
-  band.appendChild(filterBtnEl);
-  band.appendChild(listBtnEl);
-  return band;
+function applySwimLayout(wide) {
+  if (!swimBand || !filterBtn || !listBtn || !topRowEl || !toolsEl || !dayRowEl) return;
+  if (wide) {
+    if (filterBtn.parentNode !== topRowEl) topRowEl.insertBefore(filterBtn, dayRowEl);
+    if (listBtn.parentNode !== toolsEl) toolsEl.appendChild(listBtn);
+  } else {
+    if (filterBtn.parentNode !== swimBand) swimBand.appendChild(filterBtn);
+    if (listBtn.parentNode !== swimBand) swimBand.appendChild(listBtn);
+  }
+  swimBand.hidden = wide;
+  topRowEl.classList.toggle('is-center', !wide);
 }
 
 /* ---------------- 画面モジュール ---------------- */
@@ -2662,12 +2631,22 @@ export default {
     listBtn.appendChild(listIc);                /* 字は出さない（Issue #92 の返事。名前は aria-label・title が渡す） */
     listBtn.addEventListener('click', ev => { ev.preventDefault(); setList(!listOn); });
     stage.appendChild(tools);
-    /* タグのフィルター（クラゲ）と一覧の切り替え（カメ）は、面の上のほうを泳ぐ生き物にした（Issue #96 の 7 回目の返事。mountSwimmers）。
-       前はフィルターが 1段目の左、⇅ が 2段目の右。面の最後に入れて、泡より前に描く */
-    swimBand = mountSwimmers(filterBtn, listBtn);
+    /* タグのフィルター（クラゲ）と一覧の切り替え（カメ）。小さい画面では面の上のほうを泳ぐ帯に、大きい画面では前の場所に
+       （Issue #96 の 7・8 回目の返事。applySwimLayout）。帯は面の最後に入れて、泡より前に描く */
+    dressJelly(filterBtn);
+    dressTurtle(listBtn);
+    swimBand = el('div', 'today-swim');
+    swimBand.dataset.screen = 'today.swim'; swimBand.dataset.screenLayer = '2';
     stage.appendChild(swimBand);
     topRowEl = topRow; toolsEl = tools; dayRowEl = dayRow;
     placeDayRow();
+    applySwimLayout(isWideScreen());
+    /* 画面の幅が境目をまたいだら（窓の大きさ・回転）、形を切り替える */
+    if (WIDE_MQ) {
+      const onWide = () => { if (field) render(); else applySwimLayout(isWideScreen()); };
+      if (WIDE_MQ.addEventListener) WIDE_MQ.addEventListener('change', onWide);
+      else if (WIDE_MQ.addListener) WIDE_MQ.addListener(onWide);
+    }
     document.addEventListener('pointerdown', onFilterOutside, true);
     syncFilterBtn();
     /* 前に一覧で見ていたら、一覧で始める。入力欄がまだ無いので setList（render を呼ぶ）は使わず、

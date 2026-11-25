@@ -769,6 +769,77 @@ body.is-pressing .sea-stage > .sea-gather, body.is-focusing .sea-stage > .sea-ga
 body.is-pressing .sea-stage > .sea-random, body.is-focusing .sea-stage > .sea-random,
 body.is-pressing .sea-stage > .sea-cal,    body.is-focusing .sea-stage > .sea-cal,
 body.is-pressing .sea-stage > .sea-tools,  body.is-focusing .sea-stage > .sea-tools { opacity: 0; pointer-events: none; }
+/* ---------- 泳ぐ生き物：フィルター（クラゲ）とリスト表示（カメ）（2026-11-25 Issue #96 の 8 回目の返事「海のタブも同じUIにして」） ----------
+   今日の画面（css/screens/today.css の .today-swim）と同じ絵・同じ動き（keyframes sw-x-jelly・sw-x-turtle・sw-bob・sw-face はあちらにある）。
+   絵と包みは js/swim.js が足す（ボタンの働き・名前・aria-label は前のまま）。
+   泳ぐのは、小さい画面（画面の幅 720px 未満）で、リスト表示を開いていないときだけ。
+   大きい画面と、リスト表示の間（⇅ が ✕ になって海へもどるボタン）は、前のボタンの見た目・置き場のまま（絵は出さない）。
+   帯は上から 56px（2段目の高さ）、左右 10px（さいころを出していれば右 66px）。クラゲは帯の左半分、カメは右半分。
+   泡より前（z-index 12）。指を乗せている間・焦点がある間・押している間・板を開いている間は止まる。掴んでいる間などに消すのは前と同じ（上の決まり） */
+.sea-stage .sw-ic, .sea-stage .sw-face { display: none; }
+.sea-stage .sw-lb { display: contents; }
+@media (max-width: 719.98px) {
+  .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly:not([hidden]),
+  .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle {
+    position: absolute; z-index: 12; right: auto;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 0;
+    min-height: 44px; padding: 0; margin: 0;
+    border: 0; border-radius: 14px; background: none; box-shadow: none; color: var(--text);
+  }
+  .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly:not([hidden]) {
+    top: 56px; width: 96px; max-width: none;
+    --sw-from: 10px; --sw-to: calc(50% - 100px);
+    animation: sw-x-jelly 40s ease-in-out -12s infinite alternate;
+  }
+  .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle {
+    top: 66px; width: 60px; height: 44px;
+    --sw-from: calc(50% + 4px); --sw-to: calc(100% - 70px);
+    animation: sw-x-turtle 50s ease-in-out -25s infinite alternate;
+  }
+  body.pref-dice .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly:not([hidden]) { --sw-to: calc(50% - 128px); }
+  body.pref-dice .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle { --sw-from: calc(50% - 24px); --sw-to: calc(100% - 126px); }
+  .sea-stage:not(.is-gathering) > .sw .sw-ic { display: block; overflow: visible; }
+  .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle .sw-face { display: block; line-height: 0; animation: sw-face 100s step-end -25s infinite; }
+  .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly .sw-ic { animation: sw-bob 4.2s ease-in-out infinite alternate; }
+  /* クラゲの名前の札（いまの眺め「タグ無し ▽」など） */
+  .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly .sw-lb {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 96px; margin-top: -2px;
+    padding: 1px 8px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; letter-spacing: .02em; line-height: 1.5;
+    border: 1px solid var(--line-strong);
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+  }
+  .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly .sw-lb .lb { min-width: 0; max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly .sw-lb .ic { flex: none; font-size: 9.5px; }
+  .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly.is-on .sw-lb { border-color: var(--bub-edge); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent); }
+  .sea-stage > .sea-narrow.sw-jelly .bell  { fill: color-mix(in srgb, var(--accent-b) 28%, #fff); stroke: var(--accent-b); stroke-width: 1.8; fill-opacity: .92; }
+  .sea-stage > .sea-narrow.sw-jelly .tent  { fill: none; stroke: color-mix(in srgb, var(--accent-b) 75%, #fff); stroke-width: 1.8; stroke-linecap: round; }
+  .sea-stage > .sea-narrow.sw-jelly .shine { fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; opacity: .8; }
+  /* カメの甲羅に ⇅ */
+  .sea-stage > .sea-gather.sw-turtle .shell { fill: color-mix(in srgb, var(--accent-a) 45%, #fff); stroke: var(--accent-a); stroke-width: 1.8; }
+  .sea-stage > .sea-gather.sw-turtle .plate { fill: color-mix(in srgb, var(--accent-a) 30%, #fff); stroke: var(--accent-a); stroke-width: 1.2; }
+  .sea-stage > .sea-gather.sw-turtle .head,
+  .sea-stage > .sea-gather.sw-turtle .flip  { fill: #6fae84; stroke: #3f7d56; stroke-width: 1.2; }
+  .sea-stage > .sea-gather.sw-turtle .eye   { fill: #1d1d24; }
+  .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle .ic {
+    position: absolute; left: 50%; top: 50%; transform: translate(-30%, -55%);
+    font-size: 14px; font-weight: 700; line-height: 1; color: #1d1d24;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff; pointer-events: none;
+  }
+  .sea-stage:not(.is-gathering) > .sw:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+  /* 止まるとき */
+  .sea-stage > .sw:hover, .sea-stage > .sw:hover *,
+  .sea-stage > .sw:focus-visible, .sea-stage > .sw:focus-visible *,
+  .sea-stage > .sw:active, .sea-stage > .sw:active *,
+  .sea-stage > .sea-narrow.sw[aria-expanded="true"], .sea-stage > .sea-narrow.sw[aria-expanded="true"] * { animation-play-state: paused; }
+}
+@media (max-width: 719.98px) and (prefers-reduced-motion: reduce) {
+  .sea-stage > .sw, .sea-stage > .sw * { animation: none !important; }
+  .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly:not([hidden]) { left: 10px; }
+  .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle { left: calc(100% - 70px); }
+  body.pref-dice .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle { left: calc(100% - 126px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sea-vent .mini { animation: none !important; opacity: 0; }
   .sea-vent.is-puff .rock { animation: none; }

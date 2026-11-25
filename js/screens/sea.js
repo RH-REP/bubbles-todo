@@ -36,6 +36,12 @@ import { dropDay } from './today.js';
 import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from '../quadview.js';
 import { createDeadlineView, deadlineButton, syncDeadlineButton } from '../deadlineview.js';
 import { createPeriodView } from '../periodview.js';
+import { dressJelly, dressTurtle } from '../swim.js';    /* フィルター＝クラゲ・リスト表示＝カメ（Issue #96 の 8 回目の返事） */
+
+/* 大きい画面か（画面＝窓の幅が 720px 以上。今日の画面と同じ境目）。大きい画面では前のボタンのまま（css/screens/sea.css） */
+function isWideScreen() {
+  try { return !!(window.matchMedia && window.matchMedia('(min-width: 720px)').matches); } catch (e) { return false; }
+}
 import { loadPrefs, savePrefs, applyChanges, PREFS_EVENT } from '../prefs.js';     /* リスト表示を開いたときの形（Issue #40）・一覧の並び（Issue #69） */
 
 /* --- 海に出すバブルの上限（利用者の指示）---
@@ -2654,6 +2660,21 @@ function openNarrowPop() {
     if (ev.key === 'Tab') closeNarrowPop(false);
   });
   stage.appendChild(pop);
+  /* 小さい画面では、フィルターは泳ぐクラゲ（Issue #96 の 8 回目の返事。js/swim.js・css/screens/sea.css）。
+     動いている所の真下に出す（面の左右・下からはみ出さない）。大きい画面では前のボタンの真下で、置き場は CSS のまま */
+  if (!isWideScreen()) {
+    try {
+      const sr = stage.getBoundingClientRect(), br = narrowBtn.getBoundingClientRect();
+      if (br.width && sr.width) {
+        const pw = pop.offsetWidth || 200;
+        const top = Math.round(br.bottom - sr.top + 6);
+        pop.style.left = Math.round(Math.max(10, Math.min(br.left - sr.left, sr.width - pw - 10))) + 'px';
+        pop.style.right = 'auto';
+        pop.style.top = top + 'px';
+        pop.style.maxHeight = Math.max(160, Math.round(sr.height - top - 10)) + 'px';
+      }
+    } catch (e) { /* 測れなければ CSS の置き場のまま */ }
+  }
   narrowPop = pop;
   narrowBtn.setAttribute('aria-expanded', 'true');
   const first = pop.querySelector('[aria-checked="true"]') || pop.querySelector('button');
@@ -3976,6 +3997,8 @@ export default {
       }
       setGathering(!gathering);
     });
+    /* 小さい画面では泳ぐカメ（Issue #96 の 8 回目の返事「海のタブも同じUIにして」）。絵を足すだけで、働きはこのボタンのまま */
+    dressTurtle(gatherBtn);
     stage.appendChild(gatherBtn);
 
     /* --- フィルター（中央の海だけ／トグル） ---
@@ -4003,6 +4026,8 @@ export default {
     /* フィルターと「四つに分ける」は横に並べる（利用者の指示 2026-10-25。前はフィルターの中にあった）。
        フィルターは隠れることがある（タグの海・タグが無いとき）ので、並びは flex に任せる */
     /* フィルターは 1段目へ移した（Issue #84）。2段目の左の並びに残るのは、リスト表示の間だけ出る形の切り替え */
+    /* 小さい画面では泳ぐクラゲ（Issue #96 の 8 回目の返事）。名前と ▽ は傘の下の札（.sw-lb）に包む */
+    dressJelly(narrowBtn);
     stage.appendChild(narrowBtn);
     const tools = el('div', 'sea-tools');
     /* リストの形の切り替え（Issue #40 の返事「リスト表示の中で切り替えられるようにできる？」）。

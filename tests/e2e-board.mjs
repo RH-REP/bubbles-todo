@@ -343,8 +343,12 @@ try {
        日付と ‹ › はいつも 1段目（Issue #96 の 7 回目の返事） */
     assert.deepEqual(await js(`const sw = document.querySelector('#pane-today .today-swim');
       return { jelly: !!sw.querySelector('.today-filterbtn.sw-jelly svg'), turtle: !!sw.querySelector('.today-listbtn.sw-turtle svg'),
-        z: getComputedStyle(sw).zIndex, day: !!document.querySelector('#pane-today .today-top > .today-dayrow') }`),
-      { jelly: true, turtle: true, z: '12', day: true });
+        z: getComputedStyle(sw).zIndex, day: !!document.querySelector('#pane-today .today-top.is-center > .today-dayrow'),
+        steps: [...document.querySelectorAll('#pane-today .today-top .today-daystep')].every(b => getComputedStyle(b).display !== 'none'),
+        /* クラゲは帯の左半分、カメは右半分（Issue #96 の 8 回目の返事「クラゲとカメの位置を離して」） */
+        apart: (() => { const j = sw.querySelector('.sw-jelly').getBoundingClientRect(), t = sw.querySelector('.sw-turtle').getBoundingClientRect(),
+          b = sw.getBoundingClientRect(); return j.right <= b.left + b.width / 2 + 1 && t.left >= b.left + b.width / 2 - 1; })() }`),
+      { jelly: true, turtle: true, z: '12', day: true, steps: true, apart: true });
     /* 前の版の枠の名前（.today-plate）が混ざって出ても、見せず壁にもしない（Issue #96 の 2 回目の返事） */
     assert.equal(await js(`const p = document.createElement('div'); p.className = 'today-plate'; p.textContent = 'x';
       document.querySelector('#pane-today .today-stage').appendChild(p); const r = p.offsetParent; p.remove(); return r === null`), true);
@@ -392,8 +396,12 @@ try {
     await until(`const w = document.querySelector('#pane-today .today-wide'); return !!w && !w.hidden && !!w.querySelector('.tp-key')`);
     assert.deepEqual(await js(`return { key: document.querySelector('#pane-today .today-wide .tp-key-bub').textContent,
       seats: [...document.querySelectorAll('#pane-today .today-wide .tp-seat:not(.is-empty)')].map(b => b.textContent),
-      fish: !document.querySelector('#pane-today .today-corners').hidden }`),
-      { key: '架空の申請書を書く', seats: ['架空の経費の提出外の約束'], fish: false });
+      fish: !document.querySelector('#pane-today .today-corners').hidden,
+      /* 大きい画面ではクラゲ・カメも前のボタンの場所（Issue #96 の 8 回目の返事。境目は画面の幅 720px） */
+      filterInTop: !!document.querySelector('#pane-today .today-top > .today-filterbtn'),
+      listInTools: !!document.querySelector('#pane-today .today-tools > .today-listbtn'),
+      swim: !document.querySelector('#pane-today .today-swim').hidden }`),
+      { key: '架空の申請書を書く', seats: ['架空の経費の提出外の約束'], fish: false, filterInTop: true, listInTools: true, swim: false });
     await send('Emulation.setDeviceMetricsOverride', { width: 430, height: 1500, deviceScaleFactor: 1, mobile: true });
     await until(`return document.querySelector('#pane-today .today-wide').hidden`);
     await js(`document.querySelector('#tabbar button[data-screen="sea"]').click()`);
