@@ -260,6 +260,16 @@ body:not(.pref-fb) .gearbtn { right: 10px; }
   transition: transform .1s, color .12s, border-color .12s, background-color .12s;
 }
 .menubtn .ic { font-size: 20px; line-height: 1; }
+/* スキン「海の生き物」（設定。body.skin-sea）では ≡ の代わりに貝（js/swim.js の dressShell。2026-11-25 Issue #96 の返事）。
+   ふだんは貝を隠す。貝はゆっくり上下に揺れる（動きを減らす設定では止める）。押したときの働き・名前は同じ */
+.menubtn .sw-ic { display: none; }
+body.skin-sea .menubtn .ic { display: none; }
+body.skin-sea .menubtn .sw-ic { display: block; overflow: visible; animation: sw-shell-bob 4.6s ease-in-out infinite alternate; }
+body.skin-sea .menubtn .fan   { fill: color-mix(in srgb, #e8a87c 55%, #fff); stroke: #b8734a; stroke-width: 1.6; stroke-linejoin: round; }
+body.skin-sea .menubtn .rib   { fill: none; stroke: #b8734a; stroke-width: 1.2; stroke-linecap: round; opacity: .8; }
+body.skin-sea .menubtn .hinge { fill: color-mix(in srgb, #e8a87c 70%, #fff); stroke: #b8734a; stroke-width: 1.2; }
+@keyframes sw-shell-bob { from { transform: translateY(0); } to { transform: translateY(2px); } }
+@media (prefers-reduced-motion: reduce) { body.skin-sea .menubtn .sw-ic { animation: none; } }
 .menubtn:hover { color: var(--text); }
 .menubtn:active { transform: scale(.95); }
 .menubtn:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }

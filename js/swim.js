@@ -45,6 +45,24 @@ export function turtleSvg() {
   ]);
 }
 
+/* 貝（ホタテ。左上の ≡＝引き出しのボタン。2026-11-25 Issue #96 の返事「左から2番目にあるボタンもイメージに合う海の生き物にして。
+   スキンの切り替えに追加して」）。開くと中身が出る＝引き出し、と読めるもの */
+export function shellSvg() {
+  return swimSvg('0 0 40 36', 30, 27, [
+    ['path', { class: 'hinge', d: 'M14 29 L26 29 L24 34 L16 34 Z' }],
+    ['path', { class: 'fan', d: 'M20 30 L4 14 Q6 3 20 2 Q34 3 36 14 Z' }],
+    ['path', { class: 'rib', d: 'M20 30 L10 6 M20 30 L15 3.5 M20 30 L20 2.5 M20 30 L25 3.5 M20 30 L30 6' }],
+  ]);
+}
+
+/* 引き出しのボタンを貝にする（1 度だけ）。≡ の字（.ic）は残し、スキンが海の生き物のときだけ CSS が入れ替える */
+export function dressShell(btn) {
+  if (!btn || btn.classList.contains('sw-shell')) return btn;
+  btn.classList.add('sw-shell');
+  btn.appendChild(shellSvg());
+  return btn;
+}
+
 /* タグのフィルターのボタンをクラゲにする（1 度だけ） */
 export function dressJelly(btn) {
   if (!btn || btn.classList.contains('sw-jelly')) return btn;

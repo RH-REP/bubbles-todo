@@ -70,6 +70,7 @@ import today, { openDayPicker, dayBadge, shownDay } from './screens/today.js';
 import plan from './screens/plan.js';
 import gap from './screens/gap.js';
 import review from './screens/review.js';
+import { dressShell } from './swim.js';
 /* 設定の画面は、起動のときには読まない（2026-11-23 Issue #93「起動時間の高速化」）。
    js/screens/settings.js は 1 本で約 400KB（本体の JS の 2 割近く）あり、その先の seapanel.js などとあわせて、
    最初の画面を出す前に読み・解釈するぶんが重かった。設定は歯車から開く画面で、起動の直後には要らない。
@@ -306,6 +307,7 @@ menuIc.className = 'ic';
 menuIc.setAttribute('aria-hidden', 'true');
 menuIc.textContent = '≡';
 menuBtn.appendChild(menuIc);
+dressShell(menuBtn);    /* スキン「海の生き物」では ≡ の代わりに貝（css/base.css の body.skin-sea .menubtn。Issue #96） */
 if (appRoot) appRoot.appendChild(menuBtn);
 
 let drawer = null;            /* { back, panel, body, off, onKey } 開いている間だけ */
