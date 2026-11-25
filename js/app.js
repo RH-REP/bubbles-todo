@@ -1046,6 +1046,8 @@ function applyPrefs() {
   document.body.classList.toggle('pref-show-cal', !!prefs.showCal);
   document.body.classList.toggle('pref-show-suggest', !!prefs.showSuggest);
   document.body.classList.toggle('pref-show-quad', !!prefs.showQuad);
+  /* スキン（2026-11-25 Issue #96 の 9 回目の返事）。'sea' なら、小さい画面のフィルターと一覧がクラゲとカメになる（css の body.skin-sea） */
+  document.body.classList.toggle('skin-sea', prefs.skin === 'sea');
   const btns = [...tabbar.children];
   prefs.tabOrder.forEach(id => {
     const b = btns.find(x => x.dataset.screen === id);

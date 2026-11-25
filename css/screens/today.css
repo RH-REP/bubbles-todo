@@ -530,7 +530,11 @@ body.is-pressing .today-stage .today-filterbtn, body.is-focusing .today-stage .t
 .today-top.is-center { justify-content: center; }
 .today-top.is-center > .today-dayrow { margin-left: 0; }
 html .today-top.is-center .today-daystep { display: inline-block; }
-/* 大きい画面で前の場所に戻したクラゲ・カメは、絵を出さず前のボタンの見た目のまま（.sw-lb は包みをほどく） */
+/* ふつうのボタンのスキン（既定）と大きい画面では、フィルターが 1段目の左に戻る。1段目が 330px 未満なら、日付と ‹ › を
+   2段目の左へ下ろし、1段目はフィルターだけ（Issue #97 の決まりを戻した。9 回目の返事。js/screens/today.js placeDayRow） */
+.today-top.is-solo > .today-filterbtn { max-width: 100%; }
+.today-tools > .today-dayrow { margin-left: 0; margin-right: auto; flex: 0 1 auto; }
+/* ふつうのボタンのスキン・大きい画面で前の場所に戻したクラゲ・カメは、絵を出さず前のボタンの見た目のまま（.sw-lb は包みをほどく） */
 .today-top .sw-ic, .today-tools .sw-face { display: none; }
 .today-top .sw-lb { display: contents; }
 /* 1段目に置いたとき（Issue #92 の返事）。海の 1段目の「タグ無し ▽」と同じく字を濃く。
@@ -780,79 +784,37 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
    drift の keepOut（泡を入れない壁）にしているので、同じ名前で面いっぱい（inset: 0）にすると面ぜんぶが壁になり、泡が消える。
    前の JS の .today-plate は、ここでは出さない（display: none なら keepOut も数えない。drift は offsetParent の無いものを外す） */
 .today-plate { display: none !important; }
-/* 小さい画面：海の奥を泳ぐ魚（Issue #96 の 6 回目の返事。2026-11-24。js/screens/today.js の renderCorners）。
-   紫みの魚「大事」＝今日大事なこと、青みの魚「先に」＝先に済ませる。面のいちばん奥（泡の後ろ）を左右にゆっくり泳ぐ。
-   入れ物は z-index を付けず、泡（field）より先に面へ入れてあるので、泡は魚の上に描かれる。指も透かす（pointer-events: none）。
-   泡を掴んでいる間（.is-drag）だけ、日を移す帯（z-index 9）より上に出し、魚を止めて少し大きくし「離すとどうなるか」を添える。
-   前の灯台・浮き（5 回目まで）と滝（3 回目）の部品は、前の版の JS が混ざって届いても出さない（左上に字が並んだため） */
-.today-corners { position: absolute; inset: 0; pointer-events: none; }
-.today-corners .tp-fall, .today-corners .tp-mark { display: none !important; }
-.today-corners.is-drag { z-index: 10; }
+/* 小さい画面：左下・右下のエリア（Issue #96 の 9 回目の返事「魚になった大事、急ぎ、は左下と右下のエリアで属性の付与に戻して」。
+   js/screens/today.js の renderCorners）。泡を掴んでいる間だけ出す。左下＝今日大事なこと（紫み）、右下＝先に済ませる（青み）。
+   日を移す帯（z-index 9）より上（10）。指は透かす（判定は指先の座標）。壁にしない。
+   前の魚（6 回目）・灯台と浮き（4 回目）・滝（3 回目）の部品は、前の版の JS が混ざって届いても出さない（左上に字が並んだため） */
+.today-corners { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+.today-corners .tp-fall, .today-corners .tp-mark, .today-corners .tp-fish { display: none !important; }
 .today-corners[hidden] { display: none; }
 .today-stage.is-list .today-corners, .today-stage.is-quad .today-corners { display: none; }
-.today-corners .tp-fish {
+.today-corners .tp-corner {
   --mark: var(--accent-a);
-  --dur: 40s; --dur-y: 13s; --dl: -27s;
-  position: absolute; left: 2%; top: 46%; box-sizing: border-box;
-  width: 84px; padding: 2px;
-  display: flex; flex-direction: column; align-items: center; gap: 0;
-  animation: tp-fish-x var(--dur) ease-in-out var(--dl) infinite alternate,
-             tp-fish-y-first var(--dur-y) ease-in-out var(--dl) infinite alternate;
+  position: absolute; bottom: 0; width: 148px; height: 104px; box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 2px;
+  padding: 10px 12px calc(10px + var(--safe-b, 0px));
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  border: 1.5px dashed color-mix(in srgb, var(--mark) 70%, transparent);
+  background: color-mix(in srgb, var(--mark) 16%, color-mix(in srgb, var(--surface) 80%, transparent));
+  transition: background-color .12s, border-color .12s;
 }
-.today-corners .tp-fish[hidden], .today-corners .tp-fish-s[hidden] { display: none; }
-.today-corners .tp-fish-key {
-  --mark: var(--accent-b); --dur: 52s; --dur-y: 17s; --dl: -8s;
-  animation-name: tp-fish-x, tp-fish-y-key;
+.today-corners .tp-corner-key {
+  --mark: var(--accent-b);
+  left: 0; border-left: 0; border-bottom: 0; border-radius: 0 64px 0 0; align-items: flex-start; text-align: left;
 }
-@keyframes tp-fish-x { from { left: 2%; } to { left: calc(98% - 84px); } }
-@keyframes tp-fish-y-key   { from { top: 58%; } to { top: calc(100% - 82px); } }
-@keyframes tp-fish-y-first { from { top: 38%; } to { top: 60%; } }
-/* 向き：絵は左向き。右へ泳ぐ前半は裏返す（横の動きと同じ長さ×2・同じ遅れで、折り返しにそろえる） */
-.today-corners .tp-fish-swim {
-  display: block; line-height: 0;
-  animation: tp-fish-face calc(var(--dur) * 2) step-end var(--dl) infinite;
+.today-corners .tp-corner-first {
+  right: 0; border-right: 0; border-bottom: 0; border-radius: 64px 0 0 0; align-items: flex-end; text-align: right;
 }
-@keyframes tp-fish-face { 0% { transform: scaleX(-1); } 50% { transform: scaleX(1); } }
-.today-corners .tp-fish-ic { width: 64px; height: 40px; display: block; overflow: visible; transition: transform .18s ease-out; }
-.today-corners .tp-fish-ic .body { fill: color-mix(in srgb, var(--mark) 45%, #fff); stroke: var(--mark); stroke-width: 2; }
-.today-corners .tp-fish-ic .tail,
-.today-corners .tp-fish-ic .fin  { fill: var(--mark); }
-.today-corners .tp-fish-ic .band { fill: color-mix(in srgb, var(--mark) 75%, #fff); }
-.today-corners .tp-fish-ic .eye  { fill: #1d1d24; stroke: #fff; stroke-width: 1.2; }
-.today-corners .tp-fish-ic .gill { fill: none; stroke: var(--mark); stroke-width: 1.6; stroke-linecap: round; }
-/* 動きを減らす設定：泳がせず、下の左右に置く */
-@media (prefers-reduced-motion: reduce) {
-  .today-corners .tp-fish, .today-corners .tp-fish-swim { animation: none; }
-  .today-corners .tp-fish-key   { left: 8px; top: calc(100% - 82px); }
-  .today-corners .tp-fish-first { left: calc(100% - 92px); top: calc(100% - 82px); }
-}
-/* 名前：短く「大事」「先に」。白い字に魚の色 */
-.today-corners .tp-fish-h {
-  padding: 1px 8px; border-radius: 999px;
-  font-size: 11px; font-weight: 700; letter-spacing: .06em; line-height: 1.5;
-  color: #fff; background: color-mix(in srgb, var(--mark) 88%, #000);
-}
-/* 先に済ませるを畳んだあとの「先に」の魚は薄く（掴んでいる間は「今日はもう畳んだ」と言う） */
-.today-corners .tp-fish.is-closed { opacity: .45; }
-/* 掴んでいる間：魚を止めて少し大きく。上に「離すとどうなるか」 */
-.today-corners.is-drag .tp-fish, .today-corners.is-drag .tp-fish-swim { animation-play-state: paused; }
-.today-corners.is-drag .tp-fish-ic { transform: scale(1.2); }
-.today-corners .tp-fish-s {
-  position: absolute; bottom: calc(100% + 6px); left: 0; width: max-content;
-  max-width: 168px; padding: 4px 8px; border-radius: 10px;
-  font-size: 11px; line-height: 1.35; color: var(--text);
-  background: color-mix(in srgb, var(--mark) 18%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--mark) 55%, transparent);
-  overflow-wrap: anywhere;
-}
-/* 面の右半分にいる魚は、説明を右に寄せる（面の外へはみ出さないように。js の renderCorners が .is-right を付ける） */
-.today-corners .tp-fish.is-right .tp-fish-s { left: auto; right: 0; text-align: right; }
-/* 指がその上に来たら、離せば入る合図。色だけに頼らず、縁の線も出す（日を移す帯と同じ考え） */
-.today-corners .tp-fish.is-drop {
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--mark) 26%, color-mix(in srgb, var(--surface) 70%, transparent));
-  box-shadow: inset 0 0 0 2px var(--mark);
-}
+.today-corners .tp-corner-h { max-width: 100%; overflow-wrap: anywhere; }
+.today-corners .tp-corner-s { font-size: 11px; font-weight: 400; color: var(--text-2); max-width: 100%; overflow-wrap: anywhere; }
+/* 先に済ませるを畳んだあとは薄く（「今日はもう畳んだ」と言う） */
+.today-corners .tp-corner.is-closed { opacity: .55; }
+/* 指がその上に来たら、離せば入る合図。色だけに頼らず、線も実線に変える（日を移す帯と同じ） */
+.today-corners .tp-corner.is-drop { border-style: solid; background: color-mix(in srgb, var(--mark) 32%, var(--surface)); }
 
 /* 大きい画面：いちばん最初の形（Issue #96 の 6 回目の返事「画面が大きいのは1番最初の表示」。js/screens/today.js の renderWide）。
    面の上の枠。泡にとっては壁（js/drift.js の keepOut。海の端の札と同じ）。上から 先に済ませる（細い 1 段）→ 今日大事なこと（大きな枠）。

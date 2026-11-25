@@ -329,18 +329,20 @@ try {
       store.setDay(a, day, true); store.setDay(b, day, true);`);
     await js(`document.querySelector('#tabbar button[data-screen="today"]').click()`);
     await until(`return document.getElementById('pane-today')?.classList.contains('is-active')`);
-    /* 小さい画面では、奥を泳ぐ魚が 2 匹いつも見える（Issue #96 の 6 回目の返事）。指は透かし、泡の後ろ（入れ物に z-index が無い）。
-       絵（SVG）があって幅も高さもあり、面の中にいる。大きい画面の枠（.today-wide）は出ない */
-    await until(`return document.querySelectorAll('#pane-today .today-corners .tp-fish:not([hidden])').length === 2`);
-    assert.deepEqual(await js(`const c = document.querySelector('#pane-today .today-corners'); const s = getComputedStyle(c);
-      const st = document.querySelector('#pane-today .today-stage').getBoundingClientRect();
-      return { pe: s.pointerEvents, z: s.zIndex, kinds: [...c.querySelectorAll('.tp-fish')].map(n => n.dataset.drop),
-        big: [...c.querySelectorAll('.tp-fish-ic')].every(n => { const r = n.getBoundingClientRect(); return r.width >= 50 && r.height >= 30; }),
-        inside: [...c.querySelectorAll('.tp-fish')].every(n => { const r = n.getBoundingClientRect(); return r.top >= st.top && r.bottom <= st.bottom + 1; }),
-        wide: !document.querySelector('#pane-today .today-wide').hidden }`),
-      { pe: 'none', z: 'auto', kinds: ['key', 'first'], big: true, inside: true, wide: false });
-    /* タグのフィルター（クラゲ）と一覧（カメ）は、面の上のほうを泳ぐ帯（.today-swim）にいて、泡より前（z-index 12）。
-       日付と ‹ › はいつも 1段目（Issue #96 の 7 回目の返事） */
+    /* 小さい画面では、左下・右下のエリアは泡を掴んでいる間だけ（Issue #96 の 9 回目の返事。魚はいない）。
+       掴んでいないときは何も出ず、大きい画面の枠（.today-wide）も出ない */
+    assert.deepEqual(await js(`return { corners: !document.querySelector('#pane-today .today-corners').hidden,
+      fish: document.querySelectorAll('#pane-today .tp-fish').length, wide: !document.querySelector('#pane-today .today-wide').hidden }`),
+      { corners: false, fish: 0, wide: false });
+    /* スキン（設定）の既定は「ふつうのボタン」：フィルターは 1段目、⇅ は 2段目。泳ぐ帯は出ない（9 回目の返事「スキンとして実装して」） */
+    assert.deepEqual(await js(`return { filterInTop: !!document.querySelector('#pane-today .today-top > .today-filterbtn'),
+      listInTools: !!document.querySelector('#pane-today .today-tools > .today-listbtn'),
+      swim: !document.querySelector('#pane-today .today-swim').hidden }`),
+      { filterInTop: true, listInTools: true, swim: false });
+    /* スキンを「海の生き物」にすると、タグのフィルター（クラゲ）と一覧（カメ）が面の上のほうを泳ぐ帯（.today-swim）に入り、泡より前（z-index 12）。
+       日付と ‹ › は 1段目の真ん中（Issue #96 の 7・8 回目の返事） */
+    await js(`const P = await import('/js/prefs.js'); P.savePrefs(Object.assign(P.loadPrefs(), { skin: 'sea' })); window.dispatchEvent(new CustomEvent(P.PREFS_EVENT));`);
+    await until(`return !document.querySelector('#pane-today .today-swim').hidden`);
     assert.deepEqual(await js(`const sw = document.querySelector('#pane-today .today-swim');
       return { jelly: !!sw.querySelector('.today-filterbtn.sw-jelly svg'), turtle: !!sw.querySelector('.today-listbtn.sw-turtle svg'),
         z: getComputedStyle(sw).zIndex, day: !!document.querySelector('#pane-today .today-top.is-center > .today-dayrow'),
@@ -349,6 +351,9 @@ try {
         apart: (() => { const j = sw.querySelector('.sw-jelly').getBoundingClientRect(), t = sw.querySelector('.sw-turtle').getBoundingClientRect(),
           b = sw.getBoundingClientRect(); return j.right <= b.left + b.width / 2 + 1 && t.left >= b.left + b.width / 2 - 1; })() }`),
       { jelly: true, turtle: true, z: '12', day: true, steps: true, apart: true });
+    /* ふつうのボタンに戻すと、前の場所に戻る */
+    await js(`const P = await import('/js/prefs.js'); P.savePrefs(Object.assign(P.loadPrefs(), { skin: 'plain' })); window.dispatchEvent(new CustomEvent(P.PREFS_EVENT));`);
+    await until(`return document.querySelector('#pane-today .today-swim').hidden && !!document.querySelector('#pane-today .today-top > .today-filterbtn')`);
     /* 前の版の枠の名前（.today-plate）が混ざって出ても、見せず壁にもしない（Issue #96 の 2 回目の返事） */
     assert.equal(await js(`const p = document.createElement('div'); p.className = 'today-plate'; p.textContent = 'x';
       document.querySelector('#pane-today .today-stage').appendChild(p); const r = p.offsetParent; p.remove(); return r === null`), true);
@@ -391,7 +396,7 @@ try {
       return rows.map(r => ({ key: r.classList.contains('is-pin-key'), first: r.classList.contains('is-pin-first'), pin: r.querySelector('.tl-pin')?.textContent }))`),
       [{ key: true, first: false, pin: '★ 大事' }, { key: false, first: true, pin: '↑ 先に' }]);
     await js(`document.querySelector('#pane-today .today-listbtn').click()`);
-    /* 大きい画面（面の幅 720px 以上）では、いちばん最初の形：上の枠に今日大事なことと先に済ませるの席。魚は出さない（Issue #96 の 6 回目の返事） */
+    /* 大きい画面（画面の幅 720px 以上）では、いちばん最初の形：上の枠に今日大事なことと先に済ませるの席。左下・右下のエリアは出さない（Issue #96 の 6 回目の返事） */
     await send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 1500, deviceScaleFactor: 1, mobile: false });
     await until(`const w = document.querySelector('#pane-today .today-wide'); return !!w && !w.hidden && !!w.querySelector('.tp-key')`);
     assert.deepEqual(await js(`return { key: document.querySelector('#pane-today .today-wide .tp-key-bub').textContent,

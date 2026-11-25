@@ -16,7 +16,7 @@ import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete, playSfx } from '../sound.js';
 import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest, keyable, firstable } from '../suggest.js';
 import { SIZES, FIRST_MAX, firstState, showFirstRow } from '../priority.js';
-import { firstStartedAt, markFirstStarted, firstMinutes } from '../prefs.js';
+import { firstStartedAt, markFirstStarted, firstMinutes, PREFS_EVENT } from '../prefs.js';
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
 import { dressJelly, dressTurtle } from '../swim.js';
@@ -328,16 +328,16 @@ function kNoteOf(t) {
    ・小さい画面では、入れた泡も、ほかの泡と同じ形のまま漂う面に出す。色で見分ける（今日大事なこと＝紫み .is-pin-key、先に済ませる＝青み .is-pin-first）。
      面に壁は置かない（前の枠は drift の keepOut で、その上下で泡が詰まっていた）
    ・入れる場所（Issue #96 の 6 回目の返事で、画面の大きさで分けた）：
-     - 小さい画面（画面の幅 720px 未満。スマホ。isWideScreen）… 海の奥をゆっくり泳ぐ 2 匹の魚（紫み＝大事、青み＝先に）。泡を掴んで魚の上で離すと入る。
-       （掴んでいる間だけの角 → いつも見える滝 → 下の角の灯台と浮き → 魚、と替えてきた。renderCorners の説明）
+     - 小さい画面（画面の幅 720px 未満。スマホ。isWideScreen）… 泡を掴んでいる間だけ出る左下・右下のエリア。そこで離すと入る。
+       （掴んでいる間だけの角 → いつも見える滝 → 下の角の灯台と浮き → 魚 → 角のエリアに戻した（9 回目の返事）。renderCorners の説明）
      - 大きい画面（720px 以上）… いちばん最初の形：面の上の枠（先に済ませるの細い段＋今日大事なことの大きな枠）。renderWide の説明
    ・入れた泡を同じ所で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方で離すとそちらへ移す
    ・盤の［★ 今日大事なことにする］［↑ 先に済ませるに入れる］・おすすめの板からも、今までどおり入れられる・外せる
    ・どちらも日付ごとに記録する。今日と先の日に入れられる（Issue #98。過ぎた日は記録として色だけ）。
      先に済ませるは、今日になってから区切りの時間を数え、過ぎるか、入れた泡が全部済むと畳み、色が戻る（次の日へは移さない）
-   ・今日大事なことは過ぎた日には入れない。一覧・四つに分けて見ている間は魚も枠も出さない（一覧では行に色と字を付ける）
+   ・今日大事なことは過ぎた日には入れない。一覧・四つに分けて見ている間はエリアも枠も出さない（一覧では行に色と字を付ける）
    言い方は命令形にしない。件数・割合は出さない。赤は使わない */
-let plate = null;          /* 魚の入れ物（.today-corners）。泡の後ろに描く。小さい画面だけ */
+let plate = null;          /* 左下・右下のエリアの入れ物（.today-corners）。泡を掴んでいる間だけ。小さい画面だけ */
 let wideBox = null;        /* 大きい画面の枠（.today-wide）。泡にとっては壁（drift の keepOut）。大きい画面だけ */
 let wideOn = false;        /* いま大きい画面の形か */
 let heldId = null;         /* 盤を開いている（中央に持っている）泡の id。drift の onHold から（大きい画面で、枠へ移る泡を閉じるまで残す） */
@@ -584,101 +584,53 @@ function seatDrag(node, t, kind, day) {
   });
 }
 
-/* ---- 小さい画面：海の奥を泳ぐ魚（Issue #96 の 6 回目の返事。2026-11-24）----
-   > 灯台は見えた。浮は見えない。…海の中のイメージなので、灯台と浮じゃなくて、魚とかにして
-   > 左下とかに固定じゃなくて1番奥のレイヤーでゆったり動かせる？
-   ・紫みの魚「大事」（今日大事なこと）と青みの魚「先に」（先に済ませる）が、面のいちばん奥（泡の後ろ）をゆっくり左右に泳ぐ。
-     指は透かす（泡を掴むのを妨げない）。壁にもしない（泡はその上も漂う）。動きを減らす設定では、下の左右で止まっている
-   ・泡を掴むと魚は止まって少し大きくなり、上に「離すとどうなるか」（入る・入れ替える・外す）を出す。魚の上で離すと入る
-     （通り抜けただけでは入れない。泡を動かすたびに、うっかり入ってしまうため）
-   ・前の浮きは、先に済ませるを畳んだ（区切りの時間が過ぎた・全部済んだ）あとは出していなかったので、見えないことがあった。
-     「先に」の魚は今日ならいつも出し、畳んだあとは薄くして、掴んでいる間に「今日はもう畳んだ」と言う
-   ・入った泡は魚と同じ色になり、上に小さく「★ 大事」「↑ 先に」の字が付く（css/bubble.css の .is-pin-*、js/bubble.js の .pinlb）。
+/* ---- 小さい画面：左下・右下のエリア（Issue #96 の 9 回目の返事。2026-11-25）----
+   > 魚になった大事、急ぎ、は左下と右下のエリアで属性の付与に戻して（私の理解では魚はいなくなる）
+   魚（6 回目の返事）をやめ、2 回目の返事の形（泡を掴んでいる間だけ出る下の角のエリア）に戻した：
+   ・泡を掴んでいる間だけ、左下に「★ 今日大事なこと」、右下に「↑ 先に済ませる」のエリアが出る。そこで離すと入る。
+     ふだんは何も出さない（泡の動きと泡を出す場所を減らさない。壁にもしない）
+   ・エリアの中に、離すとどうなるか（入る・いまの泡と入れ替える・外す・席は 3 つまで・今日はもう畳んだ）を小さく出す
+     （利用者の指示「右下、左下の表示で十分」。真ん中に吹き出しは出さない）
+   ・入った泡は形を変えず、色と上の小さな「★ 大事」「↑ 先に」で分かる（css/bubble.css の .is-pin-*、js/bubble.js の .pinlb）。
      今日の一覧でも、行に同じ色と字を付ける（listRow）
-   ・「大事」の魚は過ぎた日には出さない。「先に」の魚も今日と先の日（Issue #98）。一覧・四つに分けて見ている間・大きい画面では出さない */
-const fish = { key: null, first: null };   /* 魚は 1 度だけ作って使い回す（作り直すと泳ぎが最初の位置へ跳ぶ） */
+   ・大事のエリアは過ぎた日にも出す（2026-11-25「基本動作は同じにして」）。先に済ませるのエリアは今日と先の日にも（Issue #98）。
+     今日で畳んだあとは薄くし「今日はもう畳んだ」と言う。一覧・四つに分けて見ている間・大きい画面では出さない */
 function renderCorners(ps) {
   if (!plate) return;
-  if (wideOn || listOn || quadOn) { plate.hidden = true; return; }
+  plate.textContent = '';
   const id = bubDrag ? bubDrag.id : null;
-  const pin = id ? (pinsOf(ps).get(id) || null) : null;
+  if (!id || wideOn || listOn || quadOn) { plate.hidden = true; return; }
+  const pin = pinsOf(ps).get(id) || null;
   const day = curDay();
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
   const keyName = isToday() ? '今日大事なこと' : word + 'の大事なこと';
-  const showKey = true;          /* 過ぎた日も出す（2026-11-25「基本動作は同じにして」） */
-  const keySub = !id ? '' : pin === 'key' ? '離すと外す'
-    : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える'   /* ユーザーの文字。syncFish が textContent で入れる */
-    : '離すと' + (isToday() ? '今日' : word + 'の') + '大事なことに';
-  syncFish('key', showKey, '大事', keySub, keyName, false);
-  /* 「先に」の魚も、今日だけでなく先の日にも出す（Issue #98。前の日に明日の先に済ませるを入れられる） */
-  const showFirst = typeof store.setFirst === 'function';
-  const closed = isToday() && !ps.showFirst;   /* 畳むのは今日だけ（先の日はまだ区切りの時間を数えていない） */
-  const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
-  const firstSub = !id ? '' : closed ? '先に済ませるは、今日はもう畳んだ' : pin === 'first' ? '離すと外す'
-    : !ps.st.canAdd ? '先に済ませるの席は 3 つまで'
-    : '離すと' + firstName + 'に' + (ps.st.endAt ? '（〜 ' + hhmm(ps.st.endAt) + '）' : '');
-  syncFish('first', showFirst, '先に', firstSub, firstName, closed);
-  plate.classList.toggle('is-drag', !!id);
-  plate.hidden = !showKey && !showFirst;
-  /* 掴んでいる間は、面の右半分にいる魚の説明を右に寄せる（面の外へはみ出さないように） */
-  if (id && !plate.hidden) {
-    const pr = plate.getBoundingClientRect();
-    ['key', 'first'].forEach(k => {
-      const f = fish[k];
-      if (!f || f.hidden) return;
-      const r = f.getBoundingClientRect();
-      f.classList.toggle('is-right', (r.left + r.right) / 2 > pr.left + pr.width / 2);
-    });
+  const keySub = pin === 'key' ? '離すと外す'
+    : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える'   /* ユーザーの文字。cornerBox が textContent で入れる */
+    : '離すと入る';
+  plate.appendChild(cornerBox('key', '★ ' + keyName, keySub, false));
+  if (typeof store.setFirst === 'function') {
+    const closed = isToday() && !ps.showFirst;   /* 畳むのは今日だけ（先の日はまだ区切りの時間を数えていない） */
+    const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
+    const firstSub = closed ? '今日はもう畳んだ' : pin === 'first' ? '離すと外す'
+      : !ps.st.canAdd ? '席は 3 つまで'
+      : (ps.st.endAt ? '〜 ' + hhmm(ps.st.endAt) + '・' : '') + '離すと入る';
+    plate.appendChild(cornerBox('first', '↑ ' + firstName, firstSub, closed));
   }
+  plate.hidden = false;
 }
-/* 魚 1 匹を出す・隠す・字を替える。el の第 3 引数は innerHTML に入るので、文字はすべて textContent で入れる（泡の名前が混ざるため） */
-function syncFish(kind, show, head, sub, name, closed) {
-  let box = fish[kind];
-  if (!box) {
-    box = el('div', 'tp-fish tp-fish-' + kind);
-    box.dataset.drop = kind;
-    const swim = el('span', 'tp-fish-swim');      /* 向きを変える（右へ泳ぐ間は裏返す）のはこの中だけ。字は裏返さない */
-    swim.appendChild(fishSvg());
-    box.appendChild(swim);
-    const h = el('span', 'tp-fish-h');
-    h.textContent = head;
-    box.appendChild(h);
-    const s = el('span', 'tp-fish-s');
-    s.hidden = true;
-    box.appendChild(s);
-    plate.appendChild(box);
-    fish[kind] = box;
-  }
-  box.hidden = !show;
-  box.classList.toggle('is-closed', !!closed);
-  box.dataset.name = name + 'の魚';
-  box.title = name + '：泡を掴んでこの魚の上で離すと入る';
-  /* 掴んでいる間の「離すと〜」の吹き出しは出さない（2026-11-25 利用者の指示「今日の海の泡をホールドしたときの中央左右の
-     「離すと〜」の２つの表示を消して（右下、左下の表示で十分）」）。読み上げには魚の名前に添えて渡す */
-  const s = box.querySelector('.tp-fish-s');
-  s.textContent = '';
-  s.hidden = true;
-  box.setAttribute('aria-label', name + (sub ? '。' + sub : ''));
-}
-/* 魚の絵（左向き）。形だけを組み、色は CSS（--mark）で塗る。赤は使わない */
-const SVG_NS = 'http://www.w3.org/2000/svg';
-function svgEl(tag, attrs) {
-  const n = document.createElementNS(SVG_NS, tag);
-  Object.keys(attrs).forEach(k => n.setAttribute(k, attrs[k]));
-  return n;
-}
-function fishSvg() {
-  /* width・height も属性で持たせる（CSS が古いまま届いても、絵が面いっぱいに広がらない。Issue #96） */
-  const svg = svgEl('svg', { viewBox: '0 0 64 40', width: '64', height: '40', class: 'tp-fish-ic', 'aria-hidden': 'true', focusable: 'false' });
-  [
-    ['path', { class: 'tail', d: 'M44 20 L62 7 Q58 20 62 33 Z' }],                              /* 尾 */
-    ['path', { class: 'fin',  d: 'M24 9 Q30 1 38 8 Z M26 31 Q31 38 36 31 Z' }],                 /* 鰭 */
-    ['ellipse', { class: 'body', cx: '26', cy: '20', rx: '21', ry: '12.5' }],                  /* 胴 */
-    ['path', { class: 'band', d: 'M30 8.6 Q34 20 30 31.4 L35 30.2 Q39 20 35 9.8 Z' }],          /* 縞 */
-    ['circle', { class: 'eye', cx: '14', cy: '17', r: '2.6' }],                                 /* 目 */
-    ['path', { class: 'gill', d: 'M20 12 Q16 20 20 28' }],
-  ].forEach(([tag, attrs]) => svg.appendChild(svgEl(tag, attrs)));
-  return svg;
+/* エリア 1 つ。el の第 3 引数は innerHTML に入るので、文字はすべて textContent で入れる（泡の名前が混ざるため） */
+function cornerBox(kind, head, sub, closed) {
+  const box = el('div', 'tp-corner tp-corner-' + kind);
+  if (closed) box.classList.add('is-closed');
+  box.dataset.drop = kind;
+  box.dataset.name = (kind === 'key' ? '今日大事なこと' : '先に済ませる') + 'のエリア';
+  const h = el('span', 'tp-corner-h');
+  h.textContent = head;
+  box.appendChild(h);
+  const s = el('span', 'tp-corner-s');
+  s.textContent = sub;
+  box.appendChild(s);
+  return box;
 }
 
 /* 外す（入れた泡を同じ目印で離したとき）。今日には残す。［元に戻す］で入れ直す */
@@ -1877,10 +1829,10 @@ function onBubPointer(ev) {
   markPlateDrop(plateHitAt(bubPt.x, bubPt.y));
 }
 
-/* ---- 今日大事なこと・先に済ませるへ落とす（2026-11-24。Issue #96 で枠 → 角 → 滝 → 灯台と浮き → 小さい画面は魚・大きい画面は枠）----
+/* ---- 今日大事なこと・先に済ませるへ落とす（2026-11-24。Issue #96 で枠 → 角 → 滝 → 灯台と浮き → 魚 → 小さい画面は角のエリア・大きい画面は枠）----
    目印（data-drop="key"|"first"）の上で泡を離すと、そこへ入れる。入れた泡を同じ目印で離すと外し、もう片方の目印なら移す。
    掴んでいる間は、指の下の目印を濃くする（is-drop） */
-/* 落とし先の入れ物：大きい画面の枠（wideBox）と、小さい画面の魚（plate）。見えていないほうは幅 0 なので当たらない */
+/* 落とし先の入れ物：大きい画面の枠（wideBox）と、小さい画面の左下・右下のエリア（plate）。見えていないほうは幅 0 なので当たらない */
 function dropNodes() {
   const out = [];
   [wideBox, plate].forEach(c => { if (c && !c.hidden) c.querySelectorAll('[data-drop]').forEach(n => out.push(n)); });
@@ -2445,11 +2397,27 @@ const handlers = {
    タグのフィルターは 1段目から外れて泳ぐ生き物になった（applySwimLayout）ので、日付と ‹ › はいつも 1段目に置く。
    2026-11-25（8 回目の返事「日付け切り替えは中央に置いて、前の日次の日ボタン(前の表示)を出しても他のUIに被らないと思う」）：
    小さい画面では日付と ‹ › を 1段目の真ん中に置き、‹ › はいつも出す（.today-top.is-center。前の 230px 未満で畳む決まりはやめた）。
-   大きい画面では前の形（左にタグのフィルター、右に日付と ‹ ›。applySwimLayout） */
+   大きい画面では前の形（左にタグのフィルター、右に日付と ‹ ›。applySwimLayout）。
+   2026-11-25（9 回目の返事「フィルターなどをくらげにする機能はスキンとして実装して（configから設定）」）：
+   クラゲ・カメはスキン（設定の「スキン」＝海の生き物）を選んだときだけ。ふつうのボタンのスキン（既定）と大きい画面では、
+   フィルターが 1段目の左に戻るので、Issue #97 の決まり（1段目が DAYROW_NEED より狭ければ日付と ‹ › を 2段目の左へ下ろす）も戻す */
+const DAYROW_NEED = 330;    /* フィルター（約 95）＋間 8＋‹ ›（88＋間 4）＋「一昨日 12/31（水）」の日付（約 130） */
 let topRowEl = null, toolsEl = null, dayRowEl = null;
 function placeDayRow() {
-  if (!topRowEl || !dayRowEl) return;
-  if (dayRowEl.parentNode !== topRowEl) topRowEl.appendChild(dayRowEl);
+  if (!topRowEl || !toolsEl || !dayRowEl) return;
+  const filterTop = !!filterBtn && filterBtn.parentNode === topRowEl;
+  let low = false;
+  if (filterTop) {
+    const w = topRowEl.clientWidth;
+    low = w ? w < DAYROW_NEED : dayRowEl.parentNode === toolsEl;   /* 寸法が無い（隠れている）間は今の置き場のまま */
+  }
+  if (low) { if (dayRowEl.parentNode !== toolsEl) toolsEl.insertBefore(dayRowEl, toolsEl.firstChild); }
+  else if (dayRowEl.parentNode !== topRowEl) topRowEl.appendChild(dayRowEl);
+  topRowEl.classList.toggle('is-solo', low);
+}
+/* 泳ぐ形にするか：スキンが海の生き物で、小さい画面のとき */
+function swimOn(wide) {
+  return !wide && !!document.body && document.body.classList.contains('skin-sea');
 }
 
 /* ---------------- 泳ぐ生き物：タグのフィルターと一覧の切り替え（2026-11-25 Issue #96 の 7・8 回目の返事） ----------------
@@ -2465,15 +2433,17 @@ function placeDayRow() {
    ・泡を掴んでいる間・押している間は、前と同じく消す（css の .is-bubdrag など） */
 function applySwimLayout(wide) {
   if (!swimBand || !filterBtn || !listBtn || !topRowEl || !toolsEl || !dayRowEl) return;
-  if (wide) {
-    if (filterBtn.parentNode !== topRowEl) topRowEl.insertBefore(filterBtn, dayRowEl);
+  const swim = swimOn(wide);
+  if (!swim) {
+    if (filterBtn.parentNode !== topRowEl) topRowEl.insertBefore(filterBtn, topRowEl.firstChild);
     if (listBtn.parentNode !== toolsEl) toolsEl.appendChild(listBtn);
   } else {
     if (filterBtn.parentNode !== swimBand) swimBand.appendChild(filterBtn);
     if (listBtn.parentNode !== swimBand) swimBand.appendChild(listBtn);
   }
-  swimBand.hidden = wide;
-  topRowEl.classList.toggle('is-center', !wide);
+  swimBand.hidden = !swim;
+  topRowEl.classList.toggle('is-center', swim);
+  placeDayRow();
 }
 
 /* ---------------- 画面モジュール ---------------- */
@@ -2586,7 +2556,7 @@ export default {
     /* drift は opts の直下から handlers を読む。将来 opts.handlers を見る作りに
        変わっても落ちないよう、まとめたものも一緒に渡しておく（余分なキーは無視される） */
     /* 今日大事なこと・先に済ませる（Issue #96。2026-11-24）。renderPlate の説明。
-       小さい画面の魚（.today-corners）：壁にしない。field（泡）より先に面へ入れるので、泡は魚の上に描かれる（z-index を付けない）。
+       小さい画面の左下・右下のエリア（.today-corners）：泡を掴んでいる間だけ出す。壁にしない。
        名前は .today-corners（前の版の枠 .today-plate と分ける。css/screens/today.css の説明）。
        大きい画面の枠（.today-wide）：泡にとっては壁（drift の keepOut）。隠れている間（小さい画面）は drift が数えない */
     plate = el('div', 'today-corners');
@@ -2647,6 +2617,10 @@ export default {
       if (WIDE_MQ.addEventListener) WIDE_MQ.addEventListener('change', onWide);
       else if (WIDE_MQ.addListener) WIDE_MQ.addListener(onWide);
     }
+    /* 設定のスキンを変えたら（Issue #96 の 9 回目の返事）。body の印（skin-sea）は js/app.js の applyPrefs が付けるので、そのあとで */
+    window.addEventListener(PREFS_EVENT, () => setTimeout(() => applySwimLayout(isWideScreen()), 0));
+    /* 起動の直後に印がまだ付いていないことがあるので、1 回だけ見直す */
+    setTimeout(() => applySwimLayout(isWideScreen()), 0);
     document.addEventListener('pointerdown', onFilterOutside, true);
     syncFilterBtn();
     /* 前に一覧で見ていたら、一覧で始める。入力欄がまだ無いので setList（render を呼ぶ）は使わず、

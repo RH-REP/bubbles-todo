@@ -2660,9 +2660,9 @@ function openNarrowPop() {
     if (ev.key === 'Tab') closeNarrowPop(false);
   });
   stage.appendChild(pop);
-  /* 小さい画面では、フィルターは泳ぐクラゲ（Issue #96 の 8 回目の返事。js/swim.js・css/screens/sea.css）。
+  /* 小さい画面でスキンが海の生き物なら、フィルターは泳ぐクラゲ（Issue #96 の 8・9 回目の返事。js/swim.js・css/screens/sea.css）。
      動いている所の真下に出す（面の左右・下からはみ出さない）。大きい画面では前のボタンの真下で、置き場は CSS のまま */
-  if (!isWideScreen()) {
+  if (!isWideScreen() && document.body.classList.contains('skin-sea') && !gathering) {
     try {
       const sr = stage.getBoundingClientRect(), br = narrowBtn.getBoundingClientRect();
       if (br.width && sr.width) {
