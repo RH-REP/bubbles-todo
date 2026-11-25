@@ -158,6 +158,8 @@ function loadSW(version, env) {
     /* node の Request は相対の住所を受けないので、住所だけを持つ偽物にする */
     Request: class { constructor(u) { this.url = new URL(u, SCOPE).href; } },
     Response, Headers, URL, console,
+    /* install は 1 本ごとに打ち切り・取り直す（2026-11-25） */
+    AbortController, setTimeout, clearTimeout,
     importScripts: () => vm.runInContext(RB_SRC, ctx),
   });
   self.BubblesRollback = undefined;

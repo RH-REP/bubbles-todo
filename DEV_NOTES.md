@@ -2679,3 +2679,11 @@ VM で上げるのは `tools/server-setup.sh min-schema-set <版>`（控え `.se
 - js/bubble.js の押した瞬間に `body.is-pressing`（離す・取り消すで外す）。海の上のボタン（.sea-narrow ほか）と今日のフィルターは、`is-bubdrag` に加えて `is-pressing`・`is-focusing`（中央に持って盤を開いている間）でも消す。中央の泡は画面の上、フィルターと同じ高さに来るため
 - 今日の魚の吹き出し（.tp-fish-s）は掴んでいる間も出さない。中身は魚の aria-label に回した
 - 帯（.today-edge）は 3px の実線（乗ると 5px）と 18% の色。札の言葉は「移す」→「送る」
+
+## 新しい版が入らない（service worker の install が終わらない）（2026-11-25 の 3）
+
+利用者の報告「最新の版を確認しても、11-24 version になる。サーバーは 0dbdc7a」。サーバーは 2026-11-25b を配っていたが、端末の新しい service worker が installing のまま終わらず、前の版に残っていた。
+
+- 原因 1（server.py を直に開いたとき。tests/e2e-sw.mjs が HEAD でも落ちていたのはこれ）：install の取り込みで、404 の返事（OPTIONAL の noserver.html・manifest-solo.json）の中身を読まずに捨てていた。Chrome は中身を読み切るまで接続を返さないので、HTTP/1 の 1 つの宛先あたり 6 本の枠が埋まり、あとの取り込みが送られずに止まる。ページの側の /api/apps の 404（js/apps.js）も同じ。読まない中身は `res.body.cancel()` で捨てる
+- 原因 2 の疑い（公開のサーバー、Caddy の後ろの HTTP/2）：約 100 本を一度に取ると、ときどき何本かが 15 秒待っても返らない（headless の Chrome で 2〜30 本。curl で同じ数を取ると全部 200）。原因は確かめていない（VM では何も動かしていない）。install は一度に 6 本まで・1 本 20 秒で打ち切り・3 回まで取り直す（404 は取り直さない）ので、止まらずに終わる
+- 設定の「最新の版を確認する」は、install を 8 秒しか待たずに「今のが最新の版」と言っていた。90 秒まで待ち、待ち始めたら「取り込んでいる…」と出し、まだ途中なら「最新」とは言わない

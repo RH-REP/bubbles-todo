@@ -4645,9 +4645,16 @@ function updateBox() {
     if (!('serviceWorker' in navigator)) { force(); return; }
     /* 更新を止めていても、押したときの1回は入れる（Issue #91） */
     try { if (await isHolding()) await allowOnce(); } catch (e) { /* 入らなければ「今のが最新」になるだけ */ }
-    checkForUpdate().then((found) => {
+    checkForUpdate(() => toast('新しい版を取り込んでいる…（1 分ほどかかることがある）', null, 8000)).then(async (found) => {
       if (found === null) { force(); return; }
-      if (!found) { toast('今のが最新の版'); btn.disabled = false; return; }
+      if (!found) {
+        /* まだ取り込みの途中なら「最新」とは言わない（2026-11-25） */
+        let busy = false;
+        try { const reg = await navigator.serviceWorker.getRegistration(); busy = !!(reg && reg.installing); } catch (e) { /* 分からなければ最新と言う */ }
+        toast(busy ? '新しい版をまだ取り込んでいる。少し待ってからもう一度押す' : '今のが最新の版');
+        btn.disabled = false;
+        return;
+      }
       toast('新しい版が見つかった。入れ替えて読み直す…');
       applyUpdate().catch(() => { toast('入れ替えられなかった'); btn.disabled = false; });
     }).catch((e) => { toast((e && e.message) || '確認できなかった'); btn.disabled = false; });

@@ -43,7 +43,8 @@ export function appUrls(origin = (typeof location !== 'undefined' ? location.ori
 export async function loadAppUrls(base = (typeof location !== 'undefined' ? location.origin : '')) {
   try {
     const res = await fetch(String(base).replace(/\/$/, '') + '/api/apps', { cache: 'no-store' });
-    if (res.status !== 200) return appUrls();
+    /* 読まない中身は捨てる（捨てないと Chrome が接続を返さず、HTTP/1 では同じ宛先へのほかの取り込みが詰まる。2026-11-25） */
+    if (res.status !== 200) { try { if (res.body) await res.body.cancel(); } catch (e) { /* 進む */ } return appUrls(); }
     const j = await res.json();
     const st = ls();
     if (st && j && typeof j === 'object') st.setItem(KEY, JSON.stringify(j));

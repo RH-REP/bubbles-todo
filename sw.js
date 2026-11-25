@@ -39,7 +39,7 @@
 
 /* 直したら上げる。上げないと利用者には古い版が出続ける。
    画面の左上にも出すので、js/version.js も同じ値にする（tests/version.test.mjs が見る） */
-const VERSION = '2026-11-25c';
+const VERSION = '2026-11-25d';
 const CACHE = 'bubbles-' + VERSION;
 
 /* previousVersion・injectScript・META_CACHE・PIN_PATH（前の版に戻す。Issue #21） */
@@ -202,24 +202,61 @@ self.addEventListener('install', (ev) => {
        （写しは住所ごとに持つので、新しい住所は元から取り直される）。箱には ?v= の無い住所で入れる
        （取り出しは ignoreSearch で引き、入口の './index.html' もそのまま引ける）。1 つでも取れなければ入れ替えない（addAll と同じ） */
     const bust = (u) => u + (u.indexOf('?') < 0 ? '?' : '&') + 'v=' + encodeURIComponent(VERSION);
+    /* 2026-11-25（利用者の指示「最新の版を確認しても、11-24 version になる。サーバーは 0dbdc7a」）：
+       公開のサーバー（Caddy の後ろ）へ約 100 本を一度に取りに行くと、ときどき何本かが返事のないまま止まり、
+       install が終わらず（installing のまま）古い版に残っていた（headless の Chrome で、一度に取ると 15 秒待っても来ないものが 2〜30 本。
+       curl で同じ数を取ると全部 200 なので、止まるのは一度に多く取ったときだけ）。
+       そこで、一度に取るのを TAKE_LIMIT 本までにし、1 本ごとに TAKE_MS で打ち切って、TAKE_TRIES 回まで取り直す。
+       打ち切りは中身を読み切るまで効かせる（返事の頭だけ来て中身が止まることもあるため）。 */
+    const TAKE_LIMIT = 6, TAKE_MS = 20000, TAKE_TRIES = 3;
     const take = async (u) => {
-      const res = await fetch(new Request(bust(u), { cache: 'reload' }));
-      if (!res.ok) throw new Error('取れなかった: ' + u + ' ' + res.status);
-      return res;
+      let last = null;
+      for (let i = 0; i < TAKE_TRIES; i++) {
+        if (i) await new Promise((r) => setTimeout(r, 800 * i));
+        const ctl = new AbortController();
+        const tm = setTimeout(() => ctl.abort(), TAKE_MS);
+        try {
+          const res = await fetch(new Request(bust(u), { cache: 'reload', signal: ctl.signal }));
+          if (!res.ok) {
+            last = new Error('取れなかった: ' + u + ' ' + res.status);
+            /* 読まない中身は捨てる。捨てないと Chrome は接続を返さず、HTTP/1 の 1 つの宛先に 6 本の枠が埋まると、
+               あとの取り込みが送られずに止まる（server.py を直に開いたとき、OPTIONAL の 404 のあとで install が止まった） */
+            try { if (res.body) await res.body.cancel(); } catch (e) { /* 捨てられなくても進む */ }
+            if (res.status === 404) break;   /* 無いものは取り直しても無い */
+            continue;
+          }
+          const body = await res.blob();
+          return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+        } catch (e) {
+          last = e;
+        } finally {
+          clearTimeout(tm);
+        }
+      }
+      throw last || new Error('取れなかった: ' + u);
+    };
+    /* list を TAKE_LIMIT 本ずつ並べて fn に通す。並びは list のまま返す */
+    const pool = async (list, fn) => {
+      const out = new Array(list.length);
+      let next = 0;
+      await Promise.all(Array.from({ length: Math.min(TAKE_LIMIT, list.length) }, async () => {
+        while (next < list.length) { const k = next++; out[k] = await fn(list[k]); }
+      }));
+      return out;
     };
     try {
-      const got = await Promise.all(ASSETS.map(async (u) => [u, await take(u)]));
+      const got = await pool(ASSETS, async (u) => [u, await take(u)]);
       await Promise.all(got.map(([u, res]) => box.put(new Request(u), res)));
     } catch (e) {
       await caches.delete(CACHE);   /* 半端な箱を残さない（次の install でまた全部取る） */
       throw e;
     }
-    await Promise.all(OPTIONAL.map(async (u) => {
+    await pool(OPTIONAL, async (u) => {
       try {
         const res = await take(u);
         await box.put(new Request(u), res);
       } catch (e) { /* 取れなければ箱に入れないだけ（網から開く） */ }
-    }));
+    });
   })());
 });
 

@@ -69,9 +69,11 @@ export async function allowOnce() {
   return true;
 }
 
+const INSTALL_WAIT_MS = 90000;
+
 /* 新しい版を確認する。見つかれば true（呼び出し側が applyUpdate を呼べる）、
    無ければ false。service worker が無い・登録できていない環境では null */
-export async function checkForUpdate() {
+export async function checkForUpdate(onWait) {
   if (!('serviceWorker' in navigator)) return null;
   const reg = await navigator.serviceWorker.getRegistration();
   if (!reg) return null;
@@ -79,14 +81,18 @@ export async function checkForUpdate() {
   /* すでに待機中があれば、取りに行った結果それが育ったとみてよい */
   if (reg.waiting) return true;
   /* いま取りに行った分がインストールを終えるまで少し待つ（installing → installed） */
+  /* 2026-11-25：待つのは INSTALL_WAIT_MS まで（前は 8 秒）。sw.js の install は 1 本ずつ打ち切って取り直すので、
+     網が遅い・返事の止まる住所があると 8 秒では終わらず、入れ替わる前に「今のが最新の版」と言っていた。
+     待ち始めたら onWait() で知らせる（設定が「取り込み中」と出す） */
   if (reg.installing) {
+    if (typeof onWait === 'function') { try { onWait(); } catch (e) { /* 知らせられないだけ */ } }
     await new Promise((resolve) => {
       const sw = reg.installing;
       const onChange = () => {
         if (sw.state === 'installed' || sw.state === 'redundant') { sw.removeEventListener('statechange', onChange); resolve(); }
       };
       sw.addEventListener('statechange', onChange);
-      setTimeout(resolve, 8000);   /* 固まらないための上限 */
+      setTimeout(resolve, INSTALL_WAIT_MS);   /* 固まらないための上限 */
     });
   }
   return !!reg.waiting;
