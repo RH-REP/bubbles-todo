@@ -19,7 +19,7 @@ import { SIZES, FIRST_MAX, firstState, showFirstRow } from '../priority.js';
 import { firstStartedAt, markFirstStarted, firstMinutes, PREFS_EVENT } from '../prefs.js';
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
-import { dressJelly, dressTurtle } from '../swim.js';
+import { dressJelly, dressTurtle, archSvg } from '../swim.js';
 
 /* 詳細の入力を書き終わりまで待たずに保存する間隔（plan.js と同じ） */
 const SAVE_MS = 400;
@@ -2639,6 +2639,7 @@ export default {
       lb.appendChild(md);
       lb.appendChild(dw);
       lb.appendChild(mo);
+      box.appendChild(archSvg());   /* スキン「海の生き物」では帯の代わりに真ん中の岩のアーチ（css/screens/today.css。Issue #96） */
       box.appendChild(ar);
       box.appendChild(lb);
       stage.appendChild(box);

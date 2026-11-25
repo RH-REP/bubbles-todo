@@ -55,6 +55,21 @@ export function shellSvg() {
   ]);
 }
 
+/* 岩のアーチ（今日の画面で泡を掴むと左右に出る、日を移す帯。2026-11-25 Issue #96 の返事「左右に出る…送る領域が大きすぎる。
+   海の中にあるものでイメージに近いものをスキンに追加して。左端と右端全部の領域じゃなくて、作ったイメージを真ん中ら辺に置いて領域を小さくして」）。
+   くぐると隣の日へ行く、と読めるもの。形は左の帯用（右の帯は CSS で裏返す）。くぐる穴に日付と「送る」の字が重なる */
+export function archSvg() {
+  const svg = swimSvg('0 0 72 144', 72, 144, [
+    ['path', { class: 'rock', d: 'M0 4 Q30 0 52 14 Q72 30 70 60 Q72 96 64 124 Q56 142 30 140 L0 140 Z' }],
+    ['path', { class: 'hole', d: 'M10 30 Q36 22 52 40 Q60 62 58 88 Q56 112 40 120 Q22 124 10 118 Z' }],
+    ['path', { class: 'weed', d: 'M62 140 Q56 126 63 114 Q70 102 62 92 M54 141 Q50 132 55 124' }],
+    ['circle', { class: 'bub1', cx: '62', cy: '30', r: '3' }],
+    ['circle', { class: 'bub1', cx: '67', cy: '20', r: '2' }],
+  ]);
+  svg.setAttribute('class', 'sw-ic sw-arch');
+  return svg;
+}
+
 /* 引き出しのボタンを貝にする（1 度だけ）。≡ の字（.ic）は残し、スキンが海の生き物のときだけ CSS が入れ替える */
 export function dressShell(btn) {
   if (!btn || btn.classList.contains('sw-shell')) return btn;

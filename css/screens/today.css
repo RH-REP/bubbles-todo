@@ -426,6 +426,32 @@ html.has-userbtn .today-top { left: 114px; }
 }
 .today-edge[data-dir="left"].is-over  { border-right-width: 5px; }
 .today-edge[data-dir="right"].is-over { border-left-width: 5px; }
+/* スキン「海の生き物」（body.skin-sea）では、左右の端いっぱいの帯をやめて、面の縦の真ん中に岩のアーチ（js/swim.js の archSvg）を置く
+   （2026-11-25 Issue #96 の返事「送る領域が大きすぎる。海の中にあるものでイメージに近いものをスキンに追加して。
+   左端と右端全部の領域じゃなくて、作ったイメージを真ん中ら辺に置いて領域を小さくして」）。
+   幅 72px・高さ 144px。当たりも帯の大きさで決まる（js/screens/today.js の dayEdgeAt は帯の上下の範囲だけを見る）ので一緒に小さくなる。
+   日付と「送る」の字はアーチの穴に重ねる。指が乗ると岩の縁が光る。ふつうのボタンのスキンでは、今までどおり端いっぱいの帯 */
+.today-edge .sw-arch { display: none; }
+body.skin-sea .today-edge {
+  top: calc(50% - 72px); bottom: auto; height: 144px; width: 72px;
+  justify-content: center; padding: 0 0 6px;
+  background: none; border: 0;
+  color: var(--text);
+}
+body.skin-sea .today-edge[data-dir="left"]  { padding-right: 14px; }
+body.skin-sea .today-edge[data-dir="right"] { padding-left: 14px; }
+body.skin-sea .today-edge .sw-arch { display: block; position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; overflow: visible; }
+body.skin-sea .today-edge[data-dir="right"] .sw-arch { transform: scaleX(-1); }
+body.skin-sea .today-edge > :not(.sw-arch) { position: relative; text-shadow: 0 0 3px var(--surface), 0 0 3px var(--surface); }
+body.skin-sea .today-edge .rock { fill: color-mix(in srgb, #7d8a94 70%, var(--surface)); stroke: #55616b; stroke-width: 1.5; }
+body.skin-sea .today-edge .hole { fill: color-mix(in srgb, var(--bub-edge) 30%, var(--surface)); stroke: #55616b; stroke-width: 1; }
+body.skin-sea .today-edge .weed { fill: none; stroke: #4f9a6a; stroke-width: 2.2; stroke-linecap: round; }
+body.skin-sea .today-edge .bub1 { fill: none; stroke: var(--bub-edge); stroke-width: 1.2; }
+body.skin-sea .today-edge { isolation: isolate; }   /* アーチ（z-index: -1）を帯の中だけの後ろに置く */
+body.skin-sea .today-edge.is-over, body.skin-sea .today-edge.is-copy { background: none; }
+body.skin-sea .today-edge.is-over .rock { stroke: var(--bub-edge); stroke-width: 3; }
+body.skin-sea .today-edge.is-over .hole,
+body.skin-sea .today-edge.is-copy .hole { fill: color-mix(in srgb, var(--bub-edge) 55%, var(--surface)); }
 /* 掴んでいる間は、さいころを消す。右上の 58〜106px は帯の札の場所と重なるうえ、
    さいころは落とし先ではない（狙わせない。海が掴んでいる間に看板を消すのと同じ） */
 .today-stage.is-bubdrag .today-random { opacity: 0; pointer-events: none; }
