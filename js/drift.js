@@ -57,6 +57,18 @@ const GRAV_MAX = 1.1;   /* 終端速度 px/s。利用者の指示で 11 → 1.1�
      届くので、既存の当たり判定だけで横へ広がる。積み上がらず、底に薄く散る
    ・着地の高さを 1バブルごとに少しずらす。底の線が定規で引いた棚にならない */
 const REST_UP = 8;      /* これより速く上へ動いているものは止めない（投げ上げを殺さない） */
+/* 目に見えない比重（2026-11-25 Issue #96「海に、目に見えない 3 段階の比重を設ける」）。
+   item.pin が 'first'（先に済ませる）の泡は面の上 1/3、'key'（今日大事なこと）の泡は上から 1/3〜2/3 に浮く。
+   ほかの泡は今までどおりの弱い重力で下（底）へ沈む。段の境目で止めず、段の外にいる間だけゆっくり寄せる。
+   item.pin を渡すのは今日の画面だけなので、海などほかの面は何も変わらない */
+const BUOY_V = 7;       /* 段へ寄せる上下の速さ px/s（漂う速さ SPEED の半分弱。ゆっくり） */
+const BUOY_A = 5;       /* その速さへ寄せる加速 px/s² */
+function buoyBand(b, h) {
+  const p = b.item && b.item.pin;
+  if (p === 'first') return [0, h / 3];
+  if (p === 'key') return [h / 3, h * 2 / 3];
+  return null;
+}
 const REST_GAP = 3;     /* 支えとみなす隙間 px。押し離しの間合い HIT_GAP=4px より狭いこと */
 const REST_DRAG = 1.0;  /* 止まったあとの横滑りを収める強さ 1/s。利用者の指示で 1.2 → 1.0。
                            底で 16px/s で滑り出したものが止まる（0.1px/s 未満）まで
@@ -755,6 +767,7 @@ export function createField(host, opts = {}) {
                                                    （ここで rest にすると vy を毎コマ 0 にされて、
                                                      引力が上へ持ち上げられなくなる） */
       if (b.vy < -REST_UP) return;              /* 投げ上げられた最中は止めない */
+      if (buoyBand(b, h)) return;               /* 浮く泡（比重。上の buoyBand）は底に着かない */
       const r = b.d / 2;
       if (b.cy >= h - r - b.pad - 1) { b.rest = true; return; }
       for (const c of order) {
@@ -834,7 +847,17 @@ export function createField(host, opts = {}) {
         b.pin = false;
       }
 
-      if (b.rest) {
+      const band = buoyBand(b, h);
+      if (band) {
+        /* 比重（Issue #96）。段の中では上下の速さを 0 へゆっくり戻し（横の漂い・ゆらぎはそのまま）、
+           段の外にいる間だけ、段のほうへ BUOY_V まで寄せる。段が泡より狭いときは段の真ん中へ */
+        const r = b.d / 2;
+        let top = band[0] + r, bot = band[1] - r;
+        if (top > bot) top = bot = (band[0] + band[1]) / 2;
+        const want = b.cy < top ? BUOY_V : b.cy > bot ? -BUOY_V : 0;
+        const dv = BUOY_A * dt;
+        b.vy = (b.vy < want) ? Math.min(want, b.vy + dv) : Math.max(want, b.vy - dv);
+      } else if (b.rest) {
         /* 底に着いている。落とさない・跳ね返さない。横滑りだけ静かに収める */
         b.vy = 0;
         b.vx *= Math.max(0, 1 - dt * REST_DRAG);

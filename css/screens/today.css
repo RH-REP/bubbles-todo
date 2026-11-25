@@ -825,6 +825,32 @@ body.pref-show-suggest .today-list { padding-top: 166px; }
 .today-corners .tp-corner.is-closed { opacity: .55; }
 /* 指がその上に来たら、離せば入る合図。色だけに頼らず、線も実線に変える（日を移す帯と同じ） */
 .today-corners .tp-corner.is-drop { border-style: solid; background: color-mix(in srgb, var(--mark) 32%, var(--surface)); }
+/* ささやかな動き（2026-11-25 Issue #96「一つ前の形（泡を掴んでいる間だけ出る、アニメーション付きのささやかなエリア）がよい」）：
+   掴んだとき角からふわっと出て（0.24 秒）、出ている間は地の色がゆっくり息をする（3.2 秒）。指が乗ると少しふくらむ。
+   動きを減らす設定では、どれも止める */
+.today-corners .tp-corner-key   { transform-origin: left bottom;  animation: tp-corner-in .24s ease-out backwards, tp-corner-breathe 3.2s ease-in-out .24s infinite alternate; }
+.today-corners .tp-corner-first { transform-origin: right bottom; animation: tp-corner-in .24s ease-out backwards, tp-corner-breathe 3.2s ease-in-out .24s infinite alternate; }
+.today-corners .tp-corner { transition: background-color .12s, border-color .12s, scale .15s ease-out; }
+.today-corners .tp-corner.is-drop { scale: 1.06; }
+@keyframes tp-corner-in { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
+@keyframes tp-corner-breathe {
+  from { background-color: color-mix(in srgb, var(--mark) 12%, color-mix(in srgb, var(--surface) 80%, transparent)); }
+  to   { background-color: color-mix(in srgb, var(--mark) 22%, color-mix(in srgb, var(--surface) 80%, transparent)); }
+}
+.today-corners .tp-corner.is-drop { animation: none; }   /* 息を止めて、指が乗った色をそのまま見せる */
+@media (prefers-reduced-motion: reduce) {
+  .today-corners .tp-corner { animation: none !important; transition: none; }
+  .today-corners .tp-corner.is-drop { scale: 1; }
+}
+/* 日を移す帯（.today-edge。左右の端・上から下まで）と、左下・右下のエリアの間に空白を置いて、はっきり分ける
+   （同じ返事「日付を移すエリアとの間に空白を設けて」）。エリアが出ている間（小さい画面で掴んでいる間）は、
+   帯の下の端をエリアの上（高さ 104px）から 28px 空けたところで止める。帯の当たりも帯の大きさで決まるので一緒に縮む */
+.today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge {
+  bottom: calc(132px + var(--safe-b, 0px));
+  border-bottom: 1px dashed var(--line-strong);
+}
+.today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge[data-dir="left"]  { border-bottom-right-radius: 14px; }
+.today-stage.is-bubdrag:not(.is-wide):not(.is-list):not(.is-quad) .today-edge[data-dir="right"] { border-bottom-left-radius: 14px; }
 
 /* 大きい画面：いちばん最初の形（Issue #96 の 6 回目の返事「画面が大きいのは1番最初の表示」。js/screens/today.js の renderWide）。
    面の上の枠。泡にとっては壁（js/drift.js の keepOut。海の端の札と同じ）。上から 先に済ませる（細い 1 段）→ 今日大事なこと（大きな枠）。
