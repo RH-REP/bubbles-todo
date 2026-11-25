@@ -339,6 +339,12 @@ try {
         inside: [...c.querySelectorAll('.tp-fish')].every(n => { const r = n.getBoundingClientRect(); return r.top >= st.top && r.bottom <= st.bottom + 1; }),
         wide: !document.querySelector('#pane-today .today-wide').hidden }`),
       { pe: 'none', z: 'auto', kinds: ['key', 'first'], big: true, inside: true, wide: false });
+    /* タグのフィルター（クラゲ）と一覧（カメ）は、面の上のほうを泳ぐ帯（.today-swim）にいて、泡より前（z-index 12）。
+       日付と ‹ › はいつも 1段目（Issue #96 の 7 回目の返事） */
+    assert.deepEqual(await js(`const sw = document.querySelector('#pane-today .today-swim');
+      return { jelly: !!sw.querySelector('.today-filterbtn.sw-jelly svg'), turtle: !!sw.querySelector('.today-listbtn.sw-turtle svg'),
+        z: getComputedStyle(sw).zIndex, day: !!document.querySelector('#pane-today .today-top > .today-dayrow') }`),
+      { jelly: true, turtle: true, z: '12', day: true });
     /* 前の版の枠の名前（.today-plate）が混ざって出ても、見せず壁にもしない（Issue #96 の 2 回目の返事） */
     assert.equal(await js(`const p = document.createElement('div'); p.className = 'today-plate'; p.textContent = 'x';
       document.querySelector('#pane-today .today-stage').appendChild(p); const r = p.offsetParent; p.remove(); return r === null`), true);

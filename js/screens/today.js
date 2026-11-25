@@ -872,6 +872,17 @@ function openFilterPop() {
     if (ev.key === 'Tab') closeFilterPop(false);
   });
   stage.appendChild(pop);
+  /* クラゲ（泳ぐフィルター。Issue #96 の 7 回目の返事）の真下に出す。面の左右からははみ出さない */
+  try {
+    const sr = stage.getBoundingClientRect(), br = filterBtn.getBoundingClientRect();
+    if (br.width && sr.width) {
+      const pw = pop.offsetWidth || 200;
+      pop.style.left = Math.round(Math.max(10, Math.min(br.left - sr.left, sr.width - pw - 10))) + 'px';
+      const top = Math.round(br.bottom - sr.top + 6);
+      pop.style.top = top + 'px';
+      pop.style.maxHeight = Math.max(160, Math.round(sr.height - top - 10)) + 'px';
+    }
+  } catch (e) { /* 測れなければ CSS の置き場のまま */ }
   filterPop = pop;
   filterBtn.setAttribute('aria-expanded', 'true');
   const first = pop.querySelector('[aria-checked="true"]') || pop.querySelector('button');
@@ -2234,6 +2245,7 @@ const LIST_KEY = 'bubble_todo_today_list_v1';
 let listOn = false;
 let listBox = null;
 let listBtn = null;
+let swimBand = null;      /* 泳ぐ生き物の帯（.today-swim。クラゲ＝フィルター、カメ＝一覧。Issue #96 の 7 回目の返事） */
 let listIc = null;        /* 丸い ⇅ ⇄ ✕ の記号（Issue #92） */
 let rowBoard = null;      /* { node, off } 行から開いた詳細の、その場かぎりの泡。2枚目は開かない */
 
@@ -2421,18 +2433,78 @@ const handlers = {
    フィルターの名前も日付も「…」に縮んでいた（前の狭い画面の詰め方は幅 400 以下だけ）。
    1段目に DAYROW_NEED より狭いときは、日付と ‹ › を 2段目の並び（.today-tools）の左へ下ろし、
    1段目はフィルターだけにする（.today-top.is-solo）。広い画面は今までどおり 1段目の右（Issue #92 の返事）。
-   1段目の幅は左右の端で決まり、中身では変わらないので、行き来して揺れない */
-const DAYROW_NEED = 330;    /* フィルター（約 95）＋間 8＋‹ ›（88＋間 4）＋「一昨日 12/31（水）」の日付（約 130） */
+   1段目の幅は左右の端で決まり、中身では変わらないので、行き来して揺れない。
+   2026-11-25（Issue #96 の 7 回目の返事「今日タブのタグの選択ボタンがあくから、日付選択ボタンが一段下なってるから上に上げて」）：
+   タグのフィルターは 1段目から外れて泳ぐ生き物になった（mountSwimmers）ので、日付と ‹ › はいつも 1段目に置く。
+   1段目が DAYROW_TIGHT より狭いときだけ ‹ › を畳む（.today-top.is-tight。日付を押して選ぶ・面を左右になぞるで移れる） */
+const DAYROW_TIGHT = 230;   /* ‹ ›（88＋間 4）＋「一昨日 12/31（水）」の日付（約 130） */
 let topRowEl = null, toolsEl = null, dayRowEl = null;
 function placeDayRow() {
-  if (!topRowEl || !toolsEl || !dayRowEl) return;
+  if (!topRowEl || !dayRowEl) return;
+  if (dayRowEl.parentNode !== topRowEl) topRowEl.appendChild(dayRowEl);
   const w = topRowEl.clientWidth;
   if (!w) return;                            /* まだ寸法が無い（隠れている）。出たときにもう一度 */
-  const low = w < DAYROW_NEED;
-  if (low && dayRowEl.parentNode !== toolsEl) toolsEl.insertBefore(dayRowEl, toolsEl.firstChild);
-  else if (!low && dayRowEl.parentNode !== topRowEl) topRowEl.appendChild(dayRowEl);
-  topRowEl.classList.toggle('is-solo', low);
-  stage.classList.toggle('is-dayrow-low', low);
+  topRowEl.classList.toggle('is-tight', w < DAYROW_TIGHT);
+}
+
+/* ---------------- 泳ぐ生き物：タグのフィルターと一覧の切り替え（2026-11-25 Issue #96 の 7 回目の返事） ----------------
+   > タグの選択ボタンとリストボタンもイメージにあう海の生き物に置き換えて、1番前のレイヤーで上の方でゆっくり動かすことできる？
+   ・タグのフィルター … クラゲ。傘の下にいま選んでいるタグの名前（「ぜんぶ ▽」）。押すと今までどおりタグを選ぶ板が開く
+   ・一覧の切り替え … カメ。甲羅に ⇅（一覧の間は ✕）。押すと今までどおり一覧と泡の眺めを切り替える
+   ・面の上のほう（2段目の帯。.today-swim）を、泡より前（いちばん前の層）でゆっくり左右に泳ぐ（クラゲは 70 秒・カメは 90 秒で横切る）。
+     指を乗せている間・焦点がある間・一覧の間は止まる（押しやすいように）。動きを減らす設定では、左右の端で止まっている
+   ・中身（filterLabel・listIc・aria-label・title）は前のボタンのまま（syncFilterBtn・syncListBtn が今までどおり書く）
+   ・泡を掴んでいる間・押している間は、前と同じく消す（css の .is-bubdrag など） */
+const SVG_NS_SWIM = 'http://www.w3.org/2000/svg';
+function swimSvg(viewBox, w, h, parts) {
+  const svg = document.createElementNS(SVG_NS_SWIM, 'svg');
+  svg.setAttribute('viewBox', viewBox);
+  svg.setAttribute('width', String(w));
+  svg.setAttribute('height', String(h));
+  svg.setAttribute('class', 'sw-ic');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  parts.forEach(([tag, attrs]) => {
+    const n = document.createElementNS(SVG_NS_SWIM, tag);
+    Object.keys(attrs).forEach(k => n.setAttribute(k, attrs[k]));
+    svg.appendChild(n);
+  });
+  return svg;
+}
+function jellySvg() {
+  return swimSvg('0 0 48 44', 40, 37, [
+    ['path', { class: 'tent', d: 'M12 22 Q9 31 13 40 M20 23 Q18 33 21 43 M28 23 Q30 33 27 43 M36 22 Q39 31 35 40' }],
+    ['path', { class: 'bell', d: 'M4 23 Q4 3 24 3 Q44 3 44 23 Q38 26 34 22 Q29 26 24 22 Q19 26 14 22 Q10 26 4 23 Z' }],
+    ['path', { class: 'shine', d: 'M12 13 Q15 7 22 6' }],
+  ]);
+}
+function turtleSvg() {
+  return swimSvg('0 0 60 40', 52, 35, [
+    ['path', { class: 'flip', d: 'M14 10 L6 3 Q4 9 11 15 Z M14 30 L6 37 Q4 31 11 25 Z M44 11 L50 5 Q53 10 47 15 Z M44 29 L50 35 Q53 30 47 25 Z' }],
+    ['path', { class: 'flip', d: 'M50 20 L58 17 L58 23 Z' }],                                  /* 尾（右） */
+    ['circle', { class: 'head', cx: '8', cy: '20', r: '6' }],                                   /* 頭（左） */
+    ['ellipse', { class: 'shell', cx: '30', cy: '20', rx: '19', ry: '14' }],
+    ['path', { class: 'plate', d: 'M30 9 L38 14 L38 26 L30 31 L22 26 L22 14 Z' }],
+    ['circle', { class: 'eye', cx: '6', cy: '18', r: '1.4' }],
+  ]);
+}
+function mountSwimmers(filterBtnEl, listBtnEl) {
+  const band = el('div', 'today-swim');
+  band.dataset.screen = 'today.swim'; band.dataset.screenLayer = '2';
+  /* クラゲ：絵を前に差し込み、名前と ▽ は傘の下 */
+  filterBtnEl.classList.add('sw', 'sw-jelly');
+  filterBtnEl.insertBefore(jellySvg(), filterBtnEl.firstChild);
+  const fwrap = el('span', 'sw-lb');
+  while (filterBtnEl.childNodes.length > 1) fwrap.appendChild(filterBtnEl.childNodes[1]);
+  filterBtnEl.appendChild(fwrap);
+  /* カメ：向きを変える（右へ泳ぐ間は裏返す）のは絵だけ。⇅ / ✕ は甲羅の上に重ねて裏返さない */
+  listBtnEl.classList.add('sw', 'sw-turtle');
+  const face = el('span', 'sw-face');
+  face.appendChild(turtleSvg());
+  listBtnEl.insertBefore(face, listBtnEl.firstChild);
+  band.appendChild(filterBtnEl);
+  band.appendChild(listBtnEl);
+  return band;
 }
 
 /* ---------------- 画面モジュール ---------------- */
@@ -2582,7 +2654,6 @@ export default {
     filterBtn.setAttribute('aria-haspopup', 'menu');
     filterBtn.setAttribute('aria-expanded', 'false');
     filterBtn.addEventListener('click', ev => { ev.preventDefault(); openFilterPop(); });
-    topRow.insertBefore(filterBtn, dayRow);     /* フィルターは 1段目の左（海の「タグ無し ▽」の場所。Issue #92 の返事） */
     tools.appendChild(quadBtn);
     listBtn = el('button', 'today-listbtn');
     listBtn.type = 'button';
@@ -2590,8 +2661,11 @@ export default {
     listIc.setAttribute('aria-hidden', 'true');
     listBtn.appendChild(listIc);                /* 字は出さない（Issue #92 の返事。名前は aria-label・title が渡す） */
     listBtn.addEventListener('click', ev => { ev.preventDefault(); setList(!listOn); });
-    tools.appendChild(listBtn);
     stage.appendChild(tools);
+    /* タグのフィルター（クラゲ）と一覧の切り替え（カメ）は、面の上のほうを泳ぐ生き物にした（Issue #96 の 7 回目の返事。mountSwimmers）。
+       前はフィルターが 1段目の左、⇅ が 2段目の右。面の最後に入れて、泡より前に描く */
+    swimBand = mountSwimmers(filterBtn, listBtn);
+    stage.appendChild(swimBand);
     topRowEl = topRow; toolsEl = tools; dayRowEl = dayRow;
     placeDayRow();
     document.addEventListener('pointerdown', onFilterOutside, true);

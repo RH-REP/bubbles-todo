@@ -521,11 +521,9 @@ body.is-pressing .today-stage .today-filterbtn, body.is-focusing .today-stage .t
 /* 掴んでいる間は、上の札をすべて消す（2026-11-24 Issue #97「バブルを掴むと一部のボタンが隠れない、全て隠して」）。
    前は日付と ‹ ›・おすすめの札が残っていた（おすすめは上で消している） */
 .today-stage.is-bubdrag .today-dayrow { opacity: 0; pointer-events: none; }
-/* 狭い画面（1段目が 330px 未満。js/screens/today.js placeDayRow）では、日付と ‹ › を 2段目の左へ下ろし、
-   1段目はフィルターだけ（Issue #97「アンドロイドから今日の海のうえのボタン類が………で読めない」）。
-   フィルターは 1段目を広く使え、日付は 2段目の右の ⇅ の手前まで伸びる */
-.today-top.is-solo > .today-filterbtn { max-width: 100%; }
-.today-tools > .today-dayrow { margin-left: 0; margin-right: auto; flex: 0 1 auto; }
+/* 日付と ‹ › はいつも 1段目（2026-11-25 Issue #96 の 7 回目の返事。タグのフィルターが泳ぐクラゲになって 1段目が空いた）。
+   前（Issue #97）は狭い画面で 2段目へ下ろしていた。1段目が 230px 未満のときだけ ‹ › を畳む（js/screens/today.js placeDayRow） */
+.today-top.is-tight .today-daystep { display: none; }
 /* 1段目に置いたとき（Issue #92 の返事）。海の 1段目の「タグ無し ▽」と同じく字を濃く。
    日付に場所を残すため、長いタグの名前でも並びの 4割までで「…」に縮める */
 .today-top > .today-filterbtn { color: var(--text); max-width: 40%; }
@@ -533,6 +531,84 @@ body.is-pressing .today-stage .today-filterbtn, body.is-focusing .today-stage .t
 @media (max-width: 400px) {
   .today-top > .today-filterbtn { padding: 0 12px; letter-spacing: 0; }
   .today-top .today-day { padding: 0 9px; letter-spacing: 0; }
+}
+
+/* ---------- 泳ぐ生き物：タグのフィルター（クラゲ）と一覧の切り替え（カメ）（2026-11-25 Issue #96 の 7 回目の返事） ----------
+   「タグの選択ボタンとリストボタンもイメージにあう海の生き物に置き換えて、1番前のレイヤーで上の方でゆっくり動かすことできる？」。
+   帯（.today-swim）は 2段目の高さ（上から 56px、高さ 64px）。右はさいころと「四つ」の手前（120px）で止める。
+   泡より前（z-index 12。泡は z-index を持たない）、ドラッグ層（60）・板（26）より後ろ。帯そのものは指を通し、生き物だけが受ける。
+   横切るのに クラゲ 70 秒・カメ 90 秒。指を乗せている間・焦点がある間・押している間・一覧の間・板を開いている間は止まる。
+   中身（名前・⇅ / ✕・aria-label・title）は前のボタンのまま（js/screens/today.js の syncFilterBtn・syncListBtn） */
+.today-swim {
+  position: absolute; z-index: 12; top: 56px; left: 10px; right: 120px; height: 64px;
+  pointer-events: none;
+}
+.today-swim .sw {
+  position: absolute; top: 0; pointer-events: auto;
+  appearance: none; -webkit-appearance: none; cursor: pointer; font: inherit;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 0;
+  min-height: 44px; padding: 0; margin: 0;
+  border: 0; border-radius: 14px; background: none; box-shadow: none; color: var(--text);
+  user-select: none; -webkit-user-select: none;
+}
+.today-swim .sw[hidden] { display: none; }     /* タグの無い版ではクラゲを出さない（syncFilterBtn が hidden にする） */
+.today-swim .sw:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
+.today-swim .sw-ic { display: block; overflow: visible; }
+/* クラゲ（タグのフィルター）。傘の下に、いま選んでいるタグの名前と ▽ */
+.today-swim .today-filterbtn.sw-jelly {
+  width: 96px; max-width: none;
+  animation: sw-x-jelly 70s ease-in-out -20s infinite alternate;
+}
+.today-swim .sw-jelly .sw-ic { animation: sw-bob 4.2s ease-in-out infinite alternate; }
+.today-swim .sw-jelly .bell  { fill: color-mix(in srgb, var(--accent-b) 28%, #fff); stroke: var(--accent-b); stroke-width: 1.8; fill-opacity: .92; }
+.today-swim .sw-jelly .tent  { fill: none; stroke: color-mix(in srgb, var(--accent-b) 75%, #fff); stroke-width: 1.8; stroke-linecap: round; }
+.today-swim .sw-jelly .shine { fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; opacity: .8; }
+.today-swim .sw-lb {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 96px; margin-top: -2px;
+  padding: 1px 8px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; letter-spacing: .02em; line-height: 1.5;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+.today-swim .sw-lb .lb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-swim .sw-lb .ic { flex: none; font-size: 9.5px; line-height: 1; }
+.today-swim .today-filterbtn.is-on .sw-lb { border-color: var(--bub-edge); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bub-edge) 26%, transparent); }
+/* カメ（一覧の切り替え）。甲羅に ⇅（一覧の間は ✕）。向きを変えるのは絵（.sw-face）だけ */
+.today-swim .today-listbtn.sw-turtle {
+  top: 10px; width: 60px; height: 44px; border-radius: 14px;
+  animation: sw-x-turtle 90s ease-in-out -45s infinite alternate;
+}
+.today-swim .sw-face { display: block; line-height: 0; animation: sw-face 180s step-end -45s infinite; }
+.today-swim .sw-turtle .shell { fill: color-mix(in srgb, var(--accent-a) 45%, #fff); stroke: var(--accent-a); stroke-width: 1.8; }
+.today-swim .sw-turtle .plate { fill: color-mix(in srgb, var(--accent-a) 30%, #fff); stroke: var(--accent-a); stroke-width: 1.2; }
+.today-swim .sw-turtle .head,
+.today-swim .sw-turtle .flip  { fill: #6fae84; stroke: #3f7d56; stroke-width: 1.2; }
+.today-swim .sw-turtle .eye   { fill: #1d1d24; }
+.today-swim .sw-turtle .ic {
+  position: absolute; left: 50%; top: 50%; transform: translate(-30%, -55%);
+  font-size: 14px; font-weight: 700; line-height: 1; color: #1d1d24;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+  pointer-events: none;
+}
+/* 泡が多くて入りきらないとき（Issue #87）：甲羅の縁を太く泡の色に。一覧の間：甲羅の地を起こす */
+.today-swim .sw-turtle.is-crowded .shell { stroke: var(--bub-edge); stroke-width: 3; }
+.today-swim .sw-turtle.is-on .shell { fill: color-mix(in srgb, var(--accent-a) 65%, #fff); }
+@keyframes sw-x-jelly  { from { left: 0; } to { left: calc(100% - 96px); } }
+@keyframes sw-x-turtle { from { left: 0; } to { left: calc(100% - 60px); } }
+@keyframes sw-bob { from { transform: translateY(0); } to { transform: translateY(5px); } }
+/* カメの絵は左向き。右へ泳ぐ前半は裏返す（横の動きと同じ遅れ・長さ×2 で、折り返しにそろえる） */
+@keyframes sw-face { 0% { transform: scaleX(-1); } 50% { transform: scaleX(1); } }
+/* 止まるとき：指を乗せている・焦点がある・押している・一覧の間・タグの板を開いている間 */
+.today-swim .sw:hover, .today-swim .sw:hover *,
+.today-swim .sw:focus-visible, .today-swim .sw:focus-visible *,
+.today-swim .sw:active, .today-swim .sw:active *,
+.today-stage.is-list .today-swim .sw, .today-stage.is-list .today-swim .sw *,
+.today-swim .today-filterbtn[aria-expanded="true"], .today-swim .today-filterbtn[aria-expanded="true"] * { animation-play-state: paused; }
+/* 動きを減らす設定：泳がせず、帯の左右の端に置く */
+@media (prefers-reduced-motion: reduce) {
+  .today-swim .sw, .today-swim .sw * { animation: none !important; }
+  .today-swim .today-filterbtn.sw-jelly { left: 0; }
+  .today-swim .today-listbtn.sw-turtle  { left: calc(100% - 60px); }
 }
 
 .today-filter-pop {
