@@ -776,18 +776,33 @@ function placeFishStatic() {
 }
 
 /* エリア 1 つ。el の第 3 引数は innerHTML に入るので、文字はすべて textContent で入れる（泡の名前が混ざるため） */
+/* 2026-11-25 利用者の決定「A、ただし、L字ではなくI字のエリアのみで実施」（モック app_spec の mock/corners-1125.html の案 A）：
+   見える形は、下の縁に沿った細い帯（.tp-corner-rail。ふだん 6px）だけ。縞が角へ向かって流れ、掴んだ泡が近づくほど
+   太く濃くなり（--near。onBubPointer の nearCorners）、指が乗ると塗りつぶす（.is-drop）。字は帯の上に短く「★ 大事」「↑ 先に」。
+   落とす当たりは、帯を含む下の角の箱（幅 150・高さ 72。見えない）。説明（離すと入れ替える など）は読み上げにだけ渡す */
 function cornerBox(kind, head, sub, closed) {
   const box = el('div', 'tp-corner tp-corner-' + kind);
   if (closed) box.classList.add('is-closed');
   box.dataset.drop = kind;
   box.dataset.name = (kind === 'key' ? '今日大事なこと' : '先に済ませる') + 'のエリア';
+  box.setAttribute('aria-label', head + '。' + sub);
   const h = el('span', 'tp-corner-h');
-  h.textContent = head;
+  h.textContent = kind === 'key' ? '★ 大事' : '↑ 先に';
   box.appendChild(h);
-  const s = el('span', 'tp-corner-s');
-  s.textContent = sub;
-  box.appendChild(s);
+  box.appendChild(el('span', 'tp-corner-rail'));
   return box;
+}
+/* 掴んだ泡（指先）が左下・右下の角にどれだけ近いか（0〜1）を、それぞれのエリアの --near に入れる */
+function nearCorners(x, y) {
+  if (!plate || plate.hidden) return;
+  plate.querySelectorAll('.tp-corner').forEach(n => {
+    const r = n.getBoundingClientRect();
+    if (!r.width) return;
+    const cx = n.classList.contains('tp-corner-key') ? r.left : r.right;
+    const d = Math.hypot(x - cx, y - r.bottom);
+    const near = x >= 0 ? Math.max(0, Math.min(1, 1 - (d - 90) / 260)) : 0;
+    n.style.setProperty('--near', near.toFixed(3));
+  });
 }
 
 /* 外す（入れた泡を同じ目印で離したとき）。今日には残す。［元に戻す］で入れ直す */
@@ -1987,6 +2002,7 @@ function onBubPointer(ev) {
   bubPt = { x: ev.clientX, y: ev.clientY };
   markDayEdge(dayEdgeAt(bubPt.x, bubPt.y));
   markPlateDrop(plateHitAt(bubPt.x, bubPt.y));
+  nearCorners(bubPt.x, bubPt.y);
 }
 
 /* ---- 今日大事なこと・先に済ませるへ落とす（2026-11-24。Issue #96 で枠 → 角 → 滝 → 灯台と浮き → 魚 → 小さい画面は角のエリア・大きい画面は枠）----
