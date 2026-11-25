@@ -41,31 +41,24 @@ export function effectiveSize(size, hasNext) {
   return (s === 'l' && hasNext) ? 'm' : s;
 }
 
-/* 先に済ませる（記録の鍵 first）。さっとの泡だけ、1 日に FIRST_MAX まで。区切りの時間の既定は FIRST_MIN_DEF 分 */
-export const FIRST_MAX = 3;
-export const FIRST_MIN_DEF = 30;
+/* 先に済ませる（記録の鍵 first）。さっとの泡だけ。
+   2026-11-25 利用者の指示「区切り時間の機能はいらない」「ただ先にのプロパティが着くだけでよい（数にも制限はない）」：
+   前の区切りの時間（入れてから 30 分で畳む）と席の数（1 日 3 つまで）はやめた。FIRST_MAX は数の上限が無いことを表す */
+export const FIRST_MAX = Infinity;
 
-/* 先に済ませるの段の様子。
-     rows    … その日の先に済ませるの泡 [{ done }]
-     startAt … その日に初めて先に済ませるへ入れた時刻（端末に覚える。無ければ null）
-     minutes … 区切りの時間までの分
+/* 先に済ませるの段の様子。rows … その日の先に済ませるの泡 [{ done }]。
    -> { open, endAt, canAdd, passed }
-     open   … 段を出すか（区切りの時間の前で、済んでいない泡がある）
-     passed … 区切りの時間が過ぎた
-     canAdd … まだ入れられるか（区切りの時間の前で、席が空いている）。畳んだあと（過ぎた）は入れない */
-export function firstState(rows, startAt, minutes, now) {
+     open   … 済んでいない泡がある（その泡に色を付ける）
+     endAt・passed … 区切りの時間をやめたので、いつも null・false（呼び手の形を変えないため残す）
+     canAdd … いつも true（数の上限は無い）
+   第 2 引数より後（前の版の始めた時刻・分・今の時刻）は読まない */
+export function firstState(rows) {
   const list = Array.isArray(rows) ? rows : [];
-  const min = Number(minutes) > 0 ? Number(minutes) : FIRST_MIN_DEF;
-  const endAt = Number.isFinite(startAt) ? startAt + min * 60000 : null;
-  const passed = endAt !== null && now >= endAt;
-  const open = !passed && list.some(r => r && !r.done);
-  const canAdd = !passed && list.length < FIRST_MAX;
-  return { open, endAt, canAdd, passed };
+  return { open: list.some(r => r && !r.done), endAt: null, canAdd: true, passed: false };
 }
 
 /* 先に済ませるの段を出すか（2026-11-24 ユーザーの指示「先にやるの枠がない」）。
-   st は firstState の答え、n は入れた泡の数。区切りの時間が過ぎておらず、
-   入れた泡がまだ済んでいない（open）か、1 つも入れていない（空いた席を見せて、押す・落とすで入れられる）とき */
+   st は firstState の答え、n は入れた泡の数。入れた泡がまだ済んでいない（open）か、1 つも入れていない（空いた席を見せて、押す・落とすで入れられる）とき */
 export function showFirstRow(st, n) {
-  return !!st && !st.passed && (!!st.open || !(n > 0));
+  return !!st && (!!st.open || !(n > 0));
 }

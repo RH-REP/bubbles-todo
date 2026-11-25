@@ -115,7 +115,7 @@
    （あとから繋いだときに、どれが新しいかが判るように）。 */
 
 import { stampChanges, initialStamps, recordsOf } from './merge.js';
-import { quadrantFor, sizeOf, FIRST_MAX } from './priority.js';
+import { quadrantFor, sizeOf } from './priority.js';
 import { findSea, boxKey } from './spacelist.js';
 import { isPersonal, regionOfSpace } from './regions.js';
 import { normalizeRepeat, spanAt, nextSpan, nextDay } from './repeat.js';
@@ -1076,7 +1076,7 @@ const TODO_KNOWN = new Set([
      size    … 見当 's'（さっと）・'m'（半日まで）・'l'（何回も）。ほかは欄を置かない（まだ）
      dueKind … 急ぐの分け方 'ext'（外の約束）・'self'（自分の目安）。ほかは欄を置かない（urgent:true なら自分の目安として読む）
      key     … 今日大事なことにした日の並び（'YYYY-MM-DD'）。1 日に 1 つにするのは setKey の仕事
-     first   … 先に済ませるに入れた日の並び。さっとの泡だけ・1 日に FIRST_MAX までは setFirst の仕事
+     first   … 先に済ませるに入れた日の並び。さっとの泡だけは setFirst の仕事（数の上限は無い。2026-11-25）
    日の並びは形の合うものだけを、重なりを落として古い順に。空なら欄を置かない */
 function dayList(v) {
   if (!Array.isArray(v)) return [];
@@ -2324,9 +2324,8 @@ export const store = {
     return !!(t && Array.isArray(t.key) && t.key.indexOf(day) >= 0);
   },
 
-  /* 先に済ませる。さっとの泡だけ・1 日に FIRST_MAX まで（ここで断る）。入れるとき、その泡をその日に置く。
-     区切りの時間（畳む時刻）は画面と端末の仕事（ここは日の並びだけ）。
-     -> 'ok'（変わった）・'same'（すでにその状態）・'size'（さっとでない）・'full'（席が埋まっている）・''（無い泡・変な日） */
+  /* 先に済ませる。さっとの泡だけ（数の上限は無い。2026-11-25 利用者の指示「数にも制限はない」）。入れるとき、その泡をその日に置く。
+     -> 'ok'（変わった）・'same'（すでにその状態）・'size'（さっとでない）・''（無い泡・変な日） */
   setFirst(id, day, on) {
     const t = store.get(id);
     if (!t || !dayKeyOrNull(day)) return '';
@@ -2334,7 +2333,6 @@ export const store = {
     if (has === !!on) return 'same';
     if (on) {
       if (sizeOf(t.size) !== 's') return 'size';
-      if (store.firstItems(day).length >= FIRST_MAX) return 'full';
       if (t.days.indexOf(day) < 0) {
         t.days = normalizeDays(t.days.concat(day));
         todayLogs.push({ id: t.id, text: t.text, at: Date.now(), day });

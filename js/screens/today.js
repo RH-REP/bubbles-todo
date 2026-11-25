@@ -15,8 +15,8 @@ import { createQuadView, dropToQuad, quadButton, syncQuadButton, QUAD_BUB } from
 import { el, toast, fromFeedback } from '../ui.js';
 import { playComplete, playSfx } from '../sound.js';
 import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest, keyable, firstable } from '../suggest.js';
-import { SIZES, FIRST_MAX, firstState, showFirstRow } from '../priority.js';
-import { firstStartedAt, markFirstStarted, firstMinutes, PREFS_EVENT } from '../prefs.js';
+import { SIZES, firstState, showFirstRow } from '../priority.js';
+import { PREFS_EVENT } from '../prefs.js';
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
 import { dressJelly, dressTurtle, archSvg } from '../swim.js';
@@ -334,7 +334,7 @@ function kNoteOf(t) {
    ・入れた泡を同じ所で離すと外す（今日には残る。［元に戻す］で入れ直せる）。もう片方で離すとそちらへ移す
    ・盤の［★ 今日大事なことにする］［↑ 先に済ませるに入れる］・おすすめの板からも、今までどおり入れられる・外せる
    ・どちらも日付ごとに記録する。今日と先の日に入れられる（Issue #98。過ぎた日は記録として色だけ）。
-     先に済ませるは、今日になってから区切りの時間を数え、過ぎるか、入れた泡が全部済むと畳み、色が戻る（次の日へは移さない）
+     先に済ませるは印が付くだけ。入れた泡が全部済むと（完了・今日はここまで）色が戻る。区切りの時間と数の上限は 2026-11-25 にやめた（利用者の指示「区切り時間の機能はいらない」「ただ先にのプロパティが着くだけでよい（数にも制限はない）」）
    ・今日大事なことは過ぎた日には入れない。一覧・四つに分けて見ている間はエリアも枠も出さない（一覧では行に色と字を付ける）
    言い方は命令形にしない。件数・割合は出さない。赤は使わない */
 let plate = null;          /* 左下・右下のエリアの入れ物（.today-corners）。泡を掴んでいる間だけ。小さい画面だけ */
@@ -347,44 +347,20 @@ let heldId = null;         /* 盤を開いている（中央に持っている�
    海の画面も同じ境目（css/screens/sea.css の @media (min-width: 720px)） */
 const WIDE_MQ = (typeof window !== 'undefined' && window.matchMedia) ? window.matchMedia('(min-width: 720px)') : null;
 function isWideScreen() { return !!(WIDE_MQ && WIDE_MQ.matches); }
-let plateTimer = 0;
 let lastPlate = { key: null, rows: [], st: { open: false }, showFirst: false };
 
-/* 映している日の枠の中身。-> { key, rows, st }（st は firstState。区切りの時間を数えるのは今日だけ） */
+/* 映している日の枠の中身。-> { key, rows, st, showFirst }（st は firstState） */
 function plateState() {
   const day = curDay();
   const key = (typeof store.keyItem === 'function') ? store.keyItem(day) : null;
-  let rows = [], st = { open: false, endAt: null, canAdd: false, passed: false };
-  /* 先に済ませるも、今日大事なことと同じく日付ごとに記録している（記録の鍵 first に日付）。
-     Issue #98「大事、先には日付とセットで記録して／今日の海だけではなく別の日も対称的に／明日先にやること、大事なことを前日に入力したい」：
-     ・先の日 … 入れられる（席 3 つ・さっとの泡だけは同じ）。区切りの時間はまだ数えない（その日が今日になって初めて見た時刻から数える）
-     ・今日   … 今までどおり（区切りの時間が過ぎるか、全部済んだら畳む）
-     ・過ぎた日 … 入れない・外さない。記録として色と字だけ出す */
-  if (typeof store.firstItems === 'function') {
-    rows = store.firstItems(day);
-    if (isToday()) {
-      let at = firstStartedAt(day);
-      /* 前の日やほかの端末で入れた泡は、この端末で今日初めて見た時刻から数える */
-      if (rows.length && at === null) at = markFirstStarted(day, Date.now());
-      st = firstState(rows.map(t => ({ done: firstOver(t) })), at, firstMinutes(), Date.now());
-    } else {
-      /* 先の日も過ぎた日も同じ（2026-11-25 利用者の指示「今日以外の日付の海での操作が今日の海と対称的ではない（基本動作は同じにして）」）。
-         区切りの時間を数えるのは今日だけ */
-      st = firstState(rows.map(t => ({ done: firstOver(t) })), null, firstMinutes(), Date.now());
-    }
-  }
-  /* 段を出すか（2026-11-24 ユーザーの指示「先にやるの枠がない」）。前は入れた泡があるときだけ出していたので、
-     まだ 1 つも入れていない朝は段そのものが無く、入れる場所が見えなかった。
-     今日・先の日で、区切りの時間が過ぎておらず、入れた泡がまだ済んでいない（open）か、1 つも入れていないときに出す。
-     全部済んだ・区切りの時間が過ぎたときは今までどおり畳む。過ぎた日は、入れた泡があるときだけ記録として出す */
+  /* 先に済ませるも、今日大事なことと同じく日付ごとに記録している（記録の鍵 first に日付。Issue #98）。
+     どの日も同じ扱い。区切りの時間（入れてから 30 分で畳む）と席の数（3 つまで）は 2026-11-25 にやめた */
+  const rows = (typeof store.firstItems === 'function') ? store.firstItems(day) : [];
+  const st = firstState(rows.map(t => ({ done: firstOver(t) })));
+  /* 段を出すか（大きい画面の枠）：入れた泡がまだ済んでいないか、1 つも入れていないとき。過ぎた日は、入れた泡があるときだけ記録として */
   const canFirst = typeof store.setFirst === 'function';
   const showFirst = canFirst && (showFirstRow(st, rows.length) || (isPast() && rows.length > 0));
   return { key, rows, st, showFirst };
-}
-
-function hhmm(ms) {
-  const d = new Date(ms);
-  return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
 /* 色を付ける泡。id -> 'key'|'first'（先に済ませるは開いている間だけ。過ぎた日はその日の記録として全部。
@@ -398,9 +374,6 @@ function pinsOf(ps) {
 }
 
 function renderPlate(ps) {
-  if (plateTimer) { clearTimeout(plateTimer); plateTimer = 0; }
-  /* 区切りの時間が来たら畳む（先に済ませるの泡の色を戻す・段を畳む） */
-  if (ps.st.open && ps.st.endAt) plateTimer = setTimeout(() => { plateTimer = 0; render(); }, Math.max(1000, ps.st.endAt - Date.now() + 500));
   wideOn = isWideScreen();
   if (stage) stage.classList.toggle('is-wide', wideOn);
   applySwimLayout(wideOn);
@@ -435,15 +408,9 @@ function renderWide(ps) {
     row.dataset.name = '先に済ませる';
     row.dataset.drop = 'first';   /* 過ぎた日も入れられる（2026-11-25。前は記録として出すだけだった） */
     row.setAttribute('role', 'group');
-    row.setAttribute('aria-label', ps.st.endAt ? firstName + '（区切りの時間 ' + hhmm(ps.st.endAt) + '）'
-      : ps.rows.length ? firstName + '（区切りの時間は、その日に初めて開いたときから数える）'
+    row.setAttribute('aria-label', ps.rows.length ? firstName
       : firstName + '（まだ入れていない。泡をここへ落とすと入る）');
     row.appendChild(el('span', 'tp-first-h', firstName));
-    if (ps.st.endAt) {
-      const tm = el('span', 'tp-first-t', '〜 ' + hhmm(ps.st.endAt));
-      tm.dataset.name = '区切りの時間';
-      row.appendChild(tm);
-    }
     const seats = el('div', 'tp-seats');
     ps.rows.forEach(t => {
       const done = firstOver(t);
@@ -458,15 +425,14 @@ function renderWide(ps) {
       seatDrag(b, t, 'first', day);
       seats.appendChild(b);
     });
-    if (ps.st.canAdd || !ps.rows.length) {
-      for (let i = ps.rows.length; i < FIRST_MAX; i++) {
-        const add = el('button', 'tp-seat is-empty', '＋');
-        add.type = 'button';
-        add.dataset.name = '先に済ませるの空いた席';
-        add.setAttribute('aria-label', '先に済ませるに入れる泡を、おすすめから選ぶ（泡を落としても入る）');
-        add.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
-        seats.appendChild(add);
-      }
+    /* 席の数の上限は無い（2026-11-25）。空いた席は 1 つだけ出す（押すとおすすめ） */
+    {
+      const add = el('button', 'tp-seat is-empty', '＋');
+      add.type = 'button';
+      add.dataset.name = '先に済ませるの空いた席';
+      add.setAttribute('aria-label', '先に済ませるに入れる泡を、おすすめから選ぶ（泡を落としても入る）');
+      add.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
+      seats.appendChild(add);
     }
     row.appendChild(seats);
     wideBox.appendChild(row);
@@ -611,12 +577,10 @@ function renderCorners(ps) {
     : '離すと入る';
   plate.appendChild(cornerBox('key', '★ ' + keyName, keySub, false));
   if (typeof store.setFirst === 'function') {
-    const closed = isToday() && !ps.showFirst;   /* 畳むのは今日だけ（先の日はまだ区切りの時間を数えていない） */
+    /* 畳む（区切りの時間・席の数）は 2026-11-25 にやめた。いつでも入れられる */
     const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
-    const firstSub = closed ? '今日はもう畳んだ' : pin === 'first' ? '離すと外す'
-      : !ps.st.canAdd ? '席は 3 つまで'
-      : (ps.st.endAt ? '〜 ' + hhmm(ps.st.endAt) + '・' : '') + '離すと入る';
-    plate.appendChild(cornerBox('first', '↑ ' + firstName, firstSub, closed));
+    const firstSub = pin === 'first' ? '離すと外す' : '離すと入る';
+    plate.appendChild(cornerBox('first', '↑ ' + firstName, firstSub, false));
   }
   plate.hidden = false;
 }
@@ -650,11 +614,9 @@ function renderFish(ps) {
     : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える' : '離すと入る';
   syncFish('key', true, '大事', keySub, keyName, false);
   const showFirst = typeof store.setFirst === 'function';
-  const closed = isToday() && !ps.showFirst;
   const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
-  const firstSub = !id ? '' : closed ? '今日はもう畳んだ' : pin === 'first' ? '離すと外す'
-    : !ps.st.canAdd ? '席は 3 つまで' : '離すと入る';
-  syncFish('first', showFirst, '先に', firstSub, firstName, closed);
+  const firstSub = !id ? '' : pin === 'first' ? '離すと外す' : '離すと入る';   /* 畳むのはやめた（2026-11-25） */
+  syncFish('first', showFirst, '先に', firstSub, firstName, false);
   fishBox.classList.toggle('is-drag', !!id);
   if (reduceMotion()) { stopFish(); placeFishStatic(); }
   else startFish();
@@ -2281,7 +2243,6 @@ function placeFirst(id, dropped, day) {
   const t = store.get(id);
   if (!day) day = todayKey();
   if (!t || typeof store.setFirst !== 'function') return;
-  if (day === todayKey() && plateState().st.passed) { toast('先に済ませるは、今日はもう畳んだ'); return; }
   const had = store.daysOf ? (store.daysOf(id) || []).indexOf(day) >= 0 : false;
   let sized = false;
   if (dropped && !t.size && typeof store.setSize === 'function') sized = store.setSize(id, 's');
@@ -2289,11 +2250,10 @@ function placeFirst(id, dropped, day) {
   if (r !== 'ok') {
     if (sized) store.setSize(id, null);
     if (r === 'same') return;
-    toast(r === 'full' ? '先に済ませるの席は 3 つまで' : r === 'size' ? '先に済ませるは、さっとの泡だけ' : '先に済ませるに入れられなかった');
+    toast(r === 'size' ? '先に済ませるは、さっとの泡だけ' : '先に済ませるに入れられなかった');
     render();
     return;
   }
-  if (day === todayKey()) markFirstStarted(day, Date.now());   /* 先の日は、その日に初めて開いたときから数える（plateState） */
   playSfx('place');
   const where = day === todayKey() ? '' : (dayToDate(day).getMonth() + 1) + '/' + dayToDate(day).getDate() + ' の';
   toast('「' + trim(t.text) + '」を' + where + '先に済ませるに入れた' + (sized ? '（さっとにした）' : ''), {
@@ -2914,7 +2874,6 @@ export default {
   /* テスト・後片付け用。app.js は今のところ呼ばない */
   destroy() {
     if (unsubscribe) { unsubscribe(); unsubscribe = null; }
-    if (plateTimer) { clearTimeout(plateTimer); plateTimer = 0; }
     if (ro) { ro.disconnect(); ro = null; }
     document.removeEventListener('pointerdown', onFilterOutside, true);
     if (field) { field.destroy(); field = null; }

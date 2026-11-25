@@ -1,8 +1,8 @@
 /* 選ぶときの基準（2026-11-24 ユーザーの決定「OK、推奨で実施」。app_spec の minutes/261124_選ぶときの基準.md）の記録のテスト。
    見当（size）・急ぐの分け方（dueKind）・今日大事なこと（key）・先に済ませる（first）が、
      ・保存 → 読み込み・サーバーから来た記録（applyState）・2 つの端末の合わせ（mergeState）を通って残るか
-     ・今日大事なことが 1 日に 1 つか、先に済ませるがさっとの泡だけ・3 つまでか
-     ・区切りの時間（priority.js の firstState）と、端末に覚える始めた時刻（prefs.js）
+     ・今日大事なことが 1 日に 1 つか、先に済ませるがさっとの泡だけか（数の上限は無い。2026-11-25）
+     ・先に済ませるの様子（priority.js の firstState。区切りの時間は 2026-11-25 にやめた）
    を見る。素の Node と assert だけ。データはすべて架空。
 
      node tests/choose.test.mjs */
@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { mergeState } from '../js/merge.js';
 import { firstState, FIRST_MAX, effectiveSize, quadrantFor, showFirstRow } from '../js/priority.js';
-import { firstStartedAt, markFirstStarted, firstMinutes, PREFS_KEY, FIRST_AT_KEY } from '../js/prefs.js';
+import { PREFS_KEY, ITEMS } from '../js/prefs.js';
 
 const KEY = 'bubble_todo_v1';
 const STORE_URL = new URL('../js/store.js', import.meta.url).href;
@@ -139,7 +139,7 @@ await test('今日大事なこと: 2 つの端末で別々に決めて合わさ�
   assert.equal(store.keyItem(DAY).id, 'b');
 });
 
-await test('先に済ませる: さっとの泡だけ・1 日に 3 つまで。入れるとその日に置く。さっとでなくなると外れる', async () => {
+await test('先に済ませる: さっとの泡だけ・数の上限は無い（2026-11-25）。入れるとその日に置く。さっとでなくなると外れる', async () => {
   const store = await open(docWith(['a', 'b', 'c', 'd', 'e'].map(id => todo(id, { size: 's' })).concat([todo('m', { size: 'm' })])));
   assert.equal(store.setFirst('m', DAY, true), 'size');
   assert.equal(store.setFirst('a', DAY, true), 'ok');
@@ -147,10 +147,10 @@ await test('先に済ませる: さっとの泡だけ・1 日に 3 つまで。�
   assert.equal(store.setFirst('a', DAY, true), 'same');
   assert.equal(store.setFirst('b', DAY, true), 'ok');
   assert.equal(store.setFirst('c', DAY, true), 'ok');
-  assert.equal(FIRST_MAX, 3);
-  assert.equal(store.setFirst('d', DAY, true), 'full');
-  assert.deepEqual(store.firstItems(DAY).map(t => t.id), ['a', 'b', 'c']);
-  /* 別の日は別の席 */
+  assert.equal(FIRST_MAX, Infinity);
+  assert.equal(store.setFirst('d', DAY, true), 'ok', '4 つ目も入る');
+  assert.deepEqual(store.firstItems(DAY).map(t => t.id), ['a', 'b', 'c', 'd']);
+  /* 別の日は別の記録 */
   assert.equal(store.setFirst('d', '2026-11-26', true), 'ok');
   /* 外すと席が空く。泡はその日に残る（今日の水面に戻る） */
   assert.equal(store.setFirst('a', DAY, false), 'ok');
@@ -159,36 +159,20 @@ await test('先に済ませる: さっとの泡だけ・1 日に 3 つまで。�
   /* 見当をさっとから変えたら、先に済ませるから外れる */
   store.setPriority('b', { size: 'l' });
   assert.equal(store.isFirst('b', DAY), false);
-  assert.deepEqual(store.firstItems(DAY).map(t => t.id), ['c', 'e']);
+  assert.deepEqual(store.firstItems(DAY).map(t => t.id), ['c', 'd', 'e']);
 });
 
-await test('区切りの時間: 始めた時刻＋分。過ぎるか、入れた泡が全部済むと畳む。過ぎたら入れない', () => {
-  const t0 = ms(2026, 11, 25, 9, 0);
-  const rows = [{ done: false }, { done: true }];
-  let s = firstState(rows, t0, 30, t0 + 10 * 60000);
-  assert.deepEqual(s, { open: true, endAt: t0 + 30 * 60000, canAdd: true, passed: false });
-  s = firstState(rows, t0, 30, t0 + 30 * 60000);
-  assert.equal(s.open, false); assert.equal(s.passed, true); assert.equal(s.canAdd, false);
-  s = firstState([{ done: true }], t0, 30, t0 + 60000);
-  assert.equal(s.open, false, '全部済んだら畳む'); assert.equal(s.canAdd, true, '区切りの時間の前なら、まだ入れられる');
-  s = firstState([{}, {}, {}], t0, 30, t0 + 60000);
-  assert.equal(s.canAdd, false, '3 つまで');
-  s = firstState([], null, 30, t0);
-  assert.deepEqual(s, { open: false, endAt: null, canAdd: true, passed: false });
+await test('先に済ませるの様子（2026-11-25「区切り時間の機能はいらない」）: 時間では畳まない。済んでいない泡があれば open、いつでも入れられる', () => {
+  assert.deepEqual(firstState([{ done: false }, { done: true }]), { open: true, endAt: null, canAdd: true, passed: false });
+  assert.deepEqual(firstState([{ done: false }], 1000, 30, 1000 + 999 * 60000), { open: true, endAt: null, canAdd: true, passed: false }, '前の版の引数（始めた時刻・分）を渡しても時間では畳まない');
+  assert.equal(firstState([{ done: true }]).open, false, '全部済んだら色を外す');
+  assert.equal(firstState(new Array(10).fill({})).canAdd, true, '数の上限は無い');
+  assert.deepEqual(firstState([]), { open: false, endAt: null, canAdd: true, passed: false });
 });
 
-await test('始めた時刻は端末に覚える（1 回目だけ）。区切りの分は設定の firstMin（既定 30）', () => {
-  mem.clear();
-  assert.equal(firstStartedAt(DAY), null);
-  assert.equal(markFirstStarted(DAY, 1000), 1000);
-  assert.equal(markFirstStarted(DAY, 2000), 1000, '2 回目は上書きしない');
-  assert.equal(firstStartedAt(DAY), 1000);
-  assert.ok(FIRST_AT_KEY.startsWith('bubble_todo'), '「すべて初期化」で消える名前');
-  for (let i = 1; i <= 9; i++) markFirstStarted('2026-11-0' + i, i);
-  assert.equal(Object.keys(JSON.parse(mem.get(FIRST_AT_KEY))).length, 7, '7 日ぶんだけ残す');
-  assert.equal(firstMinutes(), 30);
-  mem.set(PREFS_KEY, JSON.stringify({ firstMin: '45' }));
-  assert.equal(firstMinutes(), 45);
+await test('区切りの時間の設定（firstMin）は設定の一覧から外した', () => {
+  assert.equal(ITEMS.some(it => it.id === 'firstMin'), false);
+  assert.ok(PREFS_KEY.startsWith('bubble_todo'));
 });
 
 await test('1 回分: 何回もで次にやることがあれば半日まで', () => {
@@ -211,12 +195,10 @@ await test('くりかえしの写しは見当・急ぐの分け方を写し、�
   assert.equal('key' in c || 'first' in c, false);
 });
 
-await test('先に済ませるの段を出すとき（2026-11-24「先にやるの枠がない」）: 1 つも入れていない朝も出す。全部済む・区切りの時間が過ぎたら畳む', () => {
-  const t0 = ms(2026, 11, 25, 9, 0);
-  assert.equal(showFirstRow(firstState([], null, 30, t0), 0), true, 'まだ入れていない＝空いた席を見せる');
-  assert.equal(showFirstRow(firstState([{ done: false }], t0, 30, t0 + 60000), 1), true);
-  assert.equal(showFirstRow(firstState([{ done: true }], t0, 30, t0 + 60000), 1), false, '全部済んだら畳む');
-  assert.equal(showFirstRow(firstState([{ done: false }], t0, 30, t0 + 31 * 60000), 1), false, '区切りの時間が過ぎたら畳む');
+await test('先に済ませるの段を出すとき（2026-11-24「先にやるの枠がない」）: 1 つも入れていない朝も出す。全部済んだら畳む。時間では畳まない', () => {
+  assert.equal(showFirstRow(firstState([]), 0), true, 'まだ入れていない＝空いた席を見せる');
+  assert.equal(showFirstRow(firstState([{ done: false }]), 1), true);
+  assert.equal(showFirstRow(firstState([{ done: true }]), 1), false, '全部済んだら畳む');
   assert.equal(showFirstRow(null, 0), false);
 });
 
