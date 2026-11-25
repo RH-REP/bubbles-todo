@@ -786,21 +786,24 @@ body.is-pressing .sea-stage > .sea-tools,  body.is-focusing .sea-stage > .sea-to
     display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 0;
     min-height: 44px; padding: 0; margin: 0;
     border: 0; border-radius: 14px; background: none; box-shadow: none; color: var(--text);
+    transition: none; will-change: transform;
   }
+  /* 10 回目の返事「アニメーションをスムーズに」：置き場（left）を出発点に止め、transform だけを動かす（今日の画面と同じ keyframes）。
+     動く幅 --sw-dx は面の幅（アプリの枠は最大 430px なので min(100vw, 430px)）から決める */
   body.skin-sea .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly:not([hidden]) {
-    top: 56px; width: 96px; max-width: none;
-    --sw-from: 10px; --sw-to: calc(50% - 100px);
+    top: 56px; left: 10px; width: 96px; max-width: none;
+    --sw-dx: calc(min(100vw, 430px) * .5 - 110px);
     animation: sw-x-jelly 40s ease-in-out -12s infinite alternate;
   }
   body.skin-sea .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle {
-    top: 66px; width: 60px; height: 44px;
-    --sw-from: calc(50% + 4px); --sw-to: calc(100% - 70px);
+    top: 66px; left: calc(50% + 4px); width: 60px; height: 44px;
+    --sw-dx: calc(min(100vw, 430px) * .5 - 74px);
     animation: sw-x-turtle 50s ease-in-out -25s infinite alternate;
   }
-  body.skin-sea.pref-dice .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly:not([hidden]) { --sw-to: calc(50% - 128px); }
-  body.skin-sea.pref-dice .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle { --sw-from: calc(50% - 24px); --sw-to: calc(100% - 126px); }
+  body.skin-sea.pref-dice .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly:not([hidden]) { --sw-dx: calc(min(100vw, 430px) * .5 - 138px); }
+  body.skin-sea.pref-dice .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle { left: calc(50% - 24px); --sw-dx: calc(min(100vw, 430px) * .5 - 102px); }
   body.skin-sea .sea-stage:not(.is-gathering) > .sw .sw-ic { display: block; overflow: visible; }
-  body.skin-sea .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle .sw-face { display: block; line-height: 0; animation: sw-face 100s step-end -25s infinite; }
+  body.skin-sea .sea-stage:not(.is-gathering) > .sea-gather.sw-turtle .sw-face { display: block; line-height: 0; animation: sw-face 100s linear -25s infinite; }
   body.skin-sea .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly .sw-ic { animation: sw-bob 4.2s ease-in-out infinite alternate; }
   /* クラゲの名前の札（いまの眺め「タグ無し ▽」など） */
   body.skin-sea .sea-stage:not(.is-gathering) > .sea-narrow.sw-jelly .sw-lb {

@@ -1761,8 +1761,13 @@ const EDGE_SLOP = 28;      /* 乗っている帯から出たとみなすまで�
 let edgeCopy = false;
 let edgeHoldTimer = 0;
 
-/* その向きの行き先。どの日からでも、左＝前の日・右＝次の日（Issue #97 で過去も対称にした） */
+/* その向きの行き先。どの日からでも、左＝前の日・右＝次の日（Issue #97 で過去も対称にした）。
+   ただし今日を映しているときの左の帯は「海へ戻す」（EDGE_SEA）：今日から外し、泡は海に残る
+   （2026-11-25 Issue #96 の 10 回目の返事「いま今日の日付の場合は過去に送ることになる。今日の日付の場合のみ海に送るとか、
+   送れないようにするとかできない？今日以降の日付の場合は今のまま」）。先の日・過ぎた日は今までどおり前の日へ */
+const EDGE_SEA = 'sea';
 function edgeDayFor(dir) {
+  if (dir === 'left' && isToday()) return EDGE_SEA;
   return shiftDay(curDay(), dir === 'left' ? -1 : 1) || null;
 }
 
@@ -1776,7 +1781,15 @@ function renderDayEdges() {
     e.el.classList.toggle('is-over', overEdge === dir);
     const copy = overEdge === dir && edgeCopy;
     e.el.classList.toggle('is-copy', copy);
+    e.el.classList.toggle('is-sea', k === EDGE_SEA);
     if (!k) return;
+    if (k === EDGE_SEA) {
+      /* 今日の左の帯：海へ戻す（今日から外す。コピーは無い） */
+      e.md.textContent = '海へ';
+      e.dw.textContent = '';
+      e.mo.textContent = '戻す';
+      return;
+    }
     e.mo.textContent = copy ? '＋コピー' : '送る';
     const d = dayToDate(k);
     /* 帯は細いので、日と曜日を2行に分ける（横書きのまま読める）。
@@ -1811,7 +1824,7 @@ function markDayEdge(dir) {
   overEdge = dir;
   edgeCopy = false;
   if (edgeHoldTimer) { clearTimeout(edgeHoldTimer); edgeHoldTimer = 0; }
-  if (dir) {
+  if (dir && edgeDayFor(dir) !== EDGE_SEA) {   /* 海へ戻す帯には「＋コピー」は無い */
     edgeHoldTimer = setTimeout(() => {
       edgeHoldTimer = 0;
       if (!bubDrag || overEdge !== dir) return;
@@ -1905,7 +1918,27 @@ function endBubDrag() {
      マイクロタスク1つぶん待ってから見る（海・きっかけと同じ間合い） */
   Promise.resolve().then(() => {
     if (tabDropped) return;
+    if (to === EDGE_SEA) { backToSea(d.id, curDay()); return; }
     moveDay(d.id, curDay(), to, copy);
+  });
+}
+
+/* 今日から外して海に戻す（今日の左の帯。Issue #96 の 10 回目の返事）。泡そのものは海に残る。
+   その日の今日大事なこと・先に済ませるも外れる（store.setDay が外す）ので、［元に戻す］では一緒に入れ直す */
+function backToSea(id, day) {
+  const t = store.get(id);
+  if (!t || typeof store.setDay !== 'function') return;
+  const wasKey = typeof store.isKey === 'function' && store.isKey(id, day);
+  const wasFirst = typeof store.isFirst === 'function' && store.isFirst(id, day);
+  if (!store.setDay(id, day, false)) return;
+  playSfx('place');
+  toast('「' + trim(t.text) + '」を今日から外した（海に残る）', {
+    label: '元に戻す',
+    on: () => {
+      store.setDay(id, day, true);
+      if (wasKey && typeof store.setKey === 'function') store.setKey(id, day, true);
+      if (wasFirst && typeof store.setFirst === 'function') store.setFirst(id, day, true);
+    },
   });
 }
 

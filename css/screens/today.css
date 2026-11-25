@@ -555,6 +555,7 @@ html .today-top.is-center .today-daystep { display: inline-block; }
 .today-swim {
   position: absolute; z-index: 12; top: 56px; left: 10px; right: 10px; height: 64px;
   pointer-events: none;
+  container-type: inline-size;   /* 泳ぐ幅を帯の幅（cqw）で渡す（下の --sw-dx）。帯の中には生き物の 2 つしか無い */
 }
 /* 右の端は、2段目の右に出しているボタン（さいころ・四つ・おすすめ）の手前で止める（8 回目の返事で、出していないときは右の端まで泳ぐ） */
 body.pref-dice .today-swim { right: 66px; }
@@ -568,6 +569,7 @@ body.pref-show-suggest .today-swim { right: 72px; }
   min-height: 44px; padding: 0; margin: 0;
   border: 0; border-radius: 14px; background: none; box-shadow: none; color: var(--text);
   user-select: none; -webkit-user-select: none;
+  will-change: transform;          /* 動かすのは transform だけ（下の keyframes）。描き直しを合成だけで済ませる */
 }
 .today-swim .sw[hidden] { display: none; }     /* タグの無い版ではクラゲを出さない（syncFilterBtn が hidden にする） */
 .today-swim .sw:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
@@ -596,7 +598,7 @@ body.pref-show-suggest .today-swim { right: 72px; }
   top: 10px; width: 60px; height: 44px; border-radius: 14px;
   animation: sw-x-turtle 50s ease-in-out -25s infinite alternate;
 }
-.today-swim .sw-face { display: block; line-height: 0; animation: sw-face 100s step-end -25s infinite; }
+.today-swim .sw-face { display: block; line-height: 0; animation: sw-face 100s linear -25s infinite; }
 .today-swim .sw-turtle .shell { fill: color-mix(in srgb, var(--accent-a) 45%, #fff); stroke: var(--accent-a); stroke-width: 1.8; }
 .today-swim .sw-turtle .plate { fill: color-mix(in srgb, var(--accent-a) 30%, #fff); stroke: var(--accent-a); stroke-width: 1.2; }
 .today-swim .sw-turtle .head,
@@ -612,14 +614,22 @@ body.pref-show-suggest .today-swim { right: 72px; }
 .today-swim .sw-turtle.is-crowded .shell { stroke: var(--bub-edge); stroke-width: 3; }
 .today-swim .sw-turtle.is-on .shell { fill: color-mix(in srgb, var(--accent-a) 65%, #fff); }
 /* クラゲは帯の左半分、カメは右半分だけを泳ぐ（8 回目の返事「クラゲとカメの位置を離して」）。
-   どこを泳ぐかは --sw-from・--sw-to で渡す（海の画面の .sea-stage でも同じ keyframes を使う。css/screens/sea.css） */
-.today-swim .today-filterbtn.sw-jelly { --sw-from: 0px; --sw-to: calc(50% - 100px); }
-.today-swim .today-listbtn.sw-turtle  { --sw-from: calc(50% + 4px); --sw-to: calc(100% - 60px); }
-@keyframes sw-x-jelly  { from { left: var(--sw-from); } to { left: var(--sw-to); } }
-@keyframes sw-x-turtle { from { left: var(--sw-from); } to { left: var(--sw-to); } }
+   10 回目の返事「カメとクラゲの移動する時のアニメーションをスムーズにできる？」：前は left を動かしていて、
+   1 コマごとに置き直し（レイアウト）が走り、1px 単位で跳ぶので、ゆっくり動くほどカクカク見えた。
+   いまは置き場（left）を出発点に止め、transform の translate3d だけを動かす（合成だけで、1px より細かく動く）。
+   動く幅 --sw-dx は帯の幅（cqw。.today-swim の container-type）から決める。海の画面では面の幅から決める（css/screens/sea.css） */
+.today-swim .today-filterbtn.sw-jelly { left: 0; --sw-dx: calc(50cqw - 100px); }
+.today-swim .today-listbtn.sw-turtle  { left: calc(50% + 4px); --sw-dx: calc(50cqw - 64px); }
+@keyframes sw-x-jelly  { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(var(--sw-dx, 0px), 0, 0); } }
+@keyframes sw-x-turtle { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(var(--sw-dx, 0px), 0, 0); } }
 @keyframes sw-bob { from { transform: translateY(0); } to { transform: translateY(5px); } }
-/* カメの絵は左向き。右へ泳ぐ前半は裏返す（横の動きと同じ遅れ・長さ×2 で、折り返しにそろえる） */
-@keyframes sw-face { 0% { transform: scaleX(-1); } 50% { transform: scaleX(1); } }
+/* カメの絵は左向き。右へ泳ぐ前半は裏返す（横の動きと同じ遅れ・長さ×2 で、折り返しにそろえる）。
+   前は一瞬で向きが替わっていた（step-end）。折り返しの手前（横の動きがほぼ止まっている間）に、ゆっくり向きを替える */
+@keyframes sw-face {
+  0%, 46%   { transform: scaleX(-1); }
+  50%, 96%  { transform: scaleX(1); }
+  100%      { transform: scaleX(-1); }
+}
 /* 止まるとき：指を乗せている・焦点がある・押している・一覧の間・タグの板を開いている間 */
 .today-swim .sw:hover, .today-swim .sw:hover *,
 .today-swim .sw:focus-visible, .today-swim .sw:focus-visible *,
