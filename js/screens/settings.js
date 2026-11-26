@@ -89,10 +89,10 @@ export function inviteKind(text) {
   return 'unknown';
 }
 const SHARE_FLOW = '2人とも先に鍵（パスキーかパスフレーズ）を選び、同じネット（devnet など）にそろえる（この面の「ブロックチェーンで共有する：鍵を選ぶ」）。<br>'
-  + '0. （すぐメンバーにするなら）<b>招かれる人</b>: 「招待コードを受け取る」の「自分のウォレットのアドレスをコピー」で、アドレスを招く人に送る。<br>'
+  + '0. （すぐ仲間にするなら）<b>招かれる人</b>: 「招待コードを受け取る」の「自分のウォレットのアドレスをコピー」で、アドレスを招く人に送る。<br>'
   + '1. <b>招く人</b>: 「＋ 海を共有する」で海を選び、もらったアドレスを入れて（無ければ空のまま）「招待コードを作る」。出た招待コード（BTI1-…）を相手にだけ送る。<br>'
-  + '2. <b>招かれる人</b>: 「招待コードを受け取る」に貼って「受け取る」。海が足され、みんなの記録が読める。<br>'
-  + '3. アドレスを入れなかったときは、<b>招かれる人</b>がカードの「同期」で記録を送ると、<b>招く人</b>が次に「同期」したときにメンバーに追加される。<br>'
+  + '2. <b>招かれる人</b>: 「招待コードを受け取る」に貼って「受け取る」。海が追加され、みんなの記録が読める。<br>'
+  + '3. アドレスを入れなかったときは、<b>招かれる人</b>がカードの「同期」で記録を送ると、<b>招く人</b>が次に「同期」したときに仲間に追加される。<br>'
   + '招待コードはパスワードと同じで、持っている人は誰でも受け取れる。使えるのは ' + INVITE_DAYS + ' 日・最初の 1 人だけ。<br>'
   + 'そのあとは、カードの「同期」か詳細のコメントの横の「同期」で、ほかの人と同じ記録にする（送るときに手数料）。アプリを開いている間は、ほかの人の変更を自動で読む（手数料なし）。<br>'
   + 'チャット（カードの「チャット」）と詳細のコメントは別のもの: コメントは泡に付き「同期」で届く。チャットは海ぜんたいの話で 1 件ずつ届く（直につながっていれば手数料なし）。';
@@ -2660,12 +2660,12 @@ function chainBox(opts = {}) {
     else if (task === 'share') paintShare(net);
     else if (task === 'memo') {
       /* 共有中の海ごとのチャットも、ここに並べる（Issue #68 の返事「チャットは相手をどのように選ぶ？アドレス入れるとことかある？」）。
-         相手はアドレスで選ばず、海で選ぶ（その海のメンバー全員と話す）。前は「共有中の海を同期する」の、その海の欄にしか無かった */
+         相手はアドレスで選ばず、海で選ぶ（その海の仲間全員と話す）。前は「共有中の海を同期する」の、その海の欄にしか無かった */
       /* opts.selfOnly（2026-11-16 Issue #74）: 「自分の複数の端末で使う」の箱（名前は Issue #79）では、自分あてのメモだけを出す
          （共有の海のチャットは「他の人と一緒に使う」のカードの［チャット］） */
       const seas = opts.selfOnly ? [] : sharedFor(dropGoneShared(loadShared()), cfg.address, net);
       if (!seas.length && !opts.selfOnly) {
-        group('sea-chat-none', '共有の海のチャット', 'チャットの相手は、アドレスではなく共有の海で選ぶ（その海のメンバー全員と話す）。'
+        group('sea-chat-none', '共有の海のチャット', 'チャットの相手は、アドレスではなく共有の海で選ぶ（その海の仲間全員と話す）。'
           + 'まだ共有中の海が無い。「海を共有する」で人を招く・招待を受け取ると、ここにその海のチャットが出る。');
       }
       seas.forEach(rec => {
@@ -2675,7 +2675,7 @@ function chainBox(opts = {}) {
         /* 新しいメッセージの数（開いている間の自動の読み込みで履歴に足したもの。Issue #68 の B 案） */
         const unread = chatUnread(rec);
         group('sea:' + rec.id, '「' + escapeHtml(ent ? ent.name : rec.id) + '」のチャット' + (unread ? '（新しい ' + unread + ' 件）' : ''),
-          '相手: ' + (who ? escapeHtml(who) : '（まだ自分だけ。メンバーを招くと話せる）') + '。メンバーだけが読める。1 件ごとに手数料が掛かる。');
+          '相手: ' + (who ? escapeHtml(who) : '（まだ自分だけ。仲間を招くと話せる）') + '。仲間だけが読める。1 件ごとに手数料が掛かる。');
         btn('チャットを開く', async () => peekChat('sea:' + rec.id, rec));
       });
       /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
@@ -2787,7 +2787,7 @@ function chainBox(opts = {}) {
      海の鍵は自分の記録のカギで包んで端末に置くので、どの操作でもパスキーか合言葉で開く */
   /* 消した海の共有の控えを、この端末から外す（Issue #68 の返事「海を消しても共有中の海が消えない」）。
      海の一覧に消した印（alive 0）が残っている海だけを外す（一覧にまだ無い海は、受け取りの途中かもしれないので残す）。
-     チェーンの上の記録とほかのメンバーには触らない（「この端末で共有をやめる」と同じ） */
+     チェーンの上の記録とほかの仲間には触らない（「この端末で共有をやめる」と同じ） */
   /* 招かれた海をこの端末の一覧に足す。前に消した海（消した印が残る）は、印のほうが新しいので重ねるだけでは戻らない。
      そのときは同じ ID で作り直す（Issue #68。消した海の招待を受け取り直したとき） */
   function addInvitedSea(sea) {
@@ -2834,7 +2834,7 @@ function chainBox(opts = {}) {
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
     group('share', hub ? (opts.serverShare ? '＋ 海を共有する（ブロックチェーンで。押したとき・手数料あり）' : '＋ 海を共有する（人を招く）') : '招く（自分の海に人を招く）',
       '① 海を選ぶ（共有中の海・まだ共有していない海・「＋ 新しい海」・個人の海を「コピーして共有」）。② 下の欄で招待コードを作り、相手にだけ送る。'
-      + '中身はメンバーだけが読める。誰と誰が同じ海にいるかと、書いた時刻・大きさはチェーンの上で誰でも見られる。書いたものは消せない。');
+      + '中身は仲間だけが読める。誰と誰が同じ海にいるかと、書いた時刻・大きさはチェーンの上で誰でも見られる。書いたものは消せない。');
     /* 招待コードの欄は、共有中の海ごとの欄ではなく、この「招く」の流れの中に置く（Issue #68 の返事
        「共有中の海に…招待コードを作るが表示されてる。他の人と一緒に使うの設定の流れで出てきた方がわかりやすい？」）。
        ① で海を選び、② で招く。自分が持ち主の共有中の海も ① に並べる */
@@ -2869,7 +2869,7 @@ function chainBox(opts = {}) {
       addrIn.type = 'text';
       addrIn.autocomplete = 'off';
       addrIn.spellcheck = false;
-      addrIn.placeholder = '相手のウォレットのアドレス（あれば。すぐメンバーにする）';
+      addrIn.placeholder = '相手のウォレットのアドレス（あれば。すぐ仲間にする）';
       addrIn.setAttribute('aria-label', '招く相手のウォレットのアドレス');
       addrIn.style.cssText = 'flex:1 1 16em;min-width:12em';
       const nameIn = document.createElement('input');
@@ -2910,7 +2910,7 @@ function chainBox(opts = {}) {
       btn('🔑 招待コードを作る', () => createInvite(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled, snapChk.checked));
       /* アドレスを入れずにコードを送ったあとで、相手のアドレスをもらったとき（Issue #68 の返事「相手のウォレットを空にして招待を送ったあと、
          相手のウォレット情報をどこから入れれる？」）。コードは作らず、同じ欄のアドレスで名簿に足し、手数料も送る */
-      btn('🔑 アドレスでメンバーに追加するだけ（コードを送ったあと）', () => addByAddress(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled));
+      btn('🔑 アドレスで仲間に追加するだけ（コードを送ったあと）', () => addByAddress(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled));
       /* 作ったコードは、説明の文に埋めず、ここに字とコピーのボタンで出す（Issue #68 の返事「コードコピーできるボタンあれば便利？」） */
       if (lastCode && lastCode.id === selRec.id) {
         const codeRow = el('div', 'row');
@@ -2972,8 +2972,8 @@ function chainBox(opts = {}) {
         : '届いた招待コードを貼って「受け取る」。'
       + 'ブロックチェーンの招待コード（BTI1-…）なら、海が自動で追加される（受け取るだけなら手数料なし。先に鍵を選んでおく）。'
       + (srv ? 'サーバーの招待コード（ABCD-EFGH-JKLM の形）なら、設定の「海」のログインの［招待コードで登録］の欄へ入れる。' : '')
-      + (started ? '先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる。'
-        + '送っていなければ、「同期」で記録を送ったときに招いた人の端末がメンバーに追加する（送るには SOL が要る）。' : ''));
+      + (started ? '先に自分のアドレスを招く人に送っておくと、受け取ってすぐ仲間になり、手数料も送ってもらえる。'
+        + '送っていなければ、「同期」で記録を送ったときに招いた人の端末が仲間に追加する（送るには SOL が要る）。' : ''));
     const codeIn = document.createElement('input');
     codeIn.type = 'text';
     codeIn.autocomplete = 'off';
@@ -3004,7 +3004,7 @@ function chainBox(opts = {}) {
     if (!started) return;
     /* 先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる（Issue #68 の返事） */
     btn('自分のウォレットのアドレスをコピー（先に招く人へ）', async () => {
-      const tail = '　← 招く人に送ると、招待コードと同時にメンバーに足され、手数料も送ってもらえる（送らなくても受け取れる）。';
+      const tail = '　← 招く人に送ると、招待コードと同時に仲間に追加され、手数料も送ってもらえる（送らなくても受け取れる）。';
       try { await navigator.clipboard.writeText(cfg.address); line.textContent = 'アドレスをコピーした: ' + cfg.address + tail; } catch (e) {
         line.textContent = 'アドレス: ' + cfg.address + tail;
       }
@@ -3085,12 +3085,12 @@ function chainBox(opts = {}) {
       const unread = chatUnread(rec);
       /* group の見出しと説明は HTML として入る。海の名前と呼び名はほかのメンバーが書くので、必ず escapeHtml を通す */
       const desc = card
-        ? (owner ? '持ち主' : member ? 'メンバー' : '読むだけ（「同期」で記録を送るとメンバーになる）')
-          + '・メンバー ' + ((rec.members || []).length || '?') + ' 人' + (who ? '（' + escapeHtml(who) + '）' : '')
+        ? (owner ? '持ち主' : member ? '仲間' : '読むだけ（「同期」で記録を送ると仲間になる）')
+          + '・仲間 ' + ((rec.members || []).length || '?') + ' 人' + (who ? '（' + escapeHtml(who) + '）' : '')
           + '・最後の同期 ' + (last ? new Date(last).toLocaleString() : 'まだ')
           + (direct ? '・直につながっている ' + direct + ' 台' : '')
           + (unread ? '・新しいチャット ' + unread + ' 件' : '')
-        : 'メンバー ' + ((rec.members || []).length || '?') + ' 人' + (who ? '（' + escapeHtml(who) + '）' : '')
+        : '仲間 ' + ((rec.members || []).length || '?') + ' 人' + (who ? '（' + escapeHtml(who) + '）' : '')
           + (rec.savedAt ? '・最後に送った ' + new Date(rec.savedAt).toLocaleString() : '')
           + (rec.readAt ? '・最後に取り込んだ ' + new Date(rec.readAt).toLocaleString() : '');
       group('sea:' + rec.id, (card ? '「' + escapeHtml(name) + '」' : '共有中の海「' + escapeHtml(name) + '」' + (owner ? '' : '（招かれた）')), desc);
@@ -3098,7 +3098,7 @@ function chainBox(opts = {}) {
         /* 説明は ⓘ に畳まれるので、今の様子はボタンの上に 1 行で見せる（文字として入れる） */
         const st = el('div', 'note');
         st.style.cssText = 'width:100%';
-        st.textContent = (owner ? '持ち主' : member ? 'メンバー' : '読むだけ') + '・最後の同期 ' + (last ? new Date(last).toLocaleString() : 'まだ')
+        st.textContent = (owner ? '持ち主' : member ? '仲間' : '読むだけ') + '・最後の同期 ' + (last ? new Date(last).toLocaleString() : 'まだ')
           + (direct ? '・直につながっている ' + direct + ' 台' : '') + (unread ? '・新しいチャット ' + unread + ' 件' : '');
         into.appendChild(st);
         /* 直の通信の様子（Issue #68 の返事「webRTC動いてないように見える。確認できる？」）。つながらない理由が分かるように 1 行で出す */
@@ -3108,7 +3108,7 @@ function chainBox(opts = {}) {
         p2.textContent = '直の通信: ' + (!prefs.on ? '切ってある（チャットの欄の「端末どうしで直につなぐ」）'
           : !p2pSupported() ? 'このブラウザでは使えない'
           : !sessionKeys ? 'まだ（この海で「同期」すると始まる。ページを再読み込みすると止まる）'
-          : !member ? '読むだけの間は、ほかの人から見つけてもらえない（メンバーになると始まる）'
+          : !member ? '読むだけの間は、ほかの人から見つけてもらえない（仲間になると始まる）'
           : direct ? 'つながっている ' + direct + ' 台（コメントは手数料なしで届く）'
           : m0 ? 'つなぐ相手を待っている（相手もこの 10 分のうちに新しい書き込みを「同期」すると、つなぎに行く）'
           : 'これから始める（次の自動の読み込みで）')
@@ -3153,7 +3153,7 @@ function chainBox(opts = {}) {
         });
       }
       btn('この端末で共有をやめる', async () => {
-        if (!window.confirm('この端末で「' + name + '」の共有をやめる？\n海と記録はこの端末に残る（ほかのメンバーには知らせない。チェーンの上の記録も消えない）。'
+        if (!window.confirm('この端末で「' + name + '」の共有をやめる？\n海と記録はこの端末に残る（ほかの仲間には知らせない。チェーンの上の記録も消えない）。'
           + '\nまた使うときは「届いた招待を受け取る」で受け取り直す。')) return;
         const all = loadShared();
         delete all[rec.id];
@@ -3239,7 +3239,7 @@ function chainBox(opts = {}) {
     input2.type = 'text';
     input2.maxLength = MSG_MAX;
     input2.autocomplete = 'off';
-    input2.placeholder = rec ? 'メッセージ（メンバーだけが読める）' : 'メモ（自分の端末どうしだけが読める）';
+    input2.placeholder = rec ? 'メッセージ（仲間だけが読める）' : 'メモ（自分の端末どうしだけが読める）';
     input2.setAttribute('aria-label', rec ? 'メッセージ' : 'メモ');
     input2.style.cssText = 'flex:1 1 14em;min-width:10em';
     const send2 = el('button', 'btn', '🔑 送る');
@@ -3291,7 +3291,7 @@ function chainBox(opts = {}) {
     input.type = 'text';
     input.maxLength = MSG_MAX;
     input.autocomplete = 'off';
-    input.placeholder = rec ? 'メッセージ（メンバーだけが読める）' : 'メモ（自分の端末どうしだけが読める）';
+    input.placeholder = rec ? 'メッセージ（仲間だけが読める）' : 'メモ（自分の端末どうしだけが読める）';
     input.setAttribute('aria-label', rec ? 'メッセージ' : 'メモ');
     input.style.cssText = 'flex:1 1 14em;min-width:10em';
     const send = el('button', 'btn', '送る');
@@ -3547,7 +3547,7 @@ function chainBox(opts = {}) {
         const items = hist.filter(m => m.state !== 'chain' && m.env);
         if (!items.length) { status.textContent = 'ブロックチェーンに残していないメッセージは無い。'; return; }
         if (!window.confirm('まだブロックチェーンに無いメッセージ ' + Math.min(items.length, 100) + ' 件をまとめて書く？\n'
-          + '手数料が掛かる。書いたものは消せない（' + (rec ? 'メンバー' : '自分') + 'だけが読める）。')) return;
+          + '手数料が掛かる。書いたものは消せない（' + (rec ? '仲間' : '自分') + 'だけが読める）。')) return;
         await writeToChain(items, 'ブロックチェーンに残した');
       } catch (e) {
         status.textContent = '残せなかった: ' + ((e && e.message) || String(e));
@@ -3607,7 +3607,7 @@ function chainBox(opts = {}) {
       throw new Error('残高が足りない（残高 ' + solText(myBalance) + '・要るのは ' + solText(plan.need) + '。送る額＋手数料＋自分に残す最低の額）');
     }
     const who = m.n || m.a;
-    if (!window.confirm((m.n ? m.n + ' さん' : 'このメンバー') + 'のウォレットへ ' + solText(plan.amount) + ' を送る？（' + NETWORKS[net].label + '）\n'
+    if (!window.confirm((m.n ? m.n + ' さん' : 'この仲間') + 'のウォレットへ ' + solText(plan.amount) + ' を送る？（' + NETWORKS[net].label + '）\n'
       + '送り先: ' + m.a + '\n'
       + 'メッセージ約 ' + GIFT_MESSAGES + ' 通ぶんの手数料' + (plan.withRent ? '＋相手のウォレットを開くための最低の額' : '') + '。\n'
       + '送ったものは取り消せない（相手のウォレットのお金になる）。')) { line.textContent = 'やめた'; return; }
@@ -3774,8 +3774,8 @@ function chainBox(opts = {}) {
       + parts.join('と') + 'をチェーンに書く'
       + '（取引 ' + count + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
       + 'コードはパスワードと同じで、持っている人は誰でもこの海を読める。相手にだけ送る。\n'
-      + (addr ? '相手は受け取ればすぐメンバーとして書ける。' + (withGift ? '続けて手数料を送るかを聞く。' : '')
-        : 'メンバーに追加するのは、このコードで最初に記録を送った 1 人だけ（' + INVITE_DAYS + ' 日のうち）。'))) { line.textContent = 'やめた'; return; }
+      + (addr ? '相手は受け取ればすぐ仲間として書ける。' + (withGift ? '続けて手数料を送るかを聞く。' : '')
+        : '仲間に追加するのは、このコードで最初に記録を送った 1 人だけ（' + INVITE_DAYS + ' 日のうち）。'))) { line.textContent = 'やめた'; return; }
     line.textContent = '書いている…';
     await writeInvite(net, keys.wallet, text, box);
     if (roster.length || snap.length) {
@@ -3794,7 +3794,7 @@ function chainBox(opts = {}) {
     let copied = false;
     try { await navigator.clipboard.writeText(code); copied = true; } catch (e) { /* ボタンで写す */ }
     let msg = (copied ? '招待コードを作ってコピーした。' : '招待コードを作った。下の「招待コードをコピー」でコピーする。')
-      + '相手にだけ送る（メッセージなど）。' + (addr ? '' : '相手が記録を送ったら、次に「同期する」ときにメンバーに追加する。');
+      + '相手にだけ送る（メッセージなど）。' + (addr ? '' : '相手が記録を送ったら、次に「同期する」ときに仲間に追加する。');
     curKey = 'share-code';
     line.textContent = msg;
     /* 同じ押しの続きで手数料を送る（鍵は開けてある。パスキーを 2 度求めない） */
@@ -3810,7 +3810,7 @@ function chainBox(opts = {}) {
   }
 
   /* アドレスでメンバーに足す（持ち主だけ。招待コードは作らない。Issue #68 の返事）。
-     招待コードを受け取って読むだけになっている人を、記録を送る前に（SOL が無くても）メンバーにし、続けて手数料を送る */
+     招待コードを受け取って読むだけになっている人を、記録を送る前に（SOL が無くても）仲間にし、続けて手数料を送る */
   async function addByAddress(id, addrRaw, nickRaw, withGift) {
     const net = netSel.value;
     const rec = sharedRec(id);
@@ -3819,7 +3819,7 @@ function chainBox(opts = {}) {
     if (!addr) throw new Error('相手のウォレットのアドレスを上の欄に入れてから押す');
     if (!isAddress(addr)) throw new Error('相手のウォレットのアドレスの形が違う（Solana のアドレスを貼る。BTA1- で始まる受け取りIDではない）');
     const { keys, seaKey } = await openShared(rec);
-    if (rec.owner !== keys.wallet.address) throw new Error('メンバーを追加できるのは海の持ち主だけ');
+    if (rec.owner !== keys.wallet.address) throw new Error('仲間を追加できるのは海の持ち主だけ');
     if (addr === keys.wallet.address) throw new Error('自分のアドレスが入っている（相手のアドレスを入れる）');
     const already = (rec.members || []).some(m => m.a === addr);
     const board = await boardOf(seaKey);
@@ -3827,7 +3827,7 @@ function chainBox(opts = {}) {
     if (members) {
       const roster = await postMemos(keys.wallet, rosterInner(Object.assign({}, rec, { members })), board);
       const need = await needFunds(net, roster.length);
-      if (!window.confirm('「' + (nick || shortAddr(addr)) + '」をメンバーに追加する？\n'
+      if (!window.confirm('「' + (nick || shortAddr(addr)) + '」を仲間に追加する？\n'
         + '新しい名簿をチェーンに書く（取引 ' + roster.length + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
         + '相手がまだ招待を受け取っていなければ、前に送った招待コードで受け取ってもらう（コードが無ければ「招待コードを作る」）。')) { line.textContent = 'やめた'; return; }
       line.textContent = '名簿を書いている…';
@@ -3836,9 +3836,9 @@ function chainBox(opts = {}) {
       next.members = members;
       putShared(next);
     } else if (!withGift) {
-      throw new Error('この人はもうメンバー（手数料を送るなら「手数料も送る」にチェックを入れる）');
+      throw new Error('この人はもう仲間（手数料を送るなら「手数料も送る」にチェックを入れる）');
     }
-    let msg = members ? '「' + (nick || shortAddr(addr)) + '」をメンバーに追加した。相手はカードの「同期」で自分の記録を送れる。' : '';
+    let msg = members ? '「' + (nick || shortAddr(addr)) + '」を仲間に追加した。相手はカードの「同期」で自分の記録を送れる。' : '';
     curKey = 'share-code';
     line.textContent = msg;
     /* 同じ押しの続きで手数料を送る（鍵は開けてある。パスキーを 2 度求めない） */
@@ -3858,12 +3858,12 @@ function chainBox(opts = {}) {
     const net = netSel.value;
     const rec = sharedRec(id);
     const gone = (rec.members || []).find(m => m.a === addr && m.a !== rec.owner);
-    if (!gone) throw new Error('この人はメンバーにいない');
+    if (!gone) throw new Error('この人は仲間にいない');
     const { keys } = await openShared(rec);
     if (rec.owner !== keys.wallet.address) throw new Error('外せるのは海の持ち主だけ');
     const stay = (rec.members || []).filter(m => m.a !== gone.a);
     const lost = stay.filter(m => !m.x);
-    if (lost.length) throw new Error('受け取りIDが分からないメンバーがいる（' + lost.map(m => m.n || shortAddr(m.a)).join('・') + '）。先に「同期する」で名簿を読む');
+    if (lost.length) throw new Error('受け取りIDが分からない仲間がいる（' + lost.map(m => m.n || shortAddr(m.a)).join('・') + '）。先に「同期する」で名簿を読む');
     const tos = await Promise.all(stay.map(m => readShareAddress(m.x)));
     const seaKey = newSeaKey();
     const gen = rec.gen + 1;
@@ -3883,7 +3883,7 @@ function chainBox(opts = {}) {
       + '海の鍵を作り替え（代 ' + rec.gen + ' → ' + gen + '）、残る ' + stay.length + ' 人（自分を含む）に新しい招待を書き、新しい掲示板に名簿と自分の記録を書く'
       + '（取引 ' + count + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
       + '外した人は、これからの記録を読めない。ただし、これまでに書かれた記録は読める（チェーンの上のものは消せない）。\n'
-      + 'ほかのメンバーには「届いた招待を受け取る」を押してもらう（押すまでは前の鍵のままで、新しい記録が見えない）。')) { line.textContent = 'やめた'; return; }
+      + 'ほかの仲間には「届いた招待を受け取る」を押してもらう（押すまでは前の鍵のままで、新しい記録が見えない）。')) { line.textContent = 'やめた'; return; }
     let done = 0;
     for (const e of envs) {
       await writeEnvelope(net, keys.wallet, e.text, e.to.wallet);
@@ -3898,7 +3898,7 @@ function chainBox(opts = {}) {
     await keepReadKeys(id, seaKey, gen);
     paint();
     curKey = 'sea:' + id;
-    line.textContent = '外した（鍵の代 ' + gen + '）。残るメンバーに「届いた招待を受け取る」を押してもらう。';
+    line.textContent = '外した（鍵の代 ' + gen + '）。残る仲間に「届いた招待を受け取る」を押してもらう。';
   }
 
   /* 自分の記録を掲示板に書く */
@@ -3913,7 +3913,7 @@ function chainBox(opts = {}) {
       const n = await chat.sendSnap();
       if (n) {
         line.textContent = n + ' 台に直に送った（手数料なし・チェーンに残らない）。相手の端末では、届いたときに重なる。'
-          + 'あとから開くメンバーにも届けたいときは、チャットを閉じてから「自分の変更を送る」でブロックチェーンに書く。';
+          + 'あとから開く仲間にも届けたいときは、チャットを閉じてから「自分の変更を送る」でブロックチェーンに書く。';
         return;
       }
       /* ここからパスキーを求めると、押した手の続きでなくなる（iPhone で断られる）。もう一度押してもらう */
@@ -3988,7 +3988,7 @@ function chainBox(opts = {}) {
     const todos = Array.isArray(box.doc && box.doc.todos) ? box.doc.todos.filter(t => t && !t.trashed).length : 0;
     if (!window.confirm('「' + (sea ? sea.name : id) + '」の自分の記録を共有の掲示板に書く？\ntodo ' + todos + ' 件・取引 ' + (memos.length + hello.length)
       + ' 件' + (hello.length ? '（うち 1 件は直の通信の「ここにいる」）' : '') + '・手数料の目安 ' + solText(need.fee)
-      + '\n書いたものは消せない（メンバーだけが読める）。')) { line.textContent = 'やめた'; return false; }
+      + '\n書いたものは消せない（仲間だけが読める）。')) { line.textContent = 'やめた'; return false; }
     if (hello.length) {
       line.textContent = '「ここにいる」を書いている…';
       try { await writePost(net, keys.wallet, hello, chatB); } catch (e) { /* 書けなくても記録は送る */ }
@@ -4001,8 +4001,8 @@ function chainBox(opts = {}) {
     setTimeout(() => { watchAll(); }, 1500);
     paint();
     curKey = 'sea:' + id;
-    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「同期する」で追加する。'
-      + (joining ? '招いた人が「同期する」を押すと、メンバーに追加される。' : '');
+    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかの仲間は「同期する」で追加する。'
+      + (joining ? '招いた人が「同期する」を押すと、仲間に追加される。' : '');
     return true;
   }
 
@@ -4075,7 +4075,7 @@ function chainBox(opts = {}) {
     const roster = await postMemos(keys.wallet, rosterInner(Object.assign({}, next, { members })), board);
     const need = await needFunds(next.net, roster.length);
     if (!window.confirm('招待コードで ' + ok.length + ' 人が入ってきた: ' + ok.map(j => j.n || shortAddr(j.a)).join('・') + '\n'
-      + 'メンバーに追加する？ 新しい名簿をチェーンに書く（取引 ' + roster.length + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
+      + '仲間に追加する？ 新しい名簿をチェーンに書く（取引 ' + roster.length + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
       + '追加すると、その人の記録とチャットも使うようになる。追加しなければ、その人は読むだけのまま。')) return null;
     line.textContent = '名簿を書いている…';
     await writePost(next.net, keys.wallet, roster, board);
@@ -4155,7 +4155,7 @@ function chainBox(opts = {}) {
       const again = all[f.sea.id] && all[f.sea.id].me === keys.wallet.address;
       if (!window.confirm((again ? '「' + f.sea.name + '」の新しい鍵（代 ' + f.gen + '）を受け取る？' : '海「' + f.sea.name + '」に招かれている。受け取る？')
         + '\n招いた人のウォレット: ' + (mine ? '自分' : f.owner)
-        + '\n受け取ると、この海がこの端末に足され、メンバーの記録を読み込む。')) continue;
+        + '\n受け取ると、この海がこの端末に追加され、仲間の記録を読み込む。')) continue;
       const board = await boardOf(f.key);
       const prev = all[f.sea.id];
       const rec = { id: f.sea.id, net, gen: f.gen, owner: f.owner, me: keys.wallet.address,
@@ -4195,8 +4195,8 @@ function chainBox(opts = {}) {
     const local = allEntries().find(e => e.id === f.sea.id && e.alive);
     if (local && !prev) throw new Error('「' + f.sea.name + '」の招待は受け取れない（この端末に同じ ID の別の海がある）');
     if (!window.confirm('海「' + f.sea.name + '」に招かれている。受け取る？\n招いた人のウォレット: ' + f.owner
-      + '\n受け取ると、この海がこの端末に足され、メンバーの記録を読み込む（手数料は掛からない）。'
-      + '\n「同期する」で自分の記録を送ると、招いた人の端末があなたをメンバーに追加する。')) { line.textContent = 'やめた'; return; }
+      + '\n受け取ると、この海がこの端末に追加され、仲間の記録を読み込む（手数料は掛からない）。'
+      + '\n「同期する」で自分の記録を送ると、招いた人の端末があなたを仲間に追加する。')) { line.textContent = 'やめた'; return; }
     const board = await boardOf(f.key);
     const rec = { id: f.sea.id, net, gen: f.gen, owner: f.owner, me: keys.wallet.address,
       wrapped: await wrapSeaKey(f.key, keys.recordKey, f.sea.id, f.gen, keys.wallet.address), board: board.address,
@@ -4209,8 +4209,8 @@ function chainBox(opts = {}) {
     paint();
     curKey = 'share-in';
     const member = ((loadShared()[f.sea.id] || {}).members || []).some(m => m.a === keys.wallet.address);
-    line.textContent = '「' + f.sea.name + '」を受け取った。' + (member ? 'もうメンバーなので、「同期する」で自分の記録を送れ、チャットも使える。'
-      : '「同期する」で自分の記録を送ると、招いた人がメンバーに追加する（それまでは読むだけ）。');
+    line.textContent = '「' + f.sea.name + '」を受け取った。' + (member ? 'もう仲間なので、「同期する」で自分の記録を送れ、チャットも使える。'
+      : '「同期する」で自分の記録を送ると、招いた人が仲間に追加する（それまでは読むだけ）。');
   }
 
   async function writeBackup() {
