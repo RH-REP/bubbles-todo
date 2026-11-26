@@ -256,3 +256,95 @@ export function addState(cur, add, at = Date.now()) {
   doc.lastDay = m.doc.lastDay;
   return { doc, stamps: m.stamps };
 }
+
+/* ■ 3 方向の合わせ（2026-11-26。泡の記録が古い写しで丸ごと戻った件）
+
+   todo は 1 件が 1 つの記録なので、記録ごとに新しいほうを残すと、古い写しを持った端末が
+   別の欄（日に置く・先に済ませる…）を 1 つ直しただけで、その間にほかの書き手（秘書など）が
+   直した本文・最初の一手・記録・足した日を、写しの古い値で丸ごと上書きしてしまう
+   （2026-11-25・11-26 に 2 回。ログなど別の記録は残り、todo だけが戻った）。
+
+   そこで、端末が最後にサーバーと一致していたときの todo（base。sync.js が端末の中だけに持つ）と比べ、
+   手元（a）と相手（b）の**両方**が base から変えた todo だけ、欄ごとに合わせる。
+     ・a と b が同じ → そのまま
+     ・a が base のまま → b の値。b が base のまま → a の値
+     ・両方が変えた → 記録の新しいほう（mergeState の勝ち）の値。ただし日の並び（days・key・first）は
+       両方の足した日・外した日を base に当てて合わせる（足したものはすべて残り、外したものは外れる）
+     ・片方にしか無い欄は「無い」という値として同じ決まりで比べる（足した欄・消した欄も残る）
+   合わせた結果が勝ったほうの中身と違えば、印を「両方の新しいほう＋1 ms」にする。
+   同じ時刻で中身が違うと、次に合わせたとき互いに動かず、サーバーとこの端末で食い違ったまま残るため。
+   計算は a・b を入れ替えても同じ答え（勝ちの決め方が mergeState と同じなので）。
+   base が無い・読めない・その todo が base に無い・片方が消した、のどれかなら mergeState のまま。
+   firstSpan は合わせたあとも keepFirstSpan（早く書いたほう）を通す。
+   記録の形・印の鍵・サーバーは何も変えない */
+
+/* 日の並びの欄（store.js の days と、choiceFields の key・first）。順は古い順 */
+const DAY_SET_FIELDS = new Set(['days', 'key', 'first']);
+const ABSENT = '\u0000absent';
+function jsonOf(v) { return v === undefined ? ABSENT : JSON.stringify(v); }
+
+/* 日の並びを 3 方向で合わせる。並びでない値が混ざっていれば null（ふつうの欄として扱う） */
+function mergeDaySet(b, l, r) {
+  const ok = v => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'));
+  if (!ok(b) || !ok(l) || !ok(r)) return null;
+  const B = new Set(b || []), L = new Set(l || []), R = new Set(r || []);
+  const out = new Set();
+  [...L, ...R].forEach(x => {
+    /* base にあったのに、どちらかが外したものは外す */
+    if (B.has(x) && (!L.has(x) || !R.has(x))) return;
+    out.add(x);
+  });
+  const list = [...out].sort();
+  /* 空になったら、片方でも欄を置いていなければ欄ごと省く（key・first は空なら欄を置かない形） */
+  if (!list.length && (l === undefined || r === undefined)) return { absent: true };
+  return { value: list };
+}
+
+/* todo 1 件を 3 方向で合わせる。win は記録の新しいほう、lose はもう片方。どれも書き換えない */
+export function mergeTodo3(base, win, lose) {
+  const out = {};
+  const keys = [];
+  [win, lose, base].forEach(o => Object.keys(o || {}).forEach(k => { if (!keys.includes(k)) keys.push(k); }));
+  keys.forEach(k => {
+    const vb = base ? base[k] : undefined, vw = win[k], vl = lose[k];
+    const jb = jsonOf(vb), jw = jsonOf(vw), jl = jsonOf(vl);
+    let v;
+    if (jw === jl) v = vw;
+    else if (jw === jb) v = vl;               /* 勝ったほうは変えていない → 変えたほう */
+    else if (jl === jb) v = vw;
+    else if (DAY_SET_FIELDS.has(k)) {
+      const d = mergeDaySet(vb, vw, vl);
+      v = !d ? vw : (d.absent ? undefined : d.value);
+    } else v = vw;                            /* 両方が変えた → 新しいほう */
+    if (v !== undefined) out[k] = JSON.parse(JSON.stringify(v));
+  });
+  return out;
+}
+
+/* mergeState に 3 方向の合わせを足したもの。base は { todos: [...] }（最後にサーバーと一致していたときの todo）か null。
+   a・b・base のどれも書き換えない */
+export function mergeState3(base, a, b) {
+  const m = mergeState(a, b);
+  const rbase = base && Array.isArray(base.todos) ? recordsOf({ todos: base.todos }) : null;
+  if (!rbase) return m;
+  const A = a || { doc: {}, stamps: {} };
+  const B = b || { doc: {}, stamps: {} };
+  const ra = recordsOf(A.doc), rb = recordsOf(B.doc), rm = recordsOf(m.doc);
+  const fixed = new Map();
+  rm.forEach((cur, k) => {
+    if (!k.startsWith('todo:') || !rbase.has(k) || !ra.has(k) || !rb.has(k)) return;
+    const sa = stampOf(A.stamps, k), sb = stampOf(B.stamps, k);
+    if (!sa[1] || !sb[1]) return;               /* 片方が消した → 新しいほうのまま */
+    const va = ra.get(k), vb = rb.get(k), v0 = rbase.get(k);
+    const ja = JSON.stringify(va), jb = JSON.stringify(vb), j0 = JSON.stringify(v0);
+    if (ja === jb || ja === j0 || jb === j0) return;   /* 片方しか変えていない → 新しいほうで正しい */
+    const w = pick(sa, va, sb, vb);
+    const merged = keepFirstSpan(k, mergeTodo3(v0, w === 'a' ? va : vb, w === 'a' ? vb : va), va, vb);
+    if (JSON.stringify(merged) === JSON.stringify(cur)) return;
+    fixed.set(String(cur.id), merged);
+    m.stamps[k] = [Math.max(Number(sa[0]) || 0, Number(sb[0]) || 0) + 1, 1];
+  });
+  if (!fixed.size) return m;
+  m.doc.todos = m.doc.todos.map(t => (t && fixed.has(String(t.id))) ? fixed.get(String(t.id)) : t);
+  return m;
+}

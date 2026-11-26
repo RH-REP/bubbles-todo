@@ -6,7 +6,8 @@
 
    ■ 繋いだとき
      1. GET  <住所>/api/data           … サーバーの記録と版（version）を取る
-     2. 手元の記録と合わせる（merge.js。記録ごとに新しいほうが残る）
+     2. 手元の記録と合わせる（merge.js。記録ごとに新しいほうが残る。
+        ただし手元とサーバーの両方が変えた todo は、最後に一致していたとき（base）と比べて欄ごとに合わせる。mergeState3）
         手元が変わるなら store に入れる（画面が描き直る）
      3. サーバーが変わるなら PUT <住所>/api/data { base: 版, data }
         その間に別の端末が書いていたら 409 が返るので、1. からやり直す
@@ -62,7 +63,7 @@
    海の一覧は、その海域の海だけを送り、届いた海をその海域の海にする（海域の ID はサーバーへ送らない）。 */
 
 import { store } from './store.js';
-import { mergeState, sameStamps } from './merge.js';
+import { mergeState3, sameStamps } from './merge.js';
 import { mergeSeas, seaName } from './spacelist.js';
 import { regionOfSpace, defaultRegionId, findRegion, confKeyOf, isPersonal, serverSpace, entriesOf, regionConf } from './regions.js';
 import { applyServerSeas } from './oneserver.js';
@@ -90,6 +91,10 @@ const CONF_KEY = confKeyOf(REGION);                   /* 「この端末だけ�
 const PERSONAL = isPersonal(SPACE);                   /* 個人の海か（どの海域の個人でも） */
 const SRV = serverSpace(SPACE);                       /* サーバーに言う海の ID（個人は 'me'） */
 const SEEN_KEY = 'bubble_todo_sync_seen_' + SPACE;   /* 最後に合わせた時刻（「15:30 に見たもの」） */
+/* 最後にサーバーと一致していたときの todo（3 方向の合わせの base。js/merge.js の mergeState3。2026-11-26）。
+   海ごとの箱で、端末の中だけに置く（記録の中には入れない・サーバーへは送らない）。
+   形は { v: 1, todos: [...] }。無い・読めないときは、今までどおり記録ごとに新しいほうを残す */
+const BASE_KEY = 'bubble_todo_sync_base_' + SPACE;
 /* 個人を最後に合わせた人の番号（パスキーの形）。前の版からの海域は前の箱のまま */
 const PERSON_KEY = (!REGION_INFO || REGION_INFO.legacyConf) ? 'bubble_todo_sync_person' : 'bubble_todo_sync_person_' + REGION;
 const OWNER_PERSON = 1;
@@ -167,6 +172,22 @@ function rememberPerson(person) {
   try { localStorage.setItem(PERSON_KEY, String(person)); } catch (e) { /* 覚えられなくても動く */ }
 }
 
+function readBase() {
+  try {
+    const o = JSON.parse(localStorage.getItem(BASE_KEY) || 'null');
+    return (o && o.v === 1 && Array.isArray(o.todos)) ? { todos: o.todos } : null;
+  } catch (e) { return null; }
+}
+/* サーバーが持っている（PUT が通った・GET で同じだった）状態の todo を覚える。
+   書けなければ消す（古い base で合わせるより、今までどおりのほうを取る） */
+function writeBase(doc) {
+  try {
+    localStorage.setItem(BASE_KEY, JSON.stringify({ v: 1, todos: Array.isArray(doc && doc.todos) ? doc.todos : [] }));
+  } catch (e) { dropBase(); }
+}
+function dropBase() {
+  try { localStorage.removeItem(BASE_KEY); } catch (e) { /* 読めなければ使わない */ }
+}
 function readSeen() {
   try { const n = Number(localStorage.getItem(SEEN_KEY)); return Number.isFinite(n) && n > 0 ? n : null; } catch (e) { return null; }
 }
@@ -299,6 +320,7 @@ async function syncOnce() {
           localStorage.setItem('bubble_todo_v1_before_person_' + Date.now(), JSON.stringify(store.exportState()));
         } catch (e) { /* 控えが入らなくても、前の人の記録をこの人の個人へ送らないほうを取る */ }
         store.applyState(remote || { doc: {}, stamps: {} });
+        dropBase();   /* 前の人の個人と一致していた記録なので使わない */
       }
       rememberPerson(got.json.person);
     }
@@ -306,13 +328,14 @@ async function syncOnce() {
     /* ここから PUT まで、手元の状態は await を挟まずに読む
        （取りに行っている間に打った分も、合わせる相手に入る） */
     const local = store.exportState();
-    const merged = remote ? mergeState(local, remote) : local;
+    /* 手元と相手の両方が変えた todo は、最後に一致していたとき（base）と比べて欄ごとに合わせる（2026-11-26） */
+    const merged = remote ? mergeState3(readBase(), local, remote) : local;
     if (!sameStamps(merged.stamps, local.stamps)) store.applyState(merged);
     const mine = store.exportState();
-    if (remote && sameStamps(mine.stamps, remote.stamps)) return;   /* もう同じ */
+    if (remote && sameStamps(mine.stamps, remote.stamps)) { writeBase(mine.doc); return; }   /* もう同じ */
 
     const put = await call('PUT', { base: version, data: Object.assign({}, extras, mine) });
-    if (put.status === 200) return;
+    if (put.status === 200) { writeBase(mine.doc); return; }
     if (put.status === 409) continue;          /* 間に別の端末が書いた。取り直す */
     if (put.status === 426) throw outdatedError(put.json && put.json.minSchema);   /* この版は古い。書かない */
     if (put.status === 401) throw new Error('合言葉が違う');
