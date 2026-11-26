@@ -36,10 +36,13 @@ import { relatedPairs, pullStep, isAffinityOn } from './related.js';
 
 const SPEED = 16;      /* 漂う速さ px/秒 のおおよそ */
 
-/* 泡どうしのぶつかり（2026-11-26 ユーザーの指示「バブルが重なって良い（透けて見えれば良い）」）。
-   false のあいだ、泡どうしは弾き合わず・押し離さず、すり抜けて重なる（膜は薄い色なので下の泡が透けて見える）。
-   底に積もるときの「下の泡に支えられて止まる」（rest）はそのまま。戻すときは true にする */
-const COLLIDE = false;
+/* 泡どうしのぶつかり（2026-11-26 ユーザーの指示「バブルが重なって良い（透けて見えれば良い）」、
+   同じ日に「泡同士は内側３割にあたり判定をつけて」）。
+   当たりは泡の内側の芯（半径の HIT_CORE 倍の円）どうしだけ。芯の外の膜は重なってよい（膜は薄い色なので下の泡が透けて見える）。
+   弾き合い・押し離し・へこみ・底に積もるときの支え（rest）・演出を減らす設定の settle は、どれも芯の大きさで数える。
+   COLLIDE を false にすると、芯どうしもすり抜ける */
+const COLLIDE = true;
+const HIT_CORE = 0.3;
 
 /* 弱い重力（追補3 §2）。
    面のいちばん上から下まで、およそ1分。756px の面なら 756/60 ≒ 12.6 px/s。
@@ -810,7 +813,7 @@ export function createField(host, opts = {}) {
         const dx = c.cx - b.cx, dy = c.cy - b.cy;
         if (dy <= 0) continue;                  /* 下にいるものだけが支えになる */
         if (dy < Math.abs(dx) * 0.6) continue;  /* 横に並んでいるだけのものは支えでない */
-        if (Math.hypot(dx, dy) > (b.d + c.d) / 2 + REST_GAP) continue;
+        if (Math.hypot(dx, dy) > (b.d + c.d) / 2 * HIT_CORE + REST_GAP) continue;
         b.rest = true;
         return;
       }
@@ -1033,7 +1036,7 @@ export function createField(host, opts = {}) {
           const a = list[i], c = list[j];
           if (a.held && c.held) continue;
           const dx = c.cx - a.cx, dy = c.cy - a.cy;
-          const min = (a.d + c.d) / 2 + HIT_GAP;
+          const min = (a.d + c.d) / 2 * HIT_CORE + HIT_GAP;
           const dist = Math.hypot(dx, dy) || 0.01;
           if (dist >= min) continue;
 
@@ -1112,7 +1115,7 @@ export function createField(host, opts = {}) {
         for (let j = i + 1; j < list.length; j++) {
           const a = list[i], c = list[j];
           const dx = c.cx - a.cx, dy = c.cy - a.cy;
-          const min = (a.d + c.d) / 2 + HIT_GAP;
+          const min = (a.d + c.d) / 2 * HIT_CORE + HIT_GAP;
           const dist = Math.hypot(dx, dy) || 0.01;
           if (dist >= min) continue;
           const push = (min - dist) / dist * 0.25;
