@@ -4,6 +4,11 @@
 # server.py を起動する。記録はこのフォルダの data/（state.json。合言葉は data/token.txt）に置き、
 # ほかの端末は設定の「サーバー」から繋ぐ。ブラウザの localStorage にも同じ記録が入る。
 # 止めるときはこのウィンドウで Ctrl+C。
+# 起動の前に最新を取り込む（update.command --auto。取り込めなくても今の版で続ける）。取り込んだ新しい start.command で開き直す
+if [[ -z "${APP_START_UPDATED:-}" && -x "${0:A:h}/update.command" ]]; then
+  "${0:A:h}/update.command" --auto
+  [[ -x "${0:A}" ]] && APP_START_UPDATED=1 exec "${0:A}" "$@"
+fi
 set -u
 USE_DIR="${0:A:h}"                                   # 利用側の clone
 APP_DIR="$USE_DIR"                                   # コード（clone）
