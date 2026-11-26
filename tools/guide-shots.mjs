@@ -164,14 +164,14 @@ try {
   await toServer();
   await sleep(300);
   await shot('10_server_empty');
-  await setInput('input[aria-label="サーバーの住所"]', 'http://100.64.0.5:8931');
+  await setInput('input[aria-label="サーバーの URL"]', 'http://100.64.0.5:8931');
   await clickText('繋ぐ');
   await sleep(500);
   await toServer();
   await shot('11_http_refused');
   await sleep(4500);   /* 知らせが消えるのを待つ */
   /* 住所の欄を空に戻すと、このページのサーバーに形を聞き直して、パスキーの欄が出る */
-  await setInput('input[aria-label="サーバーの住所"]', '');
+  await setInput('input[aria-label="サーバーの URL"]', '');
   await sleep(1200);
   await setInput('input[aria-label="招待コード"]', INV_ME);
   await clickText('この端末を登録');

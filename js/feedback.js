@@ -122,7 +122,7 @@
       ctx.drawImage(img, 0, 0);
       return c.toDataURL("image/png");
     } catch (e) {
-      rememberError(`画面の写真を撮れなかった: ${(e && e.message) || e}`);
+      rememberError(`スクリーンショットを撮れなかった: ${(e && e.message) || e}`);
       return null;
     }
   }
@@ -148,13 +148,13 @@
   }
   function issueBody(r) {
     const c = r.context || {};
-    const L = [`**画面**: \`${r.screen}\``, `**app**: ${r.app} ・ 版 ${r.version} ・ ${c.device || ""}`, `**時刻**: ${r.at || new Date().toISOString()}`];
+    const L = [`**画面**: \`${r.screen}\``, `**app**: ${r.app} ・ バージョン ${r.version} ・ ${c.device || ""}`, `**時刻**: ${r.at || new Date().toISOString()}`];
     if (c.paper) L.push(`**論文・記事**: ${c.paper}`);
     if (c.sentence) L.push(`**今の文**: > ${c.sentence}`);
     if (c.summary) L.push(`**今の状態**: ${c.summary}`);
     if (c.extra) L.push(`**そのときの状態**: ${c.extra}`);
     L.push("", "### コメント", "", (r.comment || "").trim() || "（なし）");
-    if (r.imageNote) L.push("", "### 画面の写真", "", r.imageNote);
+    if (r.imageNote) L.push("", "### スクリーンショット", "", r.imageNote);
     if (r.log) L.push("", "<details><summary>システムの記録（末尾）</summary>", "", "```", r.log.trimEnd(), "```", "</details>");
     L.push("", "<!-- 画面の !○ から送った -->");
     return L.join("\n");
@@ -337,7 +337,7 @@
         <label class="fb-row fb-ctxrow"><input type="checkbox" class="fb-ctx" checked> <span>今の状態を付ける</span></label>
         <div class="fb-muted fb-ctxv"></div>
         <label class="fb-row fb-shotrow"><input type="checkbox" class="fb-shot"> <span>画面の写真を付ける</span></label>
-        <div class="fb-shotbox"><img class="fb-img" alt="画面の写真"><div class="fb-muted fb-noshot" hidden>このブラウザでは写真を撮れませんでした。⌘⇧4 などで撮って、ここに貼り付けられます（⌘V）。</div></div>
+        <div class="fb-shotbox"><img class="fb-img" alt="スクリーンショット"><div class="fb-muted fb-noshot" hidden>このブラウザでは写真を撮れませんでした。⌘⇧4 などで撮って、ここに貼り付けられます（⌘V）。</div></div>
         <label class="fb-row fb-logrow"><input type="checkbox" class="fb-log" checked> <span>画面の記録（エラーなど）の末尾を付ける</span></label>
         <details class="fb-logv"><summary class="fb-muted">付ける記録を見る</summary><pre></pre></details>
         <div class="fb-actions"><button type="button" class="fb-send"></button> <button type="button" class="fb-cancel">やめる</button> <span class="fb-msg"></span></div>
@@ -369,7 +369,7 @@
     };
     if (!ghOk && !talkOk) $q(".fb-dest").hidden = true;
     $q(".fb-screen").textContent = screen;
-    $q(".fb-ver").textContent = `${opts.app} ・ 版 ${opts.version}`;
+    $q(".fb-ver").textContent = `${opts.app} ・ バージョン ${opts.version}`;
     paintDest();
     $q(".fb-title").addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
     if (ctxText) $q(".fb-ctxv").textContent = ctxText; else { $q(".fb-ctxrow").hidden = true; $q(".fb-ctxv").hidden = true; }

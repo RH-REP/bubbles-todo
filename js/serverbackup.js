@@ -20,7 +20,7 @@ async function call(method, path, body, { login = serverLogin(), fetchFn = globa
   let json = null;
   try { json = await res.json(); } catch (e) { json = null; }
   if (res.status === 401) throw new Error('ログインが切れている（設定の「海」からログインし直す）');
-  if (res.status === 413) throw new Error('大きすぎて預けられない（4MB まで）');
+  if (res.status === 413) throw new Error('大きすぎて保存できない（4MB まで）');
   if (res.status !== 200 || !json) throw new Error('サーバーが断った（' + res.status + '）');
   return json;
 }

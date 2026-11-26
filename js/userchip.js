@@ -143,7 +143,7 @@ function appSwitch() {
     a.appendChild(document.createTextNode(label));
     if (here) a.setAttribute('aria-current', 'page');
     else if (urls[id]) a.href = urls[id];
-    else { a.classList.add('is-off'); a.title = 'この app の住所を知らない（サーバーの --app-url）'; }
+    else { a.classList.add('is-off'); a.title = 'この app の URL を知らない（サーバーの --app-url）'; }
     a.dataset.name = here ? 'bubble（今ここ）' : label + ' へ移る';
     box.appendChild(a);
   });
@@ -204,7 +204,7 @@ function renderRecover(card) {
   dev.type = 'text';
   dev.maxLength = 40;
   try { dev.value = deviceLabel(navigator.userAgent, (navigator.maxTouchPoints || 0) > 1); } catch (e) { dev.value = ''; }
-  lab('この端末の呼び名', dev);
+  lab('この端末の名前', dev);
   const go = mk('button', 'btn main uc-wide', 'この端末にパスキーを作って戻る');
   go.type = 'submit';
   f.appendChild(go);
@@ -313,7 +313,7 @@ function renderDevices(card) {
         try {
           const rest = await removeDevice(d.name, !!d.current);
           if (d.current) { await logout(false); return; }
-          line.textContent = '「' + d.name + '」を外した（その端末の通行証も止まった）';
+          line.textContent = '「' + d.name + '」を外した（その端末のログインも切れた）';
           draw(rest);
         } catch (e) { line.textContent = (e && e.message) || '外せなかった'; rm.disabled = false; }
       });
@@ -343,7 +343,7 @@ function renderDevices(card) {
   card.appendChild(add);
   card.appendChild(code);
   card.appendChild(line);
-  card.appendChild(mk('p', 'uc-note', '外すと、その端末の通行証も止まる。3 つの app で同じ端末の一覧。'));
+  card.appendChild(mk('p', 'uc-note', '外すと、その端末のログインも切れる。3 つの app で同じ端末の一覧。'));
   card.appendChild(recoveryBox());
 }
 
@@ -367,10 +367,10 @@ function recoveryBox() {
       k.dataset.name = '復元の鍵（作ったときだけ出る）';
       box.appendChild(k);
       box.appendChild(mk('small', null, '鍵を見せるのは今だけ。紙に書くか、パスワードの管理に入れる。人に見せない（この鍵があれば、だれでもあなたとして端末を足せる）。'));
-      const cp = mk('button', 'btn', '写す');
+      const cp = mk('button', 'btn', 'コピー');
       cp.type = 'button';
       cp.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(shown); cp.textContent = '写した'; } catch (e) { cp.textContent = '写せなかった（手で書き写す）'; }
+        try { await navigator.clipboard.writeText(shown); cp.textContent = 'コピーした'; } catch (e) { cp.textContent = 'コピーできなかった（手で書き写す）'; }
       });
       box.appendChild(cp);
       w.appendChild(box);

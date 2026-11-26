@@ -252,7 +252,7 @@ await test('鍵の移し替え（Issue #39）: 段の進み・秘密を置かな
   assert.ok(!mem.get(MOVE_KEY).includes('root'));
   got = loadMove(st);
   assert.equal(moveStep(got), 'send');
-  assert.match(moveSteps(got)[0].detail, /合言葉・アドレス B1/);
+  assert.match(moveSteps(got)[0].detail, /パスフレーズ・アドレス B1/);
   got.sent = { amount: 1500000000, tx: 'T', at: 2 };
   saveMove(got, st);
   got = loadMove(st);

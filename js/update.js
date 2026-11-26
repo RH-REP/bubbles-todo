@@ -102,7 +102,7 @@ export async function checkForUpdate(onWait) {
 export function applyUpdate() {
   return new Promise(async (resolve, reject) => {
     const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg || !reg.waiting) { reject(new Error('新しい版が見当たらない')); return; }
+    if (!reg || !reg.waiting) { reject(new Error('新しいバージョンが見当たらない')); return; }
     navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
     reg.waiting.postMessage({ type: 'skipWaiting' });
     setTimeout(() => resolve(), 4000);   /* controllerchange が来なくても固まらない */

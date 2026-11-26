@@ -87,7 +87,7 @@ def _write_private(path: Path, text: str):
 
 
 def is_owner(row) -> bool:
-    """前の版の口。2026-11-18 から、どの利用者のパスキーでも許可できる（利用者の番号を持つ行なら）"""
+    """前のバージョンの口。2026-11-18 から、どの利用者のパスキーでも許可できる（利用者の番号を持つ行なら）"""
     return bool(row) and bool(row.get('user'))
 
 
@@ -232,7 +232,7 @@ class OAuth:
         }
 
     def pr_metadata(self, root=False):
-        """RFC 9728。/mcp の案内は resource を /mcp に、根の案内は根にする（§3.3: 取りに来た住所と合わせる）"""
+        """RFC 9728。/mcp の案内は resource を /mcp に、根の案内は根にする（§3.3: 取りに来た URL と合わせる）"""
         return {
             'resource': self.api_resource if root else self.resource,
             'authorization_servers': [self.issuer],
@@ -248,7 +248,7 @@ class OAuth:
 
     # --- 言葉の確かめ ---
     def norm_resource(self, value, default=None):
-        """resource の値 → /mcp の住所（秘書）か、根の住所（記録の API）。合わなければ None。無ければ default（既定 /mcp）"""
+        """resource の値 → /mcp の URL（秘書）か、根の URL（記録の API）。合わなければ None。無ければ default（既定 /mcp）"""
         if value is None or value == '':
             return default or self.resource
         try:
@@ -293,19 +293,19 @@ class OAuth:
             u = urlsplit(client_id)
             port = u.port
         except ValueError:
-            raise ClientRefused('相手の名乗り（client_id）が住所の形ではありません') from None
+            raise ClientRefused('相手の名乗り（client_id）が URL の形ではありません') from None
         segs = u.path.split('/')
         if (u.scheme != 'https' or not u.hostname or u.username is not None or u.password is not None
                 or '@' in u.netloc or u.fragment or '#' in client_id or port not in (None, 443)
                 or u.path in ('', '/') or '.' in segs or '..' in segs):
-            raise ClientRefused('相手の名乗り（client_id）は https の住所でなければなりません')
+            raise ClientRefused('相手の名乗り（client_id）は https の URL でなければなりません')
         host = u.hostname.lower()
         if not re.fullmatch(r'[a-z0-9.\-]{1,253}', host):
             raise ClientRefused('相手の名乗り（client_id）の名前が読めません')
         if host not in self.client_hosts:
             # 取りに行かない。持ち主が許す名前を知れるよう、名前だけ記録に出す
             raise ClientRefused(f'この相手（{host}）からの接続は許していません。'
-                                f'許すならサーバーの --oauth-client-host {host} で足してください',
+                                f'許すならサーバーの --oauth-client-host {host} で追加してください',
                                 log=('oauth-client-refused', f'host={host}'))
         now = self.clock()
         with self.lock:
@@ -324,7 +324,7 @@ class OAuth:
         except (ValueError, UnicodeDecodeError):
             raise ClientRefused('相手の名乗りが JSON ではありません', log=('oauth-client-bad', f'host={host} json')) from None
         if not isinstance(doc, dict) or doc.get('client_id') != client_id:
-            raise ClientRefused('相手の名乗りの client_id が住所と合いません', log=('oauth-client-bad', f'host={host} client_id'))
+            raise ClientRefused('相手の名乗りの client_id が URL と合いません', log=('oauth-client-bad', f'host={host} client_id'))
         uris = doc.get('redirect_uris')
         if not isinstance(uris, list) or not all(isinstance(x, str) for x in uris):
             raise ClientRefused('相手の名乗りに戻る先（redirect_uris）がありません', log=('oauth-client-bad', f'host={host} redirect_uris'))

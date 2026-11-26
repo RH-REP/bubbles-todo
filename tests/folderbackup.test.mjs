@@ -234,7 +234,7 @@ await test('暗号化して書く（Issue #48 の B 案）: 平文が残らず�
   /* ほかの端末: 合言葉で開く（小文字・- なしでもよい） */
   const p2 = await fb.openBackup(text, { pass: pass.toLowerCase().replace(/-/g, '') });
   assert.equal(p2.boxes.sabc1234.doc.todos[0].text, '架空の海の泡');
-  await assert.rejects(fb.openBackup(text, { pass: 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA' }), /合言葉が違う/);
+  await assert.rejects(fb.openBackup(text, { pass: 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA' }), /パスワードが違う/);
   assert.throws(() => fb.readBackup(text), /暗号化したバックアップ/);
   /* 鍵が無くなったら平文に戻さず、書かずに止まる */
   await handles.clearKey();

@@ -175,7 +175,7 @@ await test('GET の minSchema が SCHEMA より大きいサーバーでは、合
   const mine = store.add('止めている間に書いた泡');
   await settle(sync, 'outdated');
   assert.equal(sync.status().state, 'outdated');
-  assert.equal(sync.status().message, 'この app の版が古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる');
+  assert.equal(sync.status().message, 'この app のバージョンが古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる');
   assert.deepEqual(sync.outdated(), { minSchema: 3 });
   assert.equal(calls.filter(c => c.method === 'PUT').length, 0, '書いてはいけない');
   assert.ok(!todosOf(store).some(t => t.id === 'gremote1'), 'サーバーの記録を古い読み方で取り込まない');

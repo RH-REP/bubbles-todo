@@ -127,7 +127,7 @@
 
   /* 前の版（ver）に戻す。写しを取り、印を置いて、読み直す */
   async function rollbackTo(ver) {
-    if (!VER_RE.test(ver)) throw new Error('版の名前が読めない');
+    if (!VER_RE.test(ver)) throw new Error('バージョンの名前が読めない');
     const url = await scopeUrl();
     if (!url) throw new Error('この端末では戻せない');
     try {
@@ -158,7 +158,7 @@
       + 'box-shadow:0 2px 6px rgba(0,0,0,.3)';
     const msg = document.createElement('span');
     msg.style.cssText = 'flex:1 1 12em';
-    msg.textContent = '前の版 v' + pinned + ' を使っている（サーバーへは送らない）';
+    msg.textContent = '前のバージョン v' + pinned + ' を使っている（サーバーへは送らない）';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = '最新に戻る';

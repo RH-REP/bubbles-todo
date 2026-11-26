@@ -35,7 +35,7 @@ async function signPasskey() {
     cred = await navigator.credentials.get({ publicKey: Object.assign({}, o, { challenge: fromB64u(o.challenge) }) });
   } catch (e) {
     if (e && e.name === 'NotAllowedError') throw new Error('ログインをやめた（または時間切れ）');
-    if (e && e.name === 'SecurityError') throw new Error('この住所ではパスキーを使えない（https:// の名前の住所で開く）');
+    if (e && e.name === 'SecurityError') throw new Error('この URL ではパスキーを使えない（https:// で始まる名前の URL で開く）');
     throw e;
   }
   return {

@@ -171,7 +171,7 @@ def keep_first_span(old, new):
 
 
 class Store:
-    """版つきで JSON を1つ預かる。書き込みは1本ずつ（lock）"""
+    """バージョンつきで JSON を1つ預かる。書き込みは1本ずつ（lock）"""
 
     def __init__(self, data_dir: Path):
         self.dir = data_dir
@@ -188,7 +188,7 @@ class Store:
             return json.load(f)
 
     def write(self, base, data):
-        """(True, 新しい版) か (False, 今の中身)"""
+        """(True, 新しいバージョン) か (False, 今の中身)"""
         with self.lock:
             cur = self.read()
             if base != cur['version']:
@@ -419,13 +419,13 @@ def _write_private(path: Path, text: str):
 
 def _show_token(label: str, where: str, tok: str):
     if sys.stdout.isatty():
-        print(f'{label}の合言葉を作りました（{where}）: {tok}', flush=True)
+        print(f'{label}のパスワードを作りました（{where}）: {tok}', flush=True)
     else:
-        print(f'{label}の合言葉を作りました: {where}', flush=True)
+        print(f'{label}のパスワードを作りました: {where}', flush=True)
 
 
 class ShareTokens:
-    """共有の合言葉の一覧 <データの場所>/share_tokens.json = [{"name","token","created"}]"""
+    """共有のパスワードの一覧 <データの場所>/share_tokens.json = [{"name","token","created"}]"""
 
     def __init__(self, data_dir: Path):
         self.path = data_dir / 'share_tokens.json'
@@ -442,7 +442,7 @@ class ShareTokens:
         _write_private(self.path, json.dumps(rows, ensure_ascii=False, indent=1) + '\n')
 
     def ensure(self):
-        """一覧が無ければ作る。前の版の share_token.txt があれば、それを最初の1人ぶんにする"""
+        """一覧が無ければ作る。前のバージョンの share_token.txt があれば、それを最初の1人ぶんにする"""
         if self.path.exists():
             return
         today = time.strftime('%Y-%m-%d')
@@ -481,7 +481,7 @@ class ShareTokens:
 
 
 class Spaces:
-    """合言葉 → (置き場の名前, Store)。合言葉のファイルが変わったら読み直す（止めずに効く）"""
+    """パスワード → (置き場の名前, Store)。パスワードのファイルが変わったら読み直す（止めずに効く）"""
 
     def __init__(self, data_dir: Path):
         self.dir = data_dir
@@ -516,7 +516,7 @@ class Spaces:
                 shares.append(env)
             for tok in shares:
                 if tok in m and m[tok][0] == 'me':
-                    raise SystemExit('自分の合言葉と同じ共有の合言葉があります。どちらかを作り直してください')
+                    raise SystemExit('自分のパスワードと同じ共有のパスワードがあります。どちらかを作り直してください')
                 m[tok] = ('share', self.stores['share'])
             self._key, self._map = key, m
             return m
@@ -595,7 +595,7 @@ class MachineKeys:
 
 
 def open_spaces(data_dir: Path):
-    """{合言葉: (置き場の名前, Store)}（今の合言葉で。テストと前の版の呼び方のため）"""
+    """{パスワード: (置き場の名前, Store)}（今のパスワードで。テストと前のバージョンの呼び方のため）"""
     return Spaces(data_dir).current()
 
 
@@ -638,20 +638,20 @@ def diary_origin(origin: str, app_urls: dict) -> str:
 
 
 def csp_for(origin: str, app_urls: dict) -> str:
-    """配るページの CSP。connect-src に diary の住所の根だけを足す（ほかの外へは広げない）"""
+    """配るページの CSP。connect-src に diary のルートの URL だけを足す（ほかの外へは広げない）"""
     d = diary_origin(origin, app_urls)
     return CSP.replace("connect-src 'self' https://api.open-meteo.com",
                        "connect-src 'self' https://api.open-meteo.com" + (' ' + d if d else ''), 1)
 
 
 def log_event(kind: str, ip: str, detail: str = ''):
-    """守りの出来事を記録（journal）に1行出す。fail2ban がこれを読む。合言葉・通行証の値は出さない"""
+    """守りの出来事を記録（journal）に1行出す。fail2ban がこれを読む。パスワード・通行証の値は出さない"""
     sys.stderr.write(f'bubbles: {kind} ip={ip}{(" " + detail) if detail else ""}\n')
     sys.stderr.flush()
 
 
 class Config:
-    """入場の仕方と守りの設定。token（合言葉。手元で使う）か passkey（公開して使う）"""
+    """入場の仕方と守りの設定。token（パスワード。手元で使う）か passkey（公開して使う）"""
 
     def __init__(self, auth='token', origin='', rp_id='', trust_proxy=False, allow_origins=(),
                  guard=None, passkeys=None, stores=None, require_uv=True, devices=None, sea_list=None,
@@ -828,7 +828,7 @@ def make_handler(spaces, cfg: Config = None):
 
         # --- 入場 ---
         def token_hit(self):
-            """合言葉に合った (置き場の名前, Store)。合わなければ None"""
+            """パスワードに合った (置き場の名前, Store)。合わなければ None"""
             got_b = self.headers.get('Authorization', '').encode('utf-8')
             hit = None
             # 比べるのは全部の合言葉と（どれに合ったかで時間が変わらないように）
@@ -1189,7 +1189,7 @@ def make_handler(spaces, cfg: Config = None):
             return self.send_json(200, meta)
 
         def schema(self):
-            """端末が言う記録の形の版（X-Bubbles-Schema）。無い・読めないときは 0"""
+            """端末が言う記録の形のバージョン（X-Bubbles-Schema）。無い・読めないときは 0"""
             v = (self.headers.get('X-Bubbles-Schema', '') or '').strip()
             return int(v) if v.isdigit() and len(v) < 6 else 0
 
@@ -1742,18 +1742,18 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 def token_command(data_dir: Path, cmd: str, name: str) -> int:
-    """合言葉の操作。動いているサーバーは止めなくてよい（次の接続から効く）"""
+    """パスワードの操作。動いているサーバーは止めなくてよい（次の接続から効く）"""
     shares = ShareTokens(data_dir)
     load_token(data_dir, 'me')
     shares.ensure()
     if cmd == 'share-add':
         tok = shares.add(name)
         _show_token('共有', f'{shares.path} の「{name.strip()}」', tok)
-        print('この人には、住所とこの合言葉だけを渡してください', flush=True)
+        print('この人には、URL とこのパスワードだけを渡してください', flush=True)
     elif cmd == 'share-list':
         rows = shares.read()
         if not rows:
-            print('共有の合言葉はありません（share-add <名前> で作る）')
+            print('共有のパスワードはありません（share-add <名前> で作る）')
         for r in rows:
             print(f"{r['name']}\t{r.get('created', '')}\t…{r['token'][-4:]}")
         if os.environ.get('BUBBLE_TODO_SHARE_TOKEN', '').strip():
@@ -1761,14 +1761,14 @@ def token_command(data_dir: Path, cmd: str, name: str) -> int:
     elif cmd == 'share-remove':
         if not shares.remove(name):
             raise SystemExit(f'「{name}」は見つかりません（share-list で名前を確かめる）')
-        print(f'「{name}」の合言葉を取り消しました。その端末は次の接続から入れません', flush=True)
+        print(f'「{name}」のパスワードを取り消しました。その端末は次の接続から入れません', flush=True)
     elif cmd == 'rotate-me':
         if os.environ.get('BUBBLE_TODO_TOKEN', '').strip():
-            raise SystemExit('自分の合言葉は環境変数 BUBBLE_TODO_TOKEN から来ています。そちらを替えてください')
+            raise SystemExit('自分のパスワードは環境変数 BUBBLE_TODO_TOKEN から来ています。そちらを替えてください')
         tok = secrets.token_urlsafe(24)
         _write_private(data_dir / 'token.txt', tok + '\n')
         _show_token('個人', str(data_dir / 'token.txt'), tok)
-        print('自分の端末すべてで、設定の「自分の合言葉」を入れ直してください', flush=True)
+        print('自分の端末すべてで、設定の「自分のパスワード」を入れ直してください', flush=True)
     return 0
 
 
@@ -1809,7 +1809,7 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
             raise SystemExit(str(e)) from None
         where = 'と'.join(person_label(person) if s == 'me' else space_label(s) for s in spaces)
         print(f'「{name}」の招待コード（{where}。24時間・1回だけ）: {code}', flush=True)
-        print('相手には、住所とこのコードを渡す。相手は Bubbles の設定の「パスキー」で登録する', flush=True)
+        print('相手には、URL とこのコードを渡す。相手は Bubbles の設定の「パスキー」で登録する', flush=True)
         print('（招待コードを先に作らなくても、相手の端末から「登録を頼む」→ request-list・request-ok でもよい）', flush=True)
     elif cmd == 'request-list':
         # 端末からの登録の頼み（Issue #26）
@@ -1922,7 +1922,7 @@ def passkey_command(data_dir: Path, cmd: str, name: str, space: str, max_passkey
     elif cmd == 'passkey-remove':
         if not pk.remove_passkey(name):
             raise SystemExit(f'「{name}」は見つかりません（passkey-list で名前を確かめる）')
-        print(f'「{name}」のパスキーと通行証を取り消しました。その端末は次の要求から入れません', flush=True)
+        print(f'「{name}」のパスキーとログインを取り消しました。その端末は次の要求から入れません', flush=True)
         print(f'（「{name}」が作った引っ越しの鍵は残しています。失くした端末の引っ越しに使うため。消すなら move-remove {name}）', flush=True)
     elif cmd == 'recovery-list':
         # 復元の鍵（2026-11-19）。鍵そのものは見られない（指紋だけ置いている）
@@ -2040,7 +2040,7 @@ def oauth_command(data_dir: Path, cmd: str, name: str) -> int:
         n = st.revoke(which)
         if not n:
             raise SystemExit(f'「{which}」の許可はありません（oauth-list で id を確かめる）')
-        print(f'{n} 件の許可を取り消しました。その通行証と更新の札は次の要求から効きません', flush=True)
+        print(f'{n} 件の許可を取り消しました。そのログインと更新の札は次の要求から効きません', flush=True)
     return 0
 
 
@@ -2162,13 +2162,13 @@ def sea_command(data_dir: Path, args) -> int:
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Bubbles の記録を置くサーバー')
     ap.add_argument('--host', default='127.0.0.1',
-                    help='待ち受ける住所（既定 127.0.0.1。外へは前段の Caddy で出す）')
+                    help='待ち受けるアドレス（既定 127.0.0.1。外へは前段の Caddy で出す）')
     ap.add_argument('--port', type=int, default=int(os.environ.get('BUBBLE_TODO_PORT', '8931')))
     ap.add_argument('--data-dir', default=os.environ.get('BUBBLE_TODO_DATA', str(ROOT / 'data')))
     ap.add_argument('--auth', choices=['token', 'passkey'], default=os.environ.get('BUBBLE_TODO_AUTH', 'token'),
-                    help='token: 合言葉（手元で使う） / passkey: パスキーだけ（公開して使う）')
+                    help='token: パスワード（手元で使う） / passkey: パスキーだけ（公開して使う）')
     ap.add_argument('--origin', default=os.environ.get('BUBBLE_TODO_ORIGIN', ''),
-                    help='passkey のとき要る。利用者が開く住所（例 https://bubbles.example.org）')
+                    help='passkey のとき要る。利用者が開く URL（例 https://bubbles.example.org）')
     ap.add_argument('--rp-id', default=os.environ.get('BUBBLE_TODO_RP_ID', ''),
                     help='パスキーを結び付ける名前（既定は --origin の名前）')
     ap.add_argument('--trust-proxy', action='store_true',
@@ -2185,7 +2185,7 @@ def main(argv=None):
     ap.add_argument('--read-only', action='store_true',
                     help='machine-add で、読むだけ（PUT できない）の鍵にする')
     ap.add_argument('--min-schema', type=int, default=int(os.environ.get('BUBBLE_TODO_MIN_SCHEMA', '1')),
-                    help='受け付ける最も古い記録の形の版（既定 1）。これより古い端末の書き込みは 426 で断る')
+                    help='受け付ける最も古い記録の形のバージョン（既定 1）。これより古い端末の書き込みは 426 で断る')
     ap.add_argument('command', nargs='?', default='serve',
                     choices=['serve', 'share-add', 'share-list', 'share-remove', 'rotate-me',
                              'invite-add', 'invite-list', 'passkey-list', 'passkey-remove', 'passkey-person',
@@ -2195,7 +2195,7 @@ def main(argv=None):
                              'oauth-list', 'oauth-revoke',
                              'user-list', 'user-rename', 'member-set', 'member-remove', 'users-migrate',
                              'admin-list', 'admin-add', 'admin-remove', 'recovery-list', 'recovery-remove'],
-                    help='serve（既定）か、合言葉・パスキーの操作')
+                    help='serve（既定）か、パスワード・パスキーの操作')
     ap.add_argument('name', nargs='?', default='',
                     help='share-add / share-remove / invite-add / passkey-remove の名前、request-ok / request-no の字、limit-set の数')
     ap.add_argument('value', nargs='?', default='', help='passkey-person の移す先（番号か new）、sea-rename の新しい名前、passkey-space の add / remove')
@@ -2205,10 +2205,10 @@ def main(argv=None):
     ap.add_argument('--key-file', default='',
                     help='machine-add で、鍵を画面に出さずにこのファイルへ書く（600。親のフォルダが無ければ 700 で作る。あれば上書きしない）')
     ap.add_argument('--app-url', action='append', default=None,
-                    help='3 つの app の住所の根（何度でも。例 --app-url gantt=https://gantt.example.org。'
-                         '既定は環境変数 BUBBLE_TODO_APP_URLS（gantt=…,diary=…）。無ければ画面が住所から決める）')
+                    help='3 つの app のルートの URL（何度でも。例 --app-url gantt=https://gantt.example.org。'
+                         '既定は環境変数 BUBBLE_TODO_APP_URLS（gantt=…,diary=…）。無ければ画面が URL から決める）')
     ap.add_argument('--oauth-client-host', action='append', default=None,
-                    help='claude.ai の接続で受ける相手の住所の名前（何度でも。既定は環境変数 '
+                    help='claude.ai の接続で受ける相手の URL の名前（何度でも。既定は環境変数 '
                          'BUBBLE_TODO_OAUTH_CLIENT_HOSTS（コンマで）か claude.ai）')
     args = ap.parse_args(argv)
 

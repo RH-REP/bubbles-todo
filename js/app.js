@@ -104,7 +104,7 @@ const settings = {
       m.default.mount(pane);
       if (current && current.id === 'settings' && typeof m.default.onShow === 'function') m.default.onShow();
     }).catch(() => {
-      wait.textContent = '設定を読み込めなかった。閉じて開き直してください';
+      wait.textContent = '設定を読み込めなかった。閉じて再起動してください';
       mounted.delete('settings');   /* 次に開いたときに mount からやり直す */
     });
   },
@@ -299,8 +299,8 @@ if (!isSolo()) setTimeout(mountJump, 0);
 const menuBtn = document.createElement('button');
 menuBtn.type = 'button';
 menuBtn.className = 'menubtn';
-menuBtn.setAttribute('aria-label', '引き出し');
-menuBtn.title = '引き出し';
+menuBtn.setAttribute('aria-label', 'メニュー');
+menuBtn.title = 'メニュー';
 const menuIc = document.createElement('span');
 menuIc.className = 'ic';
 menuIc.setAttribute('aria-hidden', 'true');
@@ -542,7 +542,7 @@ function openDrawer() {
   panel.className = 'drawer';
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
-  panel.setAttribute('aria-label', '引き出し');
+  panel.setAttribute('aria-label', 'メニュー');
   panel.dataset.screen = 'drawer'; panel.dataset.screenLayer = '4';
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     panel.classList.add('is-still');
@@ -550,7 +550,7 @@ function openDrawer() {
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'drawer-close';
-  close.setAttribute('aria-label', '引き出しを閉じる');
+  close.setAttribute('aria-label', 'メニューを閉じる');
   close.textContent = '✕';
   close.addEventListener('click', closeDrawer);
   const body = document.createElement('div');
@@ -1057,7 +1057,7 @@ if (isSolo()) {
   try {
     const lm = startLocalMods(window.BUBBLES_VERSION || '');
     if (lm.versionChanged) {
-      setTimeout(() => toast('版が新しくなった。見た目と言葉の変更が合わなければ、設定の「見た目と言葉を AI で変える」で外せる', null, 8000), 1500);
+      setTimeout(() => toast('バージョンが新しくなった。見た目と言葉の変更が合わなければ、設定の「見た目と言葉を AI で変える」で外せる', null, 8000), 1500);
     }
   } catch (e) { /* 当てられなくても app は動かす */ }
 }

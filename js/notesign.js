@@ -63,7 +63,7 @@ export async function unlockWallet() {
   let root;
   if (cfg.mode === 'passkey') root = (await passkeyRoot(cfg.credId)).root;
   else if (cfg.mode === 'pass') {
-    const pass = await askText('合言葉（始めたときに書き留めた 24 字）。ひとことに署名するため。開いた鍵は 10 分だけメモリに置く');
+    const pass = await askText('パスフレーズ（始めたときに書き留めた 24 字）。コメントに署名するため。開いた鍵は 10 分だけメモリに置く');
     if (!pass) throw new Error('やめた');
     root = await rootFromPassphrase(pass);
   } else throw new Error('ブロックチェーンをまだ始めていない');

@@ -97,7 +97,7 @@ try {
     await js(`document.querySelector('.gearbtn').click();`);
     await until(`return !![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'サーバーにログイン')`);
     await js(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'サーバーにログイン').click();`);
-    await until(`return !!document.querySelector('input[aria-label="サーバーの住所"]')`);
+    await until(`return !!document.querySelector('input[aria-label="サーバーの URL"]')`);
     assert.equal(await js(`return !![...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'サーバーのページを開く')`), true);
   });
 

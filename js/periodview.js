@@ -113,7 +113,7 @@ export function createPeriodView(host, opts = {}) {
     if (mode === 'month') {
       const tg = button('pd-pick', pickOpen ? '月を選ぶ ▴' : '月を選ぶ ▾', null, () => { pickOpen = !pickOpen; rerender(); });
       tg.setAttribute('aria-expanded', pickOpen ? 'true' : 'false');
-      tg.setAttribute('aria-label', pickOpen ? '年と月の札を隠す' : '年と月の札を出す');
+      tg.setAttribute('aria-label', pickOpen ? '年と月の見出しを隠す' : '年と月の見出しを出す');
       row.appendChild(tg);
     }
     headEl.appendChild(row);

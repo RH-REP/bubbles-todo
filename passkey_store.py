@@ -104,7 +104,7 @@ def person_of(row):
 
 
 def clean_name(name) -> str:
-    """利用者・端末の呼び名（制御文字を外し、40 字まで）"""
+    """利用者・端末の名前（制御文字を外し、40 字まで）"""
     return re.sub(r'[\x00-\x1f\x7f]', '', str(name or '')).strip()[:40]
 
 
@@ -203,7 +203,7 @@ class PasskeyStore:
     # 持ち主は request-list で端末の画面と同じ字を見つけ、request-ok <字> --space … で認める。
     # 認めると、鍵の sha256 を招待コードの行（kind 'request'）に入れる。端末は鍵を招待コードにして登録する。
     def add_request(self, name: str, ip: str = ''):
-        """→ (鍵, 確かめの字, 期限)。名前は端末が付けた呼び名（40 字まで）"""
+        """→ (鍵, 確かめの字, 期限)。名前は端末が付けた名前（40 字まで）"""
         name = re.sub(r'[\x00-\x1f\x7f]', '', str(name or '')).strip()[:40]
         if not name:
             raise ValueError('名前が要ります')
@@ -488,7 +488,7 @@ class PasskeyStore:
         return sum(1 for r in rows if r.get('user') == uid and r['id'] != skip)
 
     def count_in(self, space: str, person=None, rows=None) -> int:
-        """前の版の口（passkey-list の数・テスト）。個人は person の利用者のパスキーの数、海は仲間の数"""
+        """前のバージョンの口（passkey-list の数・テスト）。個人は person の利用者のパスキーの数、海は仲間の数"""
         if space == 'me':
             u = self.user_of_person(person if person is not None else OWNER)
             return self.count_user(u['id'], rows) if u else 0
@@ -565,7 +565,7 @@ class PasskeyStore:
         return name, person
 
     def invite_target(self, inv):
-        """招待の行 → ('user', 利用者の番号) か ('new', None)。前の版の行（user も new_user も無い）も読む"""
+        """招待の行 → ('user', 利用者の番号) か ('new', None)。前のバージョンの行（user も new_user も無い）も読む"""
         if inv.get('user'):
             return 'user', inv['user']
         if inv.get('new_user'):
@@ -609,12 +609,12 @@ class PasskeyStore:
             if not self.is_admin(uid):
                 raise PermissionError('新しい利用者を招けるのはスーパーユーザーだけ')
             if not clean_name(name):
-                raise ValueError('招く人の呼び名を入れる')
+                raise ValueError('招く人の名前を入れる')
             row.update(new_user=True, spaces=['me'])
             person = None
         elif sea == 'me':
             if not clean_name(name):
-                raise ValueError('足す端末の呼び名を入れる')
+                raise ValueError('足す端末の名前を入れる')
             if self.count_user(uid) >= self.max_per_space:
                 raise ValueError(f'パスキーはいっぱい（{self.max_per_space} 台まで）')
             row.update(user=uid, spaces=['me'])
@@ -822,7 +822,7 @@ class PasskeyStore:
         return None
 
     def remove_move_keys(self, name: str) -> int:
-        """名前のパスキーが作った引っ越しの鍵を消す（ファイルと合言葉が漏れたとき）。消した数"""
+        """名前のパスキーが作った引っ越しの鍵を消す（ファイルとパスワードが漏れたとき）。消した数"""
         with self.lock:
             rows = self._read('invites.json')
             keep = [r for r in rows if not (r.get('kind') == 'move' and r['name'] == name)]
@@ -917,7 +917,7 @@ class PasskeyStore:
         return name, u
 
     def add_passkey(self, *, name, spaces, cred, person=None, by=None):
-        """前の版の口（テスト）。spaces・person の招待と同じ形で足す"""
+        """前のバージョンの口（テスト）。spaces・person の招待と同じ形で足す"""
         inv = {'name': name, 'spaces': list(spaces)}
         if 'me' in spaces and person is not None:
             u = self.user_of_person(int(person))

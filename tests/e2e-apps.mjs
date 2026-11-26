@@ -153,7 +153,7 @@ try {
     /* 試しはファイルの欄 2 つ（書き出す側の隠れた欄も）に同じファイルを渡すので、出た板はどれも「追加」 */
     await sleep(300);
     await js(`[...document.querySelectorAll('.bh-edit-box .row button')].filter(b => b.textContent === '追加する').forEach(b => b.click());`);
-    await until(`return [...document.querySelectorAll('#pane-settings p')].some(p => /日記: 足した 0・新しくした 1・そのまま 1/.test(p.textContent))`);
+    await until(`return [...document.querySelectorAll('#pane-settings p')].some(p => /日記: 追加した 0・新しくした 1・そのまま 1/.test(p.textContent))`);
     assert.ok(imported.length >= 1, 'diary に届いた');
     assert.deepEqual(imported[0], bundle, '束はそのまま渡す（知らない app は渡さない）');
     assert.ok(await js(`return [...document.querySelectorAll('#pane-settings p')].some(p => /知らない app（notebook）/.test(p.textContent))`));

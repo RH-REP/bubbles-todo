@@ -212,9 +212,9 @@ export const CATALOG = [
     + '--bub-text（泡の字）・--today-edge・--today-fill（今日の色）・--accent-a・--accent-b（目立つ色）',
   '下のタブ: nav.tabbar（#tabbar）と、その中の button（今いる画面は .is-active）',
   '画面: section.pane（#pane-sea 海・#pane-today 今日・#pane-plan きっかけ・#pane-gap すきま・#pane-review ふりかえり）。今の画面は .pane.is-active',
-  '泡: .bub（海と今日に漂う丸）。泡を押して開く詳細: .bub-center',
+  '泡: .bub（海と今日に漂う丸）。泡をタップして開く詳細: .bub-center',
   '知らせ: .toast（下に出る短い知らせ）',
-  '引き出し（左上の ≡）: .drawer',
+  'メニュー（左上の ≡）: .drawer',
   '右上の歯車: .gearbtn（隠したり押せなくしたりしない）',
 ];
 
@@ -236,11 +236,11 @@ export function classNamesOf(root) {
 export function buildModPrompt(text, list, classNames) {
   const cur = (list || []).filter(m => m.on).map(m => '- ' + (m.summary || m.ask).slice(0, 80)).join('\n') || '（なし）';
   const system = 'あなたは todo アプリ「Bubbles」の見た目と画面の言葉を、この端末だけで変える手伝いをする。'
-    + '利用者の頼みを、CSS と「画面の言葉の置き換え」に置き換える。JavaScript・HTML は書かない（書いても当てない）。'
+    + '利用者の頼みを、CSS と「画面の言葉の置き換え」に置き換える。JavaScript・HTML は書かない（書いても適用しない）。'
     + '返事は JSON だけ（前後に文を付けない）: {"css": "CSS の文字列（無ければ空）", "texts": [["今の画面の字", "見せたい字"], …], '
     + '"summary": "この変更の短い名前（日本語・30字まで）", "reply": "利用者への短い説明（日本語・2文まで）"}。\n'
     + '決まり:\n'
-    + '- CSS では url( ・@import・@font-face・\\（逃がし）・< と > を使わない（使うと当てない）。子の結合子 > は使わず空白で書く\n'
+    + '- CSS では url( ・@import・@font-face・\\（逃がし）・< と > を使わない（使うと適用しない）。子の結合子 > は使わず空白で書く\n'
     + '- 設定の画面（#pane-settings）と右上の歯車（.gearbtn）は変えない。画面全体や下のタブを隠さない\n'
     + '- 必要なら !important を使ってよい。セレクタは下の部品と class の名前から選ぶ\n'
     + '- texts は、ボタンや見出しなど画面に出ている字が、ぴったり同じときだけ置き換わる。利用者が書いた字をそのまま元の字に使う\n'

@@ -124,7 +124,7 @@ function trim(s, n = 18) {
    日が変わると戻る（契約 §5）。だから名前もそう呼ぶ。
    **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
    （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
-const DONE_LB = '今日は終わり';
+const DONE_LB = '今日はここまで';
 
 function isStarted(id) {
   return typeof store.isStarted === 'function' && !!store.isStarted(id, null);
@@ -409,7 +409,7 @@ function renderWide(ps) {
     row.dataset.drop = 'first';   /* 過ぎた日も入れられる（2026-11-25。前は記録として出すだけだった） */
     row.setAttribute('role', 'group');
     row.setAttribute('aria-label', ps.rows.length ? firstName
-      : firstName + '（まだ入れていない。泡をここへ落とすと入る）');
+      : firstName + '（まだ入れていない。泡をここへドロップすると入る）');
     row.appendChild(el('span', 'tp-first-h', firstName));
     const seats = el('div', 'tp-seats');
     ps.rows.forEach(t => {
@@ -430,7 +430,7 @@ function renderWide(ps) {
       const add = el('button', 'tp-seat is-empty', '＋');
       add.type = 'button';
       add.dataset.name = '先に済ませるの空いた席';
-      add.setAttribute('aria-label', '先に済ませるに入れる泡を、おすすめから選ぶ（泡を落としても入る）');
+      add.setAttribute('aria-label', '先に済ませるに入れる泡を、おすすめから選ぶ（泡をドロップしても入る）');
       add.addEventListener('click', ev => { ev.preventDefault(); openSuggest(); });
       seats.appendChild(add);
     }
@@ -572,14 +572,14 @@ function renderCorners(ps) {
   const day = curDay();
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
   const keyName = isToday() ? '今日大事なこと' : word + 'の大事なこと';
-  const keySub = pin === 'key' ? '離すと外す'
-    : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える'   /* ユーザーの文字。cornerBox が textContent で入れる */
-    : '離すと入る';
+  const keySub = pin === 'key' ? 'ドロップすると外す'
+    : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。ドロップすると入れ替える'   /* ユーザーの文字。cornerBox が textContent で入れる */
+    : 'ドロップすると入る';
   plate.appendChild(cornerBox('key', '★ ' + keyName, keySub, false));
   if (typeof store.setFirst === 'function') {
     /* 畳む（区切りの時間・席の数）は 2026-11-25 にやめた。いつでも入れられる */
     const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
-    const firstSub = pin === 'first' ? '離すと外す' : '離すと入る';
+    const firstSub = pin === 'first' ? 'ドロップすると外す' : 'ドロップすると入る';
     plate.appendChild(cornerBox('first', '↑ ' + firstName, firstSub, false));
   }
   plate.hidden = false;
@@ -610,12 +610,12 @@ function renderFish(ps) {
   const day = curDay();
   const word = isToday() ? '今日' : dayLabel(day).split(' ')[0];
   const keyName = isToday() ? '今日大事なこと' : word + 'の大事なこと';
-  const keySub = !id ? '' : pin === 'key' ? '離すと外す'
-    : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。離すと入れ替える' : '離すと入る';
+  const keySub = !id ? '' : pin === 'key' ? 'ドロップすると外す'
+    : ps.key ? 'いまは「' + trim(ps.key.text, 8) + '」。ドロップすると入れ替える' : 'ドロップすると入る';
   syncFish('key', true, '大事', keySub, keyName, false);
   const showFirst = typeof store.setFirst === 'function';
   const firstName = isToday() ? '先に済ませる' : word + 'の先に済ませる';
-  const firstSub = !id ? '' : pin === 'first' ? '離すと外す' : '離すと入る';   /* 畳むのはやめた（2026-11-25） */
+  const firstSub = !id ? '' : pin === 'first' ? 'ドロップすると外す' : 'ドロップすると入る';   /* 畳むのはやめた（2026-11-25） */
   syncFish('first', showFirst, '先に', firstSub, firstName, false);
   fishBox.classList.toggle('is-drag', !!id);
   if (reduceMotion()) { stopFish(); placeFishStatic(); }
@@ -640,7 +640,7 @@ function syncFish(kind, show, head, sub, name, closed) {
   box.hidden = !show;
   box.classList.toggle('is-closed', !!closed);
   box.dataset.name = name + 'の魚';
-  box.title = name + '：泡を掴んでこの魚の上で離すと入る';
+  box.title = name + '：泡をドラッグしてこの魚の上でドロップすると入る';
   box.setAttribute('aria-label', name + (sub ? '。' + sub : ''));
 }
 const SVG_NS_FISH = 'http://www.w3.org/2000/svg';
@@ -1100,7 +1100,7 @@ function syncEmptyNote() {
   }
   if (n === 0) {
     l1.textContent = '今日ぶんの水面。';
-    l2.textContent = '海のバブルを、このタブに落とすと浮かぶ。';
+    l2.textContent = '海のバブルを、このタブにドロップすると浮かぶ。';
   } else if (n < 0) {
     l1.textContent = dayLabel(curDay()) + 'の水面。';
     l2.textContent = 'この日には、まだ何も置いていなかった。';
@@ -2192,7 +2192,7 @@ function renderSuggest() {
   s.aiBtn.disabled = s.busy;
   s.aiBtn.textContent = s.busy ? 'AI が選んでいる…' : 'AI で選び直す';
   s.note.textContent = s.msg || (!aiOn() ? '' : hasKey()
-    ? '押すと、候補の泡の名前と印（30 件まで）を設定で選んだ AI の会社へ送る。本文・作業メモは送らない'
+    ? '押すと、候補の泡の名前と印（30 件まで）を設定で選んだ AI の会社へ送る。本文・作業記録は送らない'
     : '設定の「AI を使う設定をする」に API キーを入れると、名前の意味や季節も考えに入れて選べる');
 }
 

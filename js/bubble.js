@@ -52,7 +52,7 @@ const SAVE_MS = 400;
    日が変わると戻る（契約 §5）。だから名前もそう呼ぶ。
    **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
    （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
-const DONE_LB = '今日は終わり';
+const DONE_LB = '今日はここまで';
 /* 完了（store の done）。着手の「今日は終わり」とは別のこと。
    読み上げで両者が同じ言葉になると、達成したのか手を付けただけなのか分からなくなる。
    **文字列は store の done タグの名前とそろえてある**（あの名前は変えられない）。
@@ -592,7 +592,7 @@ export function updateBubble(node, item, opts = {}) {
   if (who && who.label) label += '、' + who.label;
   if (spanNote) label += '、' + spanNote;
   if (kNote) label += '、' + kNote;
-  if (fresh) label += '、新しいひとことあり';
+  if (fresh) label += '、新しいコメントあり';
   if (lit) label += '、輝いている';
   if (pin) label += pin === 'key' ? '、今日大事なこと' : '、先に済ませる';
   node.setAttribute('aria-label', q ? label + '、区分: ' + QUADRANTS[q].name : label);
@@ -1123,7 +1123,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       const qsync = el('button', 'bn-quick-send bn-quick-sync', dc ? '同期 ⇄' + dc : '同期');
       qsync.type = 'button';
       qsync.title = 'みんなの変更を取り込み、この端末に新しい書き込みがあれば送る（送るときは手数料が掛かる）'
-        + (dc ? '。いま ' + dc + ' 台と直につながっていて、ひとことは送るとすぐ届く' : '。直につながっている相手はいない');
+        + (dc ? '。いま ' + dc + ' 台と直につながっていて、コメントは送るとすぐ届く' : '。直につながっている相手はいない');
       let syncBack = 0;
       qsync.addEventListener('click', ev => {
         ev.preventDefault();
@@ -1208,7 +1208,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       lb.appendChild(sel);
       box.appendChild(lb);
       const by = [];
-      if (w0.added_by) by.push('足した: ' + (ask(a, 'userName', w0.added_by) || '?'));
+      if (w0.added_by) by.push('追加した: ' + (ask(a, 'userName', w0.added_by) || '?'));
       if (w0.done_by) by.push('終えた: ' + (ask(a, 'userName', w0.done_by) || '?'));
       if (by.length) box.appendChild(el('span', 'bc-who-by', by.join('・')));
       fields.appendChild(box);
@@ -1565,7 +1565,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         const b = el('button', 'bc-hold-pick');
         b.type = 'button';
         b.textContent = tx;
-        b.dataset.name = '早く選ぶ札';
+        b.dataset.name = '早く選ぶボタン';
         b.addEventListener('click', ev => {
           ev.preventDefault();
           if (key) { if (want.has(key)) want.delete(key); else want.add(key); }
@@ -2154,7 +2154,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
          入口には**いま何か書いてあるか**を出す——押さないと分からない、にしない */
       memoDraft = String((draft && draft.did) || '');
       const mrow = el('div', 'bc-row');
-      const mlb = el('span', 'bc-lb', '作業の記録');   /* 2026-11-18 作業メモ → 作業の記録 */
+      const mlb = el('span', 'bc-lb', '作業記録');   /* 2026-11-18 作業メモ → 作業の記録 */
       memoBtn = el('button', 'bc-memo-open');
       memoBtn.type = 'button';
       memoBtn.addEventListener('click', ev => { ev.preventDefault(); openMemo(); });
@@ -2680,17 +2680,17 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     const t = memoDraft.trim();
     memoBtn.textContent = t ? trimTx(t, 16) : '書く';
     memoBtn.classList.toggle('is-empty', !t);
-    memoBtn.setAttribute('aria-label', t ? '作業メモを書き替える' : '作業メモを書く');
+    memoBtn.setAttribute('aria-label', t ? '作業記録を書き替える' : '作業記録を書く');
   }
 
   function buildMemo() {
     memoPane = el('div', 'bc-memo');
     memoPane.setAttribute('role', 'group');
-    memoPane.setAttribute('aria-label', '作業の記録');
+    memoPane.setAttribute('aria-label', '作業記録');
     memoPane.hidden = true;
 
     const head = el('div', 'bm-head');
-    head.appendChild(el('span', 'bm-title', '作業の記録'));
+    head.appendChild(el('span', 'bm-title', '作業記録'));
     const close = el('button', 'bm-close', '閉じる');
     close.type = 'button';
     close.addEventListener('click', ev => { ev.preventDefault(); closeMemo(true); });
@@ -2707,7 +2707,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     memoArea.className = 'bm-in';
     memoArea.rows = 6;
     memoArea.placeholder = 'ここまでやったこと';
-    memoArea.setAttribute('aria-label', '作業の記録');
+    memoArea.setAttribute('aria-label', '作業記録');
     memoArea.addEventListener('input', () => {
       memoDraft = memoArea.value;
       clearTimeout(stepTimer);
@@ -2715,7 +2715,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
     });
     memoPane.appendChild(memoArea);
 
-    const save = el('button', 'bm-save', '作業の記録に足す');
+    const save = el('button', 'bm-save', '作業記録に追加');
     save.type = 'button';
     let back = 0;
     save.addEventListener('click', ev => {
@@ -2725,7 +2725,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       save.textContent = said;
       save.classList.toggle('is-nope', said !== '記録した');
       back = setTimeout(() => {
-        save.textContent = '作業の記録に足す';
+        save.textContent = '作業記録に追加';
         save.classList.remove('is-nope');
       }, 1400);
     });
@@ -3089,8 +3089,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           if (parsed.todos.length) preOpts.appendChild(el('p', 'bm-ai-note', '関連 TODO の案（選んだものだけ作る）'));
           parsed.todos.forEach(t => checkRow(t, { todo: t }));
           preOpts.hidden = !preOpts.childNodes.length;
-          apply.textContent = '本文に足す';
-          said.textContent = '調べた結果。足すまで本文は変わらない。期限の日・関連 TODO は印を付けたものだけ入れる。';
+          apply.textContent = '本文に追加';
+          said.textContent = '調べた結果。追加するまで本文は変わらない。期限の日・関連 TODO は印を付けたものだけ入れる。';
           pre.hidden = false;
           preTx.scrollTop = 0;
           return;
@@ -3100,8 +3100,8 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         const lost = kind === 'tidy' ? lostUrls(text, out) : [];
         preWarn.textContent = lost.length ? '元の本文にあった URL が案に無い: ' + lost.join(' ') : '';
         preWarn.hidden = !lost.length;
-        apply.textContent = kind === 'tidy' ? '置き換える' : '本文に足す';
-        said.textContent = kind === 'tidy' ? '整えた案。置き換えるまで本文は変わらない。' : '調べた結果。足すまで本文は変わらない。';
+        apply.textContent = kind === 'tidy' ? '置き換える' : '本文に追加';
+        said.textContent = kind === 'tidy' ? '整えた案。置き換えるまで本文は変わらない。' : '調べた結果。追加するまで本文は変わらない。';
         pre.hidden = false;
         preTx.scrollTop = 0;
       } catch (e) {
@@ -3140,7 +3140,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
           }
         });
         putText(proposal.text);
-        said.textContent = '本文の終わりに足した' + (placed ? '。' + mdOf(placed) + 'に置いた' : '')
+        said.textContent = '本文の終わりに追加した' + (placed ? '。' + mdOf(placed) + 'に置いた' : '')
           + (made ? '。関連 TODO を ' + made + ' 件作った' : '') + '。閉じると残る。';
         askIn.value = '';
         undo.hidden = false;
@@ -3160,7 +3160,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
         return;
       }
       putText(proposal.text);
-      said.textContent = kind === 'tidy' ? '置き換えた。閉じると残る。' : '本文の終わりに足した。閉じると残る。';
+      said.textContent = kind === 'tidy' ? '置き換えた。閉じると残る。' : '本文の終わりに追加した。閉じると残る。';
       undo.hidden = false;
       hidePre();
       const v = (detailView && !detailView.hidden) ? detailView : detailArea;
@@ -3322,7 +3322,7 @@ function buildCenterPanel(id, ariaLabel, onStart, actions, runAction, info) {
       /* 直につながっていないときも、そう知らせる（Issue #68 の返事「動いてないように見える」: 送れたかどうかが盤で分からなかった） */
       p.then(n => {
         if (n > 0) toast('直につながっている ' + n + ' 台に送った（手数料なし）');
-        else if (ask(a, 'shareSyncOn') === true) toast('直につながっている相手がいないので、ひとことは「同期」で届ける');
+        else if (ask(a, 'shareSyncOn') === true) toast('直につながっている相手がいないので、コメントは「同期」で届ける');
       }, () => { /* 届かなくても同期で届く */ });
     }
   }
@@ -4325,10 +4325,10 @@ const MENU_ITEMS = [
   { key: 'onDetail',   label: '詳細' },
   { key: 'onFocus',    label: '5分だけ集中' },
   /* 盤の [今日は終わり] と同じ操作なので、同じ言葉にする */
-  { key: 'onStarted',  label: '今日は終わり' },
+  { key: 'onStarted',  label: '今日はここまで' },
   /* 盤と同じ「タスク完了」に。となりに「今日は終わり」が並ぶので、
      どちらが重いほうかが名前で読めないと取り違える */
-  { key: 'onComplete', label: 'タスク完了' },
+  { key: 'onComplete', label: '完了にする' },
   { key: 'onDelete',   label: '消す', sep: true },
 ];
 

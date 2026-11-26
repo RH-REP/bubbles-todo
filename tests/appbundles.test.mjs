@@ -49,7 +49,7 @@ await test('読むとき: apps.diary を /api/import へ渡し、足した・新
     return reply(200, { ok: true, added: 1, updated: 1, kept: 0 });
   } });
   assert.deepEqual(calls, [['http://127.0.0.1:9999/api/import', 'POST', 'include', 'application/json', bundle]]);
-  assert.deepEqual(lines, ['日記: 足した 1・新しくした 1・そのまま 0', 'この版の知らない app（notebook）の束は渡さなかった']);
+  assert.deepEqual(lines, ['日記: 追加した 1・新しくした 1・そのまま 0', 'このバージョンの知らない app（notebook）の束は渡さなかった']);
 });
 
 await test('読むとき: 401・400・届かない・形が違う・住所が無い', async () => {
@@ -58,7 +58,7 @@ await test('読むとき: 401・400・届かない・形が違う・住所が無
   assert.match((await deliverApps({ diary: bundle }, { urls, fetchFn: async () => { throw new TypeError('x'); } }))[0], /届かなかった/);
   let called = false;
   assert.deepEqual(await deliverApps({ diary: { app: 'diary' } }, { urls, fetchFn: async () => { called = true; } }), ['日記: 形が違うので渡さなかった']);
-  assert.match((await deliverApps({ diary: bundle }, { urls: Object.assign({}, urls, { diary: '' }), fetchFn: async () => { called = true; } }))[0], /住所が分からない/);
+  assert.match((await deliverApps({ diary: bundle }, { urls: Object.assign({}, urls, { diary: '' }), fetchFn: async () => { called = true; } }))[0], /URL が分からない/);
   assert.equal(called, false);
   assert.deepEqual(await deliverApps(undefined, { urls }), []);
 });

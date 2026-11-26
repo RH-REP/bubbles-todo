@@ -76,7 +76,7 @@ function tagColors(id) {
    日が変わると戻る（契約 §5）。だから名前もそう呼ぶ。
    **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
    （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
-const DONE_LB = '今日は終わり';
+const DONE_LB = '今日はここまで';
 
 const BUB_SIZE = 96;
 const MAX_COLS = 4;    /* 375px 幅ではカード幅 3×96=288px。広い画面でも横に散らしすぎない */
@@ -1114,7 +1114,7 @@ function makeGrip(a, index, total) {
   gr.setAttribute('aria-hidden', 'true');
   g.appendChild(gr);
   g.setAttribute('aria-label',
-    a.name + ' を掴んで並べ替える（' + (index + 1) + ' / ' + total + '）。上下の矢印キーでも動かせる');
+    a.name + ' をドラッグして並べ替える（' + (index + 1) + ' / ' + total + '）。上下の矢印キーでも動かせる');
 
   g.addEventListener('pointerdown', ev => {
     ev.stopPropagation();          /* バブルのジェスチャ層へ渡さない */
@@ -1867,7 +1867,7 @@ return {
     addBtn.type = 'button';
     addBtn.dataset.fk = 'addanchor';
     addBtn.appendChild(el('span', 'pl', '＋'));
-    addBtn.appendChild(el('span', null, CFG.word + 'を足す'));
+    addBtn.appendChild(el('span', null, CFG.word + 'を追加'));
     addBtn.addEventListener('click', () => {
       addBox.classList.add('is-open');
       wantFocus = 'newanchor';

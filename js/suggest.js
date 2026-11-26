@@ -145,7 +145,7 @@ export function lineOf(c, n) {
   if (c.important) marks.push('大事');
   if (c.size) marks.push('見当:' + SIZES[c.size] + (oneShot(c) ? '（1 回分）' : ''));
   if (c.fav) marks.push('お気に入り');
-  if (c.firstStep) marks.push('次の一手あり');
+  if (c.firstStep) marks.push('次にやることあり');
   if (c.tags.length) marks.push('タグ:' + c.tags.slice(0, 5).join('/'));
   if (c.createdAt) marks.push('作った日:' + dayKeyOf(c.createdAt));
   if (c.lastStarted) marks.push('最後にはじめた日:' + dayKeyOf(c.lastStarted));
@@ -162,7 +162,7 @@ export function buildSuggestPrompt(cands, day) {
   const system = [
     'あなたは todo の一覧から、その日に取りかかるとよさそうなものを選ぶ係。',
     'その日は ' + day + (dow ? '（' + dow + '）' : '') + '。',
-    '考えに入れること: 大事の印と見当（さっと・半日まで・何回も。1 回分は次の 1 回が半日まで）の比、急ぐのうち外の約束（自分では動かせない日）か、最近はじめたか、次の一手が書いてあるか、名前の意味（季節・時期・曜日に合うか、期限がありそうか）。',
+    '考えに入れること: 大事の印と見当（さっと・半日まで・何回も。1 回分は次の 1 回が半日まで）の比、急ぐのうち外の約束（自分では動かせない日）か、最近はじめたか、次にやることが書いてあるか、名前の意味（季節・時期・曜日に合うか、期限がありそうか）。',
     '急ぐの印が付いていても外の約束でなければ自分の目安なので、大事なものより上に置かなくてよい。',
     PICK_MIN + '〜' + PICK_MAX + ' 件を選ぶ。候補が少なければ少なくてよい。',
     '理由は ' + REASON_MAX + ' 字以内の短い言葉。命令形（〜しよう・〜すべき・〜しなさい）や、責める言い方（放置・遅れ・溜まっている）は使わない。',

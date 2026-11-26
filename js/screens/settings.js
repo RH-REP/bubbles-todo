@@ -88,14 +88,14 @@ export function inviteKind(text) {
   if (/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/.test(core) && /^[A-Za-z0-9]+(?:[\s-][A-Za-z0-9]+)*$/.test(t)) return 'server';
   return 'unknown';
 }
-const SHARE_FLOW = '2人とも先に鍵（パスキーか合言葉）を選び、同じネット（devnet など）にそろえる（この面の「ブロックチェーンで共有する：鍵を選ぶ」）。<br>'
+const SHARE_FLOW = '2人とも先に鍵（パスキーかパスフレーズ）を選び、同じネット（devnet など）にそろえる（この面の「ブロックチェーンで共有する：鍵を選ぶ」）。<br>'
   + '0. （すぐメンバーにするなら）<b>招かれる人</b>: 「招待コードを受け取る」の「自分のウォレットのアドレスをコピー」で、アドレスを招く人に送る。<br>'
   + '1. <b>招く人</b>: 「＋ 海を共有する」で海を選び、もらったアドレスを入れて（無ければ空のまま）「招待コードを作る」。出た招待コード（BTI1-…）を相手にだけ送る。<br>'
   + '2. <b>招かれる人</b>: 「招待コードを受け取る」に貼って「受け取る」。海が足され、みんなの記録が読める。<br>'
-  + '3. アドレスを入れなかったときは、<b>招かれる人</b>がカードの「同期」で記録を送ると、<b>招く人</b>が次に「同期」したときにメンバーに足される。<br>'
-  + '招待コードは合言葉と同じで、持っている人は誰でも受け取れる。使えるのは ' + INVITE_DAYS + ' 日・最初の 1 人だけ。<br>'
-  + 'そのあとは、カードの「同期」か詳細のひとことの横の「同期」で、ほかの人と同じ記録にする（送るときに手数料）。アプリを開いている間は、ほかの人の変更を自動で読む（手数料なし）。<br>'
-  + 'チャット（カードの「チャット」）と詳細のひとことは別のもの: ひとことは泡に付き「同期」で届く。チャットは海ぜんたいの話で 1 件ずつ届く（直につながっていれば手数料なし）。';
+  + '3. アドレスを入れなかったときは、<b>招かれる人</b>がカードの「同期」で記録を送ると、<b>招く人</b>が次に「同期」したときにメンバーに追加される。<br>'
+  + '招待コードはパスワードと同じで、持っている人は誰でも受け取れる。使えるのは ' + INVITE_DAYS + ' 日・最初の 1 人だけ。<br>'
+  + 'そのあとは、カードの「同期」か詳細のコメントの横の「同期」で、ほかの人と同じ記録にする（送るときに手数料）。アプリを開いている間は、ほかの人の変更を自動で読む（手数料なし）。<br>'
+  + 'チャット（カードの「チャット」）と詳細のコメントは別のもの: コメントは泡に付き「同期」で届く。チャットは海ぜんたいの話で 1 件ずつ届く（直につながっていれば手数料なし）。';
 
 /* そのタグの向きが固定されているか。store がまだ答えられない版では null */
 function fixedDirOf(id) {
@@ -259,12 +259,12 @@ export default {
        ほかの箱と同じ1行に畳み、押したときだけ中身を出す（並びは箱のいちばん上） */
     /* store 側のタグ API がまだ無い版でも設定画面ごと落ちないよう、有無を見る */
     if (hasTags()) {
-      const gTag = group('タグを編集する', 'タグの名前を直す・足す・消す・隠す');
+      const gTag = group('タグを編集する', 'タグの名前を直す・追加する・消す・隠す');
       const tagBox = el('div', 'tags');
       tagBox.appendChild(el('h3', null, 'タグ'));
       tagBox.appendChild(el(
         'p', 'note',
-        'タグは泡に付ける印。ここでは名前を直す・足す・消す・隠すをする。'
+        'タグは泡に付ける印。ここでは名前を直す・追加する・消す・隠すをする。'
         + '「隠す」を押したタグは、フィルターと、泡に付けるタグの並びに出なくなる（消さないので、付いている泡からは外れない。「出す」で戻る）。'
         + 'タグを画面の横一列に並べる・外す・並べ替えるのは、画面を長押しして出る引きから。'
         + '上（長期保留）と下（完了）は動かせない。'
@@ -278,7 +278,7 @@ export default {
       nameIn.type = 'text';
       nameIn.placeholder = 'タグの名前';
       nameIn.setAttribute('aria-label', '新しいタグの名前');
-      const addBtn = el('button', 'btn', 'タグを足す');
+      const addBtn = el('button', 'btn', 'タグを追加');
       addBtn.type = 'submit';
       addRow.appendChild(nameIn);
       addRow.appendChild(addBtn);
@@ -306,7 +306,7 @@ export default {
     }
 
     /* 名前は「何をするか」で書く（2026-11-11 Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
-    const gLook = group('音と表示を変える', '画面（全体・海・今日・リスト・詳細・引き出し）ごとに、音と表示を変える');
+    const gLook = group('音と表示を変える', '画面（全体・海・今日・リスト・詳細・メニュー）ごとに、音と表示を変える');
     /* 2026-11-21 Issue #91（A 案）: 見た目と画面の言葉を AI に頼んで、この端末だけ変える。サーバーなし版だけ（AI の機能と同じ） */
     const gMod = aiOn() ? group('見た目と言葉を AI で変える', 'この端末だけ。色・大きさ・隠す／出す・ボタンや見出しの言葉') : null;
     /* 「AI を使う」ではなく「AI を使う設定をする」（Issue #45）。ヘルプそのものは上の1行へ分けた */
@@ -339,7 +339,7 @@ export default {
     /* 2026-11-13 Issue #47 の返事「全部」（C）: サーバーに繋ぐ・入るのは「海を設定する」の ⚙ 1か所にした。ここはブロックチェーンだけ。
        サーバーあり版では作らない（Issue #78） */
     const gPrep = chainOn ? group(PREP_NAME, 'ブロックチェーンを始める・ウォレットを見る・鍵を替える・鍵を失ったとき') : null;
-    const gVer = group('版（バージョン）を確かめる・戻す', '最新の版を確かめる・前の版に戻す');
+    const gVer = group('バージョンを確かめる・戻す', '最新のバージョンを確かめる・前のバージョンに戻す');
     const gEtc = group('不具合を調べる・初期化する', '画面の大きさの記録・お試しの操作・すべて初期化');
 
     /* --- どの画面を変えるか（2026-11-13 Issue #49 の返事「ごちゃごちゃしてきたので、どのページを変えるかを間に挟む」）---
@@ -439,7 +439,7 @@ export default {
       toast(sfxCb.checked ? '効果音を鳴らす' : '効果音を鳴らさない');
     });
     sfxRow.appendChild(sfxCb);
-    sfxRow.appendChild(el('span', null, '泡を足す・はじめた・タブに置くときに小さく鳴らす'));
+    sfxRow.appendChild(el('span', null, '泡を追加する・はじめた・タブに置くときに小さく鳴らす'));
     gLook.appendChild(sfxRow);
     lookRows.push(sfxRow);
     const sndNote = el(
@@ -564,12 +564,12 @@ export default {
     [
       'どれを使う？',
       '・自分のほかの端末といつも同じ記録にするのは、上の「自分の複数の端末で使う」（同じサーバーにつないだ端末どうしは自動）。ここは、押した時点の記録を残すバックアップ。',
-      '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。合言葉で暗号化）。すべての海が1つのファイルに入る。',
+      '・ファイル… 押したときに1つ作る。新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける（招かれた海にも、招待を頼み直さずに入れる。パスワードで暗号化）。すべての海が1つのファイルに入る。',
       '・フォルダ（自動）… もしものための保険。選んだフォルダに、開いている間ずっと自動で書く（記録だけ。鍵は入らない）。読み込むときは「ファイル」から選ぶ。',
       '・この端末（自動）… app やサーバーの更新で記録が消えたときの保険。入れておくと、開いたときと1日1回、この端末の中に残す（新しいほうから ' + LOCAL_KEEP + ' つ。どのブラウザでも使える。既定は切ってある）。端末やブラウザのデータを消すと一緒に消える。',
       chainOn ? '・ブロックチェーン… 端末もフォルダも失くしたときの保険。押したときだけ書く（手数料が掛かる）。いつも暗号化する。' : '',
-      '読み込むときは、上書き（今の記録をサーバーに控えてから、読み込んだもので丸ごと入れ替える）か、追加（今の記録に重ねる。記録ごとに新しいほうが残る）かを聞く。',
-      '・サーバーのバックアップ… ログインしていれば、［今バックアップを取る］でサーバーに預ける（新しい 30 個まで）。下の「バックアップ」の一覧から戻す。',
+      '読み込むときは、上書き（今の記録をサーバーに控えてから、読み込んだもので丸ごと置き換える）か、追加（今の記録に追加する。記録ごとに新しいほうが残る）かを聞く。',
+      '・サーバーのバックアップ… ログインしていれば、［今バックアップを取る］でサーバーに保存する（新しい 30 個まで）。下の「バックアップ」の一覧から戻す。',
     ].filter(Boolean).forEach(t => gSave.appendChild(el('p', 'note', t)));
     /* 問いなので .note にしない（ⓘ の裏に隠さない） */
     gSave.appendChild(el('p', 'prefs-pages-lb', 'バックアップを書き出す？ 読み込む？'));
@@ -611,7 +611,7 @@ export default {
         [
           'もう1台（例: iPhone と Android）で同じ記録を使う手順:',
           '1. その端末のブラウザでサーバーのページを開く（Android は Chrome で開いてホーム画面に置く。Android の app の中ではパスキーを使えないので、公開したサーバーには入れない）。',
-          '2. 設定の「海」のいちばん下の［サーバーにログイン］で、呼び名を入れて「登録を頼む」。',
+          '2. 設定の「海」のいちばん下の［サーバーにログイン］で、名前を入れて「登録を頼む」。',
           '3. 出た確かめの字を、サーバーの持ち主が認める（自分の端末なら置き場は me:1,share）。認められたら「登録を仕上げる」。',
           '4. 終わり。以後は自動。両方の端末で別々に打った同じ名前の泡は、別の泡として両方残る（片方を消す）。',
           '5. ログインすると、入れる海（サーバーの個人と、招かれた海）が設定の「海」に並ぶ。押すとその海へ移る。前の端末で作った「サーバーに入る鍵も入れた」ファイルを読み込んでもよい。',
@@ -651,12 +651,12 @@ export default {
         take.addEventListener('click', async () => {
           if (!canServerBackup()) { st.textContent = 'サーバーのバックアップは、ログインすると使える。'; return; }
           take.disabled = true;
-          st.textContent = '預けている…';
+          st.textContent = '保存している…';
           try {
             const m = await takeServerBackup('手で取った');
-            st.textContent = 'サーバーに預けた（' + backupWhen(m.at) + '・海 ' + m.seas + '・泡 ' + m.todos + '）。戻すときは「読み込む」の下の「バックアップ」から。';
+            st.textContent = 'サーバーに保存した（' + backupWhen(m.at) + '・海 ' + m.seas + '・泡 ' + m.todos + '）。戻すときは「読み込む」の下の「バックアップ」から。';
             window.dispatchEvent(new CustomEvent('bubbles:server-backups'));
-          } catch (e) { st.textContent = '預けられなかった: ' + ((e && e.message) || e); }
+          } catch (e) { st.textContent = '保存できなかった: ' + ((e && e.message) || e); }
           finally { take.disabled = false; }
         });
         r.appendChild(take);
@@ -676,12 +676,12 @@ export default {
       const e = chainBox({ tasks: ['backup'], only: mode, goSetup,
         title: mode === 'out' ? 'ブロックチェーンに書き出す（Solana・試験中）' : mode === 'sync' ? 'ブロックチェーンで同じ記録にする（Solana・試験中）' : 'ブロックチェーンから読み込む（Solana・試験中）' });
       e.insertBefore(el('p', 'note', mode === 'sync'
-        ? 'サーバーなしで、同じパスキーか同じ合言葉で開いた端末どうしで同じ記録にする。送るのは［自分のほかの端末へ送る］を押したときだけ（手数料が掛かる）。'
+        ? 'サーバーなしで、同じパスキーか同じパスフレーズで開いた端末どうしで同じ記録にする。送るのは［自分のほかの端末へ送る］を押したときだけ（手数料が掛かる）。'
           + 'ほかの端末が送ったものは、開いたとき・画面に戻ったとき・泡を開いたとき・5 分ごとに見に行き、画面の下の知らせ［読み込む］で受け取る（受け取りは手数料なし）。'
         : mode === 'out'
-        ? '記録を暗号化して、Solana のチェーンに書く。押したときだけ書く（手数料が掛かる）。パスキーか合言葉で開く。始め方・ウォレット・鍵は「' + PREP_NAME + '」にある。'
-          + 'サーバーなし版のほかの端末（同じパスキーか同じ合言葉で開いたもの）では、書いたものが「新しい記録がある」の知らせで出る。'
-        : 'チェーンに書いた記録を、今の記録に重ねる（消さない。手数料は掛からない）。パスキーか合言葉、失くしたときは復元コードで開く。どの端末からでも読み込める。'
+        ? '記録を暗号化して、Solana のチェーンに書く。押したときだけ書く（手数料が掛かる）。パスキーかパスフレーズで開く。始め方・ウォレット・鍵は「' + PREP_NAME + '」にある。'
+          + 'サーバーなし版のほかの端末（同じパスキーか同じパスフレーズで開いたもの）では、書いたものが「新しい記録がある」の知らせで出る。'
+        : 'チェーンに書いた記録を、今の記録に追加する（消さない。手数料は掛からない）。パスキーかパスフレーズ、失くしたときは復元コードで開く。どの端末からでも読み込める。'
           + 'サーバーなし版では、ほかの端末が新しく書いたら、開いている間に画面の下に知らせが出る（そこからも読み込める）。'),
         e.children[1] || null);
       return e;
@@ -796,7 +796,7 @@ export default {
       /* 2026-11-24 利用者の指示「設定のその他の中が２重に折りたたまれているので解消して」:
          前は「そのほか」を畳み、その中に「版」「不具合を調べる・初期化する」をまた畳んでいた。
          「そのほか」は bubble と同じ節の見出しにし、中の行は 1 回だけ畳む */
-      box.appendChild(sec('そのほか', '使い方・版・不具合'));
+      box.appendChild(sec('そのほか', '使い方・バージョン・不具合'));
       box.appendChild(help);
       if (aiOn()) box.appendChild(ask);
       box.appendChild(gVer);
@@ -1072,15 +1072,15 @@ function moveBox(mode) {
     : mode === 'in' ? 'ファイルから読み込む（すべての海・フォルダに自動で書いたものも）' : 'ファイルに書き出す・読み込む（すべての海）'));
   if (mode === 'in') {
     wrap.appendChild(el('p', 'note',
-      'このアプリで書き出したファイル（フォルダに自動で書いたものも）を選ぶ。暗号化したものは合言葉を入れる（フォルダに自動で暗号化して書いたものは、同じ端末なら合言葉なしで開く）。'
-      + '今の記録は消さずに重ねる（記録ごとに新しいほうが残る）。サーバーに入る鍵が入っていれば、続けてサーバーに入り直す。'));
+      'このアプリで書き出したファイル（フォルダに自動で書いたものも）を選ぶ。暗号化したものはパスワードを入れる（フォルダに自動で暗号化して書いたものは、同じ端末ならパスワードなしで開く）。'
+      + '今の記録は消さずに追加する（記録ごとに新しいほうが残る）。サーバーに入る鍵が入っていれば、続けてサーバーに入り直す。'));
   }
   const outNotes = [];
   outNotes.push(el(
     'p', 'note',
     '選んだ海の記録を1つのファイルに書き出す（押したときに1つ作る）。'
-    + '新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける。新しい端末でこのファイルを開いて合言葉を入れると、記録が戻り、招かれた海にもそのまま入れる（持ち主に招待を頼まなくてよい）。'
-    + '鍵を入れるときは、必ず合言葉で暗号化する。ファイルは iCloud Drive・Google Drive など自分の置き場へ。合言葉はファイルと別に書き留める（忘れたら開けない）。'
+    + '新しい端末をつなぐ・替えるときは「サーバーに入る鍵も入れる」に印を付ける。新しい端末でこのファイルを開いてパスワードを入れると、記録が戻り、招かれた海にもそのまま入れる（持ち主に招待を頼まなくてよい）。'
+    + '鍵を入れるときは、必ずパスワードで暗号化する。ファイルは iCloud Drive・Google Drive など自分の置き場へ。パスワードはファイルと別に書き留める（忘れたら開けない）。'
   ));
   outNotes.push(el('p', 'note',
     'サーバーに入る鍵（パスキーのサーバーの「引っ越しの鍵」）は使い切りで、作るたびに前のファイルの鍵は使えなくなる（記録は前のファイルからも戻せる）。'
@@ -1098,7 +1098,7 @@ function moveBox(mode) {
   encCb.type = 'checkbox';
   encCb.checked = true;
   encLb.appendChild(encCb);
-  encLb.appendChild(document.createTextNode(' 合言葉で暗号化する（鍵を入れるときは必ず）'));
+  encLb.appendChild(document.createTextNode(' パスワードで暗号化する（鍵を入れるときは必ず）'));
   wrap.appendChild(encLb);
   let encWanted = true;
   encCb.addEventListener('change', () => { encWanted = encCb.checked; });
@@ -1133,8 +1133,8 @@ function moveBox(mode) {
   passIn.autocomplete = 'off';
   passIn.autocapitalize = 'characters';
   passIn.spellcheck = false;
-  passIn.placeholder = '合言葉（XXXX-XXXX-…）';
-  passIn.setAttribute('aria-label', '引っ越しのファイルの合言葉');
+  passIn.placeholder = 'パスワード（XXXX-XXXX-…）';
+  passIn.setAttribute('aria-label', '引っ越しのファイルのパスワード');
   const passGo = el('button', 'btn', '開く');
   passGo.type = 'submit';
   passForm.appendChild(passIn);
@@ -1178,7 +1178,7 @@ function moveBox(mode) {
         const sec = sync.moveSecretsOf(rid);
         if (!sec) continue;
         if ('session' in sec) {
-          if (!sec.session) { servers[rid] = { url: sec.url }; warns.push(r.name + ': パスキーの通行証が切れている'); continue; }
+          if (!sec.session) { servers[rid] = { url: sec.url }; warns.push(r.name + ': パスキーのログインの期限が切れている'); continue; }
           try {
             const got = await makeMoveKey(sec.url, sec.session);
             servers[rid] = { url: sec.url, move: got.move };
@@ -1206,14 +1206,14 @@ function moveBox(mode) {
       const payload = buildPayload({ boxes: picked.boxes, seas: picked.seas, server, at: now, device: dev,
         regions: regionsPayload(chosen), servers: withKeys ? servers : undefined, apps: extra.apps });
       const info = moveSummary(payload);
-      const what = (info.regions.length ? '同期の先 ' + info.regions.join('・') + '・' : '')
+      const what = (info.regions.length ? '置き場 ' + info.regions.join('・') + '・' : '')
         + '海 ' + info.seas + ' つ・todo ' + info.todos + ' 件' + (withKeys ? '・サーバーに入る鍵' : '（鍵は入れていない）')
         + (extra.notes.length ? '・' + extra.notes.join('・') : '');
       if (encrypt) {
         const pass = makePassphrase();
         const text = await encryptMove(payload, pass);
         ready = { blob: new Blob([text], { type: 'application/json' }), name: moveFileName(now) };
-        passLine.textContent = '合言葉: ' + pass + '　← 書き留めてから「ファイルを保存する」。' + what + warn
+        passLine.textContent = 'パスワード: ' + pass + '　← 書き留めてから「ファイルを保存する」。' + what + warn
           + (anyMove ? '。前に作ったバックアップの鍵では、もうサーバーに入れない（記録は戻せる）' : '');
       } else {
         /* 鍵を入れず、暗号化もしない控え（毎日の控えと同じ形 bubbles-backup） */
@@ -1267,7 +1267,7 @@ function moveBox(mode) {
           p = null;
           if (k) { try { p = await openBackup(fileText, { key: k }); } catch (e) { p = null; } }
           if (!p) {
-            const pass = await askText('暗号化したバックアップ。合言葉（暗号化を始めたときに書き留めた 24 字）');
+            const pass = await askText('暗号化したバックアップ。パスフレーズ（暗号化を始めたときに書き留めた 24 字）');
             if (!pass) { fileText = ''; return; }
             p = await openBackup(fileText, { pass });
           }
@@ -1287,7 +1287,7 @@ function moveBox(mode) {
     passForm.hidden = false;
     passIn.value = '';
     passIn.focus();
-    line.textContent = f.name + ' を開く。書き出したときの合言葉を入れる。';
+    line.textContent = f.name + ' を開く。書き出したときのパスワードを入れる。';
   });
 
   passForm.addEventListener('submit', async (ev) => {
@@ -1322,14 +1322,14 @@ function moveBox(mode) {
     if (mode === 'replace') { line.textContent = '今の記録を控えている…'; said = await backupBeforeReplace(); }
     const got = importIntoDevice(p, { askLocal: true, replace: mode === 'replace', add: mode === 'add' });
     const n = got.n;
-    line.textContent = (said ? said + '。' : '') + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '入れ替えた。' : '戻した（今の記録に重ねた）。');
+    line.textContent = (said ? said + '。' : '') + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '置き換えた。' : '戻した（今の記録に追加した）。');
     /* ほかの app の束は、その app へ渡す（日記は diary の /api/import。bubble の記録には入れない。2026-11-18 §8.3） */
     if (p.apps) {
       deliverApps(p.apps).then(lines => { if (lines.length) line.textContent += lines.join('。') + '。'; })
         .catch(e => { line.textContent += '日記を渡せなかった（' + ((e && e.message) || e) + '）。'; });
     }
     if (Array.isArray(p.regions) && p.regions.length) {
-      if (got.added.length) line.textContent += 'サーバー ' + got.added.map(r => r.name).join('・') + ' を足した。';
+      if (got.added.length) line.textContent += 'サーバー ' + got.added.map(r => r.name).join('・') + ' を追加した。';
       joinRegions(p, got.map);
       return;
     }
@@ -1355,7 +1355,7 @@ function moveBox(mode) {
       const now = sync.regionSummary(rid);
       if (s.token || s.shareToken) {
         if (now.token || now.passkey) { said.push(r.name + 'はもう鍵がある（替えない）'); return; }
-        if (sync.configureRegion(rid, s.url, s.token || '', s.shareToken || '')) said.push(r.name + 'に合言葉で繋いだ');
+        if (sync.configureRegion(rid, s.url, s.token || '', s.shareToken || '')) said.push(r.name + 'にパスワードで繋いだ');
         return;
       }
       if (s.move) {
@@ -1377,7 +1377,7 @@ function moveBox(mode) {
         joinRow.appendChild(b);
         return;
       }
-      said.push(r.name + 'は住所だけ（入る鍵が無い。歯車から合言葉を入れるか、持ち主に招待を頼む）');
+      said.push(r.name + 'は URL だけ（入る鍵が無い。歯車からパスワードを入れるか、持ち主に招待を頼む）');
     });
     if (said.length) line.textContent += said.join('。') + '。';
     if (joinRow.children.length) line.textContent += '続けて下のボタンで、サーバーごとに入る。';
@@ -1395,12 +1395,12 @@ function moveBox(mode) {
     }
     if (s.token || s.shareToken) {
       sync.configure(s.url, s.token || '', s.shareToken || '');
-      line.textContent += 'サーバーに合言葉で繋いだ。';
+      line.textContent += 'サーバーにパスワードで繋いだ。';
       pendingServer = null;
       return;
     }
     if (!s.move) {
-      line.textContent += 'サーバーに入る鍵は入っていない（住所だけ入れた。持ち主に招待コードを頼む）。';
+      line.textContent += 'サーバーに入る鍵は入っていない（URL だけ入れた。持ち主に招待コードを頼む）。';
       if (!cur.url) sync.configure(s.url, '', '');
       pendingServer = null;
       return;
@@ -1436,11 +1436,11 @@ function folderBox() {
     + 'そのフォルダの「bubbles-backup-日付.json」へ、この端末のすべての海の記録を書く。1日1つのファイルで、その日のうちは上書きする。'
     + '古い日のファイルは消さない（要らなくなったら自分で消す）。サーバーに繋がらない間の保険になる。'));
   wrap.appendChild(el('p', 'note',
-    '既定では暗号化しない（中の todo はそのまま読める）。合言葉・鍵は入れない（同期の先のサーバーの名前と住所は入れる。新しい端末で戻したとき、海ごとに同期の先を戻すため）。'
+    '既定では暗号化しない（中の todo はそのまま読める）。パスフレーズ・鍵は入れない（置き場のサーバーの名前と URL は入れる。新しい端末で戻したとき、海ごとに置き場を戻すため）。'
     + 'iCloud Drive などのフォルダを選ぶと、そこにも記録が置かれるので、「暗号化して書く」を勧める。'));
   wrap.appendChild(el('p', 'note',
-    '「暗号化して書く」: app が合言葉（24 字）を作って1度だけ見せ、その合言葉から作った鍵をこの端末のブラウザに置く（取り出せない形）。'
-    + '書くたびの確認は無い。この端末ではそのまま戻せ、ほかの端末では合言葉で開く。合言葉を失くすと、ほかの端末では開けない。'));
+    '「暗号化して書く」: app がパスフレーズ（24 字）を作って1度だけ見せ、そのパスフレーズから作った鍵をこの端末のブラウザに置く（取り出せない形）。'
+    + '書くたびの確認は無い。この端末ではそのまま戻せ、ほかの端末ではパスフレーズで開く。パスフレーズを失くすと、ほかの端末では開けない。'));
   const ok = folderBackupSupported() && !!folderBackup;
   if (!ok) {
     wrap.appendChild(el('p', 'note',
@@ -1529,13 +1529,13 @@ function folderBox() {
     encBtn.disabled = true;
     try {
       if (c.enc) {
-        if (!window.confirm('暗号化をやめて、次から平文で書く？（前に書いた暗号化したバックアップは、合言葉で開ける）')) return;
+        if (!window.confirm('暗号化をやめて、次から平文で書く？（前に書いた暗号化したバックアップは、パスフレーズで開ける）')) return;
         await folderBackup.stopEncrypt();
         encPassLine.hidden = true;
       } else {
-        if (!window.confirm('次から暗号化して書く？\n合言葉を1度だけ出す。ほかの端末で戻すときに要るので、書き留める（パスワードの管理に入れる）。')) return;
+        if (!window.confirm('次から暗号化して書く？\nパスフレーズを1度だけ出す。ほかの端末で戻すときに要るので、書き留める（パスワードの管理に入れる）。')) return;
         const pass = await folderBackup.startEncrypt();
-        encPassLine.textContent = '合言葉: ' + pass + '　← 書き留める。この画面を閉じると、もう出せない（失くしたら「暗号化をやめる」→「暗号化して書く」で作り直す）。';
+        encPassLine.textContent = 'パスフレーズ: ' + pass + '　← 書き留める。この画面を閉じると、もう出せない（失くしたら「暗号化をやめる」→「暗号化して書く」で作り直す）。';
         encPassLine.hidden = false;
       }
     } catch (e) {
@@ -1557,12 +1557,12 @@ function localBox(mode) {
       + 'この端末のすべての海の記録をこの端末（ブラウザ）の中に残す。前に残したものと中身が同じなら残さない。上書きはせず、新しいほうから ' + LOCAL_KEEP + ' つ残す。'
       + 'フォルダもファイルも選ばなくてよく、どのブラウザでも使える。既定は切ってある。'));
     wrap.appendChild(el('p', 'note',
-      '残したものは「読み込む」→「この端末」から戻す。暗号化はしない（記録そのものと同じ所に置くため）。合言葉・鍵は入れない。'
+      '残したものは「読み込む」→「この端末」から戻す。暗号化はしない（記録そのものと同じ所に置くため）。パスワード・鍵は入れない。'
       + 'ブラウザのデータを消す・「すべて初期化」・端末を替えるときは一緒に消える（iPhone の Safari は、ホーム画面に置かずに 7 日開かないと消すことがある）。'
       + 'それにも備えるなら、ファイル・フォルダ・サーバーにも書き出す。'));
   } else {
     wrap.appendChild(el('p', 'note',
-      '「書き出す」→「この端末（自動）」で残したものから戻す。［戻す］を押すと、上書き（丸ごと入れ替える。今の記録は先にこの端末の中に残す）か追加（今の記録に足す）かを聞く。'
+      '「書き出す」→「この端末（自動）」で残したものから戻す。［戻す］を押すと、上書き（丸ごと置き換える。今の記録は先にこの端末の中に残す）か追加（今の記録に追加する）かを聞く。'
       + '［ファイルに保存］で、ほかの端末で読み込めるファイル（bubbles-backup。暗号化しない）にもできる。'));
   }
   if (!ok) {
@@ -1704,11 +1704,11 @@ function localBox(mode) {
             /* 入れ替える前の今の記録は、まずこの端末の中に残す。残せなければ、ほかの戻し方と同じ控え（サーバーかファイル）へ */
             line.textContent = '今の記録を控えている…';
             const r = await localBackup.runNow(true);
-            said = r.saved ? '今の記録をこの端末の中に残した（入れ替える前）' : await backupBeforeReplace();
+            said = r.saved ? '今の記録をこの端末の中に残した（置き換える前）' : await backupBeforeReplace();
           }
           const n = mergeIntoDevice(p, { askLocal: true, replace: mode === 'replace', add: mode === 'add' });
-          line.textContent = (said ? said + '。' : '') + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '入れ替えた。' : '戻した（今の記録に重ねた）。');
-          toast(mode === 'replace' ? 'バックアップ（' + when(s.at) + '）で入れ替えた' : 'バックアップ（' + when(s.at) + '）を重ねた');
+          line.textContent = (said ? said + '。' : '') + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '置き換えた。' : '戻した（今の記録に追加した）。');
+          toast(mode === 'replace' ? 'バックアップ（' + when(s.at) + '）で置き換えた' : 'バックアップ（' + when(s.at) + '）を追加した');
         } catch (e) { toast('戻せなかった: ' + ((e && e.message) || e)); }
       });
       save.addEventListener('click', async () => {
@@ -1734,7 +1734,7 @@ function regionPicker(what) {
   const wrap = el('div', 'region-pick');
   const regions = regionList();
   if (regions.length < 2) return { el: wrap, chosen: () => regions.map(r => r.id) };
-  wrap.appendChild(el('p', 'note', escapeHtml(what) + 'に入れる海（同期の先ごと）'));
+  wrap.appendChild(el('p', 'note', escapeHtml(what) + 'に入れる海（置き場ごと）'));
   const allRow = el('label', 'setrow');
   const allCb = document.createElement('input');
   allCb.type = 'checkbox';
@@ -1868,7 +1868,7 @@ function soloServerBox() {
   wrap.appendChild(el('h3', null, 'サーバーにつなぐ（自分の複数の端末で同じ記録を使う）'));
   wrap.appendChild(el('p', 'note',
     'いまはサーバーに繋がないページ（通信してよい先を決め打ちにして守っている）で開いている。'
-    + 'サーバーに繋ぐときは、下のボタンでサーバーに繋ぐページを開き、この ⚙ で住所を入れる。繋いだあとは、開くとそのページになる'
+    + 'サーバーに繋ぐときは、下のボタンでサーバーに繋ぐページを開き、この ⚙ で URL を入れる。繋いだあとは、開くとそのページになる'
     + '（サーバーが配るページでは、サーバーと一緒にブロックチェーンのバックアップ・共有の海・チャットも使える）。'));
   const b = el('button', 'btn', 'サーバーに繋ぐページを開く');
   b.type = 'button';
@@ -1911,14 +1911,14 @@ function resetAllBox() {
   const gone = el('ul');
   ['すべての海の todo・記録・メモ（個人・共有・作った海）と海の一覧',
     'タグ、音・効果音・似ている泡の切り替え',
-    'サーバーの住所・合言葉・パスキーで入っている状態・登録の頼み',
+    'サーバーの URL ・パスワード・パスキーで入っている状態・登録の頼み',
     'AI のキーと型、先の予定・天気の取り置き、チェーンのバックアップの設定',
-    '前の版に戻すための写し'].forEach(s => { const li = el('li'); li.textContent = s; gone.appendChild(li); });
+    '前のバージョンに戻すための写し'].forEach(s => { const li = el('li'); li.textContent = s; gone.appendChild(li); });
   panel.appendChild(gone);
   panel.appendChild(el('p', 'note', '消えないもの:'));
   const kept = el('ul');
   ['サーバーに置いた記録（同じサーバーにまた繋ぐと戻ってくる）',
-    'ブロックチェーンに保存したバックアップ（消せない。同じパスキーか合言葉で戻せる）',
+    'ブロックチェーンに保存したバックアップ（消せない。同じパスキーかパスフレーズで戻せる）',
     '画面の「!」が覚えているエラーの記録と、app 本体'].forEach(s => { const li = el('li'); li.textContent = s; kept.appendChild(li); });
   panel.appendChild(kept);
   panel.appendChild(el('p', 'note',
@@ -1930,8 +1930,8 @@ function resetAllBox() {
   word.type = 'text';
   word.autocomplete = 'off';
   word.spellcheck = false;
-  word.placeholder = '確かめのため「' + CONFIRM_WORD + '」と打つ';
-  word.setAttribute('aria-label', 'すべて初期化の確かめ。「' + CONFIRM_WORD + '」と打つ');
+  word.placeholder = '確かめのため「' + CONFIRM_WORD + '」と入力する';
+  word.setAttribute('aria-label', 'すべて初期化の確かめ。「' + CONFIRM_WORD + '」と入力する');
   form.appendChild(word);
   panel.appendChild(form);
 
@@ -1976,7 +1976,7 @@ function resetAllBox() {
     /* 「新しい版に自動で入れ替えない」（Issue #91。Cache Storage の印）も外す。見た目と言葉の変更は localStorage なので下で消える */
     try { holdUpdates(false).catch(() => {}); } catch (e) { /* 続ける */ }
     const n = clearAppStorage(localStorage);
-    toast('すべて初期化した（' + n + ' 項目）。読み直す');
+    toast('すべて初期化した（' + n + ' 項目）。再読み込みする');
     /* 待つ間に何かが書いても残らないよう、読み直す直前にもう一度消す */
     setTimeout(() => { clearAppStorage(localStorage); location.replace(location.pathname); }, 400);
   });
@@ -2141,7 +2141,7 @@ function meshFor(rec) {
       mergeSnapsInto(all[id], [inner]);
       saveShared(all);
     },
-    onPeerOpen: () => { toast('「' + seaName0() + '」の相手と直につながった（ひとことは手数料なしで届く）'); },
+    onPeerOpen: () => { toast('「' + seaName0() + '」の相手と直につながった（コメントは手数料なしで届く）'); },
     /* つなぐ途中の失敗を覚えて、カードに出す（Issue #68 の返事「webRTC動いてないように見える。確認できる？」） */
     onError: (e) => { const m = meshes.get(id); if (m) m.lastError = String((e && e.message) || e).slice(0, 120); },
     onState: () => { try { window.dispatchEvent(new CustomEvent('bubbles:p2p-state')); } catch (e) { /* 進む */ } },
@@ -2275,8 +2275,8 @@ function chainBox(opts = {}) {
   if (setup) {
     wrap.appendChild(el('p', 'note',
       '自分の記録を暗号化して、Solana の取引のメモに分けて書く。チェーンに書いたものは消せない（鍵が漏れれば、あとからでも読める）。'
-      + '分けた取引が1つでも欠けると戻せない。サーバーの住所と鍵、AI のキーは書かない。'
-      + '鍵は3種類: <b>パスキー</b>と<b>合言葉</b>は、ウォレット（手数料を払う）とバックアップの両方を開く。'
+      + '分けた取引が1つでも欠けると戻せない。サーバーの URL と鍵、AI のキーは書かない。'
+      + '鍵は3種類: <b>パスキー</b>と<b>パスフレーズ</b>は、ウォレット（手数料を払う）とバックアップの両方を開く。'
       + '<b>復元コード</b>はバックアップを読むだけ（お金は動かせず、書けない）。ウォレットは手数料ぶんの少額だけを入れる。'
       + 'ここで始めたあと、海の共有とチャットは「他の人と一緒に使う」、自分のほかの端末と同じ記録にする・自分にメモを送るのは「自分の複数の端末で使う」、'
       + 'バックアップは「記録を保存する・読み込む」で使う（「他の人と一緒に使う」の面からも、ここと同じ鍵を選べる）。'));
@@ -2327,7 +2327,7 @@ function chainBox(opts = {}) {
     /* 名前は「何をするか」で書く（Issue #43 の返事:「バックアップという名詞じゃなくて、バックアップをするみたいな名前に」） */
     ['backup', 'バックアップする', '保存・復元・復元コードを表示'],
     ['wallet', 'ウォレットを見る', '残高を見る・テスト用の SOL・送る'],
-    ['key', '鍵を替える', '新しい鍵へ移し替える・パスキー／合言葉を切り替える'],
+    ['key', '鍵を替える', '新しい鍵へ移し替える・パスキー／パスフレーズを切り替える'],
     ['share', '海を共有する', '自分の海に人を招く・招待を受ける・共有中の海'],
     ['memo', '自分にメモを送る', '自分の端末どうしで短いメモを送り合う'],
     ['lost', '鍵を失ったときに読む', '復元コードで読む・この端末での設定を消す'],
@@ -2396,7 +2396,7 @@ function chainBox(opts = {}) {
         line.textContent = msg;
         /* 残高・手数料・SOL に関わる失敗なら、知らせのすぐ横に「ウォレットを開く」を出す（Issue #40 の返事・#43）。
            押したときだけウォレットに切り替える（共有の海などを見ている途中で勝手に替えない） */
-        if (cfg.mode && task !== 'wallet' && /残高|手数料|SOL/.test(msg)) offerTask('wallet', 'ウォレットを開く（残高を見る・SOL を足す）');
+        if (cfg.mode && task !== 'wallet' && /残高|手数料|SOL/.test(msg)) offerTask('wallet', 'ウォレットを開く（残高を見る・SOL を追加）');
       }
       finally { b.disabled = false; }
     });
@@ -2472,7 +2472,7 @@ function chainBox(opts = {}) {
     }
     if (cfg.mode === 'pass') {
       /* どのウォレットの合言葉かを出す（パスキーのつもりで合言葉を聞かれたときに気づけるように） */
-      const pass = await askText('合言葉（始めたときに書き留めた 24 字。このウォレット ' + shortAddr(cfg.address) + ' は合言葉で始めた）');
+      const pass = await askText('パスフレーズ（始めたときに書き留めた 24 字。このウォレット ' + shortAddr(cfg.address) + ' はパスフレーズで始めた）');
       if (!pass) throw new Error('やめた');
       line.textContent = '鍵を作っている…';
       return keysFromRoot(await rootFromPassphrase(pass));
@@ -2521,7 +2521,7 @@ function chainBox(opts = {}) {
          前は「先に『ブロックチェーンを準備する』で…」と出して下の箱へ飛ばし、鍵を作ったら自分で上の箱へ戻る必要があった） */
       if (ALLOWED.includes('share') && opts.part === 'hub') { paintHubStart(net, pk); return; }
       /* ほかの欄（バックアップ・自分あてのメモなど）は、鍵の箱へ移るボタンだけ（Issue #45） */
-      info.textContent = 'ブロックチェーンをまだ始めていない。先に「' + PREP_NAME + '」で鍵（パスキーか合言葉）を選ぶ。';
+      info.textContent = 'ブロックチェーンをまだ始めていない。先に「' + PREP_NAME + '」で鍵（パスキーかパスフレーズ）を選ぶ。';
       if (ALLOWED.includes('share')) flowBox(true);
       if (opts.goSetup) {
         group('go-setup', '始める', null);
@@ -2529,7 +2529,7 @@ function chainBox(opts = {}) {
       }
       /* 鍵を失ったときの読むだけの復元は、バックアップの欄からも出す（始めていなくても使える） */
       if (ALLOWED.includes('backup')) {
-        group('code', '復元コードで読む', 'パスキー・合言葉を失ったときに、バックアップを読むだけ（お金は動かせず、新しく保存もできない）。');
+        group('code', '復元コードで読む', 'パスキー・パスフレーズを失ったときに、バックアップを読むだけ（お金は動かせず、新しく保存もできない）。');
         btn('復元コードで復元（読むだけ）', restoreByCode);
       }
       return;
@@ -2545,7 +2545,7 @@ function chainBox(opts = {}) {
     paintServerCards(serverSeaCards());
     paintServerShare();
     group('chain-start', 'ブロックチェーンで共有する：鍵を選ぶ',
-      'ブロックチェーンで海を共有する・招待コード（BTI1-…）を受け取るには、先に鍵（パスキーか合言葉）を選ぶ。'
+      'ブロックチェーンで海を共有する・招待コード（BTI1-…）を受け取るには、先に鍵（パスキーかパスフレーズ）を選ぶ。'
       + '選ぶとウォレットができ、この面がそのまま共有の面になる。招く人と招かれる人で、ネットをそろえる。'
       + 'あとからウォレットを見る・鍵を替えるのは「' + PREP_NAME + '」。');
     into.appendChild(netRow);
@@ -2563,7 +2563,7 @@ function chainBox(opts = {}) {
       /* 鍵の選び方（2026-11-10 Issue #31 の返事）。パスキーを先に置くが、合言葉も畳まずに並べる。
          パスキーが使える端末でも、パスキーが引き継がれない端末どうし（iPhone と Windows・Android など）で
          同じウォレットを使うなら、合言葉のほうが向くため。畳むのは、パスキーを失ったときの復元コードだけ */
-      info.textContent = 'まだ始めていない。鍵をパスキーか合言葉から選ぶ（あとから替えると、別のウォレット・別のバックアップになる）。';
+      info.textContent = 'まだ始めていない。鍵をパスキーかパスフレーズから選ぶ（あとから替えると、別のウォレット・別のバックアップになる）。';
       if (pk) {
         group('start', 'パスキーで始める',
           '同じ Apple アカウント（または同じ Google アカウント）の端末だけで使うなら、こちら。Face ID・指紋で開け、パスキーは端末どうしで自動で引き継がれる。'
@@ -2571,7 +2571,7 @@ function chainBox(opts = {}) {
           + '初めてなら「パスキーを新しく作る」（作るたびに別のウォレット・別のバックアップになる）。');
         btn('パスキーで開く', async () => {
           /* 押した手応えを先に出す（Issue #53: パスキーの画面が出ないと、押しても反応しないように見えた）。await の前なので押した手の続きのまま */
-          line.textContent = 'パスキーの画面を開いている…（出ないときは、この端末・ブラウザでパスキーが使えない。合言葉を使う）';
+          line.textContent = 'パスキーの画面を開いている…（出ないときは、この端末・ブラウザでパスキーが使えない。パスフレーズを使う）';
           const got = await passkeyRoot(null);
           const keys = await keysFromRoot(got.root);
           cfg = Object.assign(loadConfig(), { network: net, mode: 'passkey', credId: got.credId, address: keys.wallet.address });
@@ -2580,22 +2580,22 @@ function chainBox(opts = {}) {
           await restoreWith(keys.recordKey, keys.wallet.address, net);
         });
       }
-      group('pass', '合言葉で始める',
+      group('pass', 'パスフレーズで始める',
         (pk ? '' : 'この端末（ブラウザ）では、鍵を作れるパスキーが使えない。'
           /* Issue #68 の返事「合言葉のみ出てきてパスキーでアドレス作った場合はつかえない？」 */
           + 'ほかの端末でパスキーで作ったウォレットは、ここでは開けない（パスキーが鍵の元なので）。'
-          + '同じウォレットを使うなら、パスキーの端末で「鍵を替える」→「新しい鍵へ移し替える」で合言葉へ移し、ここで「合言葉で開く」。'
-          + 'この端末だけで使うなら「合言葉で新しく作る」（別のウォレット・別のアドレスになる。共有の海には、この新しいアドレスで招いてもらう）。')
+          + '同じウォレットを使うなら、パスキーの端末で「鍵を替える」→「新しい鍵へ移し替える」でパスフレーズへ移し、ここで「パスフレーズで開く」。'
+          + 'この端末だけで使うなら「パスフレーズで新しく作る」（別のウォレット・別のアドレスになる。共有の海には、この新しいアドレスで招いてもらう）。')
         + 'OS をまたいで複数の端末で使う（iPhone と Windows・Android など、パスキーが引き継がれない組み合わせ）なら、こちら。'
-        + '合言葉（24 字）はパスキーの代わりで、ウォレットとバックアップの両方を開く。紙に書き留め、どの端末でも同じ合言葉を打つ。'
+        + 'パスフレーズ（24 字）はパスキーの代わりで、ウォレットとバックアップの両方を開く。紙に書き留め、どの端末でも同じパスフレーズを入力する。'
         + '漏れるとお金も記録も取られるので、パスキーより扱いに気をつける。'
-        + '前にこの app の合言葉を作ったことがあるなら「合言葉で開く」（同じウォレットを開き、いちばん新しいバックアップを戻す）。'
-        + '初めてなら「合言葉で新しく作る」（作るたびに別のウォレット・別のバックアップになる）。'
-        + 'パスキーで使っていた記録を合言葉へ移すときは、先にパスキーで開き、「鍵を替える」→「新しい鍵へ移し替える」を押す（鍵を作る → 残高を送る → バックアップする、を順に案内する）。');
+        + '前にこの app のパスフレーズを作ったことがあるなら「パスフレーズで開く」（同じウォレットを開き、いちばん新しいバックアップを戻す）。'
+        + '初めてなら「パスフレーズで新しく作る」（作るたびに別のウォレット・別のバックアップになる）。'
+        + 'パスキーで使っていた記録をパスフレーズへ移すときは、先にパスキーで開き、「鍵を替える」→「新しい鍵へ移し替える」を押す（鍵を作る → 残高を送る → バックアップする、を順に案内する）。');
       /* パスキーと同じく「開く → 新しく作る」の順に並べる（Issue #53。前に作った人が押し間違えないように） */
-      btn('合言葉で開く', async () => {
+      btn('パスフレーズで開く', async () => {
         /* ページの中の欄で聞く（Issue #53: iPhone のホーム画面版で、ブラウザの入力の窓に打てなかった） */
-        const pass = await askText('合言葉（24 字）');
+        const pass = await askText('パスフレーズ（24 字）');
         if (!pass) { line.textContent = 'やめた'; return; }
         line.textContent = '鍵を作っている…';
         const keys = await keysFromRoot(await rootFromPassphrase(pass));
@@ -2604,14 +2604,14 @@ function chainBox(opts = {}) {
         paint();
         await restoreWith(keys.recordKey, keys.wallet.address, net);
       });
-      btn('合言葉で新しく作る', async () => {
+      btn('パスフレーズで新しく作る', async () => {
         const pass = makePassphrase();
-        if (!window.confirm('合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。'
-          + '合言葉はウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
+        if (!window.confirm('パスフレーズ: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。'
+          + 'パスフレーズはウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
         line.textContent = '鍵を作っている…';
         await start('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
       });
-      const alt = fold('パスキー・合言葉を失ったとき', false);
+      const alt = fold('パスキー・パスフレーズを失ったとき', false);
       group('code', '復元コードで読む', 'パスキーを失った・このページを開くドメインが変わったときに、バックアップを読むだけ（お金は動かせず、新しく保存もできない）。', alt);
       btn('復元コードで復元（読むだけ）', restoreByCode);
       if (pk) {
@@ -2619,7 +2619,7 @@ function chainBox(opts = {}) {
         into = lines.get('start').previousSibling;
         groupKey = 'start';
         btn('パスキーを新しく作る', async () => {
-          line.textContent = 'パスキーを作る画面を開いている…（出ないときは、この端末・ブラウザでパスキーが使えない。合言葉を使う）';
+          line.textContent = 'パスキーを作る画面を開いている…（出ないときは、この端末・ブラウザでパスキーが使えない。パスフレーズを使う）';
           const made = await createPasskey();
           let got = made;
           if (!made.root) {
@@ -2640,7 +2640,7 @@ function chainBox(opts = {}) {
        「同期→ブロックチェーンを選んだ後に出るメッセージはここでなくてもいいのでは？下のウォレットのアドレスとか」）。
        共有・同期・チャットの欄では空にする（自分のアドレスが要るときは「招かれる」の「自分のウォレットのアドレスをコピー」） */
     info.textContent = (setup || ALLOWED.includes('backup'))
-      ? 'ウォレットのアドレス: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : '合言葉') + 'で開く）'
+      ? 'ウォレットのアドレス: ' + cfg.address + '（' + (cfg.mode === 'passkey' ? 'パスキー' : 'パスフレーズ') + 'で開く）'
         + (cfg.lastAt ? '。最後に保存したバックアップ: ' + new Date(cfg.lastAt).toLocaleString() + '（取引 ' + cfg.lastCount + ' 件）' : '')
       : '';
     info.hidden = !info.textContent;
@@ -2680,7 +2680,7 @@ function chainBox(opts = {}) {
       });
       /* 自分だけが読み書きできる掲示板（同じパスキー・合言葉で開く自分の端末どうし）。段2のチャットの1つ */
       group('self-chat', '自分にメモを送る（自分のほかの端末へ）',
-        '同じパスキーか合言葉で開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
+        '同じパスキーかパスフレーズで開いた自分の端末どうしで、短いメモを送り合う。自分しか読めない。1 件ごとに手数料が掛かる。');
       btn('メモを開く', async () => peekChat('self-chat', null));
     } else if (task === 'lost') paintLost();
   }
@@ -2715,7 +2715,7 @@ function chainBox(opts = {}) {
         try { await navigator.clipboard.writeText(cfg.address); line.textContent = 'アドレスをコピーした。開いたページに貼り、devnet を選んで頼む。済んだら「残高を見る」。'; } catch (e) {
           line.textContent = '開いたページに、このアドレスを貼る: ' + cfg.address;
         }
-        if (!w) line.textContent += '（窓が開かなかったときは ' + FAUCET_URL + ' を開く）';
+        if (!w) line.textContent += '（ウインドウが開かなかったときは ' + FAUCET_URL + ' を開く）';
       });
     }
     btn('残高を別のアドレスへ送る', sweepOut);
@@ -2724,7 +2724,7 @@ function chainBox(opts = {}) {
   function paintKey(net, mv, pk) {
     group('key', '鍵を替える',
       '新しい鍵を作って移すなら「新しい鍵へ移し替える」（鍵を作る → 残高を送る → バックアップする、を順に案内する）。'
-      + '作ってある別の鍵へ替えるなら「パスキーを切り替える」「合言葉を切り替える」（替えると別のウォレット・別のバックアップになる。先に残高を送り出しておく）。');
+      + '作ってある別の鍵へ替えるなら「パスキーを切り替える」「パスフレーズを切り替える」（替えると別のウォレット・別のバックアップになる。先に残高を送り出しておく）。');
     if (!mv) {
       btn('新しい鍵へ移し替える', async () => {
         /* 前の鍵（いま開いているもの）を覚えて、1段目へ。秘密は置かない */
@@ -2735,20 +2735,20 @@ function chainBox(opts = {}) {
       });
     }
     if (pk) btn('パスキーを切り替える', switchPasskey);
-    btn('合言葉を切り替える', switchPassphrase);
+    btn('パスフレーズを切り替える', switchPassphrase);
   }
 
   function paintBackup(net) {
     /* opts.only: 'sync'（ほかの端末と同期する。Issue #52 の返事「同期するボタンをつけて明示的に書き出せるように」） */
     if (opts.only === 'sync') {
       group('backup', '自分のほかの端末へ送る',
-        '押すと、先にほかの端末の新しいバックアップがあれば重ね（消さない）、そのうえで今の記録をチェーンに書く（手数料が掛かる）。'
-        + 'iPhone と Android のようにパスキーが引き継がれない端末どうしは、両方を同じ合言葉で開く。');
+        '押すと、先にほかの端末の新しいバックアップがあれば追加し（消さない）、そのうえで今の記録をチェーンに書く（手数料が掛かる）。'
+        + 'iPhone と Android のようにパスキーが引き継がれない端末どうしは、両方を同じパスフレーズで開く。');
       if (into && into.parentElement) into.parentElement.insertBefore(chainPick.el, into);
       btn('自分のほかの端末へ送る', syncChain);
       return;
     }
-    group('backup', opts.only === 'out' ? 'ブロックチェーンに書き出す' : opts.only === 'in' ? 'ブロックチェーンから読み込む' : 'バックアップする','保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに重ねる。'
+    group('backup', opts.only === 'out' ? 'ブロックチェーンに書き出す' : opts.only === 'in' ? 'ブロックチェーンから読み込む' : 'バックアップする','保存すると、いまの記録を縮めて暗号化し、チェーンに書く（手数料が掛かる）。復元は、いまの記録を消さずに追加する。'
       + '復元コードは、パスキーを失ったときにバックアップを読むためのもの。始めたときに書き留めていなければ、ここで表示して書き留める。');
     /* opts.only: 'out'（書き出すだけ）／'in'（読み込むだけ）。書き出すと読み込むを分けて出す（2026-11-13 Issue #48 の返事） */
     const only = opts.only || '';
@@ -2772,7 +2772,7 @@ function chainBox(opts = {}) {
     btn('復元コードで復元（読むだけ）', restoreByCode);
     group('device', 'この端末での設定を消す', null);
     btn('この端末での設定を消す', async () => {
-      if (!window.confirm('この端末のバックアップの設定を消す？（チェーンの上のバックアップとウォレットは消えない。パスキー・合言葉・復元コードがあれば、また開ける）\n'
+      if (!window.confirm('この端末のバックアップの設定を消す？（チェーンの上のバックアップとウォレットは消えない。パスキー・パスフレーズ・復元コードがあれば、また開ける）\n'
         + 'ウォレットに SOL が残っているなら、先に「残高を別のアドレスへ送る」で送り出しておく（復元コードではお金は動かせない）。')) return;
       try { localStorage.removeItem(CONFIG_KEY); } catch (e) { /* 消せなくても進む */ }
       cfg = loadConfig();
@@ -2833,7 +2833,7 @@ function chainBox(opts = {}) {
     /* 前の版の「共有」（ID が share）は、どの端末でも同じ ID なので、ほかの人の同じ海とまざる。共有させない */
     const cands = seaList().filter(e => e.id !== 'share' && !shared[e.id]);
     group('share', hub ? (opts.serverShare ? '＋ 海を共有する（ブロックチェーンで。押したとき・手数料あり）' : '＋ 海を共有する（人を招く）') : '招く（自分の海に人を招く）',
-      '① 海を選ぶ（共有中の海・まだ共有していない海・「＋ 新しい海」・個人の海を「写して共有」）。② 下の欄で招待コードを作り、相手にだけ送る。'
+      '① 海を選ぶ（共有中の海・まだ共有していない海・「＋ 新しい海」・個人の海を「コピーして共有」）。② 下の欄で招待コードを作り、相手にだけ送る。'
       + '中身はメンバーだけが読める。誰と誰が同じ海にいるかと、書いた時刻・大きさはチェーンの上で誰でも見られる。書いたものは消せない。');
     /* 招待コードの欄は、共有中の海ごとの欄ではなく、この「招く」の流れの中に置く（Issue #68 の返事
        「共有中の海に…招待コードを作るが表示されてる。他の人と一緒に使うの設定の流れで出てきた方がわかりやすい？」）。
@@ -2856,7 +2856,7 @@ function chainBox(opts = {}) {
        中身を新しい海へ写してから、その新しい海を共有する選択肢として出す（元の海はそのまま残る）。
        「個人の海は新規と『写して共有』の2つに」（同日の返事）: 「＋ 新しい海」（空から）のすぐ後ろに並べ、2 つから選ぶ形にした */
     const copyFrom = allSeas().filter(s => s.personal || (s.id === 'share' && !shared.share));
-    copyFrom.forEach(s => btn('「' + escapeHtml(s.name) + '」を写して共有', () => copyThenShare(s)));
+    copyFrom.forEach(s => btn('「' + escapeHtml(s.name) + '」をコピーして共有', () => copyThenShare(s)));
 
     /* ② 選んだ海に招く（招待コード。Issue #68 の返事「おすすめで」）。作って相手に送るだけ。相手の受け取りIDは要らない。
        相手のウォレットのアドレスを先にもらっていれば、同じ押しで名簿に足し、手数料も送れる（同日の返事「送れるようにして」
@@ -2876,8 +2876,8 @@ function chainBox(opts = {}) {
       nameIn.type = 'text';
       nameIn.autocomplete = 'off';
       nameIn.maxLength = 24;
-      nameIn.placeholder = '呼び名（空でもよい）';
-      nameIn.setAttribute('aria-label', '招く相手の呼び名');
+      nameIn.placeholder = '名前（空でもよい）';
+      nameIn.setAttribute('aria-label', '招く相手の名前');
       nameIn.style.cssText = 'flex:0 1 9em;min-width:6em';
       /* 手数料はアドレスがあるときだけ送れる。アドレスが空の間はチェックを押せなくする
          （同日の返事「アドレス入れずに手数料送るチェック入れたままだとどうなる？」: 前は黙って送らなかった） */
@@ -2910,7 +2910,7 @@ function chainBox(opts = {}) {
       btn('🔑 招待コードを作る', () => createInvite(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled, snapChk.checked));
       /* アドレスを入れずにコードを送ったあとで、相手のアドレスをもらったとき（Issue #68 の返事「相手のウォレットを空にして招待を送ったあと、
          相手のウォレット情報をどこから入れれる？」）。コードは作らず、同じ欄のアドレスで名簿に足し、手数料も送る */
-      btn('🔑 アドレスでメンバーに足すだけ（コードを送ったあと）', () => addByAddress(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled));
+      btn('🔑 アドレスでメンバーに追加するだけ（コードを送ったあと）', () => addByAddress(selRec.id, addrIn.value, nameIn.value, giftChk.checked && !giftChk.disabled));
       /* 作ったコードは、説明の文に埋めず、ここに字とコピーのボタンで出す（Issue #68 の返事「コードコピーできるボタンあれば便利？」） */
       if (lastCode && lastCode.id === selRec.id) {
         const codeRow = el('div', 'row');
@@ -2946,7 +2946,7 @@ function chainBox(opts = {}) {
       /* 読むだけの説明は畳んで下に（Issue #68 の A 案）。
          自分にメモを送る（自分の端末どうし）は、2026-11-16 Issue #74 で「自分の端末どうしで使う」の箱へ移した */
       flowBox(false);
-      group('share-keys', '🔑 の付いたボタンについて', '🔑 の付いたボタンは、パスキーか合言葉を求める（書く・招く・受け取る）。'
+      group('share-keys', '🔑 の付いたボタンについて', '🔑 の付いたボタンは、パスキーかパスフレーズを求める（書く・招く・受け取る）。'
         + '読むだけ（チャットを読む・自動の読み込み）は求めない。「同期」で 1 度開けると、ページを閉じるまで求めない。');
       return;
     }
@@ -2970,10 +2970,10 @@ function chainBox(opts = {}) {
       srvOnly
         ? '届いたサーバーの招待コード（ABCD-EFGH-JKLM の形）を貼って「受け取る」。設定の「海」のログインの［招待コードで登録］の欄へ入れる。'
         : '届いた招待コードを貼って「受け取る」。'
-      + 'ブロックチェーンの招待コード（BTI1-…）なら、海が自動で足される（受け取るだけなら手数料なし。先に鍵を選んでおく）。'
+      + 'ブロックチェーンの招待コード（BTI1-…）なら、海が自動で追加される（受け取るだけなら手数料なし。先に鍵を選んでおく）。'
       + (srv ? 'サーバーの招待コード（ABCD-EFGH-JKLM の形）なら、設定の「海」のログインの［招待コードで登録］の欄へ入れる。' : '')
       + (started ? '先に自分のアドレスを招く人に送っておくと、受け取ってすぐメンバーになり、手数料も送ってもらえる。'
-        + '送っていなければ、「同期」で記録を送ったときに招いた人の端末がメンバーに足す（送るには SOL が要る）。' : ''));
+        + '送っていなければ、「同期」で記録を送ったときに招いた人の端末がメンバーに追加する（送るには SOL が要る）。' : ''));
     const codeIn = document.createElement('input');
     codeIn.type = 'text';
     codeIn.autocomplete = 'off';
@@ -2996,7 +2996,7 @@ function chainBox(opts = {}) {
       if (kind === 'server') {
         if (srv) { line.textContent = opts.serverInvite(v.trim()); return; }
         throw new Error(isSolo()
-          ? 'サーバーの招待コードの形。このページはサーバーに繋がない版なので、設定の「海」のいちばん下の「サーバーに繋ぐページを開く」から、サーバーに繋ぐページで入れる。'
+          ? 'サーバーの招待コードの形。このページはサーバーに繋がないページなので、設定の「海」のいちばん下の「サーバーに繋ぐページを開く」から、サーバーに繋ぐページで入れる。'
           : 'サーバーの招待コードの形。設定の「海」の［サーバーにログイン］→［招待コードで登録］に入れる。');
       }
       throw new Error(String(v || '').trim() ? '招待コードの形ではない（ブロックチェーンは BTI1-…、サーバーは ABCD-EFGH-JKLM の形）。' : '招待コードを貼る。');
@@ -3021,7 +3021,7 @@ function chainBox(opts = {}) {
     if (typeof opts.serverShare !== 'function') return;
     group('srv-share', '＋ 海を共有する（サーバーで。自動・手数料なし）',
       'サーバーの海は、招いた人の端末とも同じ海になる（自動で合う。手数料は掛からない）。'
-      + '<b>招く人</b>: サーバーにログインし、設定の「海」で共有するサーバーの海の ⚙ →［人を招く］で招待コードを作り、相手にこのページの住所とコードを渡す（24 時間・1回だけ）。'
+      + '<b>招く人</b>: サーバーにログインし、設定の「海」で共有するサーバーの海の ⚙ →［人を招く］で招待コードを作り、相手にこのページの URL とコードを渡す（24 時間・1回だけ）。'
       + 'この端末だけの海をサーバーに置くのは、サーバーの管理者が VM で行う。'
       + '<b>招かれる人</b>: 下の「招待コードを受け取る」に貼る（設定の「海」の［招待コードで登録］へ入る）。');
     btn('設定の「海」を開く', async () => opts.serverShare());
@@ -3107,9 +3107,9 @@ function chainBox(opts = {}) {
         const prefs = loadP2pPrefs();
         p2.textContent = '直の通信: ' + (!prefs.on ? '切ってある（チャットの欄の「端末どうしで直につなぐ」）'
           : !p2pSupported() ? 'このブラウザでは使えない'
-          : !sessionKeys ? 'まだ（この海で「同期」すると始まる。ページを読み直すと止まる）'
+          : !sessionKeys ? 'まだ（この海で「同期」すると始まる。ページを再読み込みすると止まる）'
           : !member ? '読むだけの間は、ほかの人から見つけてもらえない（メンバーになると始まる）'
-          : direct ? 'つながっている ' + direct + ' 台（ひとことは手数料なしで届く）'
+          : direct ? 'つながっている ' + direct + ' 台（コメントは手数料なしで届く）'
           : m0 ? 'つなぐ相手を待っている（相手もこの 10 分のうちに新しい書き込みを「同期」すると、つなぎに行く）'
           : 'これから始める（次の自動の読み込みで）')
           + (m0 && m0.lastError ? '・前の失敗: ' + m0.lastError : '');
@@ -3194,7 +3194,7 @@ function chainBox(opts = {}) {
   function peekChat(gkey, rec) {
     closeChat();
     const anchor = lines.get(gkey);
-    if (!anchor) throw new Error('チャットを開けなかった（画面を開き直す）');
+    if (!anchor) throw new Error('チャットを開けなかった（画面を再読み込みする）');
     const room = rec ? 'sea:' + rec.id + ':' + rec.gen : 'self:' + cfg.address;
     const members = rec ? ((loadShared()[rec.id] || rec).members || []) : [];
     const nameOf = a => (a === cfg.address ? '自分' : ((members.find(m => m.a === a) || {}).n || shortAddr(a)));
@@ -3225,8 +3225,8 @@ function chainBox(opts = {}) {
     /* 読むための鍵があれば、鍵を求めずにチェーンの新しいメッセージも読んで足す（Issue #68 の A 案） */
     const canRead = !!(rec && readBoardsOf(rec) && readBoardsOf(rec).chat);
     panel.appendChild(el('p', 'note', canRead
-      ? '新しいメッセージも、鍵なしで読んで出す。送るときはパスキーか合言葉を求める（ページを閉じるまで 1 度だけ）。'
-      : 'この端末に届いている分だけを、鍵なしで表示している。送ると、パスキーか合言葉を求め、新しいメッセージも読む。'));
+      ? '新しいメッセージも、鍵なしで読んで出す。送るときはパスキーかパスフレーズを求める（ページを閉じるまで 1 度だけ）。'
+      : 'この端末に届いている分だけを、鍵なしで表示している。送ると、パスキーかパスフレーズを求め、新しいメッセージも読む。'));
     if (rec) markChatSeen(room, true);
     if (canRead) {
       watchOne(sharedRec(rec.id)).then(() => { if (chat && chat.panel === panel) { draw(); markChatSeen(room, true); } }, () => { /* 読めなくても履歴は出ている */ });
@@ -3277,7 +3277,7 @@ function chainBox(opts = {}) {
     const nameOf = a => (a === keys.wallet.address ? '自分' : ((members().find(m => m.a === a) || {}).n || shortAddr(a)));
 
     const anchor = lines.get(gkey);
-    if (!anchor) throw new Error('チャットを開けなかった（画面を開き直す）');
+    if (!anchor) throw new Error('チャットを開けなかった（画面を再読み込みする）');
     const panel = el('div', null);
     panel.style.cssText = 'margin-top:6px;padding:8px;border:1px solid rgba(127,127,127,.35);border-radius:8px';
     const list = el('div', null);
@@ -3344,7 +3344,7 @@ function chainBox(opts = {}) {
     status.textContent = '直につながっている相手がいれば直に送る（手数料なし・チェーンに残らない）。いなければ、聞いてからブロックチェーンに書く（手数料あり・相手が後で開いても届く）。'
       + 'メッセージの横の（直）（チェーン）（未送）が、どの道で届いたかを表す。'
       + '直に送ったものの履歴はこの端末にだけ置く（残したいときは「ブロックチェーンにも残す」）。'
-      + (rec ? '直につながると、この海の記録も互いに直に送り合って重ねる（手数料なし）。' : '');
+      + (rec ? '直につながると、この海の記録も互いに直に送り合って追加する（手数料なし）。' : '');
     panel.appendChild(status);
     anchor.parentNode.insertBefore(panel, anchor.nextSibling);
 
@@ -3455,7 +3455,7 @@ function chainBox(opts = {}) {
           const entry = memberEntry(inner.entry, rec.id);
           mergeIntoDevice({ seas: entry ? [entry] : [], boxes: { [rec.id]: inner.box } });
           try { putShared(Object.assign(sharedRec(rec.id), { readAt: Date.now() })); } catch (e) { /* 共有をやめていれば印は付けない */ }
-          status.textContent = nameOf(inner.by) + ' の記録を直に受け取って重ねた（' + new Date(Number(inner.at) || Date.now()).toLocaleString() + ' の写し・手数料なし）。';
+          status.textContent = nameOf(inner.by) + ' の記録を直に受け取って追加した（' + new Date(Number(inner.at) || Date.now()).toLocaleString() + ' の写し・手数料なし）。';
         } : null,
       });
     } else if (prefs.on) {
@@ -3661,7 +3661,7 @@ function chainBox(opts = {}) {
   /* 「海をつくる」板を開き、作ったらその海で共有を始める。板の「つくる」を押した手の続きで鍵を開く（パスキーはそこで出る） */
   function makeSeaThenShare() {
     openSeaSheet(null, {
-      note: '作ったら、続けてこの海の共有を始める（パスキーか合言葉を求め、チェーンに書く前に確かめる）。'
+      note: '作ったら、続けてこの海の共有を始める（パスキーかパスフレーズを求め、チェーンに書く前に確かめる）。'
         + 'やめても海はこの端末に残り、あとで「招く」の海の名前をタップすれば共有できる。',
       onMade: async (sea) => {
         curKey = 'share';
@@ -3679,9 +3679,9 @@ function chainBox(opts = {}) {
      「新しい海だけでてきて既存の海を選べない」）。元の海は消さない。
      パスキーは押した手の続きで呼ぶ（iPhone）ので、shareSea の鍵を開けるまで await しない */
   function copyThenShare(s) {
-    if (!window.confirm('「' + s.name + '」の記録をすべて写した新しい海を作り、その海を共有する？\n'
-      + '「' + s.name + '」はそのまま残る（このあと「' + s.name + '」に足したものは、共有した海には入らない）。\n'
-      + '写した記録はすべて、招いた人に見える。')) return;
+    if (!window.confirm('「' + s.name + '」の記録をすべてコピーした新しい海を作り、その海を共有する？\n'
+      + '「' + s.name + '」はそのまま残る（このあと「' + s.name + '」に追加したものは、共有した海には入らない）。\n'
+      + 'コピーした記録はすべて、招いた人に見える。')) return;
     let src = null;
     if (s.id === store.space()) { try { store.flush(); } catch (e) { /* 読むのは止めない */ } src = store.exportState(); }
     else { try { src = boxToState(JSON.parse(localStorage.getItem(boxKey(s.id)) || 'null')); } catch (e) { src = null; } }
@@ -3696,11 +3696,11 @@ function chainBox(opts = {}) {
     window.dispatchEvent(new CustomEvent('bubbles:seas'));
     if (!isSolo()) { try { sync.syncSeas(); } catch (e) { /* 一覧はあとで合わせる */ } }
     curKey = 'share';
-    line.textContent = '「' + s.name + '」を写した海「' + sea.name + '」を作った。共有を始める…';
+    line.textContent = '「' + s.name + '」をコピーした海「' + sea.name + '」を作った。共有を始める…';
     const left = msg => {
       paint();
       curKey = 'share';
-      line.textContent = msg + '（写した海「' + sea.name + '」はこの端末に残っている。上の海の名前をタップすると共有をやり直せる）';
+      line.textContent = msg + '（コピーした海「' + sea.name + '」はこの端末に残っている。上の海の名前をタップすると共有をやり直せる）';
     };
     return shareSea(sea).then(() => { if (!loadShared()[sea.id]) left('やめた'); },
       e => left((e && e.message) || String(e)));
@@ -3769,13 +3769,13 @@ function chainBox(opts = {}) {
     if (snap.length > MAX_TX) throw new Error('記録が大きすぎる（取引 ' + snap.length + ' 件に分かれる）。「今の自分の記録も送る」を外して作る');
     const count = 1 + roster.length + snap.length;
     const need = await needFunds(net, count);
-    const parts = ['招待'].concat(nextMembers ? [(nick || shortAddr(addr)) + ' を足した名簿'] : []).concat(snap.length ? ['今の自分の記録'] : []);
+    const parts = ['招待'].concat(nextMembers ? [(nick || shortAddr(addr)) + ' を追加した名簿'] : []).concat(snap.length ? ['今の自分の記録'] : []);
     if (!window.confirm('「' + sea.name + '」の招待コードを作る？（' + NETWORKS[net].label + '）\n'
       + parts.join('と') + 'をチェーンに書く'
       + '（取引 ' + count + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
-      + 'コードは合言葉と同じで、持っている人は誰でもこの海を読める。相手にだけ送る。\n'
+      + 'コードはパスワードと同じで、持っている人は誰でもこの海を読める。相手にだけ送る。\n'
       + (addr ? '相手は受け取ればすぐメンバーとして書ける。' + (withGift ? '続けて手数料を送るかを聞く。' : '')
-        : 'メンバーに足すのは、このコードで最初に記録を送った 1 人だけ（' + INVITE_DAYS + ' 日のうち）。'))) { line.textContent = 'やめた'; return; }
+        : 'メンバーに追加するのは、このコードで最初に記録を送った 1 人だけ（' + INVITE_DAYS + ' 日のうち）。'))) { line.textContent = 'やめた'; return; }
     line.textContent = '書いている…';
     await writeInvite(net, keys.wallet, text, box);
     if (roster.length || snap.length) {
@@ -3794,7 +3794,7 @@ function chainBox(opts = {}) {
     let copied = false;
     try { await navigator.clipboard.writeText(code); copied = true; } catch (e) { /* ボタンで写す */ }
     let msg = (copied ? '招待コードを作ってコピーした。' : '招待コードを作った。下の「招待コードをコピー」でコピーする。')
-      + '相手にだけ送る（メッセージなど）。' + (addr ? '' : '相手が記録を送ったら、次に「同期する」ときにメンバーに足す。');
+      + '相手にだけ送る（メッセージなど）。' + (addr ? '' : '相手が記録を送ったら、次に「同期する」ときにメンバーに追加する。');
     curKey = 'share-code';
     line.textContent = msg;
     /* 同じ押しの続きで手数料を送る（鍵は開けてある。パスキーを 2 度求めない） */
@@ -3819,7 +3819,7 @@ function chainBox(opts = {}) {
     if (!addr) throw new Error('相手のウォレットのアドレスを上の欄に入れてから押す');
     if (!isAddress(addr)) throw new Error('相手のウォレットのアドレスの形が違う（Solana のアドレスを貼る。BTA1- で始まる受け取りIDではない）');
     const { keys, seaKey } = await openShared(rec);
-    if (rec.owner !== keys.wallet.address) throw new Error('メンバーを足せるのは海の持ち主だけ');
+    if (rec.owner !== keys.wallet.address) throw new Error('メンバーを追加できるのは海の持ち主だけ');
     if (addr === keys.wallet.address) throw new Error('自分のアドレスが入っている（相手のアドレスを入れる）');
     const already = (rec.members || []).some(m => m.a === addr);
     const board = await boardOf(seaKey);
@@ -3827,7 +3827,7 @@ function chainBox(opts = {}) {
     if (members) {
       const roster = await postMemos(keys.wallet, rosterInner(Object.assign({}, rec, { members })), board);
       const need = await needFunds(net, roster.length);
-      if (!window.confirm('「' + (nick || shortAddr(addr)) + '」をメンバーに足す？\n'
+      if (!window.confirm('「' + (nick || shortAddr(addr)) + '」をメンバーに追加する？\n'
         + '新しい名簿をチェーンに書く（取引 ' + roster.length + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
         + '相手がまだ招待を受け取っていなければ、前に送った招待コードで受け取ってもらう（コードが無ければ「招待コードを作る」）。')) { line.textContent = 'やめた'; return; }
       line.textContent = '名簿を書いている…';
@@ -3838,7 +3838,7 @@ function chainBox(opts = {}) {
     } else if (!withGift) {
       throw new Error('この人はもうメンバー（手数料を送るなら「手数料も送る」にチェックを入れる）');
     }
-    let msg = members ? '「' + (nick || shortAddr(addr)) + '」をメンバーに足した。相手はカードの「同期」で自分の記録を送れる。' : '';
+    let msg = members ? '「' + (nick || shortAddr(addr)) + '」をメンバーに追加した。相手はカードの「同期」で自分の記録を送れる。' : '';
     curKey = 'share-code';
     line.textContent = msg;
     /* 同じ押しの続きで手数料を送る（鍵は開けてある。パスキーを 2 度求めない） */
@@ -3966,7 +3966,7 @@ function chainBox(opts = {}) {
     const box = seaBox(id);
     if (!box) throw new Error('この海の記録がこの端末に無い');
     const sea = allEntries().find(e => e.id === id);
-    line.textContent = '作っている…' + (signedN ? '（ひとこと ' + signedN + ' 件に署名した）' : '');
+    line.textContent = '作っている…' + (signedN ? '（コメント ' + signedN + ' 件に署名した）' : '');
     /* dev・at は「ここにいる」の知らせを兼ねる（直の通信 C1。10 分のあいだ、ほかのメンバーの端末がつなぎに来る） */
     const inner = { kind: 'snap', sea: id, g: rec.gen, at: Date.now(), entry: sea || null, box, dev: deviceId() };
     /* 招待コードで受け取って、まだ名簿にいないなら、コードの受け口と受け取りIDを入れる（持ち主の端末がこれを見て名簿に足す。Issue #68） */
@@ -4001,8 +4001,8 @@ function chainBox(opts = {}) {
     setTimeout(() => { watchAll(); }, 1500);
     paint();
     curKey = 'sea:' + id;
-    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「同期する」で重ねる。'
-      + (joining ? '招いた人が「同期する」を押すと、メンバーに足される。' : '');
+    line.textContent = '送った（取引 ' + memos.length + ' 件）。ほかのメンバーは「同期する」で追加する。'
+      + (joining ? '招いた人が「同期する」を押すと、メンバーに追加される。' : '');
     return true;
   }
 
@@ -4075,8 +4075,8 @@ function chainBox(opts = {}) {
     const roster = await postMemos(keys.wallet, rosterInner(Object.assign({}, next, { members })), board);
     const need = await needFunds(next.net, roster.length);
     if (!window.confirm('招待コードで ' + ok.length + ' 人が入ってきた: ' + ok.map(j => j.n || shortAddr(j.a)).join('・') + '\n'
-      + 'メンバーに足す？ 新しい名簿をチェーンに書く（取引 ' + roster.length + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
-      + '足すと、その人の記録とチャットも使うようになる。足さなければ、その人は読むだけのまま。')) return null;
+      + 'メンバーに追加する？ 新しい名簿をチェーンに書く（取引 ' + roster.length + ' 件・手数料の目安 ' + solText(need.fee) + '）。\n'
+      + '追加すると、その人の記録とチャットも使うようになる。追加しなければ、その人は読むだけのまま。')) return null;
     line.textContent = '名簿を書いている…';
     await writePost(next.net, keys.wallet, roster, board);
     const used = new Set(ok.map(j => j.inv));
@@ -4096,7 +4096,7 @@ function chainBox(opts = {}) {
     let added = null;
     /* 名簿に足せなくても（残高が足りない など）、記録の取り込みは続ける */
     try { added = await addJoiners(next, got, seaKey, keys); } catch (e) {
-      toast('招待コードで入ってきた人を足せなかった: ' + ((e && e.message) || String(e)));
+      toast('招待コードで入ってきた人を追加できなかった: ' + ((e && e.message) || String(e)));
     }
     if (added) {
       putShared(next);
@@ -4110,8 +4110,8 @@ function chainBox(opts = {}) {
       return;
     }
     const nameOf = a => (a === cfg.address ? '自分' : ((next.members || []).find(m => m.a === a) || {}).n || shortAddr(a));
-    if (!quiet && !window.confirm('共有の記録を重ねる？\n' + snaps.map(s => nameOf(s.by) + '（' + new Date(s.at).toLocaleString() + '）').join('\n')
-      + '\nいまの記録は消さずに重ねる（記録ごとに新しく書き換えたほうが残る）。')) { line.textContent = 'やめた'; return; }
+    if (!quiet && !window.confirm('共有の記録を追加する？\n' + snaps.map(s => nameOf(s.by) + '（' + new Date(s.at).toLocaleString() + '）').join('\n')
+      + '\nいまの記録は消さずに追加する（記録ごとに新しく書き換えたほうが残る）。')) { line.textContent = 'やめた'; return; }
     /* 重ねる直前に、前の同期のあとの書き込みが無かったかを見る（無ければ、重ねたあとの中身を新しい目印にする。Issue #68 の同期）。
        ここから目印を書くまで await しない。前は読み始めに見ていたので、読んでいる間に書いたひとことまで「送った」ことになり、
        次の「同期」で送られなかった（2026-11-15 Issue #68 の返事「TODOの同期を押しても、招待された側に反映されない」） */
@@ -4125,7 +4125,7 @@ function chainBox(opts = {}) {
     putShared(Object.assign(next, { readAt: Date.now() }, wasClean ? { syncMark: boxSig(id) } : {}));
     paint();
     curKey = 'sea:' + id;
-    line.textContent = snaps.length + ' 人ぶんの記録を重ねた。';
+    line.textContent = snaps.length + ' 人ぶんの記録を追加した。';
   }
 
   /* 自分のウォレットに届いた招待を開け、新しいもの（初めての海・新しい代の鍵）を受け取る */
@@ -4196,7 +4196,7 @@ function chainBox(opts = {}) {
     if (local && !prev) throw new Error('「' + f.sea.name + '」の招待は受け取れない（この端末に同じ ID の別の海がある）');
     if (!window.confirm('海「' + f.sea.name + '」に招かれている。受け取る？\n招いた人のウォレット: ' + f.owner
       + '\n受け取ると、この海がこの端末に足され、メンバーの記録を読み込む（手数料は掛からない）。'
-      + '\n「同期する」で自分の記録を送ると、招いた人の端末があなたをメンバーに足す。')) { line.textContent = 'やめた'; return; }
+      + '\n「同期する」で自分の記録を送ると、招いた人の端末があなたをメンバーに追加する。')) { line.textContent = 'やめた'; return; }
     const board = await boardOf(f.key);
     const rec = { id: f.sea.id, net, gen: f.gen, owner: f.owner, me: keys.wallet.address,
       wrapped: await wrapSeaKey(f.key, keys.recordKey, f.sea.id, f.gen, keys.wallet.address), board: board.address,
@@ -4210,7 +4210,7 @@ function chainBox(opts = {}) {
     curKey = 'share-in';
     const member = ((loadShared()[f.sea.id] || {}).members || []).some(m => m.a === keys.wallet.address);
     line.textContent = '「' + f.sea.name + '」を受け取った。' + (member ? 'もうメンバーなので、「同期する」で自分の記録を送れ、チャットも使える。'
-      : '「同期する」で自分の記録を送ると、招いた人がメンバーに足す（それまでは読むだけ）。');
+      : '「同期する」で自分の記録を送ると、招いた人がメンバーに追加する（それまでは読むだけ）。');
   }
 
   async function writeBackup() {
@@ -4239,7 +4239,7 @@ function chainBox(opts = {}) {
     if (parts && parts[0].id !== c0.lastId && parts[0].id !== c0.seenId) {
       const n = mergeIntoDevice(await openMemos(parts, keys.recordKey), { askLocal: true });
       markChainSeen(parts[0].id);
-      head = 'ほかの端末の記録を重ねた（海 ' + n + ' つ）。';
+      head = 'ほかの端末の記録を追加した（海 ' + n + ' つ）。';
     }
     const r = await saveBackup(keys, net);
     if (!r) { line.textContent = head + '送るのはやめた（ほかの端末には、まだ届いていない）。'; return; }
@@ -4307,7 +4307,7 @@ function chainBox(opts = {}) {
 
   function paintMove(m) {
     const step = moveStep(m);
-    const what = s => (s && s.mode === 'passkey') ? 'パスキー' : '合言葉';
+    const what = s => (s && s.mode === 'passkey') ? 'パスキー' : 'パスフレーズ';
     group('move', '鍵の移し替え（途中で止まっている）',
       '前の鍵（' + what(m.from) + '）のウォレットから、新しい鍵のウォレットへ移す。1から順に押す。途中でやめても、ここに続きが残る。'
       + 'ネット: ' + NETWORKS[m.network].label + '。');
@@ -4346,10 +4346,10 @@ function chainBox(opts = {}) {
           await moveKeyReady(m, 'passkey', await keysFromRoot(got.root), got.credId);
         });
       }
-      btn('1. 合言葉で新しく作る', async () => {
+      btn('1. パスフレーズで新しく作る', async () => {
         const pass = makePassphrase();
-        if (!window.confirm('新しい合言葉: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。3（バックアップ）でもう一度打つ。'
-          + '合言葉はウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
+        if (!window.confirm('新しいパスフレーズ: ' + pass + '\n\nこれを紙に書き留めてから OK を押す。3（バックアップ）でもう一度入力する。'
+          + 'パスフレーズはウォレットとバックアップの両方を開く（漏れるとお金も記録も取られる）。忘れたら開けない。app はどこにも置かない。')) return;
         line.textContent = '鍵を作っている…';
         await moveKeyReady(m, 'pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
       });
@@ -4388,7 +4388,7 @@ function chainBox(opts = {}) {
         saveMove(Object.assign(m, { backup: { id: r.id, count: r.count, at: r.at } }));
         finishMove(m, { lastAt: r.at, lastId: r.id, lastCount: r.count });
         line.textContent = '移し替えが済んだ。これからは新しい' + what(m.to) + 'で開く（バックアップ: 取引 ' + r.count + ' 件）。'
-          + (m.from.mode === 'passkey' ? '前のパスキーが要らなければ、端末のパスワードの管理で消す（app からは消せない）。' : '前の合言葉の紙は、もう要らない。');
+          + (m.from.mode === 'passkey' ? '前のパスキーが要らなければ、端末のパスワードの管理で消す（app からは消せない）。' : '前のパスフレーズの紙は、もう要らない。');
       });
       btn('3. 保存せずに新しい鍵に切り替える', async () => {
         if (!window.confirm('バックアップを保存せずに、新しい' + what(m.to) + 'に切り替える？\n'
@@ -4402,7 +4402,7 @@ function chainBox(opts = {}) {
       const warn = m.sent && !m.sent.skipped
         ? '残高はもう新しいウォレット（' + m.to.address + '）へ送ってある。やめると前の鍵のままになり、新しいウォレットの SOL は新しい鍵に切り替えないと使えない。\n'
         : '';
-      if (!window.confirm(warn + '鍵の移し替えをやめる？（前の鍵のまま。作った新しい鍵・合言葉は使わない）')) return;
+      if (!window.confirm(warn + '鍵の移し替えをやめる？（前の鍵のまま。作った新しい鍵・パスフレーズは使わない）')) return;
       clearMove();
       paint();
       line.textContent = '移し替えをやめた。';
@@ -4412,7 +4412,7 @@ function chainBox(opts = {}) {
   /* 1 が済んだ: 新しい鍵のアドレスを覚え、新しい鍵の復元コードを見せる */
   async function moveKeyReady(m, mode, keys, credId) {
     if (keys.wallet.address === m.from.address) {
-      throw new Error('前と同じ鍵（同じウォレット）になった。別のパスキーか、新しい合言葉を作る');
+      throw new Error('前と同じ鍵（同じウォレット）になった。別のパスキーか、新しいパスフレーズを作る');
     }
     saveMove(Object.assign(m, { to: { mode, credId: credId || null, address: keys.wallet.address } }));
     paint();
@@ -4428,7 +4428,7 @@ function chainBox(opts = {}) {
     if (m.to.mode === 'passkey') {
       keys = await keysFromRoot((await passkeyRoot(m.to.credId)).root);
     } else {
-      const pass = await askText('新しい合言葉（1 で書き留めた 24 字）');
+      const pass = await askText('新しいパスフレーズ（1 で書き留めた 24 字）');
       if (!pass) throw new Error('やめた');
       line.textContent = '鍵を作っている…';
       keys = await keysFromRoot(await rootFromPassphrase(pass));
@@ -4451,7 +4451,7 @@ function chainBox(opts = {}) {
      パスキーは押した手の続きで呼ぶ（住所を訊く prompt は待たないので、その後でも続きのまま） */
   async function sweepOut() {
     const net = netSel.value;
-    const to = window.prompt('送り先のアドレス（Solana のアドレス。この app の別のウォレットなら、その端末の「アドレスをコピー」で写したもの）\n'
+    const to = window.prompt('送り先のアドレス（Solana のアドレス。この app の別のウォレットなら、その端末の「アドレスをコピー」でコピーしたもの）\n'
       + 'ネット: ' + NETWORKS[net].label);
     if (!to) return;
     const keys = await unlock();
@@ -4478,7 +4478,7 @@ function chainBox(opts = {}) {
     const s = moveSummary(p);
     const at = s.at ? new Date(s.at).toLocaleString() : '不明';
     const mode = await askReplaceOrAdd('このバックアップをこの端末に復元する', ['保存した時刻: ' + at + (s.device ? '（' + s.device + '）' : ''),
-      (s.regions.length ? '同期の先 ' + s.regions.join('・') + '・' : '') + '海 ' + s.seas + ' つ・todo ' + s.todos + ' 件',
+      (s.regions.length ? '置き場 ' + s.regions.join('・') + '・' : '') + '海 ' + s.seas + ' つ・todo ' + s.todos + ' 件',
       s.regions.length ? 'サーバーの鍵は入っていない（設定の「海」の［サーバーにログイン］で入り直す）。' : '']);
     if (!mode) {
       line.textContent = 'やめた';
@@ -4503,14 +4503,14 @@ function chainBox(opts = {}) {
   /* 合言葉を切り替える（2026-11-11 Issue #31 の返事: パスキーを切り替えると対になるもの）。
      ほかの合言葉（＝別のウォレット）を打って替える。パスキーで開いていても、合言葉のウォレットへ替えられる */
   async function switchPassphrase() {
-    const pass = await askText('切り替える先の合言葉（24 字）');
+    const pass = await askText('切り替える先のパスフレーズ（24 字）');
     if (!pass) return;
     line.textContent = '鍵を作っている…';
     await switchTo('pass', await keysFromRoot(await rootFromPassphrase(pass)), null);
   }
   async function switchTo(mode, keys, credId) {
     const net = netSel.value;
-    const what = mode === 'passkey' ? 'パスキー' : '合言葉';
+    const what = mode === 'passkey' ? 'パスキー' : 'パスフレーズ';
     if (keys.wallet.address === cfg.address) {
       line.textContent = '同じ' + what + '（同じウォレット）を選んだ。変わらない。';
       return;
@@ -4623,40 +4623,40 @@ function download(blob, name) {
    service worker が無い環境（file:// など）では、箱ごと出さない */
 function updateBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '最新の版を確認する'));
+  wrap.appendChild(el('h3', null, '最新のバージョンを確認する'));
   wrap.appendChild(el(
     'p', 'note',
-    '版は' + (window.BUBBLES_VERSION ? '「v' + window.BUBBLES_VERSION + '」' : '不明') + '。'
-    + 'ホーム画面に追加した端末（とくに iPhone）で、閉じて開き直しても古いままに見えるときに押す。'
+    'バージョンは' + (window.BUBBLES_VERSION ? '「v' + window.BUBBLES_VERSION + '」' : '不明') + '。'
+    + 'ホーム画面に追加した端末（とくに iPhone）で、閉じて再起動しても古いままに見えるときに押す。'
   ));
   /* service worker の登録が無い（このブラウザに仕組みが無いときも）ときは、強制更新する
      （画面のキャッシュを消して読み直す。2026-11-12 利用者の指示） */
   const force = () => {
     try { store.flush(); } catch (e) { /* 読み直すのは止めない */ }
-    toast('この端末は自動の入れ替えを使っていない。画面のキャッシュを消して、最新の版を読み直す…');
+    toast('この端末は自動の更新を使っていない。画面のキャッシュを消して、最新のバージョンを再読み込みする…');
     setTimeout(() => { forceReload(); }, 600);
   };
   const row = el('div', 'row');
   row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
-  const btn = el('button', 'btn', '最新の版を確認する');
+  const btn = el('button', 'btn', '最新のバージョンを確認する');
   btn.type = 'button';
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     if (!('serviceWorker' in navigator)) { force(); return; }
     /* 更新を止めていても、押したときの1回は入れる（Issue #91） */
     try { if (await isHolding()) await allowOnce(); } catch (e) { /* 入らなければ「今のが最新」になるだけ */ }
-    checkForUpdate(() => toast('新しい版を取り込んでいる…（1 分ほどかかることがある）', null, 8000)).then(async (found) => {
+    checkForUpdate(() => toast('新しいバージョンを取り込んでいる…（1 分ほどかかることがある）', null, 8000)).then(async (found) => {
       if (found === null) { force(); return; }
       if (!found) {
         /* まだ取り込みの途中なら「最新」とは言わない（2026-11-25） */
         let busy = false;
         try { const reg = await navigator.serviceWorker.getRegistration(); busy = !!(reg && reg.installing); } catch (e) { /* 分からなければ最新と言う */ }
-        toast(busy ? '新しい版をまだ取り込んでいる。少し待ってからもう一度押す' : '今のが最新の版');
+        toast(busy ? '新しいバージョンをまだ取り込んでいる。少し待ってからもう一度押す' : '今のが最新のバージョン');
         btn.disabled = false;
         return;
       }
-      toast('新しい版が見つかった。入れ替えて読み直す…');
-      applyUpdate().catch(() => { toast('入れ替えられなかった'); btn.disabled = false; });
+      toast('新しいバージョンが見つかった。更新して再読み込みする…');
+      applyUpdate().catch(() => { toast('更新できなかった'); btn.disabled = false; });
     }).catch((e) => { toast((e && e.message) || '確認できなかった'); btn.disabled = false; });
   });
   row.appendChild(btn);
@@ -4676,26 +4676,26 @@ function holdBox() {
   cb.type = 'checkbox';
   cb.disabled = true;
   row.appendChild(cb);
-  row.appendChild(el('span', null, '新しい版に自動で入れ替えない'));
+  row.appendChild(el('span', null, '新しいバージョンに自動で更新しない'));
   box.appendChild(row);
-  box.appendChild(el('p', 'note', 'オンにすると、新しい版が届いても入れ替えない（AI で変えた見た目と言葉が、新しい版で合わなくならないように）。'
-    + '入れ替えるのは上の「最新の版を確認する」を押したときだけ。困ったときは下の「前の版に戻す」も使える。'));
+  box.appendChild(el('p', 'note', 'オンにすると、新しいバージョンが届いても更新しない（AI で変えた見た目と言葉が、新しいバージョンで合わなくならないように）。'
+    + '更新するのは上の「最新のバージョンを確認する」を押したときだけ。困ったときは下の「前のバージョンに戻す」も使える。'));
   const st = el('p', 'note');
   st.setAttribute('aria-live', 'polite');   /* 状態の行。説明として畳まない */
   box.appendChild(st);
   const refresh = async () => {
     let on = null, held = '';
     try { on = await isHolding(); held = on ? await heldVersion() : ''; } catch (e) { on = null; }
-    if (on === null) { cb.disabled = true; cb.checked = false; st.textContent = 'この端末では止められない（自動の入れ替えの仕組みが動いていない）。'; return; }
+    if (on === null) { cb.disabled = true; cb.checked = false; st.textContent = 'この端末では止められない（自動の更新の仕組みが動いていない）。'; return; }
     cb.disabled = false;
     cb.checked = on;
-    st.textContent = !on ? '' : held ? '新しい版 v' + held + ' が届いている（まだ入れ替えていない）。「最新の版を確認する」で入れ替える。' : '止めている。';
+    st.textContent = !on ? '' : held ? '新しいバージョン v' + held + ' が届いている（まだ更新していない）。「最新のバージョンを確認する」で更新する。' : '止めている。';
   };
   cb.addEventListener('change', async () => {
     cb.disabled = true;
     let ok = false;
     try { ok = await holdUpdates(cb.checked); } catch (e) { ok = false; }
-    toast(!ok ? '変えられなかった' : cb.checked ? '新しい版に自動で入れ替えない' : '新しい版が届いたら、次に開いたときに入れ替える');
+    toast(!ok ? '変えられなかった' : cb.checked ? '新しいバージョンに自動で更新しない' : '新しいバージョンが届いたら、次に開いたときに更新する');
     refresh();
   });
   refresh();
@@ -4712,14 +4712,14 @@ function localModBox() {
   const wrap = el('div', 'tags localmod-box');
   wrap.appendChild(el('h3', null, '見た目と言葉を AI に頼んで変える'));
   wrap.appendChild(el('p', 'note',
-    'この端末だけの変更（ほかの端末・公開の版は変わらない）。色・大きさ・隠す／出す・ボタンや見出しの言葉を変えられる。'
+    'この端末だけの変更（ほかの端末・公開のバージョンは変わらない）。色・大きさ・隠す／出す・ボタンや見出しの言葉を変えられる。'
     + '動き（新しいボタン・計算・保存のしかた）は変えられない。設定の画面には効かない。'));
   wrap.appendChild(el('p', 'note',
     'AI に送るのは、書いた文・画面の部品の名前（class の名前）・今入れている変更の名前だけ（泡の中身・タグの名前は送らない）。'
-    + '当てたあと ' + Math.round(TRIAL_MS / 1000) + ' 秒のうちに「残す」を押さないと外れる。'
-    + 'おかしくなったら、ここで外す・アプリを開き直す（残す前なら外れる）・住所の後ろに ?nolocal を付けて開く（その窓の間は当てない）。'));
+    + '適用したあと ' + Math.round(TRIAL_MS / 1000) + ' 秒のうちに「残す」を押さないと外れる。'
+    + 'おかしくなったら、ここで外す・アプリを再起動する（残す前なら外れる）・ URL の後ろに ?nolocal を付けて開く（そのウインドウを開いている間は適用しない）。'));
   if (localModsDisabled()) {
-    const p = el('p', 'note', 'いまは ?nolocal で開いているので、変更を当てていない（一覧の入れ切り・外すはできる）。');
+    const p = el('p', 'note', 'いまは ?nolocal で開いているので、変更を適用していない（一覧の入れ切り・外すはできる）。');
     p.setAttribute('aria-live', 'polite');
     wrap.appendChild(p);
   }
@@ -4730,7 +4730,7 @@ function localModBox() {
   const ta = document.createElement('textarea');
   ta.rows = 2;
   ta.maxLength = 1000;
-  ta.placeholder = '例: 完了の泡を緑にして／「今日は終わり」を「また明日」にして';
+  ta.placeholder = '例: 完了の泡を緑にして／「今日はここまで」を「また明日」にして';
   ta.setAttribute('aria-label', '見た目と言葉を AI に頼む');
   ta.style.cssText = 'flex:1;min-width:160px;font:inherit;font-size:16px;padding:8px 12px;border-radius:10px;'
     + 'border:1px solid var(--line-strong);background:var(--bg);color:var(--text);resize:vertical';
@@ -4776,10 +4776,10 @@ function localModBox() {
       if (localStorage.getItem(LOCALMOD_ASKED)) return;
       localStorage.setItem(LOCALMOD_ASKED, '1');
       if (await isHolding() !== false) return;   /* 止められない端末・もう止めている */
-      if (!window.confirm('新しい版に自動で入れ替えないようにする？\n'
-        + '新しい版で、いま変えた見た目と言葉が合わなくなることがある。止めると、設定の「版（バージョン）を確かめる・戻す」で押したときだけ入れ替える。'
+      if (!window.confirm('新しいバージョンに自動で更新しないようにする？\n'
+        + '新しいバージョンで、いま変えた見た目と言葉が合わなくなることがある。止めると、設定の「バージョンを確かめる・戻す」で押したときだけ更新する。'
         + '（あとで同じ所で変えられる）')) return;
-      if (await holdUpdates(true)) toast('新しい版に自動で入れ替えない');
+      if (await holdUpdates(true)) toast('新しいバージョンに自動で更新しない');
     } catch (e) { /* 訊けなくても変更は残っている */ }
   }
 
@@ -4870,7 +4870,7 @@ function localModBox() {
       if (!r.why) out.appendChild(el('p', 'note', '見た目と言葉の変更にならなかった。動きを変えたいときは、改善のコメントで頼める。'));
       return;
     }
-    out.appendChild(el('p', 'note', 'この変更を当てる？（' + Math.round(TRIAL_MS / 1000) + ' 秒のうちに「残す」を押さないと外れる）'));
+    out.appendChild(el('p', 'note', 'この変更を適用する？（' + Math.round(TRIAL_MS / 1000) + ' 秒のうちに「残す」を押さないと外れる）'));
     const ul = el('ul', 'note');
     r.texts.forEach(([a, b]) => { const li = document.createElement('li'); li.textContent = '言葉: 「' + a + '」→「' + b + '」'; ul.appendChild(li); });
     if (r.css) { const li = document.createElement('li'); li.textContent = '見た目（CSS ' + r.css.length + ' 字。下）'; ul.appendChild(li); }
@@ -4883,7 +4883,7 @@ function localModBox() {
     }
     const row = el('div', 'row');
     row.style.cssText = 'display:flex;gap:8px;margin-top:6px';
-    const ok = el('button', 'btn', '当てる');
+    const ok = el('button', 'btn', '適用する');
     ok.type = 'button';
     ok.addEventListener('click', () => {
       if (trial) endTrial(false);   /* 前の試しは外す（1つずつ確かめる） */
@@ -4895,7 +4895,7 @@ function localModBox() {
       ta.value = '';
       trial = { id: m.id, timer: setTimeout(() => endTrial(false), TRIAL_MS) };
       render();
-      toast('当てた。ほかの画面で見て、よければ「残す」（' + Math.round(TRIAL_MS / 1000) + ' 秒で外れる）',
+      toast('適用した。ほかの画面で見て、よければ「残す」（' + Math.round(TRIAL_MS / 1000) + ' 秒で外れる）',
         { label: '残す', undo: false, on: () => endTrial(true) }, TRIAL_MS);
     });
     const no = el('button', 'btn', 'やめる');
@@ -4920,8 +4920,8 @@ function localModBox() {
    前の版の箱が残っていない（新しい版が入ったばかりでない端末・service worker の無い環境）ときは、そう書くだけ */
 function rollbackBox() {
   const wrap = el('div', 'tags');
-  wrap.appendChild(el('h3', null, '前の版に戻す'));
-  const note = el('p', 'note', '新しい版で困ったとき（不具合・重い）に、この端末だけ1つ前の版に戻す。');
+  wrap.appendChild(el('h3', null, '前のバージョンに戻す'));
+  const note = el('p', 'note', '新しいバージョンで困ったとき（不具合・重い）に、この端末だけ1つ前のバージョンに戻す。');
   wrap.appendChild(note);
   const RB = window.BubblesRollback;
   const status = el('p', 'note', '確かめている…');
@@ -4930,24 +4930,24 @@ function rollbackBox() {
   if (!RB) { status.textContent = 'このブラウザでは戻せない。'; return wrap; }
   RB.available().then((prev) => {
     if (!prev) {
-      status.textContent = '戻せる前の版はまだ無い（次に新しい版が入ると、今の版を1つだけ残す）。';
+      status.textContent = '戻せる前のバージョンはまだ無い（次に新しいバージョンが入ると、今のバージョンを1つだけ残す）。';
       return;
     }
     status.textContent = '戻すと、戻している間はサーバーへ送らない（この端末の中だけで書く）。'
-      + '記録はそのまま使い、戻す前に写しを取る。最新に戻ったとき、前の版が落とした欄を写しから埋め戻す。'
-      + '上の帯の「最新に戻る」か、次の新しい版が届くと最新に戻る。';
+      + '記録はそのまま使い、戻す前に写しを取る。最新に戻ったとき、前のバージョンが落とした欄を写しから埋め戻す。'
+      + '上の帯の「最新に戻る」か、次の新しいバージョンが届くと最新に戻る。';
     const row = el('div', 'row');
     row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
-    const btn = el('button', 'btn', '前の版（v' + prev + '）に戻す');
+    const btn = el('button', 'btn', '前のバージョン（v' + prev + '）に戻す');
     btn.type = 'button';
     btn.addEventListener('click', () => {
-      if (!window.confirm('この端末を前の版 v' + prev + ' に戻す？\n戻している間はサーバーへ送らない。上の帯の「最新に戻る」で戻せる。')) return;
+      if (!window.confirm('この端末を前のバージョン v' + prev + ' に戻す？\n戻している間はサーバーへ送らない。上の帯の「最新に戻る」で戻せる。')) return;
       btn.disabled = true;
       RB.rollbackTo(prev).catch((e) => { toast((e && e.message) || '戻せなかった'); btn.disabled = false; });
     });
     row.appendChild(btn);
     wrap.appendChild(row);
-  }).catch(() => { status.textContent = '戻せる版を確かめられなかった。'; });
+  }).catch(() => { status.textContent = '戻せるバージョンを確かめられなかった。'; });
   return wrap;
 }
 
@@ -5005,7 +5005,7 @@ function helpAiBox() {
   [...provSel.options].forEach(op => { op.textContent = providerLabel(op.value) + (hasKey(op.value) ? '（キーあり）' : ''); });
   body.appendChild(textEl('p', 'note',
     'AI（' + P.label + '）は、ここに入れた API キーで動く。ヘルプで訊く・本文の AI・おすすめの選び直し・この端末の表示をチャットで変えるときに使う。'
-    + 'ヘルプで送るのは質問の文とこの app の説明・版・画面だけ（バブルの本文は送らない）。'));
+    + 'ヘルプで送るのは質問の文とこの app の説明・バージョン・画面だけ（バブルの本文は送らない）。'));
   /* Web で調べるものが使えないことは、ⓘ の裏に隠さない（p.note にしない） */
   if (!canSearch()) {
     const ns = textEl('p', 'aikey-lb', '先の予定と「AI で調べる」「AI に訊く」（Web で調べるもの）は、今は Anthropic を選んだときだけ使える。');
@@ -5040,13 +5040,13 @@ function helpAiBox() {
     row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center';
     /* 鍵のかけ方（Issue #14 2026-11-13）。錠があればその方法、無ければパスキー（使える端末）か合言葉を選ぶ */
     const lock = keyLock();
-    const lockName = l => (l && l.mode === 'passkey') ? 'パスキー' : '合言葉';
+    const lockName = l => (l && l.mode === 'passkey') ? 'パスキー' : 'パスワード';
     const askNewPass = () => {
-      const a = window.prompt('キーに鍵をかける合言葉を決める（' + AIKEY_PASS_MIN + ' 字以上。忘れたらキーを入れ直す）');
+      const a = window.prompt('キーに鍵をかけるパスワードを決める（' + AIKEY_PASS_MIN + ' 字以上。忘れたらキーを入れ直す）');
       if (!a) return '';
-      if (a.length < AIKEY_PASS_MIN) { toast('合言葉は ' + AIKEY_PASS_MIN + ' 字以上にする'); return ''; }
-      const b = window.prompt('確かめのため、同じ合言葉をもう一度');
-      if (a !== b) { toast('合言葉が合わなかった'); return ''; }
+      if (a.length < AIKEY_PASS_MIN) { toast('パスワードは ' + AIKEY_PASS_MIN + ' 字以上にする'); return ''; }
+      const b = window.prompt('確かめのため、同じパスワードをもう一度');
+      if (a !== b) { toast('パスワードが合わなかった'); return ''; }
       return a;
     };
     /* 押した手の続きで呼ぶ（パスキーの確認は、押してからすぐでないと断られる） */
@@ -5064,7 +5064,7 @@ function helpAiBox() {
         b.addEventListener('click', () => fn('passkey'));
         out.push(b);
       }
-      const b2 = el('button', 'btn', '合言葉で' + label);
+      const b2 = el('button', 'btn', 'パスワードで' + label);
       b2.type = 'button';
       b2.addEventListener('click', () => fn('pass'));
       out.push(b2);
@@ -5160,8 +5160,8 @@ function helpAiBox() {
     keyBox.appendChild(row);
     keyBox.appendChild(el('p', 'note', 'キーはこの端末にだけ、暗号化して置く（サーバー・同期・引っ越しのファイルには入らない）。'
       + (lock ? '鍵は前に決めた' + lockName(lock) + '。'
-        : (prfSupported() ? 'パスキー（指・顔）か、自分で決める合言葉で鍵をかける。パスキーが使えない端末は合言葉。'
-          : 'この端末はパスキーが使えないので、自分で決める合言葉（' + AIKEY_PASS_MIN + ' 字以上）で鍵をかける。'))
+        : (prfSupported() ? 'パスキー（指・顔）か、自分で決めるパスワードで鍵をかける。パスキーが使えない端末はパスワード。'
+          : 'この端末はパスキーが使えないので、自分で決めるパスワード（' + AIKEY_PASS_MIN + ' 字以上）で鍵をかける。'))
       + 'AI を使うときに開ける。' + P.keyPlace + ' の側で、この app 専用のキーと使える上限額を決めておくと安心。'));
     if (editing) setTimeout(() => keyIn.focus(), 0);
   }
@@ -5244,7 +5244,7 @@ function openHelpScreen(was) {
     getContext: () => {
       const n = (f) => { try { const a = f(); return Array.isArray(a) ? a.length : '?'; } catch (err) { return '?'; } };
       return {
-        summary: '版 ' + (window.BUBBLES_VERSION || '?') + ' ・ 画面 settings'
+        summary: 'バージョン ' + (window.BUBBLES_VERSION || '?') + ' ・ 画面 settings'
           + ' ・ 海 ' + n(() => store.floating())
           + ' ・ 今日 ' + n(() => store.todays())
           + ' ・ 長期保留 ' + n(() => store.holds())
@@ -5277,7 +5277,7 @@ function prefsBox(onRender) {
   wrap.appendChild(el('h3', null, 'この端末の表示を変える'));
   wrap.appendChild(el('p', 'note', '好みで見た目と動きを変える。この端末にだけ置く（同期・引っ越しには乗らない）。'));
   /* Issue #76。設定はページの住所（オリジン）ごとの localStorage にあるので、サーバーあり版とサーバーなし版で別になる */
-  wrap.appendChild(el('p', 'note', 'サーバーあり版とサーバーなし版（開いているページの住所が違うもの）では、この設定は別々に置かれる。'
+  wrap.appendChild(el('p', 'note', 'サーバーあり版とサーバーなし版（開いているページの URL が違うもの）では、この設定は別々に置かれる。'
     + '片方で変えたら、もう片方でも同じように変える。'));
 
   let cur = loadPrefs();
@@ -5480,7 +5480,7 @@ function prefsBox(onRender) {
     controls.appendChild(row);
     controls.appendChild(el('p', 'note',
       '「全体に提案する」は、既定から変えた項目と値だけを書いた新しい Issue の画面を GitHub で開く（送るのは開いた画面で Create を押したとき。公開の repo なので誰でも読める）。'
-      + '全体の既定にするかはそこで決め、決まれば版の更新で届く。'));
+      + '全体の既定にするかはそこで決め、決まればバージョンの更新で届く。'));
     if (onRender) onRender();
   }
 
@@ -5651,7 +5651,7 @@ if (typeof document !== 'undefined' && isSolo()) {
       let keys;
       if (c.mode === 'passkey') keys = await keysFromRoot((await passkeyRoot(c.credId)).root);
       else if (c.mode === 'pass') {
-        const pass = await askText('合言葉（始めたときに書き留めた 24 字）');
+        const pass = await askText('パスフレーズ（始めたときに書き留めた 24 字）');
         if (!pass) return false;
         keys = await keysFromRoot(await rootFromPassphrase(pass));
       } else throw new Error('まだ始めていない');
@@ -5660,7 +5660,7 @@ if (typeof document !== 'undefined' && isSolo()) {
       if (!parts) throw new Error('全部そろったバックアップが見つからない');
       const n = mergeIntoDevice(await openMemos(parts, keys.recordKey), { askLocal: true });
       markChainSeen(parts[0].id);
-      toast('ほかの端末の記録を重ねた（海 ' + n + ' つ）');
+      toast('ほかの端末の記録を追加した（海 ' + n + ' つ）');
       return true;
     },
   });
@@ -5729,8 +5729,8 @@ function askReplaceOrAdd(title, lines, opts = {}) {
     const how = el('p', 'why');
     /* opts.before … 上書きの前に今の記録をどこへ控えるか（この端末の中のバックアップから戻すときは、この端末の中。Issue #83） */
     how.textContent = '上書き … 今の記録を' + (opts.before || 'サーバーに控えてから（ログインしていなければファイルに書き出してから）')
-      + '、読み込んだもので丸ごと入れ替える（読み込んだものに無い泡は消える）。'
-      + '追加 … 今の記録に足す（今の泡は消さない。両方にある泡は新しく書き換えたほうが残り、読み込んだものにあって今は無い泡は戻る）。';
+      + '、読み込んだもので丸ごと置き換える（読み込んだものに無い泡は消える）。'
+      + '追加 … 今の記録に追加する（今の泡は消さない。両方にある泡は新しく書き換えたほうが残り、読み込んだものにあって今は無い泡は戻る）。';
     box.appendChild(how);
     const row = el('div', 'row');
     const done = (v) => { back.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
@@ -5790,12 +5790,12 @@ function personalBackupBox(owner) {
     /* --- サーバー --- */
     const sh = document.createElement('p');
     sh.className = 'pbk-sub';
-    sh.textContent = 'サーバーに預けたバックアップ';
+    sh.textContent = 'サーバーに保存したバックアップ';
     w.appendChild(sh);
     if (!canServerBackup()) {
       const p = document.createElement('p');
       p.className = 'pbk-none';
-      p.textContent = 'ログインすると、サーバーにバックアップを預けて、ここから戻せる。';
+      p.textContent = 'ログインすると、サーバーにバックアップを保存して、ここから戻せる。';
       w.appendChild(p);
     } else {
       const r = document.createElement('div');
@@ -5807,9 +5807,9 @@ function personalBackupBox(owner) {
       take.dataset.name = '今バックアップを取る';
       take.addEventListener('click', async () => {
         take.disabled = true;
-        say.textContent = '預けている…';
-        try { const m = await takeServerBackup('手で取った'); say.textContent = 'サーバーに預けた（' + fmt(m.at) + '・海 ' + m.seas + '・泡 ' + m.todos + '）'; paint(); }
-        catch (e) { say.textContent = '預けられなかった: ' + ((e && e.message) || e); }
+        say.textContent = '保存している…';
+        try { const m = await takeServerBackup('手で取った'); say.textContent = 'サーバーに保存した（' + fmt(m.at) + '・海 ' + m.seas + '・泡 ' + m.todos + '）'; paint(); }
+        catch (e) { say.textContent = '保存できなかった: ' + ((e && e.message) || e); }
         finally { take.disabled = false; }
       });
       r.appendChild(take);
@@ -5821,7 +5821,7 @@ function personalBackupBox(owner) {
       listServerBackups().then(items => {
         if (my !== seq) return;
         list.textContent = '';
-        if (!items.length) { const p = document.createElement('p'); p.className = 'pbk-none'; p.textContent = 'まだ預けていない。'; list.appendChild(p); return; }
+        if (!items.length) { const p = document.createElement('p'); p.className = 'pbk-none'; p.textContent = 'まだ保存していない。'; list.appendChild(p); return; }
         items.forEach(m => list.appendChild(rowOf(fmt(m.at) + '　' + (m.label || '') + '・海 ' + m.seas + '・泡 ' + m.todos, async () => {
           say.textContent = '読んでいる…';
           let got;
@@ -5833,8 +5833,8 @@ function personalBackupBox(owner) {
           const pre = mode === 'replace' ? (await backupBeforeReplace()) + '。' : '';
           /* 同じ利用者が預けたもの。この端末だけの海はこの端末だけの海へ戻す（版をまたぐ引っ越しの問い askLocal は出さない） */
           const n = mergeIntoDevice(got.payload, { replace: mode === 'replace', add: mode === 'add' });
-          say.textContent = pre + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '入れ替えた。' : '戻した（今の記録に重ねた）。');
-          toast(mode === 'replace' ? 'バックアップ（' + fmt(m.at) + '）で入れ替えた' : 'バックアップ（' + fmt(m.at) + '）を重ねた');
+          say.textContent = pre + '海 ' + n + ' つの記録を' + (mode === 'replace' ? '置き換えた。' : '戻した（今の記録に追加した）。');
+          toast(mode === 'replace' ? 'バックアップ（' + fmt(m.at) + '）で置き換えた' : 'バックアップ（' + fmt(m.at) + '）を追加した');
           paint();
         })));
       }).catch(e => { if (my === seq) list.textContent = '一覧を読めなかった: ' + ((e && e.message) || e); });
@@ -5848,7 +5848,7 @@ function personalBackupBox(owner) {
       w.appendChild(lh);
       const ln = document.createElement('p');
       ln.className = 'note';
-      ln.textContent = 'サーバーとの間で個人の海を同じ記録にする・入れ替える前に、app が自動で取った前の中身（「この端末（自動）」のバックアップとは別のもの）。泡 0 は、そのとき個人の海が空だったもの。';
+      ln.textContent = 'サーバーとの間で個人の海を同じ記録にする・置き換える前に、app が自動で取った前の中身（「この端末（自動）」のバックアップとは別のもの）。泡 0 は、そのとき個人の海が空だったもの。';
       w.appendChild(ln);
       const here = isPersonal(store.space());
       const login = !!loggedIn();
@@ -5868,8 +5868,8 @@ function personalBackupBox(owner) {
             say.textContent = pre;
           } else got = raw ? addState(store.exportState(), raw) : null;
           if (!got || !store.applyState(got)) { toast('戻せなかった'); return; }
-          say.textContent += '控え（' + fmt(b.at) + '）' + (mode === 'replace' ? 'で個人の海を入れ替えた。' : 'を個人の海に重ねた。');
-          toast(mode === 'replace' ? '控えで入れ替えた' : '控えを重ねた');
+          say.textContent += '控え（' + fmt(b.at) + '）' + (mode === 'replace' ? 'で個人の海を置き換えた。' : 'を個人の海に追加した。');
+          toast(mode === 'replace' ? '控えで置き換えた' : '控えを追加した');
         }, blocked));
       });
     }
@@ -5886,6 +5886,6 @@ function personalBackupBox(owner) {
 /* 読む前の確かめに出す、ほかの app の束の行（日記。2026-11-18 §8.3） */
 function appsLine(info) {
   if (!info || !info.apps || !info.apps.length) return '';
-  const parts = info.apps.map(a => a === 'diary' ? '日記 ' + (info.diaryDays || 0) + ' 日分（diary へ渡す）' : a + '（この版では渡さない）');
+  const parts = info.apps.map(a => a === 'diary' ? '日記 ' + (info.diaryDays || 0) + ' 日分（diary へ渡す）' : a + '（このバージョンでは渡さない）');
   return '\n' + parts.join('・');
 }

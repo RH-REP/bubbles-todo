@@ -259,7 +259,7 @@ async function call(method, body, path = '/api/data', auth = key()) {
 
 /* 古い版だと断られた。syncNow が状態 'outdated' にする */
 function outdatedError(min) {
-  const e = new Error('この app の版が古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる');
+  const e = new Error('この app のバージョンが古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる');
   e.outdated = true;
   e.minSchema = Number.isFinite(Number(min)) ? Number(min) : null;
   return e;
@@ -283,7 +283,7 @@ function userOf(out) {
 async function syncOnce() {
   for (let tries = 0; tries < 3; tries++) {
     const got = await call('GET');
-    if (got.status === 401) throw new Error(conf.session ? 'パスキーで入り直す（通行証の期限切れか、取り消された）' : '合言葉が違う');
+    if (got.status === 401) throw new Error(conf.session ? 'パスキーで入り直す（ログインの期限が切れたか、取り消された）' : 'パスワードが違う');
     /* 2026-11-18: 仲間でない海は 403（招かれていないか、外された） */
     if (got.status === 403) throw new Error('この海の仲間ではない（招かれていないか、外された）');
     if (got.status === 429) {
@@ -295,9 +295,9 @@ async function syncOnce() {
     /* 取り違えの見張り。前の版のサーバーは space を返さないので、そのときは個人だけ通す */
     const space = got.json.space || 'me';
     if (space !== SRV) {
-      if (PERSONAL) throw new Error('これは「' + seaName(space) + '」の合言葉（自分の合言葉の欄に入っている）');
+      if (PERSONAL) throw new Error('これは「' + seaName(space) + '」のパスワード（自分のパスワードの欄に入っている）');
       if (space === 'me') throw new Error('サーバーがこの海を知らない（サーバーを新しくする）');
-      throw new Error('これは「' + seaName(SPACE) + '」の合言葉ではない');
+      throw new Error('これは「' + seaName(SPACE) + '」のパスワードではない');
     }
     /* 記録の形の版。サーバーがこの版より新しい形を求めるなら、合わせない（読み込みで欄を落とさないため）。
        前の版のサーバーは minSchema を返さないので、そのときは通す */
@@ -338,7 +338,7 @@ async function syncOnce() {
     if (put.status === 200) { writeBase(mine.doc); return; }
     if (put.status === 409) continue;          /* 間に別の端末が書いた。取り直す */
     if (put.status === 426) throw outdatedError(put.json && put.json.minSchema);   /* この版は古い。書かない */
-    if (put.status === 401) throw new Error('合言葉が違う');
+    if (put.status === 401) throw new Error('パスワードが違う');
     /* 2026-11-18: 見るだけ（viewer）の海には書けない。この端末の変更はこの端末にだけ残る */
     if (put.status === 403) throw new Error('見るだけの海なので、この端末の変更はサーバーに送らない');
     throw new Error('サーバーに書けなかった（' + put.status + '）');

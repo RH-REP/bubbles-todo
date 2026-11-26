@@ -114,7 +114,7 @@ function fitCount(newest, budget, k) {
    日が変わると戻る（契約 §5）。だから名前もそう呼ぶ。
    **記録している中身は変えていない。**ふりかえりの内訳は「はじめた」のまま
    （あちらは操作の名前ではなく、記録の名前。README の憲章がその言葉を使っている）。 */
-const DONE_LB = '今日は終わり';
+const DONE_LB = '今日はここまで';
 
 const GRID_D = 96;     /* 整列中のバブルの直径。枠の中と同じ一定サイズ（契約 §4） */
 const SAVE_MS = 400;   /* 詳細の自動保存。打っている途中で毎回は書かない */
@@ -1043,7 +1043,7 @@ function addFromComposer() {
 function quickStart() {
   if (!input || !input.value.trim()) return;
   const id = addFromComposer();
-  if (!id) { toast('海には足した。集中の画面は開けなかった'); return; }
+  if (!id) { toast('海には追加した。集中の画面は開けなかった'); return; }
   openFive(id);
 }
 
@@ -1289,7 +1289,7 @@ function dropToTab(id, tabId) {
     /* 落とし先は「今日の画面がいま映している日」。過去を映しているときは null
        ——過去はその日の記録なので、あとから足させない */
     const key = (typeof dropDay === 'function' && has('setDay')) ? dropDay() : store.todayKey();
-    if (!key) { toast('過ぎた日には足せない'); return; }
+    if (!key) { toast('過ぎた日には追加できない'); return; }
     if (store.daysOf(id).indexOf(key) >= 0) {
       toast('「' + trim(t.text) + '」はもう ' + dayWord(key) + 'にある');
       return;
@@ -1443,7 +1443,7 @@ function syncOffLabel() {
   const name = trim(nameOf(tag));
   /* 端の帯（「〈仕事〉 が付く」）と同じ言い方にそろえる＝「いま離すとどうなるか」 */
   offLabel.textContent = offArmed
-    ? '離すと『' + name + '』が外れる'
+    ? 'ドロップすると『' + name + '』が外れる'
     : 'ここに少し置くと『' + name + '』が外れる';
 }
 
@@ -3553,7 +3553,7 @@ function renderChrome() {
     if (!show) return;
     /* 書いてあることが本当に起きること。端へ落とせない海に
        「端へ運ぶと付く」とは書かない（下＝完了。DROP_DIRS を見よ） */
-    if (t.id === 'done') f.empty.textContent = 'ここには、[タスク完了] を押したものが集まる。';
+    if (t.id === 'done') f.empty.textContent = 'ここには、[完了にする] を押したものが集まる。';
     else if (t.id === 'hold') f.empty.textContent = 'ここには『' + nameOf(t) + '』にしたものが浮かぶ。バブルを上の端へ運ぶと入る。';
     else f.empty.textContent = 'ここには『' + nameOf(t) + '』が付いたものが浮かぶ。バブルを端へ運ぶと付く。';
   });
@@ -3850,7 +3850,7 @@ export default {
     hint = el('p', 'sea-hint',
       '思いついたことを、下に書く。<br>書いたものはここを漂う。<br><br>' +
       'タップすると真ん中に来て、そこから5分。<br>' +
-      '矢印の看板か、背景をなぞって、となりの入り江。');
+      '海の端の札か、背景をなぞって、となりの入り江。');
     faces.center.el.appendChild(hint);
 
     /* 絞った結果が0件のときの言葉。未達を名指ししない（追補4 §2）。

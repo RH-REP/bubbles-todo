@@ -47,7 +47,7 @@ const KEY_SLOT = 'backupKey';
 
 function subtle() {
   const c = globalThis.crypto;
-  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の住所で開く）');
+  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の URL で開く）');
   return c.subtle;
 }
 function randomBytes(n) { const b = new Uint8Array(n); globalThis.crypto.getRandomValues(b); return b; }
@@ -66,7 +66,7 @@ function fromB64(str) {
 
 /* 合言葉と塩から鍵を作る（取り出せない形） */
 export async function deriveBackupKey(pass, saltB64, iter = ITER) {
-  if (normalizePassphrase(pass).length < 16) throw new Error('合言葉が短い');
+  if (normalizePassphrase(pass).length < 16) throw new Error('パスワードが短い');
   const s = subtle();
   const base = await s.importKey('raw', new TextEncoder().encode(normalizePassphrase(pass)), 'PBKDF2', false, ['deriveKey']);
   return s.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: fromB64(saltB64), iterations: iter },
@@ -101,7 +101,7 @@ export function encryptedHead(text) {
   if (!o || o.format !== FORMAT_ENC) return null;
   /* 画面に出る言葉は「控え」→「バックアップ」（2026-11-17 Issue #79 の返事） */
   if (!o.kdf || !o.cipher || !o.data) throw new Error('暗号化したバックアップが壊れている');
-  if (Number(o.version) > ENC_VERSION) throw new Error('この app より新しい版のバックアップ（app を更新してから読み込む）');
+  if (Number(o.version) > ENC_VERSION) throw new Error('この app より新しいバージョンのバックアップ（app を更新してから読み込む）');
   const iter = Number(o.kdf.iterations);
   if (!(iter >= 100000 && iter <= 10000000)) throw new Error('暗号化したバックアップが壊れている');
   return o;
@@ -114,7 +114,7 @@ export async function openBackup(text, { key = null, pass = '' } = {}) {
   const k = key || await deriveBackupKey(pass, o.kdf.salt, Number(o.kdf.iterations));
   let plain;
   try { plain = await subtle().decrypt({ name: 'AES-GCM', iv: fromB64(o.cipher.iv) }, k, fromB64(o.data)); }
-  catch (e) { throw new Error(key ? 'この端末の鍵では開けない' : '合言葉が違う（またはファイルが壊れている）'); }
+  catch (e) { throw new Error(key ? 'この端末の鍵では開けない' : 'パスワードが違う（またはファイルが壊れている）'); }
   return readBackup(new TextDecoder().decode(plain));
 }
 

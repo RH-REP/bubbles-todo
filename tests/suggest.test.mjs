@@ -138,7 +138,7 @@ await test('送る文: 名前と印だけ。本文・次の一手の文・リン
   const c = S.describe(t, { tags: ['家'], firstStep: true });
   assert.equal('detail' in c || 'url' in c, false);
   const p = S.buildSuggestPrompt([c], TODAY);
-  assert.match(p.user, /1\. 年賀状を出す ［急ぐ、お気に入り、次の一手あり、タグ:家、作った日:2026-10-08、最後にはじめた日:2026-11-01］/);
+  assert.match(p.user, /1\. 年賀状を出す ［急ぐ、お気に入り、次にやることあり、タグ:家、作った日:2026-10-08、最後にはじめた日:2026-11-01］/);
   assert.doesNotMatch(p.user + p.system, /秘密の本文|住所録を開く|example\.com/);
   assert.match(p.system, /2026-11-07（土）/);
   assert.match(p.system, /命令形/);

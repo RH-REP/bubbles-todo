@@ -367,7 +367,7 @@ export function seaPanel(opts = {}) {
               else if (st.region) sync.configureRegion(st.region.id, st.url, '', '');
               saveMe(null);
               toast('この端末を外した（ログアウトした）');
-            } else toast('「' + d.name + '」を外した（その端末の通行証も止まった）');
+            } else toast('「' + d.name + '」を外した（その端末のログインも切れた）');
             paint();
           } catch (e) { line.textContent = (e && e.message) || '外せなかった'; rm.disabled = false; }
         });
@@ -439,8 +439,8 @@ export function seaPanel(opts = {}) {
     w.appendChild(text('p', 'prefs-pages-lb', '仲間を招く（リンク）'));
     const f = el('form', 'tagadd');
     const nm = document.createElement('input');
-    nm.type = 'text'; nm.maxLength = 40; nm.setAttribute('aria-label', '招く人の呼び名');
-    nm.placeholder = '招く人の呼び名（例 そら）';
+    nm.type = 'text'; nm.maxLength = 40; nm.setAttribute('aria-label', '招く人の名前');
+    nm.placeholder = '招く人の名前（例 そら）';
     const role = document.createElement('select');
     role.setAttribute('aria-label', '役割');
     [['editor', '書ける'], ['viewer', '見るだけ']].forEach(([v, lb]) => { const o = document.createElement('option'); o.value = v; o.textContent = lb; role.appendChild(o); });
@@ -475,10 +475,10 @@ export function seaPanel(opts = {}) {
     p.style.cssText = 'font-family:ui-monospace,monospace;font-size:13px;overflow-wrap:anywhere;user-select:all;margin:4px 0';
     out.appendChild(p);
     out.appendChild(text('p', 'note', note));
-    const cp = btn('リンクを写す');
+    const cp = btn('リンクをコピー');
     cp.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(link); toast('写した'); }
-      catch (e) { try { getSelection().selectAllChildren(p); toast(document.execCommand('copy') ? '写した' : '選んだので ⌘C で'); } catch (_) { toast('リンクを長押しして写す'); } }
+      try { await navigator.clipboard.writeText(link); toast('コピーした'); }
+      catch (e) { try { getSelection().selectAllChildren(p); toast(document.execCommand('copy') ? 'コピーした' : '選んだので ⌘C で'); } catch (_) { toast('リンクを長押ししてコピー'); } }
     });
     out.appendChild(cp);
   }
@@ -492,8 +492,8 @@ export function seaPanel(opts = {}) {
     w.appendChild(text('p', 'prefs-pages-lb', '新しい利用者を招く（スーパーユーザー）'));
     const f = el('form', 'tagadd sp-reg');
     const nm = document.createElement('input');
-    nm.type = 'text'; nm.maxLength = 40; nm.placeholder = '例 そら'; nm.setAttribute('aria-label', '招く利用者の呼び名');
-    f.appendChild(field('招く人の呼び名', nm, '登録の画面で、本人が表示名を直せる'));
+    nm.type = 'text'; nm.maxLength = 40; nm.placeholder = '例 そら'; nm.setAttribute('aria-label', '招く利用者の名前');
+    f.appendChild(field('招く人の名前', nm, '登録の画面で、本人が表示名を直せる'));
     const b = el('button', 'btn'); b.type = 'submit'; b.textContent = '招待のリンクを作る';
     f.appendChild(b);
     w.appendChild(f);
@@ -502,7 +502,7 @@ export function seaPanel(opts = {}) {
     w.appendChild(out);
     f.addEventListener('submit', async (ev) => {
       ev.preventDefault();
-      if (!nm.value.trim()) { out.textContent = '招く人の呼び名を入れる'; return; }
+      if (!nm.value.trim()) { out.textContent = '招く人の名前を入れる'; return; }
       b.disabled = true;
       out.textContent = '';
       try {
@@ -669,14 +669,14 @@ export function seaPanel(opts = {}) {
     } else {
       const f = el('form', 'tagadd sp-reg');
       const nm = document.createElement('input');
-      nm.type = 'text'; nm.maxLength = 40; nm.placeholder = '例 自分のスマホ'; nm.setAttribute('aria-label', 'この端末の呼び名');
+      nm.type = 'text'; nm.maxLength = 40; nm.placeholder = '例 自分のスマホ'; nm.setAttribute('aria-label', 'この端末の名前');
       const ask = el('button', 'btn'); ask.type = 'submit'; ask.textContent = '登録を頼む';
-      f.appendChild(field('この端末の呼び名', nm, '招待コードが無いとき。持ち主が認めたら使える'));
+      f.appendChild(field('この端末の名前', nm, '招待コードが無いとき。持ち主が認めたら使える'));
       f.appendChild(ask);
       f.addEventListener('submit', (ev) => {
         ev.preventDefault();
         const name = nm.value.trim();
-        if (!name) { line.textContent = 'この端末の呼び名を入れる'; return; }
+        if (!name) { line.textContent = 'この端末の名前を入れる'; return; }
         busy(ask, async () => {
           const got = await requestRegistration(url, name);
           saveReq({ base: url, key: got.key, code: got.code, name, expires: got.expires, approved: false });
@@ -694,14 +694,14 @@ export function seaPanel(opts = {}) {
       uname.setAttribute('aria-label', '表示名');
       uname.dataset.name = '表示名の欄';
       const dname = document.createElement('input');
-      dname.type = 'text'; dname.maxLength = 40; dname.placeholder = 'この端末の呼び名（例 iPhone）'; dname.setAttribute('aria-label', 'この端末の呼び名');
-      dname.dataset.name = '端末の呼び名の欄';
+      dname.type = 'text'; dname.maxLength = 40; dname.placeholder = 'この端末の名前（例 iPhone）'; dname.setAttribute('aria-label', 'この端末の名前');
+      dname.dataset.name = '端末の名前の欄';
       const reg = el('button', 'btn'); reg.type = 'submit'; reg.textContent = '招待コードで登録';
       reg.dataset.name = 'パスキーを作るボタン';
       code.placeholder = 'ABCD-EFGH-JKLM'; uname.placeholder = '例 りょう'; dname.placeholder = '例 iPhone';
       inv.appendChild(field('招待コード', code));
       inv.appendChild(field('表示名', uname, 'はじめての人だけ。ほかの人に見える名前'));
-      inv.appendChild(field('この端末の呼び名', dname, 'わたしの端末の一覧に出る'));
+      inv.appendChild(field('この端末の名前', dname, 'わたしの端末の一覧に出る'));
       inv.appendChild(reg);
       inv.addEventListener('submit', (ev) => {
         ev.preventDefault();
@@ -720,11 +720,11 @@ export function seaPanel(opts = {}) {
       const num = document.createElement('input');
       num.type = 'text'; num.inputMode = 'numeric'; num.autocomplete = 'one-time-code'; num.placeholder = '番号（6 桁）'; num.setAttribute('aria-label', 'つなぐ番号');
       const dn2 = document.createElement('input');
-      dn2.type = 'text'; dn2.maxLength = 40; dn2.placeholder = 'この端末の呼び名（例 Mac）'; dn2.setAttribute('aria-label', 'この端末の呼び名（番号）');
+      dn2.type = 'text'; dn2.maxLength = 40; dn2.placeholder = 'この端末の名前（例 Mac）'; dn2.setAttribute('aria-label', 'この端末の名前（番号）');
       const add = el('button', 'btn'); add.type = 'submit'; add.textContent = '番号で足す';
       num.placeholder = '例 123456'; dn2.placeholder = '例 Mac';
       dev.appendChild(field('番号（6 桁）', num, 'ログイン中の端末の［＋ 端末を足す］で出る'));
-      dev.appendChild(field('この端末の呼び名', dn2));
+      dev.appendChild(field('この端末の名前', dn2));
       dev.appendChild(add);
       dev.addEventListener('submit', (ev) => {
         ev.preventDefault();
@@ -745,24 +745,24 @@ export function seaPanel(opts = {}) {
     const inApp = !!window.Capacitor;
     w.appendChild(text('p', null, inApp
       ? 'この app の中ではパスキーを使えないので、サーバーにはログインできない。Chrome でサーバーのページを開き、そこで［サーバーにログイン］を押す（Chrome の「ホーム画面に追加」で置き直すと、次からそこから開ける）。'
-      : 'このページはサーバーが配っているページではないので、ここではログインできない（パスキーはページの住所に結び付くため）。'
-        + 'サーバーの住所を入れて［サーバーのページを開く］を押し、開いたページで［サーバーにログイン］を押す。'
+      : 'このページはサーバーが配っているページではないので、ここではログインできない（パスキーはページの URL に結び付くため）。'
+        + 'サーバーの URL を入れて［サーバーのページを開く］を押し、開いたページで［サーバーにログイン］を押す。'
         + 'アプリとして使うなら、開いたページで Chrome の「アプリをインストール」（スマホは「ホーム画面に追加」）をし直す。'));
-    w.appendChild(text('p', 'note', 'この端末のこのページの記録は、サーバーのページには移らない（住所ごとに別の置き場）。'
+    w.appendChild(text('p', 'note', 'この端末のこのページの記録は、サーバーのページには移らない（URL ごとに別の置き場）。'
       + '移すときは、ここで「記録を保存する・読み込む」→ ファイルに書き出し、サーバーのページで読み込む。'));
     const f = el('form', 'tagadd');
     const u = document.createElement('input');
-    u.type = 'url'; u.autocomplete = 'url'; u.placeholder = 'https://（サーバーの住所）'; u.setAttribute('aria-label', 'サーバーの住所');
+    u.type = 'url'; u.autocomplete = 'url'; u.placeholder = 'https://（サーバーの URL）'; u.setAttribute('aria-label', 'サーバーの URL');
     const go = el('button', 'btn'); go.type = 'submit'; go.textContent = 'サーバーのページを開く';
     f.appendChild(u); f.appendChild(go);
     f.addEventListener('submit', (ev) => {
       ev.preventDefault();
       let raw = u.value.trim();
-      if (!raw) { toast('サーバーの住所を入れる'); return; }
+      if (!raw) { toast('サーバーの URL を入れる'); return; }
       if (!/^[a-z]+:\/\//i.test(raw)) raw = 'https://' + raw;
       let target;
-      try { target = new URL(raw); } catch (e) { toast('住所が読めない'); return; }
-      if (target.protocol !== 'https:') { toast('https:// の住所だけ'); return; }
+      try { target = new URL(raw); } catch (e) { toast('URL が読めない'); return; }
+      if (target.protocol !== 'https:') { toast('https:// の URL だけ'); return; }
       /* 新しいタブ（Chrome の app の窓からは、ふつうの Chrome のタブ）で開く */
       window.open(target.origin + '/', '_blank', 'noopener');
     });
@@ -850,7 +850,7 @@ export function seaPanel(opts = {}) {
       const r = el('div', 'row');
       r.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
       r.appendChild(text('span', 'note', '自分のほかの端末・ほかの人と同じ記録を使う'));
-      const open = btn(loginOpen ? 'とじる' : 'サーバーにログイン');
+      const open = btn(loginOpen ? '閉じる' : 'サーバーにログイン');
       open.addEventListener('click', () => { loginOpen = !loginOpen; paint(); if (loginOpen) scrollToLogin(); });
       r.appendChild(open);
       q.appendChild(r);

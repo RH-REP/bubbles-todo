@@ -62,7 +62,7 @@ const PKCS8_ED25519 = [0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2
 
 function subtle() {
   const c = globalThis.crypto;
-  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の住所で開く）');
+  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の URL で開く）');
   return c.subtle;
 }
 function randomBytes(n) {
@@ -144,7 +144,7 @@ export function b58decode(str) {
 /* 合言葉 → 元（32 バイト）。合言葉は movefile.js の makePassphrase で app が作る（120 ビット） */
 export async function rootFromPassphrase(pass, iter = PBKDF_ITER) {
   const norm = String(pass || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (norm.length < 16) throw new Error('合言葉が短い');
+  if (norm.length < 16) throw new Error('パスフレーズが短い');
   const s = subtle();
   const base = await s.importKey('raw', enc(norm), 'PBKDF2', false, ['deriveBits']);
   return new Uint8Array(await s.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc(SALT), iterations: iter }, base, 256));
@@ -204,7 +204,7 @@ export async function readRecoveryCode(code) {
   const body = b.subarray(0, 66), sum = b.subarray(66);
   const want = (await sha256(body)).subarray(0, 4);
   if (want.some((x, i) => x !== sum[i])) throw new Error('復元コードが違う（打ち間違い？）');
-  if (body[0] !== VER) throw new Error('この app より新しい版の復元コード');
+  if (body[0] !== VER) throw new Error('この app より新しいバージョンの復元コード');
   const network = Object.keys(NETWORKS).find(k => NETWORKS[k].code === body[1]);
   if (!network) throw new Error('復元コードのネットが分からない');
   const publicKey = body.slice(34, 66);
@@ -269,7 +269,7 @@ export async function openMemos(parts, recordKey, tag = TAG) {
   let b64 = '';
   for (let i = 1; i <= n; i++) b64 += byI.get(i);
   const all = fromB64(b64);
-  if (all[0] !== VER) throw new Error('この app より新しい版のバックアップ');
+  if (all[0] !== VER) throw new Error('この app より新しいバージョンのバックアップ');
   const flags = all[1], iv = all.subarray(2, 14), ct = all.subarray(14);
   const s = subtle();
   const key = await s.importKey('raw', recordKey, 'AES-GCM', false, ['decrypt']);
@@ -666,9 +666,9 @@ function passkeyWait() {
 /* パスキーの失敗を、何が起きたか分かる文にする（Issue #53。前は理由の分からない英語のまま出るか、何も出なかった） */
 export function passkeyError(e) {
   const n = e && e.name;
-  if (n === 'NotAllowedError') return new Error('パスキーの確認ができなかった（やめた・時間切れ、またはこの端末にこの app のパスキーが無い。もう一度押すか、合言葉を使う）');
-  if (n === 'AbortError' || n === 'TimeoutError') return new Error('パスキーの画面が出ないまま時間が切れた（このブラウザ・端末ではパスキーが使えないかもしれない。合言葉を使う）');
-  if (n === 'SecurityError') return new Error('このページの住所ではパスキーを使えない（https で開いているかを確かめる）');
+  if (n === 'NotAllowedError') return new Error('パスキーの確認ができなかった（やめた・時間切れ、またはこの端末にこの app のパスキーが無い。もう一度押すか、パスフレーズを使う）');
+  if (n === 'AbortError' || n === 'TimeoutError') return new Error('パスキーの画面が出ないまま時間が切れた（このブラウザ・端末ではパスキーが使えないかもしれない。パスフレーズを使う）');
+  if (n === 'SecurityError') return new Error('このページの URL ではパスキーを使えない（https で開いているかを確かめる）');
   if (n === 'InvalidStateError') return new Error('このパスキーはもうこの端末にある（「パスキーで開く」を押す）');
   return e instanceof Error ? e : new Error(String(e));
 }
@@ -691,7 +691,7 @@ export async function createPasskey() {
   if (!cred) throw new Error('パスキーを作れなかった');
   const ext = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
   if (!ext.prf || ext.prf.enabled === false) {
-    throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（合言葉で始める）');
+    throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（パスフレーズで始める）');
   }
   return { credId: toB64u(cred.rawId), root: prfFirst(cred) };
 }
@@ -710,7 +710,7 @@ export async function passkeyRoot(credId) {
   } catch (e) { throw passkeyError(e); }
   if (!cred) throw new Error('パスキーを選ばなかった（もう一度押す）');
   const root = prfFirst(cred);
-  if (!root) throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（合言葉か復元コードを使う）');
+  if (!root) throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（パスフレーズか復元コードを使う）');
   return { credId: toB64u(cred.rawId), root };
 }
 
@@ -779,7 +779,7 @@ export function moveSteps(m, fmtTime = t => new Date(t).toLocaleString()) {
   const order = ['key', 'send', 'backup'];
   const at = order.indexOf(cur);
   const state = i => (cur === 'done' || i < at) ? 'done' : (i === at ? 'next' : 'todo');
-  const kind = s => (s && s.mode === 'passkey') ? 'パスキー' : '合言葉';
+  const kind = s => (s && s.mode === 'passkey') ? 'パスキー' : 'パスフレーズ';
   const steps = [
     { n: 1, label: '新しい鍵を作る', detail: '' },
     { n: 2, label: '前のウォレットの残高を新しいアドレスへ送る', detail: '' },

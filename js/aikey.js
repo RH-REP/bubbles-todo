@@ -74,7 +74,7 @@ export async function aesFromRoot(root, saltB64) {
 /* 合言葉 → 元 */
 export async function rootFromPass(pass, saltB64, iter = PBKDF_ITER) {
   const p = String(pass || '');
-  if (p.length < PASS_MIN) throw new Error('合言葉は ' + PASS_MIN + ' 字以上にする');
+  if (p.length < PASS_MIN) throw new Error('パスワードは ' + PASS_MIN + ' 字以上にする');
   const s = subtle();
   const base = await s.importKey('raw', enc(p.normalize('NFC')), 'PBKDF2', false, ['deriveBits']);
   return new Uint8Array(await s.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: fromB64(saltB64), iterations: iter }, base, 256));
@@ -91,7 +91,7 @@ export async function openSealed(aes, sealed, aad) {
   let out;
   try {
     out = await subtle().decrypt({ name: 'AES-GCM', iv: fromB64(sealed.iv), additionalData: enc('bubbles-aikey|' + aad) }, aes, fromB64(sealed.data));
-  } catch (e) { throw new Error('キーを開けなかった（合言葉が違う・別のパスキーを選んだ）'); }
+  } catch (e) { throw new Error('キーを開けなかった（パスワードが違う・別のパスキーを選んだ）'); }
   return new TextDecoder().decode(out);
 }
 
@@ -121,7 +121,7 @@ export async function createLockPasskey(now = new Date()) {
   } catch (e) { throw passkeyError(e); }
   if (!cred) throw new Error('パスキーを作れなかった');
   const ext = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
-  if (!ext.prf || ext.prf.enabled === false) throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（合言葉で鍵をかける）');
+  if (!ext.prf || ext.prf.enabled === false) throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（パスワードで鍵をかける）');
   return { credId: toB64u(new Uint8Array(cred.rawId)), root: prfFirst(cred) };
 }
 export async function passkeyRootFor(credId) {
@@ -135,7 +135,7 @@ export async function passkeyRootFor(credId) {
     } });
   } catch (e) { throw passkeyError(e); }
   const root = prfFirst(cred);
-  if (!root) throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（合言葉で鍵をかけ直す）');
+  if (!root) throw new Error('この端末のパスキーは鍵を作る機能（PRF）に対応していない（パスワードで鍵をかけ直す）');
   return root;
 }
 

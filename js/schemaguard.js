@@ -24,10 +24,10 @@ import { sync } from './sync.js';
 import { checkForUpdate, applyUpdate, forceReload } from './update.js';
 
 /* 言葉は 2026-11-17 Issue #79 の返事で「同期・合わさる」→「やりとり・同じ記録」に（js/sync.js の文と同じにする） */
-export const OUTDATED_TEXT = 'この app の版が古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる';
-export const NOT_FOUND_TEXT = '新しい版がまだ見つからない（少し待ってもう一度押す）';
-export const RELOAD_TEXT = '自動の入れ替えを使っていない端末なので、画面のキャッシュを消して最新の版を読み直す…';
-export const NATIVE_TEXT = 'Android の app は中の版を自分では入れ替えられない。app を作り直して入れ直す';
+export const OUTDATED_TEXT = 'この app のバージョンが古いので、サーバーとのやりとりを止めた。更新すると、続きから同じ記録になる';
+export const NOT_FOUND_TEXT = '新しいバージョンがまだ見つからない（少し待ってもう一度押す）';
+export const RELOAD_TEXT = '自動の更新を使っていない端末なので、画面のキャッシュを消して最新のバージョンを再読み込みする…';
+export const NATIVE_TEXT = 'Android の app は中のバージョンを自分では更新できない。app を作り直して入れ直す';
 
 /* Android の app（Capacitor の中）か。設定の画面（js/screens/settings.js）と同じく window.Capacitor で見る */
 export function isNativeApp(g = globalThis) {
@@ -84,7 +84,7 @@ export function mountSchemaGuard(opts = {}) {
         return;
       }
       if (!found) { msg.textContent = NOT_FOUND_TEXT; btn.disabled = false; return; }
-      msg.textContent = '新しい版に入れ替えて読み直す…';
+      msg.textContent = '新しいバージョンに更新して再読み込みする…';
       await apply();
     } catch (e) {
       msg.textContent = (e && e.message) || '確かめられなかった';

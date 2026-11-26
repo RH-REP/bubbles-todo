@@ -211,7 +211,7 @@ try {
     assert.equal(sharedBoard.chat, true, '共有の海ではコメントが見える');
     assert.ok(sharedBoard.order.every((v, i, a) => v >= 0 && (i === 0 || v > a[i - 1])), '始める → 担当 → コメントの順: ' + sharedBoard.order);
     assert.equal(sharedBoard.send, '投稿');
-    assert.match(await yuki.js(`return document.querySelector('.bc-who').textContent`), /足した: りょう/);
+    assert.match(await yuki.js(`return document.querySelector('.bc-who').textContent`), /追加した: りょう/);
   });
 
   await step('ゆき: りょうを見るだけにすると、りょうの画面では書けず、盤とメニューが押せない', async () => {

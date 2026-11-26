@@ -189,7 +189,7 @@ export const lockNow = forget;
 export const keyOpen = isOpen;
 
 function askPassPrompt() {
-  return typeof window !== 'undefined' && window.prompt ? window.prompt('AI のキーの合言葉（鍵をかけたときに決めたもの）') : '';
+  return typeof window !== 'undefined' && window.prompt ? window.prompt('AI のキーのパスワード（鍵をかけたときに決めたもの）') : '';
 }
 
 /* キーに鍵をかけて置く。錠がまだ無ければ mode（'passkey' | 'pass'）で作る。askNewPass = 新しい合言葉を訊く関数。

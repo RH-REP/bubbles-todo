@@ -47,7 +47,7 @@ const enc = s => new TextEncoder().encode(s);
 const dec = b => new TextDecoder().decode(b);
 function subtle() {
   const c = globalThis.crypto;
-  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の住所で開く）');
+  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の URL で開く）');
   return c.subtle;
 }
 function randomBytes(n) {
@@ -105,7 +105,7 @@ export async function readShareAddress(str) {
   const body = b.subarray(0, 66), sum = b.subarray(66);
   const want = (await sha256(body)).subarray(0, 4);
   if (want.some((x, i) => x !== sum[i])) throw new Error('受け取りIDが違う（打ち間違い・コピーの漏れ？）');
-  if (body[0] !== VER) throw new Error('この app より新しい版の受け取りID');
+  if (body[0] !== VER) throw new Error('この app より新しいバージョンの受け取りID');
   const network = Object.keys(NETWORKS).find(k => NETWORKS[k].code === body[1]);
   if (!network) throw new Error('受け取りIDのネットが分からない');
   const x = body.slice(2, 34);
@@ -182,7 +182,7 @@ export async function unwrapSeaKey(rec, recordKey) {
     return new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv: all.subarray(0, 12), additionalData: wrapAad(rec.id, rec.gen, rec.me) },
       await aesKey(recordKey, 'decrypt'), all.subarray(12)));
   } catch (e) {
-    throw new Error('この海の鍵を開けない（共有を始めたときと別のパスキー・合言葉で開いている）。「招待を探す」で受け取り直す');
+    throw new Error('この海の鍵を開けない（共有を始めたときと別のパスキー・パスフレーズで開いている）。「招待を探す」で受け取り直す');
   }
 }
 
@@ -318,7 +318,7 @@ export async function readInviteCode(str) {
   const body = b.subarray(0, INVITE_LEN - 2), sum = b.subarray(INVITE_LEN - 2);
   const want = (await sha256(body)).subarray(0, 2);
   if (want.some((x, i) => x !== sum[i])) throw new Error('招待コードが違う（打ち間違い・コピーの漏れ？）');
-  if (body[0] !== VER) throw new Error('この app より新しい版の招待コード');
+  if (body[0] !== VER) throw new Error('この app より新しいバージョンの招待コード');
   const network = Object.keys(NETWORKS).find(k => NETWORKS[k].code === body[1]);
   if (!network) throw new Error('招待コードのネットが分からない');
   return { network, secret: body.slice(2), text: 'BTI1-' + b58encode(b).match(/.{1,6}/g).join('-') };

@@ -29,7 +29,7 @@ export const PASS_LEN = 24;
 
 function subtle() {
   const c = globalThis.crypto;
-  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の住所で開く）');
+  if (!c || !c.subtle) throw new Error('この環境では暗号を使えない（https:// の URL で開く）');
   return c.subtle;
 }
 function randomBytes(n) {
@@ -72,7 +72,7 @@ async function deriveKey(pass, salt, iter) {
 
 /* 中身（オブジェクト）を合言葉で包む → ファイルの文字列（JSON） */
 export async function encryptMove(payload, pass, iter = ITER) {
-  if (normalizePassphrase(pass).length < 16) throw new Error('合言葉が短い');
+  if (normalizePassphrase(pass).length < 16) throw new Error('パスワードが短い');
   const salt = randomBytes(16), iv = randomBytes(12);
   const key = await deriveKey(pass, salt, iter);
   const plain = new TextEncoder().encode(JSON.stringify(payload));
@@ -90,7 +90,7 @@ export function readMoveHead(text) {
   let o;
   try { o = JSON.parse(String(text || '')); } catch (e) { throw new Error('引っ越しのファイルではない'); }
   if (!o || o.format !== FORMAT || !o.kdf || !o.cipher || !o.data) throw new Error('引っ越しのファイルではない');
-  if (Number(o.version) > VERSION) throw new Error('この app より新しい版のファイル（app を更新してから読み込む）');
+  if (Number(o.version) > VERSION) throw new Error('この app より新しいバージョンのファイル（app を更新してから読み込む）');
   return o;
 }
 
@@ -103,7 +103,7 @@ export async function decryptMove(text, pass) {
   let plain;
   try {
     plain = await subtle().decrypt({ name: 'AES-GCM', iv: fromB64(o.cipher.iv) }, key, fromB64(o.data));
-  } catch (e) { throw new Error('合言葉が違う（またはファイルが壊れている）'); }
+  } catch (e) { throw new Error('パスワードが違う（またはファイルが壊れている）'); }
   const p = JSON.parse(new TextDecoder().decode(plain));
   if (!p || p.format !== FORMAT) throw new Error('引っ越しのファイルが壊れている');
   return p;

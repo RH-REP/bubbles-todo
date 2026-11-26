@@ -54,11 +54,11 @@ await test('ファイルの中に、記録・鍵・住所の平文は無い', as
 
 await test('合言葉が違えば開けない。ファイルでないものは断る', async () => {
   const text = await encryptMove(buildPayload({ boxes: {} }), makePassphrase(), FAST);
-  await assert.rejects(decryptMove(text, makePassphrase()), /合言葉が違う/);
+  await assert.rejects(decryptMove(text, makePassphrase()), /パスワードが違う/);
   await assert.rejects(decryptMove('kind,id', 'x'), /引っ越しのファイルではない/);
   const o = JSON.parse(text);
   o.version = 99;
-  assert.throws(() => readMoveHead(JSON.stringify(o)), /新しい版/);
+  assert.throws(() => readMoveHead(JSON.stringify(o)), /新しいバージョン/);
   await assert.rejects(encryptMove({}, 'short'), /短い/);
 });
 

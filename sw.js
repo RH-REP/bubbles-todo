@@ -195,7 +195,7 @@ async function holdingNow() {
 
 self.addEventListener('install', (ev) => {
   ev.waitUntil((async () => {
-    if (await holdingNow()) throw new Error('更新を止めている（設定の「新しい版に自動で入れ替えない」）');
+    if (await holdingNow()) throw new Error('更新を止めている（設定の「新しいバージョンに自動で更新しない」）');
     const box = await caches.open(CACHE);
     /* cache: 'reload' で端末の HTTP キャッシュを飛ばす。ここで古いものを掴むと、箱ごと古いまま固まる。
        2026-11-24（Issue #96。2 度、新しい CSS と古い JS が混ざって届いた）：配信の途中の写し（GitHub Pages の CDN など。
@@ -310,7 +310,7 @@ self.addEventListener('fetch', (ev) => {
     /* pinMemo が undefined なのは、service worker が起こし直されてまだ印を読んでいないとき。読んでから決める */
     ev.respondWith((async () => {
       if (await readPin()) {
-        return new Response(JSON.stringify({ error: '前の版を使っている間はサーバーへ送らない（上の帯の「最新に戻る」で戻す）' }),
+        return new Response(JSON.stringify({ error: '前のバージョンを使っている間はサーバーへ送らない（上の帯の「最新に戻る」で戻す）' }),
           { status: 503, headers: { 'Content-Type': 'application/json' } });
       }
       return fetch(req);

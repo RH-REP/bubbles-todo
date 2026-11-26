@@ -52,7 +52,7 @@ export async function deliverApps(apps, { urls = appUrls(), fetchFn = (typeof fe
   if (apps.diary !== undefined) {
     const base = KNOWN.diary(urls);
     if (!isBundle(apps.diary, 'diary')) out.push('日記: 形が違うので渡さなかった');
-    else if (!base || !fetchFn) out.push('日記: diary の住所が分からないので渡さなかった（ファイルには残っている）');
+    else if (!base || !fetchFn) out.push('日記: diary の URL が分からないので渡さなかった（ファイルには残っている）');
     else {
       let res = null;
       try {
@@ -66,10 +66,10 @@ export async function deliverApps(apps, { urls = appUrls(), fetchFn = (typeof fe
       if (!res) out.push('日記: diary に届かなかった（あとで同じファイルを読み込み直せる）');
       else if (res.status === 401) out.push('日記: diary にログインしてから、同じファイルを読み込み直す');
       else if (res.status === 200 && j && j.ok) {
-        out.push('日記: 足した ' + (Number(j.added) || 0) + '・新しくした ' + (Number(j.updated) || 0) + '・そのまま ' + (Number(j.kept) || 0));
+        out.push('日記: 追加した ' + (Number(j.added) || 0) + '・新しくした ' + (Number(j.updated) || 0) + '・そのまま ' + (Number(j.kept) || 0));
       } else out.push('日記: diary が断った（' + ((j && j.error) || res.status) + '）');
     }
   }
-  if (unknown.length) out.push('この版の知らない app（' + unknown.join('・') + '）の束は渡さなかった');
+  if (unknown.length) out.push('このバージョンの知らない app（' + unknown.join('・') + '）の束は渡さなかった');
   return out;
 }

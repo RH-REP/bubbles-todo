@@ -169,7 +169,7 @@ export function createDeadlineView(host, opts = {}) {
      （2026-11-14 の返事「ふだん右が未来なので、左を過去に」。開いたときは右端＝今日まで寄せる）、
      行は完了した日の新しい順、● は完了した日、左の札は「今日・昨日・N日前」 */
   const EMPTY_TODO = empty.textContent;
-  const EMPTY_DONE = '完了した日の分かるものは、まだ無い。詳細の [タスク完了] を押すと、その日の列に ● が付いて並ぶ。';
+  const EMPTY_DONE = '完了した日の分かるものは、まだ無い。詳細の [完了にする] を押すと、その日の列に ● が付いて並ぶ。';
   function render(items, ro) {
     lastItems = items || [];
     lastOpt = ro || {};

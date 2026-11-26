@@ -17,7 +17,7 @@ async function call(path, body) {
   let json = null;
   try { json = await res.json(); } catch (e) { /* 中身が無い */ }
   if (res.status === 200 && json) return json;
-  if (res.status === 401) throw new Error('ログインし直す（通行証の期限切れか、取り消された）');
+  if (res.status === 401) throw new Error('ログインし直す（ログインの期限が切れたか、取り消された）');
   if (res.status === 404 && json && json.error === 'sea') throw new Error('この海はもうサーバーに無いか、あなたは仲間でない');
   if (res.status === 404) throw new Error('サーバーがこの操作を知らない（サーバーを新しくする）');
   const err = new Error((json && json.message) || ('できなかった（' + res.status + '）'));

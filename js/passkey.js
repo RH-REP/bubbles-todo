@@ -68,7 +68,7 @@ export async function requestStatus(base, key) {
 function friendly(e, kind) {
   if (e && e.name === 'NotAllowedError') return new Error(kind === 'register' ? '登録をやめた（または時間切れ）' : '入るのをやめた（または時間切れ）');
   if (e && e.name === 'InvalidStateError') return new Error('この端末は、もう登録してある');
-  if (e && e.name === 'SecurityError') return new Error('この住所ではパスキーを使えない（https:// の名前の住所で開く）');
+  if (e && e.name === 'SecurityError') return new Error('この URL ではパスキーを使えない（https:// で始まる名前の URL で開く）');
   return e instanceof Error ? e : new Error(String(e));
 }
 
@@ -132,7 +132,7 @@ export async function makeMoveKey(base, session) {
   let json = null;
   try { json = await res.json(); } catch (e) { /* 中身が無い */ }
   if (res.status === 404) throw new Error('サーバーが引っ越しの鍵を知らない（サーバーを新しくする）');
-  if (res.status === 401) throw new Error('パスキーで入り直す（通行証の期限切れか、取り消された）');
+  if (res.status === 401) throw new Error('パスキーで入り直す（ログインの期限が切れたか、取り消された）');
   if (res.status !== 200 || !json || !json.move) throw new Error('引っ越しの鍵を作れなかった（' + res.status + '）');
   return json;
 }
@@ -153,7 +153,7 @@ export async function makeInvite(base, session, { name, sea, newPerson, role }) 
   try { json = await res.json(); } catch (e) { /* 中身が無い */ }
   if (res.status === 200 && json && json.code) return json;
   if (res.status === 404) throw new Error('サーバーが「人を招く」を知らない（サーバーを新しくする）');
-  if (res.status === 401) throw new Error('ログインし直す（通行証の期限切れか、取り消された）');
+  if (res.status === 401) throw new Error('ログインし直す（ログインの期限が切れたか、取り消された）');
   if ((res.status === 403 || res.status === 409) && json && json.message) throw new Error(json.message);
   throw new Error('招待コードを作れなかった（' + res.status + '）');
 }
@@ -173,7 +173,7 @@ async function authed(base, session, path, body, what) {
   if (res.status === 200 && json) return json;
   if (res.status === 404) throw new Error('サーバーが「' + what + '」を知らない（サーバーを新しくする）');
   if (res.status === 401) throw new Error(what === '海に入る' ? '招待が違うか、もう使われているか、期限が切れている（またはログインし直す）'
-    : 'ログインし直す（通行証の期限切れか、取り消された）');
+    : 'ログインし直す（ログインの期限が切れたか、取り消された）');
   if (json && json.message) throw new Error(json.message);
   throw new Error(what + 'ができなかった（' + res.status + '）');
 }

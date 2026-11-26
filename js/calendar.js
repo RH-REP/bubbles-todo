@@ -125,7 +125,7 @@ function render() {
   }
   if (!rows.length) {
     scroll.appendChild(el('p', 'cal-empty',
-      'はじめたの記録は、まだここに無い。<br>泡を押して開く詳細の [始める] を押すと、その日に印が付く。'));
+      'はじめたの記録は、まだここに無い。<br>泡をタップして開く詳細の [始める] を押すと、その日に印が付く。'));
     root.foot.textContent = '';
     return;
   }
