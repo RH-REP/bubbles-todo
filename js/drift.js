@@ -36,6 +36,11 @@ import { relatedPairs, pullStep, isAffinityOn } from './related.js';
 
 const SPEED = 16;      /* 漂う速さ px/秒 のおおよそ */
 
+/* 泡どうしのぶつかり（2026-11-26 ユーザーの指示「バブルが重なって良い（透けて見えれば良い）」）。
+   false のあいだ、泡どうしは弾き合わず・押し離さず、すり抜けて重なる（膜は薄い色なので下の泡が透けて見える）。
+   底に積もるときの「下の泡に支えられて止まる」（rest）はそのまま。戻すときは true にする */
+const COLLIDE = false;
+
 /* 弱い重力（追補3 §2）。
    面のいちばん上から下まで、およそ1分。756px の面なら 756/60 ≒ 12.6 px/s。
    加速し続けないよう、終端速度 GRAV_MAX まで「しか」加速しない。
@@ -1022,7 +1027,7 @@ export function createField(host, opts = {}) {
        撃力を組み立てるときは 0 とみなす（＝相手が飛び込んできたぶんだけ弾く）。
        ドラッグで海をかき分ける手ごたえは、下の押し戻しが受け持つ
        （held 側の配分が 0 なので、相手が従来どおり2倍量ぶん動く）。 */
-    if (list.length > 1 && list.length <= 60) {
+    if (COLLIDE && list.length > 1 && list.length <= 60) {
       for (let i = 0; i < list.length; i++) {
         for (let j = i + 1; j < list.length; j++) {
           const a = list[i], c = list[j];
@@ -1102,7 +1107,7 @@ export function createField(host, opts = {}) {
     const w = host.clientWidth, h = host.clientHeight;
     if (!w || !h) return;
     const list = [...bubbles.values()].filter(b => !b.held);
-    for (let k = 0; k < 24; k++) {
+    for (let k = 0; COLLIDE && k < 24; k++) {
       for (let i = 0; i < list.length; i++) {
         for (let j = i + 1; j < list.length; j++) {
           const a = list[i], c = list[j];

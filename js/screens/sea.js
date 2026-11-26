@@ -2019,8 +2019,10 @@ function makeHandlers(hostFn) {
 function makeSignsFor(f) {
   const rec = {};
   EDGE_DIRS.forEach(dir => {
-    const b = el('button', 'sea-sign');
-    b.type = 'button';
+    /* 2026-11-26 ユーザーの指示「タグの看板（矢印のある表示）は触れなくて良い（ただの背景）」:
+       押す的にしない（button でなく div。指は素通りして面のなぞり・泡に届く）。面を移るのは、なぞり・矢印キー・端の手がかり */
+    const b = el('div', 'sea-sign');
+    b.setAttribute('aria-hidden', 'true');
     b.dataset.dir = dir;
     b.hidden = true;
     const ar = el('span', 'ar');
@@ -2029,13 +2031,6 @@ function makeSignsFor(f) {
     const nm = el('span', 'nm');
     b.appendChild(ar);
     b.appendChild(nm);
-    b.addEventListener('click', ev => {
-      ev.preventDefault();
-      /* 指が滑ったなら、それはなぞり。押したことにしない */
-      if (Date.now() - signSuppress < 400) return;
-      const to = b.dataset.to;
-      if (to) goFace(to);
-    });
     /* いちばん先に足す＝いちばん後ろに描かれる（バブルより後ろ） */
     faces[f].el.insertBefore(b, faces[f].el.firstChild);
     rec[dir] = { btn: b, nm };
@@ -2091,9 +2086,9 @@ function ensureField(face) {
   /* handlers は createField の opts で渡す。drift が自分でノードを作って
      attachGestures まで張るので、画面側では張らない（張ると二重になり、
      離したときにバブルがドラッグ層に残って海の外に出る）。 */
-  /* keepOut: 海の端の札（.sea-sign）の上に泡を止めない（2026-11-23 点検の直し。js/drift.js） */
+  /* 2026-11-26: 海の端の札（.sea-sign）はただの背景。泡の壁（keepOut）にしない（前は 2026-11-23 点検の直しで壁にしていた） */
   /* pushDown: 上に並ぶボタン（利用者・≡・歯車・フィルター・リスト表示・さいころ・カレンダー）の下端までは、泡を強く下へ押す（2026-11-25。js/drift.js の pushLine） */
-  f.field = createField(f.el, Object.assign({ size: 'text', handlers: handlers, keepOut: '.sea-sign',
+  f.field = createField(f.el, Object.assign({ size: 'text', handlers: handlers,
     pushDown: '.app > .userbtn, .app > .menubtn, .app > .gearbtn, #pane-sea .sea-narrow, #pane-sea .sea-gather, #pane-sea .sea-random, #pane-sea .sea-cal, #pane-sea .sea-tools button' }, handlers));
   if (shown && f.el.clientWidth && f.el.clientHeight && f.field.relayout) {
     try { f.field.relayout(); } catch (err) { /* 測れないだけ */ }
@@ -2250,7 +2245,6 @@ function renderSigns() {
       /* 輝く泡がその海にいれば、札に小さな光の点（2026-11-24。数は出さない） */
       const lit = gf.has(to);
       s.btn.classList.toggle('has-glow', lit);
-      s.btn.setAttribute('aria-label', name + 'へ' + (lit ? '（輝いている泡がある）' : ''));
       s.btn.hidden = false;
     });
   });

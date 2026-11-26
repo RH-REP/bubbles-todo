@@ -2730,3 +2730,12 @@ VM で上げるのは `tools/server-setup.sh min-schema-set <版>`（控え `.se
 - 集中画面（`js/focus.js` `buildWorklog`）: 同じ形（`.focus-recbtn`・`.focus-rec-note`）。差し込み口に `setFirstStep` を足した（`js/app.js`）。
 - e2e `tests/e2e-board.mjs` の作業記録の段を、離れても積まない・［記録する］で積むに書き替えた。
 
+
+## 海の札はただの背景・泡は重なってよい（2026-11-26 の 2）
+
+ユーザーの指示「タグの看板（矢印のある表示）は触れなくて良い（ただの背景）」「バブルが重なって良い（透けて見えれば良い）」。議事録 `app_spec/self_management/bubble_todo/minutes/261126_札は背景・泡は重なる.md`。
+
+- 札（`.sea-sign`）は button でなく div（`aria-hidden`）にし、`pointer-events: none`。押しても隣の海へ移らず、指は下の面・泡に届く。隣の海へは、なぞり・矢印キー・端の手がかり（`.sea-edge-btn`）で移る。
+- 札は泡の壁（drift の `keepOut`）にしない（11-23・11-24 の「札の上に泡を止めない」をやめた）。泡は札の上を通り、札は泡の膜から透けて見える。
+- 泡どうしのぶつかり（撃力・押し離し・へこみ）を `js/drift.js` の `COLLIDE = false` で止めた。泡はすり抜けて重なる。膜（`--bub-fill`）はもともと 1 割ほどの色なので、下の泡が透けて見える。底に積もるときの支え（rest）は残る。演出を減らす設定の settle も重なりをほどかない。今日の画面も同じ（drift は共通）。
+- 実測（幅 411）: 泡 8 つで重なりの組が 19。札の真ん中を指した先は札でなく面。

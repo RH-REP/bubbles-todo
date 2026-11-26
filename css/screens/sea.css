@@ -1027,9 +1027,11 @@ body.is-pressing .sea-stage > .sea-tools,  body.is-focusing .sea-stage > .sea-to
 .sea-sign {
   position: absolute; z-index: 0;
   appearance: none; -webkit-appearance: none;
-  cursor: pointer; font: inherit;
+  font: inherit;
+  /* 2026-11-26 ユーザーの指示「触れなくて良い（ただの背景）」: 指を受けない。泡もその上を通る */
+  pointer-events: none;
   display: inline-flex; align-items: center; gap: 8px;
-  min-height: 44px; padding: 0 14px;          /* タップ目標は 44 を下回らない */
+  min-height: 44px; padding: 0 14px;
   max-width: 46%;
   border-radius: 999px;
   border: 1px solid var(--line);
@@ -1044,12 +1046,6 @@ body.is-pressing .sea-stage > .sea-tools,  body.is-focusing .sea-stage > .sea-to
   color: var(--sign-c, var(--text-2));        /* その海の色を1点だけ載せる（1.4.1） */
 }
 .sea-sign .nm { overflow: hidden; text-overflow: ellipsis; }
-.sea-sign:hover {
-  color: var(--text);
-  border-color: var(--line-strong);
-  background: color-mix(in srgb, var(--surface) 80%, transparent);
-}
-.sea-sign:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 
 /* 置き場所。上は左上の名札・右上の「リスト表示」を避けて、そのぶん下げる。
    下は入力欄の上（--sea-floor が面の底）。左右は辺に貼り付ける。 */
