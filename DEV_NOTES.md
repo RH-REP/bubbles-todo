@@ -2757,3 +2757,15 @@ VM で上げるのは `tools/server-setup.sh min-schema-set <版>`（控え `.se
 - 残る限り: 両方が同じ欄（steps・started など）を変えたときは新しいほうだけが残る。
 
 - 同じ日に「3 -> 6割へ」: `HIT_CORE = 0.6`（版 2026-11-26e）。実測（幅 411、泡 8 つ、12 秒）: いちばん近い組の中心の距離は 半径の和 × 0.643、0.6 を割った組は 0、重なっている組は 5（3 割のときは 15）。
+
+## 漂い方・かき混ぜ・水面の光（2026-11-27）
+
+利用者の指示「bubble が漂うのを楽しめる機能を検討して、mock を表示。今だと底に溜まってしまう」→「A~Cは海の設定で選べる様に、デフォルトはC」「DEは実装」。
+
+- 値と純粋な計算は `js/driftmode.js`（`tests/driftmode.test.mjs`）。drift.js は毎コマ `currentDriftMode()` を読む（変えるまで覚えておく。setDriftMode で捨てる）。
+- C：`markRest` が付けた rest の泡だけ休んだ時間（`b.restT`）を数え、`b.restFor`（20〜60 秒）を越えたら `b.rise` に浮かぶ先を入れる。浮かんでいる間は rest にしない・重力を掛けない。底から離れると restT を少しずつ戻す。掴むと rise・restT を捨てる。
+- A・B：markRest で誰も rest にしない（底で止まらない）。今日の画面の比重（buoyBand）はその前の枝なので、どの漂い方でも効く。
+- D：host の pointermove（passive）。泡・ボタン・入力欄の上、並べている間、動きを減らす設定では何もしない。マウスは押している間だけ。200 ms より空いた点は続きにしない。
+- E：host の最初の子 `.drift-light`（`z-index:-1`。`.bub-field` に `isolation:isolate` を足した）。並べている間は出さない。資料館 `tech_stack/artwork/icons/water_caustics/`。
+- 確かめ：モックで 30 分ぶん進めた泡の高さ（今の海は底の 2 割に 93 %、C は 45 %）。app の中の動きは、Browser pane が隠れていて見ていない（rAF が回らない）。
+

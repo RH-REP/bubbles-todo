@@ -33,6 +33,7 @@ import { store } from './store.js';
 import { clamp, el } from './ui.js';
 import { makeBubble, updateBubble, attachGestures, RM } from './bubble.js';
 import { relatedPairs, pullStep, isAffinityOn } from './related.js';
+import { currentDriftMode, tideVel, riseTarget, restFor, neutralVy, stirImpulse, BREATH, NEUTRAL, TIDE, STIR } from './driftmode.js';
 
 const SPEED = 16;      /* 漂う速さ px/秒 のおおよそ */
 
@@ -796,11 +797,14 @@ export function createField(host, opts = {}) {
      毎 tick 下にあるものから決め直すので、支えが横へ抜ければ次の tick で落ち直す。
      「止まっている」を速さではなく接触で決めているので、横へ投げたものが
      いつまでも床を滑り続けることがない（REST_DRAG が収める）。 */
-  function markRest(list, h) {
+  function markRest(list, h, mode) {
     const order = list.slice().sort((a, b) => b.cy - a.cy);   /* 下にあるものから */
     order.forEach(b => {
       b.rest = false;
       if (b.held) return;
+      /* 漂い方（2026-11-27。js/driftmode.js）。A・B は底で休まない。C で浮かび直している最中も休まない */
+      if (mode === 'neutral' || mode === 'tide') return;
+      if (b.rise != null) return;
       if (b.well) return;                       /* セルの中では底に着かない。位置はセルが決める。
                                                    （ここで rest にすると vy を毎コマ 0 にされて、
                                                      引力が上へ持ち上げられなくなる） */
@@ -847,7 +851,8 @@ export function createField(host, opts = {}) {
     /* いま入っているセル。セルが1つも無ければここは走らない（＝従来どおりの面） */
     if (wells.length) list.forEach(b => { b.well = wellAt(b.cx, b.cy); });
 
-    markRest(list, h);
+    const mode = currentDriftMode();   /* 漂い方（海の設定。js/driftmode.js） */
+    markRest(list, h, mode);
 
     /* 似ている泡どうしを、ゆっくり近くへ（Issue #23）。速度に弱く足すだけで、
        ぶつかり・重力・ゆらぎはこのあといつもどおり効く。
@@ -859,7 +864,7 @@ export function createField(host, opts = {}) {
 
     list.forEach(b => {
       /* 掴んでいる間は引力も寄せも掛けない。指が位置を持っている */
-      if (b.held) { b.pin = false; clearSnap(b); return; }
+      if (b.held) { b.pin = false; clearSnap(b); b.rise = null; b.restT = 0; return; }
 
       /* パチっと寄せている最中。力はいっさい掛けず、時間で中心へ運ぶ。
          セルが消えた／別のセルへ移ったら、その場でほどけて物理へ戻る */
@@ -896,10 +901,39 @@ export function createField(host, opts = {}) {
         const want = b.cy < top ? BUOY_V : b.cy > bot ? -BUOY_V : 0;
         const dv = BUOY_A * dt;
         b.vy = (b.vy < want) ? Math.min(want, b.vy + dv) : Math.max(want, b.vy - dv);
+      } else if (mode === 'tide') {
+        /* B ゆるい潮の流れ：その場の流れの速さへゆっくり寄せる（重力は掛けない） */
+        const [u, v] = tideVel(b.cx, b.cy, w, h);
+        const e = Math.min(1, TIDE.rate * dt);
+        b.vx += (u - b.vx) * e; b.vy += (v - b.vy) * e;
+      } else if (mode === 'neutral') {
+        /* A 浮きも沈みもしない：泡ごとの好きな深さへ、上下だけゆっくり寄せる（20〜40 秒ごとに替える） */
+        b.depthAt = (b.depthAt || 0) - dt;
+        if (!(b.depthAt > 0) || b.depth == null) {
+          b.depthAt = NEUTRAL.every[0] + Math.random() * (NEUTRAL.every[1] - NEUTRAL.every[0]);
+          b.depth = NEUTRAL.depth[0] + Math.random() * (NEUTRAL.depth[1] - NEUTRAL.depth[0]);
+        }
+        const r = b.d / 2;
+        const want = neutralVy(b.cy, r + b.depth * Math.max(0, h - 2 * r));
+        b.vy += (want - b.vy) * Math.min(1, NEUTRAL.rate * dt);
+      } else if (b.rise != null) {
+        /* C 浮かび直し：決めた高さまで BREATH.riseV で上がる。着いたら、また弱い重力で沈む */
+        b.vy += (-BREATH.riseV - b.vy) * Math.min(1, 2 * dt);
+        if (b.cy <= b.rise) b.rise = null;
       } else if (b.rest) {
         /* 底に着いている。落とさない・跳ね返さない。横滑りだけ静かに収める */
         b.vy = 0;
         b.vx *= Math.max(0, 1 - dt * REST_DRAG);
+        /* C：休んだ時間を数え、20〜60 秒（泡ごと）休んだら浮かび直す。数は記録しない */
+        if (mode === 'breath') {
+          if (!(b.restFor > 0)) b.restFor = restFor(Math.random());
+          b.restT = (b.restT || 0) + dt;
+          if (b.restT > b.restFor) {
+            b.restT = 0; b.restFor = restFor(Math.random());
+            b.rise = riseTarget(h, b.d / 2, Math.random());
+            b.rest = false;
+          }
+        }
       } else {
         /* 弱い重力。終端速度 GRAV_MAX へ寄せる。
            速すぎるぶんも同じ強さで戻す。片側だけにすると、下の「たまに向きを変える」
@@ -907,6 +941,8 @@ export function createField(host, opts = {}) {
         const dv = GRAV * dt;
         b.vy = (b.vy < GRAV_MAX) ? Math.min(GRAV_MAX, b.vy + dv)
                                  : Math.max(GRAV_MAX, b.vy - dv);
+        /* 底から離れている間は、休んだ時間を少しずつ戻す（揺れて一瞬離れただけで数え直さない） */
+        if (b.restT) b.restT = Math.max(0, b.restT - dt);
       }
 
       /* セルの引力（追補5 §1）。中心へ向かって a = K/d²。
@@ -1378,9 +1414,64 @@ export function createField(host, opts = {}) {
     return b ? b.el : null;
   }
 
+  /* ---- D かき混ぜる・E 水面の光（2026-11-27 利用者の指示「DEは実装」。js/driftmode.js）----
+     D：泡の無い水をなぞると（指・ペン、マウスは押しながら）、なぞった速さに合わせて近く（半径 90px）の泡が流れる。
+        速くなぞったときだけ、波紋を 1 つ（0.5 秒に 1 つまで）。何も記録しない。泡・ボタン・入力欄の上では何もしない。
+     E：面のいちばん奥に薄い光の模様（css/bubble.css の .drift-light）。泡は動かさない。
+     どちらも動きを減らす設定では何もしない（光は CSS が止める） */
+  let stirLast = null;
+  function onStir(e) {
+    if (dead || RM.matches || gathering) { stirLast = null; return; }
+    if (e.pointerType === 'mouse' && !e.buttons) { stirLast = null; return; }
+    const t = e.target;
+    if (t && t.closest && t.closest('.bub, button, a, input, textarea, select, [role="button"]')) { stirLast = null; return; }
+    const r = host.getBoundingClientRect();
+    const z = zoomOf();
+    const x = (e.clientX - r.left) / z, y = (e.clientY - r.top) / z;
+    const now = e.timeStamp || performance.now();
+    if (stirLast && now - stirLast.t < 200) {
+      const dts = Math.max(16, now - stirLast.t) / 1000;
+      const vx = (x - stirLast.x) / dts, vy = (y - stirLast.y) / dts;
+      let any = false;
+      bubbles.forEach(b => {
+        if (b.held || b.pin || b.snap || b.well) return;
+        const imp = stirImpulse(Math.hypot(b.cx - x, b.cy - y), vx, vy);
+        if (!imp) return;
+        b.vx += imp[0]; b.vy += imp[1];
+        any = true;
+      });
+      if (any && Math.hypot(vx, vy) > STIR.rippleV && !(now - (stirLast.rip || 0) < STIR.rippleEvery)) {
+        const rp = el('span', 'drift-ripple');
+        rp.setAttribute('aria-hidden', 'true');
+        rp.style.left = x + 'px'; rp.style.top = y + 'px';
+        host.appendChild(rp);
+        setTimeout(() => rp.remove(), 950);
+        stirLast.rip = now;
+      }
+    }
+    stirLast = { x, y, t: now, rip: stirLast ? stirLast.rip : 0 };
+  }
+  const stirEnd = () => { stirLast = null; };
+  if (opts.stir !== false) {
+    host.addEventListener('pointermove', onStir, { passive: true });
+    host.addEventListener('pointerleave', stirEnd, { passive: true });
+    host.addEventListener('pointerup', stirEnd, { passive: true });
+  }
+  let light = null;
+  if (opts.light !== false) {
+    light = el('div', 'drift-light');
+    light.setAttribute('aria-hidden', 'true');
+    light.dataset.name = '水面の光';
+    host.insertBefore(light, host.firstChild);   /* いちばん先に足す＝いちばん奥（泡と札の後ろ） */
+  }
+
   function destroy() {
     dead = true;
     stop();
+    host.removeEventListener('pointermove', onStir);
+    host.removeEventListener('pointerleave', stirEnd);
+    host.removeEventListener('pointerup', stirEnd);
+    if (light) light.remove();
     if (ro) { ro.disconnect(); ro = null; }
     fx.forEach(t => clearTimeout(t));
     fx.clear();

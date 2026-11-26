@@ -22,6 +22,7 @@ import { finishLogin, logoutFlow, AFTER_KEY } from '../loginflow.js';
 import { seaOp, myDevices, removeDevice } from '../seaadmin.js';
 import { COLORS, colorMark, addSea, updateSea, removeSea, setSeaRegion, boxKey } from '../spacelist.js';
 import { allSeas, regionConf } from '../regions.js';
+import { DRIFT_MODES, driftModeOf, setDriftMode } from '../driftmode.js';
 import { theServer, serverUrl, ensureServer, canUnify, unifyPersonal, applyServerSeas } from '../oneserver.js';
 
 const SKY = '#7cc3e8';                        /* 個人の水の色（css の空色に近い印） */
@@ -125,6 +126,25 @@ export function seaPanel(opts = {}) {
     return box;
   }
   function onServer(s, st) { return !!(st.region && s.rid === st.region.id); }
+  /* 漂い方（2026-11-27 利用者の指示「A~Cは海の設定で選べる様に、デフォルトはC」。js/driftmode.js）。
+     どの海でも選べる（見るだけの仲間も。この端末の見え方だけで、記録もサーバーも変えない） */
+  function driftBox(s) {
+    const w = el('div', 'row sp-drift');
+    w.dataset.name = '漂い方';
+    w.style.cssText = 'align-items:center;gap:8px;margin:4px 0 8px';
+    w.appendChild(text('span', 'note', '漂い方'));
+    const sel = document.createElement('select');
+    sel.setAttribute('aria-label', '「' + s.name + '」の漂い方');
+    DRIFT_MODES.forEach(m => { const o = document.createElement('option'); o.value = m.id; o.textContent = m.name; sel.appendChild(o); });
+    sel.value = driftModeOf(s.id);
+    sel.addEventListener('change', () => {
+      if (!setDriftMode(s.id, sel.value)) return;
+      const m = DRIFT_MODES.find(x => x.id === sel.value);
+      toast('漂い方を「' + (m ? m.name : sel.value) + '」にした');
+    });
+    w.appendChild(sel);
+    return w;
+  }
   function whereOf(s, st) {
     if (!onServer(s, st)) return 'この端末';
     if (!st.live) return 'サーバー・ログインしていない';
@@ -170,6 +190,7 @@ export function seaPanel(opts = {}) {
       });
       g.appendChild(f);
     }
+    g.appendChild(driftBox(s));
     if (s.personal) {
       note(server ? 'サーバーの個人の海。ログインした自分の端末どうしだけで同じ記録にする（ほかの人には見えない）。' : 'この端末の個人。');
     } else if (!server) {

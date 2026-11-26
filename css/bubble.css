@@ -1957,3 +1957,37 @@ body.pref-hide-tags .bub-center .bc-tag-btn:not([data-special="1"]) { display: n
   .bub .glow-mote { display: none; }
   .glow-fx { display: none; }
 }
+
+/* ---------- 漂う面の E 水面の光・D かき混ぜの波紋（2026-11-27。js/drift.js・js/driftmode.js）----------
+   光は面のいちばん奥（泡と札の後ろ）。上のほうだけ薄く、26 秒でゆっくり揺れる。指は透かす。泡は動かさない。
+   暗い色では半分の濃さ。動きを減らす設定では止める（模様は残す） */
+.bub-field { isolation: isolate; }
+.drift-light {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,.55) 30%, transparent 62%);
+  mask-image: linear-gradient(to bottom, #000 0%, rgba(0,0,0,.55) 30%, transparent 62%);
+}
+.drift-light::before {
+  content: ''; position: absolute; inset: -20%;
+  background:
+    repeating-linear-gradient(115deg, transparent 0 38px, rgba(255,255,255,.16) 46px, transparent 60px 96px),
+    repeating-linear-gradient(65deg, transparent 0 52px, rgba(255,255,255,.10) 60px, transparent 74px 130px);
+  animation: drift-caustic 26s linear infinite;
+}
+@media (prefers-color-scheme: dark) { .drift-light { opacity: .5; } }
+@keyframes drift-caustic {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50%  { transform: translate3d(-30px, 18px, 0) rotate(2deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+}
+.drift-ripple {
+  position: absolute; width: 80px; height: 80px; margin: -40px 0 0 -40px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.6); pointer-events: none; z-index: 0;
+  animation: drift-ripple .9s ease-out forwards;
+}
+@keyframes drift-ripple { from { transform: scale(.3); opacity: .8; } to { transform: scale(1.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .drift-light::before { animation: none; }
+  .drift-ripple { display: none; }
+}
+.bub-field.is-gathering .drift-light { display: none; }   /* 並べている間（リスト）は光を出さない */
