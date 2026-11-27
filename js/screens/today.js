@@ -723,10 +723,22 @@ function outOfCave(x, y, w, h, av) {
   if (x > w - av.caveX) return w - av.caveX;
   return x;
 }
-/* その魚が、いま泡から離れて下のほうを泳ぐ時間か。40 秒ごとに 14 秒。2 匹で時をずらす */
+/* その魚が、いま泡から離れて面をめぐる時間か（泡に寄るのは 40 秒ごとに 12 秒だけ。2 匹で時をずらし、上に寄るのは 1 匹ずつ）。
+   2026-11-27 Issue #100 の返事「上の方に海の生き物が、固まってるように見える。魚を全体的バランスよくなるように動かせる？
+   下の方が寂しい絵になってる」：入れた泡は上へ浮くので、泡に寄る時間を 26 秒 → 12 秒に減らした */
 function fishRoaming(k, t) {
   const p = (t + (k === 'key' ? 0 : 20)) % 40;
-  return p >= 26;
+  return p >= 12;
+}
+/* 泡から離れているときに向かう所。上のボタンの段の下から面の底までを、2 匹で分けて大きくめぐる。
+   大事は下寄り（高さの 45〜95 %）、先には真ん中寄り（20〜75 %）。左右は逆の側にいるよう位相を π ずらす */
+function fishRoamTarget(k, t, w, h, av) {
+  const top = av.top, bottom = h - FISH_H / 2;
+  const span = Math.max(0, bottom - top);
+  const key = k === 'key';
+  const v = key ? 0.7 + 0.25 * Math.sin(t * 0.09 + 0.7) : 0.475 + 0.275 * Math.sin(t * 0.075 + 2.1);
+  const u = 0.5 + 0.36 * Math.sin(t * 0.045 + (key ? 0 : Math.PI));
+  return { tx: w * u, ty: top + span * v };
 }
 function moveFish(t, dt) {
   const sr = stage.getBoundingClientRect();
@@ -740,11 +752,7 @@ function moveFish(t, dt) {
     let tx, ty;
     const node = fishRoaming(k, t) ? null : pinnedNode(k, t);
     const r = node ? node.getBoundingClientRect() : null;
-    if (fishRoaming(k, t)) {
-      /* ときどき泡から離れて、面の下のほうをゆっくり泳ぐ（上のボタンのあたりにばかりいないように） */
-      tx = w * (0.5 + 0.3 * Math.sin(t * 0.07 + s.ph));
-      ty = h * (0.7 + 0.12 * Math.sin(t * 0.11 + s.ph));
-    } else if (r && r.width) {
+    if (r && r.width) {
       /* 泡のまわりを回りながら、近づいたり離れたりする */
       const cx = r.left + r.width / 2 - sr.left, cy = r.top + r.height / 2 - sr.top;
       const rad = r.width / 2 + 40 + 30 * Math.sin(t * 0.45 + s.ph);
@@ -752,9 +760,8 @@ function moveFish(t, dt) {
       tx = cx + Math.cos(a) * rad;
       ty = cy + Math.sin(a) * rad * 0.6;
     } else {
-      /* 泡が無いときは、面をゆっくり左右にさまよう */
-      tx = w * (0.5 + 0.38 * Math.sin(t * 0.05 + s.ph));
-      ty = h * (k === 'key' ? 0.6 : 0.4) + 24 * Math.sin(t * 0.13 + s.ph);
+      /* 泡から離れている時間と、泡が無いときは、面全体を 2 匹で分けてゆっくりめぐる */
+      ({ tx, ty } = fishRoamTarget(k, t, w, h, av));
     }
     tx = Math.max(FISH_W / 2, Math.min(w - FISH_W / 2, tx));
     ty = Math.max(av.top, Math.min(h - FISH_H / 2, ty));
