@@ -5378,7 +5378,10 @@ function prefsBox(onRender) {
           cb.checked = on.has(val);
           cb.addEventListener('change', () => {
             const next = it.choices.map(c => c[0]).filter(x => (x === val ? cb.checked : on.has(x)));
-            commit(applyChanges(cur, { [it.id]: next }).next, '詳細の「' + name + '」: ' + (cb.checked ? 'はじめから出す' : '「その他」に畳む') + '（次に詳細を開いたときから）');
+            commit(applyChanges(cur, { [it.id]: next }).next, it.id === 'boardShow'
+              ? '詳細の「' + name + '」: ' + (cb.checked ? 'はじめから出す' : '「その他」に畳む') + '（次に詳細を開いたときから）'
+              /* 書く欄で選べる項目（Issue #99） */
+              : '書く欄の「' + name + '」: ' + (cb.checked ? '書くときに選べる' : '出さない'));
           });
           row.appendChild(cb);
           row.appendChild(textEl('span', null, name));

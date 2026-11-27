@@ -34,6 +34,7 @@ import {
   openMenu as openBubbleMenu,
 } from '../bubble.js';
 import { playComplete, playSfx } from '../sound.js';
+import { makeComposeOpts } from '../composeopts.js';   /* 書くときに選べる項目（Issue #99） */
 
 /* この画面が触る「軸」。きっかけならアンカー、すきまなら枠。
    ここを通さずに store のアンカー関数を直に呼ばないこと——呼んだ瞬間に
@@ -1599,53 +1600,21 @@ function makeAnchorFrame(a, index, total, special) {
 
 /* 入力欄は再描画のたびに作り直すと、打ちかけが消えてカーソルも飛ぶ。
    だからノードは1つだけ作って、開いているアンカーの下へ付け替える。 */
-/* 入力欄で選んだタグ。送ったあとも残す（同じタグのものを続けて書くのが楽）。
-   隠し持たない——札は出たままなので、何が付くかは目で見える（今日の画面と同じ） */
-const picked = new Set();
-
-/* 札に出すタグ。**完了**は出さない（専用の道がある）。
-   **この画面の軸**も出さない——ここで書いた時点で必ず付くので、選ばせる意味が無い */
-function composerTags() {
-  if (typeof store.tags !== 'function') return [];
-  try {
-    /* 設定で隠したタグ（Issue #90）は出さない。選んだままのものだけは、外せるように残す */
-    return store.tags().filter(t => t && t.id !== 'done' && t.id !== CFG.axisTag
-      && (!t.hidden || picked.has(t.id)));
-  } catch (e) { return []; }
-}
-
-function renderComposerTags(host) {
-  const list = composerTags();
-  host.replaceChildren();
-  list.forEach(t => {
-    const b = el('button', 'tc-tag');
-    b.type = 'button';
-    b.setAttribute('aria-pressed', picked.has(t.id) ? 'true' : 'false');
-    const dot = el('span', 'tc-dot');
-    dot.setAttribute('aria-hidden', 'true');
-    if (t.color) dot.style.setProperty('--tcd', t.color);
-    const nm = el('span', 'tc-nm');
-    nm.textContent = t.name;                          /* ユーザーの文字 */
-    b.appendChild(dot);
-    b.appendChild(nm);
-    b.addEventListener('pointerdown', ev => ev.stopPropagation());
-    b.addEventListener('click', ev => {
-      ev.preventDefault();
-      if (picked.has(t.id)) picked.delete(t.id); else picked.add(t.id);
-      b.setAttribute('aria-pressed', picked.has(t.id) ? 'true' : 'false');
-    });
-    host.appendChild(b);
-  });
-  /* 消えたタグを選んだままにしない */
-  [...picked].forEach(id => { if (!list.some(t => t.id === id)) picked.delete(id); });
+/* 書くときに選べる項目（タグ・期間）。海・今日と同じ部品（js/composeopts.js。2026-11-27 Issue #99）。
+   選んだタグは送ったあとも残す（同じタグのものを続けて書くのが楽）。
+   札に出さないタグ: **完了**（専用の道がある）と**この画面の軸**（ここで書いた時点で必ず付く） */
+function renderComposerTags(opts) {
+  if (opts) opts.render();
 }
 
 function makeComposer() {
   const boxEl = el('div', 'pcompose');
-  const tagsEl = el('div', 'tc-tags');
-  boxEl.appendChild(tagsEl);
-  boxEl._tags = tagsEl;
+  const opts = makeComposeOpts({ store, skip: () => ['done', CFG.axisTag] });
+  boxEl.appendChild(opts.node);
+  boxEl._tags = opts;
   const inp = el('input', 'in');
+  inp.addEventListener('focus', () => opts.open());
+  boxEl.addEventListener('focusout', () => opts.closeSoon(boxEl, inp));
   inp.type = 'text';
   inp.placeholder = '思いついたことを書く';
   inp.autocomplete = 'off';
@@ -1679,9 +1648,7 @@ function makeComposer() {
     if (t && t.id) {
       playSfx('add');
       setPlan(t.id, true);
-      if (typeof store.setTag === 'function') {
-        picked.forEach(tg => { try { store.setTag(t.id, tg, true); } catch (e) { /* 無いタグ */ } });
-      }
+      opts.apply(t.id);          /* 選んだタグ・期間（Issue #99） */
     }
     inp.value = '';
     wantFocus = 'compose';       /* 続けて書けるように開けたままにする */

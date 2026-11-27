@@ -348,17 +348,8 @@ html.has-userbtn .today-top { left: 114px; }
 .today-composer button[type="submit"]:disabled { opacity: .38; cursor: default; }
 .today-composer button:focus-visible { outline: 2px solid var(--bub-edge); outline-offset: 2px; }
 
-/* 札はふだん畳む。入力欄に触ると開く（.is-open は JS が付ける）。
-   高さを 0 にして畳むので、開くときに面がにじり上がらない */
-.today-composer .tc-tags {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  max-height: 0; overflow: hidden; opacity: 0;
-  transition: max-height .16s ease, opacity .12s ease;
-}
-.today-composer.is-open .tc-tags { max-height: 120px; opacity: 1; }
-@media (prefers-reduced-motion: reduce) {
-  .today-composer .tc-tags { transition: none; }
-}
+/* 札はふだん畳む。入力欄に触ると開く（.tc-opts.is-open は js/composeopts.js が付ける）。
+   畳み方は css/base.css の .tc-opts（海・きっかけ・すきまと同じ。2026-11-27 Issue #99） */
 
 /* 押していないほうを薄くするのではなく、押しているほうを起こす（§0） */
 .today-composer .tc-tag {

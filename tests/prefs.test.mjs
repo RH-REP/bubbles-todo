@@ -207,3 +207,17 @@ test('sw.js の ASSETS に prefs.js がある', () => {
   const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
   assert.ok(sw.includes("'./js/prefs.js'"));
 });
+
+test('書く欄で選べる項目（2026-11-27 Issue #99。composeParts）', () => {
+  /* 既定はタグだけ（前から今日・きっかけ・すきまで出ていたもの） */
+  assert.deepEqual(defaults().composeParts, ['tags']);
+  /* 並びは選ぶものの順。知らない値は落とす。空（何も出さない）でもよい */
+  assert.deepEqual(checkValue('composeParts', ['span', 'xx', 'tags']), ['tags', 'span']);
+  assert.deepEqual(checkValue('composeParts', []), []);
+  const m = mem();
+  savePrefs(applyChanges(loadPrefs(m), { composeParts: ['span'] }).next, m);
+  assert.deepEqual(loadPrefs(m).composeParts, ['span']);
+  /* 部品は先に取っておく（網が無くても書く欄が開く） */
+  const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  assert.ok(sw.includes("'./js/composeopts.js'"));
+});

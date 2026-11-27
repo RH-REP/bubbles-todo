@@ -1389,3 +1389,27 @@ html.has-userbtn .sea-narrow-pop { left: 114px; }
   background: rgba(var(--lit-rgb, 255, 206, 110), .9);
   box-shadow: 0 0 4px rgba(var(--lit-rgb, 255, 206, 110), .5);
 }
+
+/* 書くときに選べる項目（2026-11-27 Issue #99。js/composeopts.js・css/base.css の .tc-opts）。
+   入力欄の**上に重ねて**出す。帯（.sea-composer）の高さは変えない——変えると海の底（--sea-floor）が動いて泡が置き直される。
+   帯は指を透かすので、開いている間だけ札が指を受ける */
+.sea-composer .tc-opts {
+  position: absolute; left: 12px; right: 12px; bottom: 100%;
+  padding: 8px 10px; border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  pointer-events: none;
+}
+.sea-composer .tc-opts:not(.is-open) { padding: 0 10px; }
+.sea-composer .tc-opts.is-open { pointer-events: auto; }
+.sea-composer .tc-opts .tc-tag,
+.sea-composer .tc-opts .tc-span-clear {
+  /* 帯のボタン（送信）の塗りを受け継がない */
+  min-width: 0; min-height: 32px; padding: 0 11px 0 9px; border-radius: 999px;
+  background: var(--surface); color: var(--text-2); font-size: 12.5px; font-weight: 400;
+  border: 1px solid var(--line);
+}
+.sea-composer .tc-opts .tc-tag[aria-pressed="true"] {
+  border-color: var(--line-strong); background: var(--surface-2); color: var(--text); font-weight: 600;
+}
+.sea-composer .tc-opts .tc-span-clear { background: transparent; padding: 0 10px; }
+.sea-composer .tc-opts input[type="date"] { flex: 0 1 auto; padding: 2px 8px; border-radius: 8px; }

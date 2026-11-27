@@ -17,6 +17,7 @@ import { playComplete, playSfx } from '../sound.js';
 import { describe, eligible, localPicks, sendList, buildSuggestPrompt, parseSuggest, keyable, firstable } from '../suggest.js';
 import { SIZES, firstState, showFirstRow } from '../priority.js';
 import { PREFS_EVENT } from '../prefs.js';
+import { makeComposeOpts } from '../composeopts.js';   /* 書くときに選べる項目（Issue #99） */
 import { hasKey, askFull } from '../ai.js';
 import { aiOn } from '../edition.js';
 import { dressJelly, dressTurtle, archSvg } from '../swim.js';
@@ -1002,46 +1003,15 @@ function onFilterOutside(ev) {
 
    札に出さないタグが2つある：
      今日 … いま映している日に入るので、重ねて持つ意味が無い
-     完了 … これから書くものに付ける意味が無い */
+     完了 … これから書くものに付ける意味が無い
 
-let composer = null, cInput = null, cSend = null, cTags = null;
-/* 選んだタグは送ったあとも残す。同じタグのものを続けて書くのが楽になる。
-   隠し持たない——札は出たままなので、何が付くかは目で見える */
-const picked = new Set();
+   2026-11-27 Issue #99: 札は海・きっかけ・すきまと同じ部品（js/composeopts.js）にした。
+   何を出すか（タグ・期間）は設定の「書く欄で選べる項目」。選んでいる間は畳まない（畳んだまま付くと見えない） */
 
-function composerTags() {
-  if (typeof store.tags !== 'function') return [];
-  /* 設定で隠したタグ（Issue #90）は出さない。選んだままのものだけは、外せるように残す */
-  try { return store.tags().filter(t => t && t.id !== 'today' && t.id !== 'done' && (!t.hidden || picked.has(t.id))); }
-  catch (e) { return []; }
-}
+let composer = null, cInput = null, cSend = null, cOpts = null;
 
 function renderComposerTags() {
-  if (!cTags) return;
-  const list = composerTags();
-  cTags.replaceChildren();
-  list.forEach(t => {
-    const b = el('button', 'tc-tag');
-    b.type = 'button';
-    b.setAttribute('aria-pressed', picked.has(t.id) ? 'true' : 'false');
-    const dot = el('span', 'tc-dot');
-    dot.setAttribute('aria-hidden', 'true');
-    if (t.color) dot.style.setProperty('--tcd', t.color);
-    const nm = el('span', 'tc-nm');
-    nm.textContent = t.name;                          /* ユーザーの文字 */
-    b.appendChild(dot);
-    b.appendChild(nm);
-    b.addEventListener('click', ev => {
-      ev.preventDefault();
-      if (picked.has(t.id)) picked.delete(t.id); else picked.add(t.id);
-      b.setAttribute('aria-pressed', picked.has(t.id) ? 'true' : 'false');
-      /* 札を触ると入力欄から焦点が外れる。開いたままにしておく */
-      if (composer) composer.classList.add('is-open');
-    });
-    cTags.appendChild(b);
-  });
-  /* 消えたタグを選んだままにしない */
-  [...picked].forEach(id => { if (!list.some(t => t.id === id)) picked.delete(id); });
+  if (cOpts) cOpts.render();
 }
 
 function syncComposer() {
@@ -1066,9 +1036,7 @@ function addFromComposer() {
   /* まず日に置く（日が本体）。そのあとタグを付ける */
   if (typeof store.setDay === 'function') store.setDay(t.id, curDay(), true);
   else store.setToday(t.id, true);
-  if (typeof store.setTag === 'function') {
-    picked.forEach(id => { try { store.setTag(t.id, id, true); } catch (e) { /* 無いタグ */ } });
-  }
+  if (cOpts) cOpts.apply(t.id);        /* 選んだタグ・期間（Issue #99） */
   cInput.value = '';
   syncComposer();
   cInput.focus({ preventScroll: true });
@@ -2782,8 +2750,8 @@ export default {
        drift が測る clientHeight もそのまま正しくなる
        ——海のように重ねると、床の高さを CSS 変数で渡す配管が要る。 */
     composer = el('form', 'today-composer');
-    cTags = el('div', 'tc-tags');
-    composer.appendChild(cTags);
+    cOpts = makeComposeOpts({ store, skip: () => ['today', 'done'] });
+    composer.appendChild(cOpts.node);
 
     const row = el('div', 'tc-row');
     cInput = el('input');
@@ -2799,16 +2767,9 @@ export default {
     cInput.addEventListener('input', syncComposer);
     /* 入力欄に触っている間だけ札を開く。ふだん畳んでおくのは、
        書く前から選択肢が並ぶと水面が狭くなるため */
-    cInput.addEventListener('focus', () => composer.classList.add('is-open'));
-    composer.addEventListener('focusout', () => {
-      /* 札を押したときは焦点が札へ移るだけ。畳まない */
-      setTimeout(() => {
-        if (!composer) return;
-        if (composer.contains(document.activeElement)) return;
-        if (cInput && cInput.value.trim()) return;    /* 打ちかけは開いたまま */
-        composer.classList.remove('is-open');
-      }, 0);
-    });
+    cInput.addEventListener('focus', () => cOpts.open());
+    /* 札を押したときは焦点が札へ移るだけ。畳まない。打ちかけ・選んでいるものがあれば開いたまま */
+    composer.addEventListener('focusout', () => cOpts.closeSoon(composer, cInput));
     composer.addEventListener('submit', ev => { ev.preventDefault(); addFromComposer(); });
     pane.appendChild(composer);
     renderComposerTags();

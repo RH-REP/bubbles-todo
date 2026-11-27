@@ -42,7 +42,8 @@ import { dressJelly, dressTurtle } from '../swim.js';    /* フィルター＝�
 function isWideScreen() {
   try { return !!(window.matchMedia && window.matchMedia('(min-width: 720px)').matches); } catch (e) { return false; }
 }
-import { loadPrefs, savePrefs, applyChanges, PREFS_EVENT } from '../prefs.js';     /* リスト表示を開いたときの形（Issue #40）・一覧の並び（Issue #69） */
+import { makeComposeOpts } from '../composeopts.js';   /* 書くときに選べる項目（Issue #99） */
+import { loadPrefs, savePrefs, applyChanges, PREFS_EVENT } from '../prefs.js';    /* リスト表示を開いたときの形（Issue #40）・一覧の並び（Issue #69） */
 
 /* --- 海に出すバブルの上限（利用者の指示）---
 
@@ -236,6 +237,7 @@ let calBtn = null;      /* はじめた日のカレンダー（利用者の指�
 let shuffle = null;         /* 混ぜている最中だけ { node, timer } が入る */
 let sheet, sheetTitle, sheetBody;
 let input, sendBtn, quickBtn, composer;
+let composeOpts = null;   /* 書くときに選べる項目（js/composeopts.js。Issue #99） */
 
 /* 面ごとの持ち物。フィールド（漂う物理）は必要になってから作る。
    4つ作りっぱなしにすると、タグが1つも無い版でも raf のループと DOM が3つ余る。 */
@@ -1029,6 +1031,8 @@ function addFromComposer() {
   const tag = faceTag(curFace);
   if (id && tag && tag.id !== 'done' && has('setTag')) store.setTag(id, tag.id, true);
   else if (tag && tag.id === 'done') toast('『' + nameOf(tag) + '』には書けないので、中央の入り江に入れた');
+  /* 入力欄の上の札で選んだタグ・期間（Issue #99） */
+  if (id && composeOpts) composeOpts.apply(id);
   input.value = '';
   syncSend();
   /* 焦点は入力欄に残す。この直後に集中の画面が開くときは、そちらへ移る。
@@ -3776,6 +3780,7 @@ function syncHint() {
 /* 書いたものには、いまいる面のタグが付く（下の form の submit を参照）。
    入力欄にそう書いておかないと、書いた先が分からない。 */
 function syncComposer() {
+  if (composeOpts) composeOpts.render();   /* いる海が変わると、札に出さないタグも変わる。タグの増減も拾う */
   const tag = faceTag(curFace);
   const taggable = tag && tag.id !== 'done' && has('setTag');
   const base = '思いついたことを書く';
@@ -4224,10 +4229,21 @@ export default {
       quickStart();
     });
 
+    /* 書くときに選べる項目（タグ・期間。2026-11-27 Issue #99）。今日・きっかけ・すきまと同じ部品。
+       前は海にだけ札が無く、「選べる時と選べない時がある」ように見えていた。
+       いる海のタグは選ばなくても付くので、札に出さない。完了も出さない。
+       札は入力欄の**上に重ねて**出す（CSS）。帯の高さを変えると海の底（--sea-floor）が動き、泡が置き直されるため */
+    composeOpts = makeComposeOpts({ store, skip: () => {
+      const tag = faceTag(curFace);
+      return tag ? ['done', tag.id] : ['done'];
+    } });
+    composer.appendChild(composeOpts.node);
     composer.appendChild(input);
     composer.appendChild(sendBtn);
     composer.appendChild(quickBtn);
     input.addEventListener('input', syncSend);
+    input.addEventListener('focus', () => composeOpts.open());
+    composer.addEventListener('focusout', () => composeOpts.closeSoon(composer, input));
 
     /* Cmd+Enter（Windows / Linux のために Ctrl+Enter も）＝ 書いて、すぐ始める。
        入力欄に付ける。window に付けると画面のどこでも発火してしまう。
