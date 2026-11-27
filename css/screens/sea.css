@@ -1392,14 +1392,15 @@ html.has-userbtn .sea-narrow-pop { left: 114px; }
 
 /* 書くときに選べる項目（2026-11-27 Issue #99。js/composeopts.js・css/base.css の .tc-opts）。
    入力欄の**上に重ねて**出す。帯（.sea-composer）の高さは変えない——変えると海の底（--sea-floor）が動いて泡が置き直される。
-   帯は指を透かすので、開いている間だけ札が指を受ける */
+   帯は指を透かすので、開いている間だけ札が指を受ける。
+   位置は今日の画面に合わせる（Issue #99 の返事「今日に比べて海のタグ選択の位置が上すぎる」）：
+   札の下端を入力欄の上端の 8px 上に置く（今日の画面の行の隙間と同じ）。帯の上の余白 14px に食い込ませ、
+   左端も入力欄の左端（帯の左の余白 12px）にそろえる。前は帯の上端より上に、余白付きの板で出していた（入力欄から約 22px 上） */
 .sea-composer .tc-opts {
-  position: absolute; left: 12px; right: 12px; bottom: 100%;
-  padding: 8px 10px; border-radius: 14px;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  position: absolute; left: 12px; right: 12px; bottom: calc(100% - 6px);
+  padding: 0;
   pointer-events: none;
 }
-.sea-composer .tc-opts:not(.is-open) { padding: 0 10px; }
 .sea-composer .tc-opts.is-open { pointer-events: auto; }
 .sea-composer .tc-opts .tc-tag,
 .sea-composer .tc-opts .tc-span-clear {

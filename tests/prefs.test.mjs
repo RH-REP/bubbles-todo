@@ -209,8 +209,12 @@ test('sw.js の ASSETS に prefs.js がある', () => {
 });
 
 test('書く欄で選べる項目（2026-11-27 Issue #99。composeParts）', () => {
-  /* 既定はタグだけ（前から今日・きっかけ・すきまで出ていたもの） */
-  assert.deepEqual(defaults().composeParts, ['tags']);
+  /* 既定は何も出さない（Issue #99 の返事「デフォルトは何も表示しないにして」） */
+  assert.deepEqual(defaults().composeParts, []);
+  /* タグを選んだ値は、既定と違うので残る */
+  const mt = mem();
+  savePrefs(applyChanges(loadPrefs(mt), { composeParts: ['tags'] }).next, mt);
+  assert.deepEqual(loadPrefs(mt).composeParts, ['tags']);
   /* 並びは選ぶものの順。知らない値は落とす。空（何も出さない）でもよい */
   assert.deepEqual(checkValue('composeParts', ['span', 'xx', 'tags']), ['tags', 'span']);
   assert.deepEqual(checkValue('composeParts', []), []);

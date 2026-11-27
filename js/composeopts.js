@@ -5,7 +5,7 @@
    それで「選べる時と選べない時がある」ように見えていた。
 
    決めごと（どの画面でも同じ）:
-     ・何を出すかは、設定の「書く欄で選べる項目」（js/prefs.js の composeParts）。既定はタグだけ
+     ・何を出すかは、設定の「書く欄で選べる項目」（js/prefs.js の composeParts）。既定は何も出さない（Issue #99 の返事）
      ・ふだんは畳む。書く欄に触ると開く。何か選んでいる間・打ちかけの間は開いたまま
        （畳んだまま何かが付くと、付くことが目に見えない）
      ・タグは送ったあとも残す（同じタグのものを続けて書くのが楽）。期間は 1 つごとに違うので、送ったら空にする
@@ -22,8 +22,8 @@ import { loadPrefs, PREFS_EVENT } from './prefs.js';
 export function composeParts() {
   try {
     const v = loadPrefs().composeParts;
-    return Array.isArray(v) ? v : ['tags'];
-  } catch (e) { return ['tags']; }
+    return Array.isArray(v) ? v : [];
+  } catch (e) { return []; }
 }
 
 function el(tag, cls, text) {
