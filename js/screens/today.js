@@ -693,18 +693,58 @@ function pinnedNode(kind, t) {
   try { return stage.querySelector('.bub[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]'); }
   catch (e) { return null; }
 }
+/* 魚が近寄らない所（2026-11-27 Issue #100「スキンの魚が明日や昨日にTODOを移す洞窟の近くにいると邪魔になる。
+   先にの魚が常に左上の方にいる。ボタンが多い所なので、たまに下の方まで動かせる？」）。面の中の座標で返す。
+   ・top：上のボタンの段（日付の行・泳ぐクラゲとカメの帯など）の下の端。魚の中心はこれより下に置く
+   ・caveX・caveY：左右の岩のアーチ（掴んでいる間だけ出る。css の body.skin-sea .today-edge：幅 72・高さ 144・縦の真ん中）の
+     当たり（dayEdgeAt は帯の外側すべてと、乗っている帯の内側へ EDGE_SLOP を見る）に、魚の半分とゆとりを足した広さ。
+     魚はこの中へ入らない（掴んだ時に止まった魚がアーチに重なって、送るつもりの泡が魚に入らないように） */
+const FISH_GAP = 14;
+const CAVE_W = 72, CAVE_H = 144;
+function fishAvoid(sr, w, h) {
+  let top = 0;
+  if (pane) {
+    pane.querySelectorAll('.today-top, .today-dayrow, .today-tools, .today-swim').forEach(n => {
+      const r = n.getBoundingClientRect();
+      if (r.width && r.height && r.top < sr.top + h / 2) top = Math.max(top, r.bottom - sr.top);
+    });
+  }
+  top = Math.min(h * 0.45, Math.max(0, top) + FISH_GAP) + FISH_H / 2;
+  return {
+    top,
+    caveX: CAVE_W + EDGE_SLOP + FISH_GAP + FISH_W / 2,
+    caveY: CAVE_H / 2 + FISH_GAP + FISH_H / 2,
+  };
+}
+/* 点（x, y）がアーチの近くなら、横へ外へ出した x を返す。近くでなければ x のまま */
+function outOfCave(x, y, w, h, av) {
+  if (Math.abs(y - h / 2) >= av.caveY) return x;
+  if (x < av.caveX) return av.caveX;
+  if (x > w - av.caveX) return w - av.caveX;
+  return x;
+}
+/* その魚が、いま泡から離れて下のほうを泳ぐ時間か。40 秒ごとに 14 秒。2 匹で時をずらす */
+function fishRoaming(k, t) {
+  const p = (t + (k === 'key' ? 0 : 20)) % 40;
+  return p >= 26;
+}
 function moveFish(t, dt) {
   const sr = stage.getBoundingClientRect();
   const w = sr.width, h = sr.height;
   if (!w || !h) return;
+  const av = fishAvoid(sr, w, h);
   ['key', 'first'].forEach(k => {
     const f = fish[k];
     if (!f || f.hidden) return;
-    const s = fishSt[k] || (fishSt[k] = { x: w * (k === 'key' ? 0.25 : 0.7), y: h * (k === 'key' ? 0.55 : 0.3), face: 1, ph: k === 'key' ? 0.7 : 3.4 });
+    const s = fishSt[k] || (fishSt[k] = { x: w * (k === 'key' ? 0.25 : 0.7), y: h * (k === 'key' ? 0.62 : 0.4), face: 1, ph: k === 'key' ? 0.7 : 3.4 });
     let tx, ty;
-    const node = pinnedNode(k, t);
+    const node = fishRoaming(k, t) ? null : pinnedNode(k, t);
     const r = node ? node.getBoundingClientRect() : null;
-    if (r && r.width) {
+    if (fishRoaming(k, t)) {
+      /* ときどき泡から離れて、面の下のほうをゆっくり泳ぐ（上のボタンのあたりにばかりいないように） */
+      tx = w * (0.5 + 0.3 * Math.sin(t * 0.07 + s.ph));
+      ty = h * (0.7 + 0.12 * Math.sin(t * 0.11 + s.ph));
+    } else if (r && r.width) {
       /* 泡のまわりを回りながら、近づいたり離れたりする */
       const cx = r.left + r.width / 2 - sr.left, cy = r.top + r.height / 2 - sr.top;
       const rad = r.width / 2 + 40 + 30 * Math.sin(t * 0.45 + s.ph);
@@ -714,12 +754,16 @@ function moveFish(t, dt) {
     } else {
       /* 泡が無いときは、面をゆっくり左右にさまよう */
       tx = w * (0.5 + 0.38 * Math.sin(t * 0.05 + s.ph));
-      ty = h * (k === 'key' ? 0.5 : 0.25) + 24 * Math.sin(t * 0.13 + s.ph);
+      ty = h * (k === 'key' ? 0.6 : 0.4) + 24 * Math.sin(t * 0.13 + s.ph);
     }
     tx = Math.max(FISH_W / 2, Math.min(w - FISH_W / 2, tx));
-    ty = Math.max(FISH_H / 2, Math.min(h - FISH_H / 2, ty));
+    ty = Math.max(av.top, Math.min(h - FISH_H / 2, ty));
+    tx = outOfCave(tx, ty, w, h, av);
     const e = Math.min(1, dt * 0.9);
-    const nx = s.x + (tx - s.x) * e, ny = s.y + (ty - s.y) * e;
+    let nx = s.x + (tx - s.x) * e, ny = s.y + (ty - s.y) * e;
+    /* 泳ぐ途中でアーチの近くを通るときも、なめらかに外へよける（跳ばない） */
+    const ox = outOfCave(nx, ny, w, h, av);
+    if (ox !== nx) nx += (ox - nx) * Math.min(1, dt * 5);
     const vx = dt ? (nx - s.x) / dt : 0;
     if (Math.abs(vx) > 4) s.face = vx > 0 ? -1 : 1;   /* 絵は左向き。右へ進むときは裏返す（小さな揺れでは向きを替えない） */
     s.x = nx; s.y = ny;
@@ -1946,7 +1990,10 @@ function dropNodes() {
 }
 function plateHitAt(x, y) {
   if (!(x >= 0)) return null;
+  /* 岩のアーチ（日を移す）の上では、魚より送るほうを採る（2026-11-27 Issue #100。魚は動くので、たまたま重なっても送れるように） */
+  const onEdge = !!dayEdgeAt(x, y);
   for (const n of dropNodes()) {
+    if (onEdge && n.classList.contains('tp-fish')) continue;
     const r = n.getBoundingClientRect();
     if (r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { kind: n.dataset.drop, node: n };
   }
